@@ -51,7 +51,6 @@ export default function CapacityPlanPage() {
   function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
   function openEdit(r:CapPlan){setEditing(r);setForm({machine_id:r.machine_id??'',week_start_date:r.week_start_date??'',available_hours:String(r.available_hours),booked_hours:String(r.booked_hours),notes:r.notes??''});setErr('');setOpen(true)}
   function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
-  useEffect(()=>{const h=(e:MouseEvent)=>{if(open&&ref.current&&!ref.current.contains(e.target as Node))close()};document.addEventListener('mousedown',h);return()=>document.removeEventListener('mousedown',h)},[open]) // eslint-disable-line
 
   async function save(){
     setErr('');setSaving(true)
@@ -111,8 +110,8 @@ export default function CapacityPlanPage() {
           </tr>
         })}</tbody></table>}
       </div>
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`}/>
-      <div ref={ref} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
+      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
+      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit Entry':'Add Entry'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">Machine</label><select value={form.machine_id} onChange={e=>setForm(p=>({...p,machine_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>

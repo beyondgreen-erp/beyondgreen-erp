@@ -54,10 +54,6 @@ export default function InventoryPage() {
   function openEdit(r:Product){ setEditing(r); setForm({ sku:r.sku, name:r.name, category:r.category??'', unit_of_measure:r.unit_of_measure??'', on_hand_qty:String(r.on_hand_qty), reorder_point:String(r.reorder_point), unit_cost:r.unit_cost!==null?String(r.unit_cost):'', unit_price:r.unit_price!==null?String(r.unit_price):'', vendor_id:r.vendor_id??'', notes:r.notes??'' }); setErr(''); setOpen(true) }
   function close(){ setOpen(false); setTimeout(()=>{ setEditing(null); setForm(empty) },300) }
 
-  useEffect(()=>{
-    const h=(e:MouseEvent)=>{ if(open&&ref.current&&!ref.current.contains(e.target as Node)) close() }
-    document.addEventListener('mousedown',h); return ()=>document.removeEventListener('mousedown',h)
-  },[open]) // eslint-disable-line
 
   async function save() {
     if(!form.sku.trim()||!form.name.trim()){ setErr('SKU and Product Name are required.'); return }
@@ -134,8 +130,8 @@ export default function InventoryPage() {
             </tr>
           })}</tbody></table>}
       </div>
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`}/>
-      <div ref={ref} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
+      <div onClick={close} className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`}/>
+      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0">
           <h2 className="text-white font-semibold">{editing?'Edit Item':'Add Item'}</h2>
           <button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>

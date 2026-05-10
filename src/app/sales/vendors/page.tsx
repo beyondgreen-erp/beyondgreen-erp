@@ -123,15 +123,6 @@ export default function VendorsPage() {
     setTimeout(() => { setEditing(null); setForm(emptyForm) }, 300)
   }
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (panelOpen && panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        closePanel()
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [panelOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Save ──────────────────────────────────────────────────
   async function handleSave() {
@@ -388,12 +379,14 @@ export default function VendorsPage() {
 
       {/* Overlay */}
       <div
+        onClick={closePanel}
         className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${panelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
       />
 
       {/* Slide-out panel */}
       <div
         ref={panelRef}
+        onClick={(e) => e.stopPropagation()}
         className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${panelOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0">
