@@ -404,7 +404,7 @@ export default function BERG() {
 
   return (
     <>
-      <div className="fixed bottom-24 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-3">
+      <div className={`fixed bottom-24 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-3 ${!open ? 'pointer-events-none' : ''}`}>
         {/* panel */}
         <div
           className={`transition-all duration-300 ease-in-out origin-bottom-right ${
@@ -548,7 +548,7 @@ export default function BERG() {
         </div>
 
         {/* floating trigger */}
-        <div className="relative group">
+        <div className="relative group pointer-events-auto">
           <div className={`absolute inset-0 rounded-full ${!open ? 'animate-ping' : ''}`}
             style={{ background: 'rgba(16,185,129,0.25)' }} />
           <button
