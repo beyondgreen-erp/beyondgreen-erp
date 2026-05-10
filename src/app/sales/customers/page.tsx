@@ -155,6 +155,7 @@ export default function CustomersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [mergeModal, setMergeModal] = useState(false)
   const [mergePrimaryId, setMergePrimaryId] = useState('')
+  const [mergeAccountName, setMergeAccountName] = useState('')
   const [merging, setMerging] = useState(false)
   const [mergeErr, setMergeErr] = useState('')
 
@@ -444,36 +445,56 @@ export default function CustomersPage() {
 
   function openMergeModal() {
     const ids = Array.from(selectedIds)
+    const first = customers.find(c => c.id === ids[0])
     setMergePrimaryId(ids[0])
+    setMergeAccountName(first?.company_name ?? '')
     setMergeErr('')
     setMergeModal(true)
+  }
+
+  function selectMergePrimary(id: string) {
+    const c = customers.find(x => x.id === id)
+    setMergePrimaryId(id)
+    setMergeAccountName(c?.company_name ?? '')
   }
 
   async function performMerge() {
     const merge_ids = Array.from(selectedIds).filter(id => id !== mergePrimaryId)
     if (!mergePrimaryId || merge_ids.length === 0) return
+    const finalName = mergeAccountName.trim()
+    if (!finalName) { setMergeErr('Account name is required'); return }
     setMerging(true); setMergeErr('')
     const primaryCustomer = customers.find(c => c.id === mergePrimaryId)
     const mergeCustomers = customers.filter(c => merge_ids.includes(c.id))
-    if (!primaryCustomer) { setMergeErr('Primary customer not found in list'); setMerging(false); return }
+    // Also include any group members not in loaded customers (from duplicates modal)
+    const selectedCustomersFull = Array.from(selectedIds).map(id => {
+      const found = customers.find(c => c.id === id)
+      return found ?? { id, lifetime_spend: 0, total_shipments: 0, merged_from_names: [] as string[] }
+    })
+    const primaryFull = selectedCustomersFull.find(c => c.id === mergePrimaryId)
+    const mergeFull = selectedCustomersFull.filter(c => merge_ids.includes(c.id))
     const res = await fetch('/api/customers/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         primary_id: mergePrimaryId,
         merge_ids,
-        primary_name: primaryCustomer.company_name,
+        primary_name: finalName,
         merge_names: mergeCustomers.map(c => c.company_name),
-        primary_lifetime_spend: primaryCustomer.lifetime_spend ?? 0,
-        primary_total_shipments: primaryCustomer.total_shipments ?? 0,
-        merge_lifetime_spend: mergeCustomers.reduce((s, c) => s + (c.lifetime_spend ?? 0), 0),
-        merge_total_shipments: mergeCustomers.reduce((s, c) => s + (c.total_shipments ?? 0), 0),
-        primary_merged_from_names: primaryCustomer.merged_from_names ?? [],
+        primary_lifetime_spend: (primaryFull as any)?.lifetime_spend ?? primaryCustomer?.lifetime_spend ?? 0,
+        primary_total_shipments: (primaryFull as any)?.total_shipments ?? primaryCustomer?.total_shipments ?? 0,
+        merge_lifetime_spend: mergeFull.reduce((s, c) => s + ((c as any).lifetime_spend ?? 0), 0),
+        merge_total_shipments: mergeFull.reduce((s, c) => s + ((c as any).total_shipments ?? 0), 0),
+        primary_merged_from_names: (primaryFull as any)?.merged_from_names ?? primaryCustomer?.merged_from_names ?? [],
       }),
     })
     const json = await res.json()
     if (!res.ok) { setMergeErr(json.error || 'Merge failed'); setMerging(false); return }
-    setMerging(false); setMergeModal(false); setSelectedIds(new Set())
+    // If name was changed, update the primary record
+    if (primaryCustomer && finalName !== primaryCustomer.company_name) {
+      await supabase.from('customers').update({ company_name: finalName, updated_at: new Date().toISOString() }).eq('id', mergePrimaryId)
+    }
+    setMerging(false); setMergeModal(false); setSelectedIds(new Set()); setMergeAccountName('')
     fetchCustomers()
   }
 
@@ -490,6 +511,7 @@ export default function CustomersPage() {
     const ids = group.map((c:any) => c.id)
     setSelectedIds(new Set(ids))
     setMergePrimaryId(ids[0])
+    setMergeAccountName(group[0]?.company_name ?? '')
     setMergeErr('')
     setDupesModal(false)
     setMergeModal(true)
@@ -1051,7 +1073,7 @@ export default function CustomersPage() {
               <div className="space-y-2">
                 {selectedCustomers.map(c=>(
                   <label key={c.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${mergePrimaryId===c.id?'border-blue-500 bg-blue-900/20':'border-gray-700 hover:border-gray-600'}`}>
-                    <input type="radio" name="primary" checked={mergePrimaryId===c.id} onChange={()=>setMergePrimaryId(c.id)} className="w-4 h-4 text-blue-500"/>
+                    <input type="radio" name="primary" checked={mergePrimaryId===c.id} onChange={()=>selectMergePrimary(c.id)} className="w-4 h-4 text-blue-500"/>
                     <div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}>
                       <span className="text-white font-semibold text-xs">{initials(c.company_name)}</span>
                     </div>
@@ -1063,14 +1085,23 @@ export default function CustomersPage() {
                   </label>
                 ))}
               </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Merged account name <span className="text-gray-500">(rename if needed)</span></label>
+                <input
+                  value={mergeAccountName}
+                  onChange={e=>setMergeAccountName(e.target.value)}
+                  placeholder="Account name after merge…"
+                  className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
               <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-3 text-xs text-gray-400 space-y-1">
                 <p className="font-semibold text-gray-300">After merge, the primary account will have:</p>
                 <p>· Combined spend: {fmt$2(selectedCustomers.reduce((s,c)=>s+(c.lifetime_spend??0),0))}</p>
                 <p>· Combined shipments: {selectedCustomers.reduce((s,c)=>s+(c.total_shipments??0),0)}</p>
                 <p>· All contacts, ship locations, activity, comments, orders, quotes, tasks</p>
               </div>
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-xs text-red-400">
-                The duplicate accounts will be marked as merged and hidden from the customer list. This cannot be undone automatically.
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-400">
+                The duplicate accounts will be marked as merged and hidden from the customer list. Ship-to locations from all accounts are preserved on the merged record. This cannot be undone automatically.
               </div>
               {mergeErr&&<p className="text-red-400 text-xs">{mergeErr}</p>}
             </div>
