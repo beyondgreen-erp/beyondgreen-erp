@@ -1,11 +1,14 @@
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-const sb = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+function getSb() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) throw new Error('Supabase env vars not configured')
+  return createClient(url, key)
+}
+const sb = { from: (...a: Parameters<ReturnType<typeof getSb>['from']>) => getSb().from(...a) }
 
 export async function POST(req: Request) {
   try {
@@ -23,7 +26,7 @@ export async function POST(req: Request) {
       is_read: false,
     })
 
-    await resend.emails.send({
+    await resend?.emails.send({
       from: 'beyondGREEN ERP <onboarding@resend.dev>',
       to: recipientEmail,
       subject: `You were tagged in ${page} by ${senderEmail}`,

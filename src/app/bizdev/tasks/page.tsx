@@ -1,8 +1,11 @@
 'use client'
+export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
+import FileUpload from '@/components/FileUpload'
+import CommentSection from '@/components/CommentSection'
 
 interface Customer { id: string; company_name: string }
 interface TeamMember { id: string; email: string; full_name: string; avatar_color: string; avatar_initials: string | null }
@@ -68,6 +71,7 @@ export default function TasksPage() {
   const [err, setErr] = useState('')
   const [assigneeOpen, setAssigneeOpen] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['Completed']))
+  const [userEmail, setUserEmail] = useState('')
   const tagRef = useRef<TagInputHandle>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
 
@@ -83,7 +87,10 @@ export default function TasksPage() {
     if (tm) setTeamMembers(tm as TeamMember[])
     setLoading(false)
   }
-  useEffect(() => { load() }, []) // eslint-disable-line
+  useEffect(() => {
+    load()
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, []) // eslint-disable-line
 
   const memberMap = useMemo(() => Object.fromEntries(teamMembers.map(m => [m.email, m])), [teamMembers])
 
@@ -478,6 +485,17 @@ export default function TasksPage() {
             <label className="block text-xs font-medium text-gray-400 mb-1.5">Notes</label>
             <TagInput ref={tagRef} value={form.notes} onChange={v => setForm(p => ({ ...p, notes: v }))} page="Tasks" className={inp + ' resize-none'}/>
           </div>
+
+          {editing && (
+            <>
+              <div className="border-t border-gray-800 pt-5">
+                <FileUpload supabase={sb} recordType="tasks" recordId={editing.id} currentUserEmail={userEmail} />
+              </div>
+              <div className="border-t border-gray-800 pt-5">
+                <CommentSection recordType="tasks" recordId={editing.id} currentUserEmail={userEmail} />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">

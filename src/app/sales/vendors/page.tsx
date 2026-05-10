@@ -1,9 +1,12 @@
 'use client'
+export const dynamic = 'force-dynamic'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
+import FileUpload from '@/components/FileUpload'
+import CommentSection from '@/components/CommentSection'
 
 type PaymentTerms = 'Net 15' | 'Net 30' | 'Net 45' | 'COD'
 
@@ -59,6 +62,7 @@ export default function VendorsPage() {
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [formError, setFormError] = useState('')
+  const [userEmail, setUserEmail] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
   const tagRef = useRef<TagInputHandle>(null)
 
@@ -78,7 +82,10 @@ export default function VendorsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchVendors() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    fetchVendors()
+    supabase.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Filtering ─────────────────────────────────────────────
   const filtered = vendors.filter((v) => {
@@ -412,6 +419,10 @@ export default function VendorsPage() {
           {field('payment_terms', 'Payment Terms', { dropdown: true })}
           {field('lead_time_days', 'Lead Time (days)', { type: 'number' })}
           <TagInput ref={tagRef} value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} page="Vendors" className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none" />
+          {editing && (<>
+            <div className="border-t border-gray-800 pt-4"><FileUpload supabase={supabase} recordType="vendors" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-gray-800 pt-4"><CommentSection recordType="vendors" recordId={editing.id} currentUserEmail={userEmail}/></div>
+          </>)}
         </div>
 
         <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">

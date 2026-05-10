@@ -25,6 +25,47 @@ body {
   to   { transform: translateY(0);     opacity: 1; }
 }
 
+/* ── Rich text editor ── */
+.tiptap { min-height: 120px; padding: 12px; color: #e5e7eb; font-size: 14px; outline: none; line-height: 1.6; }
+.tiptap p { margin-bottom: 6px; }
+.tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #4b5563; pointer-events: none; float: left; height: 0; }
+.tiptap h1 { font-size: 1.5rem; font-weight: 700; color: #f9fafb; margin-bottom: 8px; }
+.tiptap h2 { font-size: 1.25rem; font-weight: 700; color: #f9fafb; margin-bottom: 6px; }
+.tiptap h3 { font-size: 1.1rem; font-weight: 600; color: #f9fafb; margin-bottom: 4px; }
+.tiptap strong { font-weight: 700; color: #f9fafb; }
+.tiptap em { font-style: italic; }
+.tiptap s { text-decoration: line-through; }
+.tiptap u { text-decoration: underline; }
+.tiptap ul { list-style: disc; padding-left: 20px; margin-bottom: 8px; }
+.tiptap ol { list-style: decimal; padding-left: 20px; margin-bottom: 8px; }
+.tiptap li { margin-bottom: 2px; }
+.tiptap a { color: #34d399; text-decoration: underline; }
+.tiptap img { max-width: 100%; border-radius: 4px; margin: 8px 0; display: block; }
+.tiptap table { border-collapse: collapse; width: 100%; margin-bottom: 12px; }
+.tiptap th { background: #1f2937; font-weight: 600; color: #f3f4f6; padding: 6px 10px; border: 1px solid #374151; text-align: left; }
+.tiptap td { padding: 6px 10px; border: 1px solid #374151; color: #d1d5db; vertical-align: top; }
+.tiptap blockquote { border-left: 3px solid #4b5563; padding-left: 12px; color: #9ca3af; font-style: italic; margin: 8px 0; }
+.tiptap code { background: #1f2937; color: #34d399; padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+.tiptap pre { background: #0a0a0a; border-radius: 6px; padding: 12px; overflow-x: auto; margin-bottom: 8px; }
+.tiptap pre code { background: none; color: #d1d5db; padding: 0; font-size: 13px; }
+.tiptap .selectedCell:after { z-index: 2; position: absolute; content: ""; left: 0; right: 0; top: 0; bottom: 0; background: rgba(59,130,246,0.15); pointer-events: none; }
+/* Read-only rich text display */
+.rte-view p { margin-bottom: 5px; color: #d1d5db; font-size: 14px; }
+.rte-view strong { font-weight: 700; color: #f9fafb; }
+.rte-view em { font-style: italic; }
+.rte-view u { text-decoration: underline; }
+.rte-view s { text-decoration: line-through; }
+.rte-view ul { list-style: disc; padding-left: 18px; margin-bottom: 6px; font-size: 14px; color: #d1d5db; }
+.rte-view ol { list-style: decimal; padding-left: 18px; margin-bottom: 6px; font-size: 14px; color: #d1d5db; }
+.rte-view li { margin-bottom: 2px; }
+.rte-view a { color: #34d399; text-decoration: underline; }
+.rte-view img { max-width: 100%; border-radius: 4px; margin: 6px 0; }
+.rte-view table { border-collapse: collapse; width: 100%; margin-bottom: 10px; font-size: 13px; }
+.rte-view th { background: #1f2937; font-weight: 600; color: #f3f4f6; padding: 5px 8px; border: 1px solid #374151; text-align: left; }
+.rte-view td { padding: 5px 8px; border: 1px solid #374151; color: #d1d5db; }
+.rte-view blockquote { border-left: 3px solid #4b5563; padding-left: 10px; color: #9ca3af; font-style: italic; margin: 6px 0; }
+.rte-view code { background: #1f2937; color: #34d399; padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+
 /* BERG Jarvis animations */
 @keyframes berg-spin-cw  { to { transform: rotate(360deg); } }
 @keyframes berg-spin-ccw { to { transform: rotate(-360deg); } }

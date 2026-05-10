@@ -1,9 +1,12 @@
 'use client'
+export const dynamic = 'force-dynamic'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
+import FileUpload from '@/components/FileUpload'
+import CommentSection from '@/components/CommentSection'
 
 type PaymentTerms = 'Net 15' | 'Net 30' | 'Net 45' | 'COD'
 
@@ -60,6 +63,7 @@ export default function CustomersPage() {
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [formError, setFormError] = useState('')
+  const [userEmail, setUserEmail] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
   const tagRef = useRef<TagInputHandle>(null)
 
@@ -79,7 +83,10 @@ export default function CustomersPage() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchCustomers() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    fetchCustomers()
+    supabase.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Filtering ─────────────────────────────────────────────
   const filtered = customers.filter((c) => {
@@ -403,6 +410,10 @@ export default function CustomersPage() {
           {field('shipping_address', 'Shipping Address', { textarea: true })}
           {field('payment_terms', 'Payment Terms', { dropdown: true })}
           <TagInput ref={tagRef} value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} page="Customers" className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none" />
+          {editing && (<>
+            <div className="border-t border-gray-800 pt-4"><FileUpload supabase={supabase} recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-gray-800 pt-4"><CommentSection recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
+          </>)}
         </div>
 
         {/* Panel footer */}

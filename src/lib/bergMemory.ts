@@ -1,10 +1,13 @@
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) throw new Error('Supabase env vars not configured')
+  return createClient(url, key)
+}
+const supabase = { from: (...a: Parameters<ReturnType<typeof getSupabase>['from']>) => getSupabase().from(...a), rpc: (...a: Parameters<ReturnType<typeof getSupabase>['rpc']>) => getSupabase().rpc(...a) }
 
 function openaiClient(): OpenAI | null {
   if (!process.env.OPENAI_API_KEY) return null

@@ -1,7 +1,10 @@
 'use client'
+export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ImportExportBar from '@/components/ImportExportBar'
+import FileUpload from '@/components/FileUpload'
+import CommentSection from '@/components/CommentSection'
 
 interface Vendor { id: string; company_name: string }
 interface Product { id: string; name: string; sku: string }
@@ -28,6 +31,7 @@ export default function PurchaseOrdersPage() {
   const [saving,setSaving]=useState(false)
   const [busy,setBusy]=useState(false)
   const [err,setErr]=useState('')
+  const [userEmail,setUserEmail]=useState('')
   const ref=useRef<HTMLDivElement>(null)
 
   async function load(){
@@ -42,7 +46,10 @@ export default function PurchaseOrdersPage() {
     if(p) setProducts(p as Product[])
     setLoading(false)
   }
-  useEffect(()=>{load()},[]) // eslint-disable-line
+  useEffect(()=>{
+    load()
+    sb.auth.getUser().then(({data})=>{if(data.user?.email)setUserEmail(data.user.email)})
+  },[]) // eslint-disable-line
 
   const vmap=Object.fromEntries(vendors.map(v=>[v.id,v.company_name]))
   const pmap=Object.fromEntries(products.map(p=>[p.id,p.name]))
@@ -134,6 +141,10 @@ export default function PurchaseOrdersPage() {
           </div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>{STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={3} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
+          {editing&&(<>
+            <div className="border-t border-gray-800 pt-4"><FileUpload supabase={sb} recordType="purchase_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-gray-800 pt-4"><CommentSection recordType="purchase_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
+          </>)}
         </div>
         <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
           {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
