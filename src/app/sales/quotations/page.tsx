@@ -5,6 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
 import { generateQuotePDF } from '@/lib/pdfHelpers'
+import LinkedTasks from '@/components/LinkedTasks'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface Customer { id: string; company_name: string; email?: string; phone?: string; billing_address?: string; contact_name?: string }
@@ -256,6 +257,7 @@ export default function QuotationsPage() {
           </div>
 
           {editing&&(<>
+            <div className="border-t border-gray-800 pt-4"><LinkedTasks recordType="quotations" recordId={editing.id} defaultCustomerId={editing.customer_id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-gray-800 pt-4"><FileUpload supabase={sb} recordType="quotations" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-gray-800 pt-4"><CommentSection recordType="quotations" recordId={editing.id} currentUserEmail={userEmail}/></div>
           </>)}
