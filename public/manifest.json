@@ -1,0 +1,21 @@
+{
+  "name": "beyondGREEN ERP",
+  "short_name": "bgERP",
+  "description": "beyondGREEN Enterprise Resource Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#1D9E75",
+  "orientation": "portrait-primary",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icon-72.png",  "sizes": "72x72",   "type": "image/png", "purpose": "maskable any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
+  ],
+  "shortcuts": [
+    { "name": "Dashboard",    "url": "/",             "description": "Main dashboard" },
+    { "name": "Sales Orders", "url": "/sales/orders", "description": "View sales orders" },
+    { "name": "Ask BERG",     "url": "/?berg=open",   "description": "Open BERG assistant" }
+  ]
+}

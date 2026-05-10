@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/berg/monitor",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

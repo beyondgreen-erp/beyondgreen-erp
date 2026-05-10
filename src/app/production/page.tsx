@@ -1,0 +1,166 @@
+'use client'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
+import TagInput, { TagInputHandle } from '@/components/TagInput'
+import ImportExportBar from '@/components/ImportExportBar'
+
+interface SalesOrder { id: string; order_number: string; customer_id: string | null }
+interface Customer { id: string; company_name: string }
+interface Product { id: string; name: string }
+interface Machine { id: string; name: string }
+interface WO { id: string; wo_number: string; sales_order_id: string | null; product_id: string | null; machine_id: string | null; qty_ordered: number; qty_produced: number; start_date: string | null; due_date: string | null; status: string; notes: string | null; is_active: boolean }
+const STATUSES = ['Queued','In Progress','QC','Complete','On Hold']
+const SC: Record<string,string> = { Queued:'bg-gray-700/40 text-gray-400 border-gray-700', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', QC:'bg-violet-500/15 text-violet-400 border-violet-500/20', Complete:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
+const empty = { wo_number:'', sales_order_id:'', product_id:'', machine_id:'', qty_ordered:'1', qty_produced:'0', start_date:'', due_date:'', status:'Queued', notes:'' }
+type F = typeof empty
+const fmtD=(d:string|null)=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
+function dbErr(e:{code?:string;message:string;hint?:string}){console.error(e);return[e.message,e.code&&`(${e.code})`,e.hint&&`Hint: ${e.hint}`].filter(Boolean).join(' — ')}
+
+export default function ProductionPage() {
+  const sb=useMemo(()=>createSupabaseBrowserClient(),[])
+  const [rows,setRows]=useState<WO[]>([])
+  const [orders,setOrders]=useState<SalesOrder[]>([])
+  const [customers,setCustomers]=useState<Customer[]>([])
+  const [products,setProducts]=useState<Product[]>([])
+  const [machines,setMachines]=useState<Machine[]>([])
+  const [loading,setLoading]=useState(true)
+  const [search,setSearch]=useState('')
+  const [archived,setArchived]=useState(false)
+  const [open,setOpen]=useState(false)
+  const [editing,setEditing]=useState<WO|null>(null)
+  const [form,setForm]=useState<F>(empty)
+  const [saving,setSaving]=useState(false)
+  const [busy,setBusy]=useState(false)
+  const [err,setErr]=useState('')
+  const ref=useRef<HTMLDivElement>(null)
+  const tagRef=useRef<TagInputHandle>(null)
+
+  async function load(){
+    setLoading(true)
+    const [{data:w},{data:o},{data:c},{data:p},{data:m}]=await Promise.all([
+      sb.from('work_orders').select('*').order('created_at',{ascending:false}),
+      sb.from('sales_orders').select('id,order_number,customer_id').eq('is_active',true).order('order_number'),
+      sb.from('customers').select('id,company_name').eq('is_active',true),
+      sb.from('products').select('id,name').eq('is_active',true).order('name'),
+      sb.from('machines').select('id,name').eq('is_active',true).order('name'),
+    ])
+    if(w) setRows(w as WO[])
+    if(o) setOrders(o as SalesOrder[])
+    if(c) setCustomers(c as Customer[])
+    if(p) setProducts(p as Product[])
+    if(m) setMachines(m as Machine[])
+    setLoading(false)
+  }
+  useEffect(()=>{load()},[]) // eslint-disable-line
+
+  const omap=Object.fromEntries(orders.map(o=>[o.id,o]))
+  const cmap=Object.fromEntries(customers.map(c=>[c.id,c.company_name]))
+  const pmap=Object.fromEntries(products.map(p=>[p.id,p.name]))
+  const mmap=Object.fromEntries(machines.map(m=>[m.id,m.name]))
+  const now=new Date(); now.setHours(0,0,0,0)
+
+  const filtered=rows.filter(r=>{
+    if(!archived&&!r.is_active) return false
+    if(archived&&r.is_active) return false
+    if(!search) return true
+    const q=search.toLowerCase()
+    return r.wo_number.toLowerCase().includes(q)||(r.product_id?pmap[r.product_id]||'':'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
+  })
+
+  function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
+  function openEdit(r:WO){setEditing(r);setForm({wo_number:r.wo_number,sales_order_id:r.sales_order_id??'',product_id:r.product_id??'',machine_id:r.machine_id??'',qty_ordered:String(r.qty_ordered),qty_produced:String(r.qty_produced),start_date:r.start_date??'',due_date:r.due_date??'',status:r.status,notes:r.notes??''});setErr('');setOpen(true)}
+  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
+  useEffect(()=>{const h=(e:MouseEvent)=>{if(open&&ref.current&&!ref.current.contains(e.target as Node))close()};document.addEventListener('mousedown',h);return()=>document.removeEventListener('mousedown',h)},[open]) // eslint-disable-line
+
+  async function save(){
+    if(!form.wo_number.trim()){setErr('WO Number is required.');return}
+    setErr('');setSaving(true)
+    const p={wo_number:form.wo_number.trim(),sales_order_id:form.sales_order_id||null,product_id:form.product_id||null,machine_id:form.machine_id||null,qty_ordered:parseFloat(form.qty_ordered)||0,qty_produced:parseFloat(form.qty_produced)||0,start_date:form.start_date||null,due_date:form.due_date||null,status:form.status,notes:form.notes.trim()||null}
+    const{error}=editing?await sb.from('work_orders').update({...p,updated_at:new Date().toISOString()}).eq('id',editing.id):await sb.from('work_orders').insert({...p,is_active:true})
+    if(error){setErr(dbErr(error));setSaving(false);return}
+    setSaving(false);await tagRef.current?.sendNotifications();close();load()
+  }
+  async function toggleArchive(){if(!editing)return;setBusy(true);await sb.from('work_orders').update({is_active:!editing.is_active,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
+
+  const inp='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
+
+  return (
+    <div className="p-4 md:p-8 min-h-screen">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">PRODUCTION</span>
+          <h1 className="text-2xl font-semibold text-white mt-1">Work Orders</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} work order${filtered.length!==1?'s':''}`}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <ImportExportBar table="work_orders" filename="work_orders" columns={[
+            { header: 'WO Number', dbKey: 'wo_number', example: 'WO-2024-001', required: true },
+            { header: 'Order Number', dbKey: 'order_number', example: 'SO-2024-001', lookup: { fromTable: 'sales_orders', matchField: 'order_number', storeAs: 'sales_order_id' } },
+            { header: 'Product SKU', dbKey: 'product_sku', example: 'BG-001', lookup: { fromTable: 'products', matchField: 'sku', storeAs: 'product_id' } },
+            { header: 'Machine Name', dbKey: 'machine_name', example: 'Injection Molder 1', lookup: { fromTable: 'machines', matchField: 'name', storeAs: 'machine_id' } },
+            { header: 'Qty Ordered', dbKey: 'qty_ordered', example: '500' },
+            { header: 'Qty Produced', dbKey: 'qty_produced', example: '0' },
+            { header: 'Start Date', dbKey: 'start_date', example: '2024-02-01' },
+            { header: 'Due Date', dbKey: 'due_date', example: '2024-02-15' },
+            { header: 'Status', dbKey: 'status', example: 'Queued' },
+            { header: 'Notes', dbKey: 'notes', example: '' },
+          ]} onImportDone={load} />
+          <button onClick={openAdd} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add WO</button>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search work orders…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"/></div>
+        <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-emerald-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Show Archived</span></label>
+      </div>
+      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
+        {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived WOs.':'No work orders yet.'}</p></div>
+        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-gray-800">{['WO #','Customer','Product','Machine','Qty Ord.','Qty Prod.','Start','Due','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
+        <tbody>{filtered.map((r,i)=>{
+          const o=r.sales_order_id?omap[r.sales_order_id]:null
+          const overdue=r.due_date&&new Date(r.due_date+'T00:00:00')<now&&r.status!=='Complete'
+          return <tr key={r.id} onClick={()=>openEdit(r)} className={`border-b border-gray-800/60 last:border-0 cursor-pointer transition-colors ${overdue?'bg-red-500/5 hover:bg-red-500/10':i%2===0?'hover:bg-gray-800/40':'bg-gray-800/10 hover:bg-gray-800/40'}`}>
+            <td className="px-4 py-3.5 text-white font-mono text-xs">{r.wo_number}</td>
+            <td className="px-4 py-3.5 text-gray-400 text-xs">{o?.customer_id?cmap[o.customer_id]||'—':'—'}</td>
+            <td className="px-4 py-3.5 text-gray-400 text-xs">{r.product_id?pmap[r.product_id]||'—':'—'}</td>
+            <td className="px-4 py-3.5 text-gray-400 text-xs">{r.machine_id?mmap[r.machine_id]||'—':'—'}</td>
+            <td className="px-4 py-3.5 text-gray-400">{r.qty_ordered}</td>
+            <td className="px-4 py-3.5 text-gray-400">{r.qty_produced}</td>
+            <td className="px-4 py-3.5 text-gray-400">{fmtD(r.start_date)}</td>
+            <td className={`px-4 py-3.5 ${overdue?'text-red-400 font-medium':'text-gray-400'}`}>{fmtD(r.due_date)}</td>
+            <td className="px-4 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Queued}`}>{r.status}</span></td>
+          </tr>
+        })}</tbody></table>}
+      </div>
+      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`}/>
+      <div ref={ref} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit Work Order':'Add Work Order'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <div><label className="block text-xs text-gray-400 mb-1.5">WO Number <span className="text-red-400">*</span></label><input value={form.wo_number} onChange={e=>setForm(p=>({...p,wo_number:e.target.value}))} className={inp}/></div>
+          <div><label className="block text-xs text-gray-400 mb-1.5">Sales Order</label><select value={form.sales_order_id} onChange={e=>setForm(p=>({...p,sales_order_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_number}{o.customer_id&&cmap[o.customer_id]?' — '+cmap[o.customer_id]:''}</option>)}</select></div>
+          {form.sales_order_id&&omap[form.sales_order_id]?.customer_id&&<div className="bg-gray-800/50 rounded-lg px-3 py-2.5"><p className="text-xs text-gray-500">Customer</p><p className="text-sm text-white mt-0.5">{cmap[omap[form.sales_order_id]!.customer_id!]||'—'}</p></div>}
+          <div><label className="block text-xs text-gray-400 mb-1.5">Product</label><select value={form.product_id} onChange={e=>setForm(p=>({...p,product_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+          <div><label className="block text-xs text-gray-400 mb-1.5">Machine</label><select value={form.machine_id} onChange={e=>setForm(p=>({...p,machine_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-xs text-gray-400 mb-1.5">Qty Ordered</label><input type="number" value={form.qty_ordered} onChange={e=>setForm(p=>({...p,qty_ordered:e.target.value}))} className={inp}/></div>
+            <div><label className="block text-xs text-gray-400 mb-1.5">Qty Produced</label><input type="number" value={form.qty_produced} onChange={e=>setForm(p=>({...p,qty_produced:e.target.value}))} className={inp}/></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-xs text-gray-400 mb-1.5">Start Date</label><input type="date" value={form.start_date} onChange={e=>setForm(p=>({...p,start_date:e.target.value}))} className={inp}/></div>
+            <div><label className="block text-xs text-gray-400 mb-1.5">Due Date</label><input type="date" value={form.due_date} onChange={e=>setForm(p=>({...p,due_date:e.target.value}))} className={inp}/></div>
+          </div>
+          <div><label className="block text-xs text-gray-400 mb-1.5">Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>{STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Work Orders" className={inp+' resize-none'}/>
+        </div>
+        <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
+          {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
+          <div className="flex gap-3">
+            {editing&&<button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">{editing.is_active?'Archive':'Restore'}</button>}
+            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
+            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
