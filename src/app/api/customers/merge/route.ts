@@ -8,10 +8,14 @@ export async function POST(req: NextRequest) {
     primary_id,
     merge_ids,
     primary_name,
+    primary_account,
+    merge_accounts,
   }: {
     primary_id: string
     merge_ids: string[]
     primary_name: string
+    primary_account: any
+    merge_accounts: any[]
   } = await req.json()
 
   if (!primary_id || !merge_ids?.length) {
@@ -26,33 +30,21 @@ export async function POST(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  // Fetch all accounts fresh from DB
-  const allIds = [primary_id, ...merge_ids]
-  const { data: accounts, error: fetchErr } = await sb
-    .from('customers')
-    .select('*')
-    .in('id', allIds)
+  const primary = primary_account ?? {}
+  const merged: any[] = merge_accounts ?? []
+  const mergeNames: string[] = merged.map((a: any) => a.company_name ?? '')
 
-  if (fetchErr) return NextResponse.json({ error: `fetch: ${fetchErr.message}` }, { status: 500 })
-  if (!accounts?.length) return NextResponse.json({ error: 'No accounts found' }, { status: 404 })
-
-  const primary = accounts.find((a: any) => a.id === primary_id)
-  const merged = accounts.filter((a: any) => merge_ids.includes(a.id))
-  if (!primary) return NextResponse.json({ error: 'Primary account not found' }, { status: 404 })
-
-  // Combine totals
-  const combinedSpend = accounts.reduce((s: number, a: any) => s + (a.lifetime_spend ?? 0), 0)
-  const combinedShipments = accounts.reduce((s: number, a: any) => s + (a.total_shipments ?? 0), 0)
+  // Combine totals from passed account data
+  const allAccounts = [primary, ...merged]
+  const combinedSpend = allAccounts.reduce((s: number, a: any) => s + (a.lifetime_spend ?? 0), 0)
+  const combinedShipments = allAccounts.reduce((s: number, a: any) => s + (a.total_shipments ?? 0), 0)
 
   const allMergedNames = Array.from(new Set([
     ...(primary.merged_from_names ?? []),
     ...merged.flatMap((a: any) => [a.company_name, ...(a.merged_from_names ?? [])]),
   ]))
 
-  const mergeNames = merged.map((a: any) => a.company_name as string)
-
-  // Fields to copy from merged accounts to fill gaps in primary
-  // Excludes computed fields (first_shipment_date, last_shipment_date) to avoid trigger conflicts
+  // Fill missing fields on primary from merged accounts
   const fillFields: Record<string, any> = {}
   const fieldsToCopy = [
     'contact_name', 'email', 'phone', 'billing_address', 'shipping_address',
@@ -79,10 +71,7 @@ export async function POST(req: NextRequest) {
   if (e1) return NextResponse.json({ error: `update primary: ${e1.message}` }, { status: 500 })
 
   // 2. Move contacts
-  const { error: e2 } = await sb.from('customer_contacts')
-    .update({ customer_id: primary_id })
-    .in('customer_id', merge_ids)
-  if (e2) console.error('contacts:', e2.message)
+  await sb.from('customer_contacts').update({ customer_id: primary_id }).in('customer_id', merge_ids)
 
   // 3. Move ship locations
   const { error: e3 } = await sb.from('customer_ship_locations')
@@ -91,17 +80,10 @@ export async function POST(req: NextRequest) {
   if (e3) console.error('ship_locations:', e3.message)
 
   // 4. Move activity
-  const { error: e4 } = await sb.from('customer_activity')
-    .update({ customer_id: primary_id })
-    .in('customer_id', merge_ids)
-  if (e4) console.error('activity:', e4.message)
+  await sb.from('customer_activity').update({ customer_id: primary_id }).in('customer_id', merge_ids)
 
   // 5. Move comments
-  const { error: e5 } = await sb.from('comments')
-    .update({ record_id: primary_id })
-    .in('record_id', merge_ids)
-    .eq('record_type', 'customers')
-  if (e5) console.error('comments:', e5.message)
+  await sb.from('comments').update({ record_id: primary_id }).in('record_id', merge_ids).eq('record_type', 'customers')
 
   // 6. Re-link orders, quotes, tasks, invoices
   await sb.from('sales_orders').update({ customer_id: primary_id }).in('customer_id', merge_ids)
@@ -111,10 +93,10 @@ export async function POST(req: NextRequest) {
 
   // 7. Update shipments customer_name
   for (const name of mergeNames) {
-    await sb.from('shipments').update({ customer_name: primary_name }).ilike('customer_name', name)
+    if (name) await sb.from('shipments').update({ customer_name: primary_name }).ilike('customer_name', name)
   }
 
-  // 8. Archive merged accounts — only columns we know exist
+  // 8. Archive merged accounts
   const { error: e8 } = await sb.from('customers').update({
     is_active: false,
     is_merged: true,

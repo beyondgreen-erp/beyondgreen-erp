@@ -17,7 +17,6 @@ export async function POST() {
     const { data: shipments, error: shipErr } = await sb
       .from('shipments')
       .select('*')
-      .eq('is_active', true)
       .is('invoice_id', null)
       .order('ship_date', { ascending: true })
 

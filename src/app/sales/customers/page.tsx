@@ -464,12 +464,20 @@ export default function CustomersPage() {
     const finalName = mergeAccountName.trim()
     if (!finalName) { setMergeErr('Account name is required'); return }
     setMerging(true); setMergeErr('')
+    const primaryAccount = customers.find(c => c.id === mergePrimaryId) ?? null
+    const mergeAccounts = customers.filter(c => merge_ids.includes(c.id))
     let res: Response, json: any
     try {
       res = await fetch('/api/customers/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ primary_id: mergePrimaryId, merge_ids, primary_name: finalName }),
+        body: JSON.stringify({
+          primary_id: mergePrimaryId,
+          merge_ids,
+          primary_name: finalName,
+          primary_account: primaryAccount,
+          merge_accounts: mergeAccounts,
+        }),
       })
       json = await res.json()
     } catch (err) {
