@@ -13,6 +13,7 @@ interface Product { id: string; sku: string; name: string; unit_of_measure: stri
 interface Quotation { id: string; quote_number: string }
 interface SOLine { id?: string; line_number: number; product_id: string | null; sku: string; description: string; quantity: string; quantity_shipped: string; unit_of_measure: string; unit_price: string; discount_pct: string }
 interface SalesOrder { id: string; order_number: string; customer_id: string | null; quotation_id: string | null; order_date: string | null; required_ship_date: string | null; status: string; po_number: string | null; shipping_address: string | null; carrier: string | null; tracking_number: string | null; subtotal: number; tax_pct: number; total: number; notes: string | null; is_active: boolean }
+interface ShipLocation { id: string; location_name: string; address: string | null; city: string | null; state: string | null; zip: string | null; is_default: boolean }
 
 const STATUSES = ['New','In Production','Ready to Ship','Shipped','Invoiced','Closed']
 const SC: Record<string,string> = { New:'bg-blue-500/15 text-blue-400 border-blue-500/20', 'In Production':'bg-amber-500/15 text-amber-400 border-amber-500/20', 'Ready to Ship':'bg-violet-500/15 text-violet-400 border-violet-500/20', Shipped:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Invoiced:'bg-teal-500/15 text-teal-400 border-teal-500/20', Closed:'bg-gray-700/40 text-gray-500 border-gray-700' }
@@ -41,6 +42,8 @@ export default function SalesOrdersPage() {
   const [saving,setSaving]=useState(false)
   const [busy,setBusy]=useState(false)
   const [err,setErr]=useState('')
+  const [shipLocs,setShipLocs]=useState<ShipLocation[]>([])
+  const [selLocId,setSelLocId]=useState('')
   const [userEmail,setUserEmail]=useState('')
   const ref=useRef<HTMLDivElement>(null)
 
@@ -73,18 +76,48 @@ export default function SalesOrdersPage() {
     return r.order_number.toLowerCase().includes(q)||(r.customer_id?cmap[r.customer_id]||'':'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)||(r.po_number??'').toLowerCase().includes(q)
   })
 
-  function openAdd(){setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setErr('');setOpen(true)}
+  async function loadShipLocs(cid: string) {
+    if (!cid) { setShipLocs([]); setSelLocId(''); return }
+    const { data } = await sb.from('customer_ship_locations').select('id,location_name,address,city,state,zip,is_default').eq('customer_id', cid).order('is_default', { ascending: false })
+    const locs = (data ?? []) as ShipLocation[]
+    setShipLocs(locs)
+    const def = locs.find(l => l.is_default) ?? locs[0]
+    if (def) {
+      setSelLocId(def.id)
+      const addr = [def.address, def.city && def.state ? `${def.city}, ${def.state}` : (def.city || def.state), def.zip].filter(Boolean).join('\n')
+      setForm(p => ({ ...p, shipping_address: addr }))
+    } else {
+      setSelLocId('')
+    }
+  }
+
+  function onLocSelect(locId: string) {
+    setSelLocId(locId)
+    const loc = shipLocs.find(l => l.id === locId)
+    if (!loc) return
+    const addr = [loc.address, loc.city && loc.state ? `${loc.city}, ${loc.state}` : (loc.city || loc.state), loc.zip].filter(Boolean).join('\n')
+    setForm(p => ({ ...p, shipping_address: addr }))
+  }
+
+  function openAdd(){setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setErr('');setOpen(true)}
 
   async function openEdit(r:SalesOrder){
     setEditing(r)
     setForm({order_number:r.order_number,customer_id:r.customer_id??'',quotation_id:r.quotation_id??'',order_date:r.order_date??'',required_ship_date:r.required_ship_date??'',status:r.status,po_number:r.po_number??'',shipping_address:r.shipping_address??'',carrier:r.carrier??'',tracking_number:r.tracking_number??'',tax_pct:String(r.tax_pct??0),notes:r.notes??''})
     setErr('')
+    if (r.customer_id) {
+      const { data } = await sb.from('customer_ship_locations').select('id,location_name,address,city,state,zip,is_default').eq('customer_id', r.customer_id).order('is_default', { ascending: false })
+      setShipLocs((data ?? []) as ShipLocation[])
+      setSelLocId('')
+    } else {
+      setShipLocs([]); setSelLocId('')
+    }
     const{data:ls}=await sb.from('sales_order_lines').select('*').eq('sales_order_id',r.id).order('line_number')
     setLines(ls&&ls.length>0?ls.map((l:any)=>({id:l.id,line_number:l.line_number,product_id:l.product_id,sku:l.sku??'',description:l.description??'',quantity:String(l.quantity),quantity_shipped:String(l.quantity_shipped??0),unit_of_measure:l.unit_of_measure??'',unit_price:String(l.unit_price),discount_pct:String(l.discount_pct??0)})):[emptyLine()])
     setOpen(true)
   }
 
-  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(emptyForm);setLines([emptyLine()])},300)}
+  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setShipLocs([]);setSelLocId('')},300)}
 
   function setLine(i:number,patch:Partial<SOLine>){setLines(prev=>prev.map((l,idx)=>idx===i?{...l,...patch}:l))}
   function addLine(){setLines(prev=>[...prev,emptyLine(prev.length+1)])}
@@ -216,7 +249,7 @@ export default function SalesOrdersPage() {
               </select>
             </div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Customer</label>
-              <select value={form.customer_id} onChange={e=>setForm(p=>({...p,customer_id:e.target.value}))} className={inp+' cursor-pointer'}>
+              <select value={form.customer_id} onChange={e=>{setForm(p=>({...p,customer_id:e.target.value}));loadShipLocs(e.target.value)}} className={inp+' cursor-pointer'}>
                 <option value="">— None —</option>{customers.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}
               </select>
             </div>
@@ -231,7 +264,16 @@ export default function SalesOrdersPage() {
             <div><label className="block text-xs text-gray-400 mb-1.5">Tax %</label><input type="number" min="0" max="100" step="0.1" value={form.tax_pct} onChange={e=>setForm(p=>({...p,tax_pct:e.target.value}))} className={inp}/></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2"><label className="block text-xs text-gray-400 mb-1.5">Shipping Address</label><textarea rows={2} value={form.shipping_address} onChange={e=>setForm(p=>({...p,shipping_address:e.target.value}))} placeholder="Delivery address…" className={inp+' resize-none'}/></div>
+            <div className="col-span-2">
+              <label className="block text-xs text-gray-400 mb-1.5">Shipping Address</label>
+              {form.customer_id && shipLocs.length > 0 && (
+                <select value={selLocId} onChange={e=>onLocSelect(e.target.value)} className={inp+' cursor-pointer mb-2'}>
+                  <option value="">— Select ship-to location —</option>
+                  {shipLocs.map(l=><option key={l.id} value={l.id}>{l.location_name}{l.city?` (${l.city}, ${l.state})`:''}{l.is_default?' ★':''}</option>)}
+                </select>
+              )}
+              <textarea rows={2} value={form.shipping_address} onChange={e=>setForm(p=>({...p,shipping_address:e.target.value}))} placeholder="Delivery address…" className={inp+' resize-none'}/>
+            </div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Carrier</label><input value={form.carrier} onChange={e=>setForm(p=>({...p,carrier:e.target.value}))} placeholder="UPS, FedEx, Freight…" className={inp}/></div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Tracking Number</label><input value={form.tracking_number} onChange={e=>setForm(p=>({...p,tracking_number:e.target.value}))} className={inp}/></div>
           </div>

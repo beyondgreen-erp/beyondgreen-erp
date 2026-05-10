@@ -12,6 +12,7 @@ interface Customer { id: string; company_name: string; email?: string; phone?: s
 interface Product { id: string; sku: string; name: string; unit_of_measure: string | null; unit_price: number | null }
 interface QuoteLine { id?: string; line_number: number; product_id: string | null; sku: string; description: string; quantity: string; unit_of_measure: string; unit_price: string; discount_pct: string }
 interface Quotation { id: string; quote_number: string; customer_id: string | null; quote_date: string | null; expiry_date: string | null; status: string; subtotal: number; tax_pct: number; total: number; notes: string | null; is_active: boolean }
+interface ShipLocation { id: string; location_name: string; address: string | null; city: string | null; state: string | null; zip: string | null; is_default: boolean }
 
 const STATUSES = ['Draft','Sent','Accepted','Rejected','Expired']
 const SC: Record<string,string> = { Draft:'bg-gray-700/40 text-gray-400 border-gray-700', Sent:'bg-blue-500/15 text-blue-400 border-blue-500/20', Accepted:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Rejected:'bg-red-500/15 text-red-400 border-red-500/20', Expired:'bg-gray-600/20 text-gray-500 border-gray-600' }
@@ -40,6 +41,9 @@ export default function QuotationsPage() {
   const [converting,setConverting]=useState(false)
   const [busy,setBusy]=useState(false)
   const [err,setErr]=useState('')
+  const [shipLocs,setShipLocs]=useState<ShipLocation[]>([])
+  const [selLocId,setSelLocId]=useState('')
+  const [selLocAddr,setSelLocAddr]=useState('')
   const [userEmail,setUserEmail]=useState('')
   const ref=useRef<HTMLDivElement>(null)
 
@@ -69,18 +73,46 @@ export default function QuotationsPage() {
     return r.quote_number.toLowerCase().includes(q)||(r.customer_id?cmap[r.customer_id]||'':'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
   })
 
-  function openAdd(){setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setErr('');setOpen(true)}
+  async function loadShipLocs(cid: string) {
+    if (!cid) { setShipLocs([]); setSelLocId(''); setSelLocAddr(''); return }
+    const { data } = await sb.from('customer_ship_locations').select('id,location_name,address,city,state,zip,is_default').eq('customer_id', cid).order('is_default', { ascending: false })
+    const locs = (data ?? []) as ShipLocation[]
+    setShipLocs(locs)
+    const def = locs.find(l => l.is_default) ?? locs[0]
+    if (def) {
+      setSelLocId(def.id)
+      setSelLocAddr([def.address, def.city && def.state ? `${def.city}, ${def.state}` : (def.city || def.state), def.zip].filter(Boolean).join('\n'))
+    } else {
+      setSelLocId(''); setSelLocAddr('')
+    }
+  }
+
+  function onLocSelect(locId: string) {
+    setSelLocId(locId)
+    const loc = shipLocs.find(l => l.id === locId)
+    if (!loc) { setSelLocAddr(''); return }
+    setSelLocAddr([loc.address, loc.city && loc.state ? `${loc.city}, ${loc.state}` : (loc.city || loc.state), loc.zip].filter(Boolean).join('\n'))
+  }
+
+  function openAdd(){setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setSelLocAddr('');setErr('');setOpen(true)}
 
   async function openEdit(r:Quotation){
     setEditing(r)
     setForm({quote_number:r.quote_number,customer_id:r.customer_id??'',quote_date:r.quote_date??'',expiry_date:r.expiry_date??'',status:r.status,tax_pct:String(r.tax_pct??0),notes:r.notes??''})
     setErr('')
+    if (r.customer_id) {
+      const { data } = await sb.from('customer_ship_locations').select('id,location_name,address,city,state,zip,is_default').eq('customer_id', r.customer_id).order('is_default', { ascending: false })
+      setShipLocs((data ?? []) as ShipLocation[])
+      setSelLocId(''); setSelLocAddr('')
+    } else {
+      setShipLocs([]); setSelLocId(''); setSelLocAddr('')
+    }
     const {data:ls}=await sb.from('quotation_lines').select('*').eq('quotation_id',r.id).order('line_number')
     setLines(ls&&ls.length>0?ls.map((l:any)=>({id:l.id,line_number:l.line_number,product_id:l.product_id,sku:l.sku??'',description:l.description??'',quantity:String(l.quantity),unit_of_measure:l.unit_of_measure??'',unit_price:String(l.unit_price),discount_pct:String(l.discount_pct??0)})):[emptyLine()])
     setOpen(true)
   }
 
-  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(emptyForm);setLines([emptyLine()])},300)}
+  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setSelLocAddr('')},300)}
 
   function setLine(i:number,patch:Partial<QuoteLine>){setLines(prev=>prev.map((l,idx)=>idx===i?{...l,...patch}:l))}
   function addLine(){setLines(prev=>[...prev,emptyLine(prev.length+1)])}
@@ -192,7 +224,7 @@ export default function QuotationsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-400 mb-1.5">Quote Number <span className="text-red-400">*</span></label><input value={form.quote_number} onChange={e=>setForm(p=>({...p,quote_number:e.target.value}))} className={inp}/></div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Customer</label>
-              <select value={form.customer_id} onChange={e=>setForm(p=>({...p,customer_id:e.target.value}))} className={inp+' cursor-pointer'}>
+              <select value={form.customer_id} onChange={e=>{setForm(p=>({...p,customer_id:e.target.value}));loadShipLocs(e.target.value)}} className={inp+' cursor-pointer'}>
                 <option value="">— None —</option>{customers.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}
               </select>
             </div>
@@ -205,6 +237,16 @@ export default function QuotationsPage() {
             </div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Tax %</label><input type="number" min="0" max="100" step="0.1" value={form.tax_pct} onChange={e=>setForm(p=>({...p,tax_pct:e.target.value}))} className={inp}/></div>
           </div>
+          {form.customer_id && shipLocs.length > 0 && (
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Ship-To Location</label>
+              <select value={selLocId} onChange={e=>onLocSelect(e.target.value)} className={inp+' cursor-pointer mb-2'}>
+                <option value="">— Select ship-to location —</option>
+                {shipLocs.map(l=><option key={l.id} value={l.id}>{l.location_name}{l.city?` (${l.city}, ${l.state})`:''}{l.is_default?' ★':''}</option>)}
+              </select>
+              {selLocAddr && <div className="text-xs text-gray-400 bg-gray-800/50 border border-gray-700/60 rounded-lg px-3 py-2 whitespace-pre-line">{selLocAddr}</div>}
+            </div>
+          )}
           <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={2} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
 
           {/* Line Items */}
