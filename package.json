@@ -24,6 +24,8 @@
     "@tiptap/pm": "^3.23.1",
     "@tiptap/react": "^3.23.1",
     "@tiptap/starter-kit": "^3.23.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "next": "14.2.35",
     "next-pwa": "^5.6.0",
     "openai": "^6.37.0",

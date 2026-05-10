@@ -9,9 +9,10 @@ interface Product {
   id: string; sku: string; name: string; category: string | null
   unit_of_measure: string | null; on_hand_qty: number; reorder_point: number
   unit_cost: number | null; unit_price: number | null; vendor_id: string | null
+  case_qty: number | null; pack_price: number | null; case_price: number | null
   notes: string | null; is_active: boolean
 }
-const empty = { sku:'', name:'', category:'', unit_of_measure:'', on_hand_qty:'0', reorder_point:'0', unit_cost:'', unit_price:'', vendor_id:'', notes:'' }
+const empty = { sku:'', name:'', category:'', unit_of_measure:'', on_hand_qty:'0', reorder_point:'0', unit_cost:'', unit_price:'', case_qty:'', pack_price:'', case_price:'', vendor_id:'', notes:'' }
 type F = typeof empty
 const fmt$ = (n:number|null) => n===null?'—':'$'+n.toFixed(2)
 function dbErr(e:{code?:string;message:string;hint?:string}) { console.error(e); return [e.message, e.code&&`(${e.code})`, e.hint&&`Hint: ${e.hint}`].filter(Boolean).join(' — ') }
@@ -52,14 +53,14 @@ export default function InventoryPage() {
   })
 
   function openAdd(){ setEditing(null); setForm(empty); setErr(''); setOpen(true) }
-  function openEdit(r:Product){ setEditing(r); setForm({ sku:r.sku, name:r.name, category:r.category??'', unit_of_measure:r.unit_of_measure??'', on_hand_qty:String(r.on_hand_qty), reorder_point:String(r.reorder_point), unit_cost:r.unit_cost!==null?String(r.unit_cost):'', unit_price:r.unit_price!==null?String(r.unit_price):'', vendor_id:r.vendor_id??'', notes:r.notes??'' }); setErr(''); setOpen(true) }
+  function openEdit(r:Product){ setEditing(r); setForm({ sku:r.sku, name:r.name, category:r.category??'', unit_of_measure:r.unit_of_measure??'', on_hand_qty:String(r.on_hand_qty), reorder_point:String(r.reorder_point), unit_cost:r.unit_cost!==null?String(r.unit_cost):'', unit_price:r.unit_price!==null?String(r.unit_price):'', case_qty:r.case_qty!==null?String(r.case_qty):'', pack_price:r.pack_price!==null?String(r.pack_price):'', case_price:r.case_price!==null?String(r.case_price):'', vendor_id:r.vendor_id??'', notes:r.notes??'' }); setErr(''); setOpen(true) }
   function close(){ setOpen(false); setTimeout(()=>{ setEditing(null); setForm(empty) },300) }
 
 
   async function save() {
     if(!form.sku.trim()||!form.name.trim()){ setErr('SKU and Product Name are required.'); return }
     setErr(''); setSaving(true)
-    const payload = { sku:form.sku.trim(), name:form.name.trim(), category:form.category.trim()||null, unit_of_measure:form.unit_of_measure.trim()||null, on_hand_qty:parseFloat(form.on_hand_qty)||0, reorder_point:parseFloat(form.reorder_point)||0, unit_cost:form.unit_cost?parseFloat(form.unit_cost):null, unit_price:form.unit_price?parseFloat(form.unit_price):null, vendor_id:form.vendor_id||null, notes:form.notes.trim()||null }
+    const payload = { sku:form.sku.trim(), name:form.name.trim(), category:form.category.trim()||null, unit_of_measure:form.unit_of_measure.trim()||null, on_hand_qty:parseFloat(form.on_hand_qty)||0, reorder_point:parseFloat(form.reorder_point)||0, unit_cost:form.unit_cost?parseFloat(form.unit_cost):null, unit_price:form.unit_price?parseFloat(form.unit_price):null, case_qty:form.case_qty?parseInt(form.case_qty):null, pack_price:form.pack_price?parseFloat(form.pack_price):null, case_price:form.case_price?parseFloat(form.case_price):null, vendor_id:form.vendor_id||null, notes:form.notes.trim()||null }
     const { error } = editing ? await sb.from('products').update({...payload,updated_at:new Date().toISOString()}).eq('id',editing.id) : await sb.from('products').insert({...payload,is_active:true})
     if(error){ setErr(dbErr(error)); setSaving(false); return }
     setSaving(false); close(); load()
@@ -142,6 +143,7 @@ export default function InventoryPage() {
           {f('category','Category')}{f('unit_of_measure','Unit of Measure')}
           <div className="grid grid-cols-2 gap-4">{f('on_hand_qty','On Hand Qty',{type:'number'})}{f('reorder_point','Reorder Point',{type:'number'})}</div>
           <div className="grid grid-cols-2 gap-4">{f('unit_cost','Unit Cost ($)',{type:'number'})}{f('unit_price','Unit Price ($)',{type:'number'})}</div>
+          <div className="grid grid-cols-3 gap-4">{f('case_qty','Case Qty',{type:'number'})}{f('pack_price','Pack Price ($)',{type:'number'})}{f('case_price','Case Price ($)',{type:'number'})}</div>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Vendor</label>
             <select value={form.vendor_id} onChange={e=>setForm(p=>({...p,vendor_id:e.target.value}))} className={inp+' cursor-pointer'}>
