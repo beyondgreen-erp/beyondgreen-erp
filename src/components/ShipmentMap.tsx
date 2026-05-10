@@ -30,6 +30,7 @@ const CITY_COORDS: Record<string, [number, number]> = {
   'Evanston_IL': [42.0451, -87.6877],
   'Oak Park_IL': [41.8850, -87.7845],
   // California
+  'Jurupa Valley_CA': [33.9975, -117.4854],
   'Los Angeles_CA': [34.0522, -118.2437],
   'San Francisco_CA': [37.7749, -122.4194],
   'San Diego_CA': [32.7157, -117.1611],
