@@ -453,10 +453,23 @@ export default function CustomersPage() {
     const merge_ids = Array.from(selectedIds).filter(id => id !== mergePrimaryId)
     if (!mergePrimaryId || merge_ids.length === 0) return
     setMerging(true); setMergeErr('')
+    const primaryCustomer = customers.find(c => c.id === mergePrimaryId)
+    const mergeCustomers = customers.filter(c => merge_ids.includes(c.id))
+    if (!primaryCustomer) { setMergeErr('Primary customer not found in list'); setMerging(false); return }
     const res = await fetch('/api/customers/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ primary_id: mergePrimaryId, merge_ids }),
+      body: JSON.stringify({
+        primary_id: mergePrimaryId,
+        merge_ids,
+        primary_name: primaryCustomer.company_name,
+        merge_names: mergeCustomers.map(c => c.company_name),
+        primary_lifetime_spend: primaryCustomer.lifetime_spend ?? 0,
+        primary_total_shipments: primaryCustomer.total_shipments ?? 0,
+        merge_lifetime_spend: mergeCustomers.reduce((s, c) => s + (c.lifetime_spend ?? 0), 0),
+        merge_total_shipments: mergeCustomers.reduce((s, c) => s + (c.total_shipments ?? 0), 0),
+        primary_merged_from_names: primaryCustomer.merged_from_names ?? [],
+      }),
     })
     const json = await res.json()
     if (!res.ok) { setMergeErr(json.error || 'Merge failed'); setMerging(false); return }
