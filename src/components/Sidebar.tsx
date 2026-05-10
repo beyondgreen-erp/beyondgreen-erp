@@ -51,16 +51,11 @@ const navigation = [
     color: 'text-gray-400',
     items: [
       { label: 'My Profile', href: '/settings/profile' },
-      { label: 'Team Directory', href: '/settings/team' },
-    ],
-  },
-  {
-    group: 'BERG SETTINGS',
-    color: 'text-emerald-300',
-    adminOnly: true,
-    items: [
+      { label: 'Team', href: '/settings/team' },
+      { label: 'Company', href: '/settings/company' },
       { label: 'BERG Brain', href: '/settings/berg-brain' },
       { label: 'BERG Alerts', href: '/settings/berg-alerts' },
+      { label: 'All Settings', href: '/settings' },
     ],
   },
 ]

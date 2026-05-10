@@ -31,6 +31,7 @@ export default function TasksPage() {
   const [saving,setSaving]=useState(false)
   const [busy,setBusy]=useState(false)
   const [err,setErr]=useState('')
+  const [assigneeOpen,setAssigneeOpen]=useState(false)
   const ref=useRef<HTMLDivElement>(null)
   const tagRef=useRef<TagInputHandle>(null)
 
@@ -59,7 +60,7 @@ export default function TasksPage() {
 
   function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
   function openEdit(r:Task){setEditing(r);setForm({task_name:r.task_name,assigned_to:r.assigned_to??'',due_date:r.due_date??'',priority:r.priority,status:r.status,customer_id:r.customer_id??'',notes:r.notes??''});setErr('');setOpen(true)}
-  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
+  function close(){setOpen(false);setAssigneeOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
   useEffect(()=>{const h=(e:MouseEvent)=>{if(open&&ref.current&&!ref.current.contains(e.target as Node))close()};document.addEventListener('mousedown',h);return()=>document.removeEventListener('mousedown',h)},[open]) // eslint-disable-line
 
   async function save(){
@@ -121,7 +122,29 @@ export default function TasksPage() {
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit Task':'Add Task'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">Task Name <span className="text-red-400">*</span></label><input value={form.task_name} onChange={e=>setForm(p=>({...p,task_name:e.target.value}))} className={inp}/></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Assigned To</label><select value={form.assigned_to} onChange={e=>setForm(p=>({...p,assigned_to:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— Unassigned —</option>{teamMembers.map(m=><option key={m.id} value={m.email}>{m.full_name}</option>)}</select></div>
+          <div className="relative">
+            <label className="block text-xs text-gray-400 mb-1.5">Assigned To</label>
+            <button type="button" onClick={()=>setAssigneeOpen(v=>!v)} className={inp+' cursor-pointer flex items-center gap-2.5 text-left'}>
+              {form.assigned_to ? (()=>{
+                const m=teamMembers.find(m=>m.email===form.assigned_to)
+                return m ? (
+                  <><span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{backgroundColor:m.avatar_color}}>{m.avatar_initials||m.full_name[0]}</span><span className="flex-1">{m.full_name}</span></>
+                ) : <span className="text-gray-500 flex-1">{form.assigned_to}</span>
+              })() : <span className="text-gray-500 flex-1">— Unassigned —</span>}
+              <svg className={`w-4 h-4 text-gray-500 shrink-0 transition-transform ${assigneeOpen?'rotate-180':''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            {assigneeOpen&&(
+              <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden z-10 shadow-xl max-h-48 overflow-y-auto">
+                <button type="button" onClick={()=>{setForm(p=>({...p,assigned_to:''}));setAssigneeOpen(false)}} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-700 transition-colors text-left">— Unassigned —</button>
+                {teamMembers.map(m=>(
+                  <button key={m.id} type="button" onClick={()=>{setForm(p=>({...p,assigned_to:m.email}));setAssigneeOpen(false)}} className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm hover:bg-gray-700 transition-colors text-left ${form.assigned_to===m.email?'bg-violet-600/20 text-white':'text-gray-300'}`}>
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{backgroundColor:m.avatar_color}}>{m.avatar_initials||m.full_name[0]}</span>
+                    {m.full_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Due Date</label><input type="date" value={form.due_date} onChange={e=>setForm(p=>({...p,due_date:e.target.value}))} className={inp}/></div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-xs text-gray-400 mb-1.5">Priority</label><select value={form.priority} onChange={e=>setForm(p=>({...p,priority:e.target.value}))} className={inp+' cursor-pointer'}>{PRIORITIES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
