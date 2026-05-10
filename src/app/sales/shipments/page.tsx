@@ -32,6 +32,8 @@ interface Shipment {
   notes: string | null
   is_active: boolean
   created_at: string
+  invoice_id: string | null
+  invoice_number: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -278,6 +280,7 @@ export default function ShipmentsPage() {
                     <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Carrier</th>
                     <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Tracking</th>
                     <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">City / State</th>
+                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Invoice</th>
                     <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Month</th>
                     <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Status</th>
                   </tr>
@@ -310,6 +313,13 @@ export default function ShipmentsPage() {
                           ) : '—'}
                         </td>
                         <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{[s.city, s.state].filter(Boolean).join(', ') || '—'}</td>
+                        <td className="px-4 py-3 whitespace-nowrap" onClick={e => { if (s.invoice_number) e.stopPropagation() }}>
+                          {s.invoice_number ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded font-mono font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">{s.invoice_number}</span>
+                          ) : (
+                            <span className="text-gray-600 text-xs">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{s.month_group || '—'}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[s.delivery_status] || STATUS_COLORS['In Transit']}`}>
@@ -522,6 +532,18 @@ export default function ShipmentsPage() {
 
               {editing && (
                 <>
+                  {/* Invoice info */}
+                  <div className="border-t border-gray-800 pt-4">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Invoice</p>
+                    {editing.invoice_number ? (
+                      <div className="bg-gray-800/50 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                        <span className="text-xs text-gray-400">Invoice #</span>
+                        <span className="font-mono text-xs text-blue-400 font-medium">{editing.invoice_number}</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-600 italic">No invoice linked to this shipment.</p>
+                    )}
+                  </div>
                   <div className="border-t border-gray-800 pt-4">
                     <FileUpload supabase={sb} recordType="shipments" recordId={editing.id} currentUserEmail={userEmail} />
                   </div>
