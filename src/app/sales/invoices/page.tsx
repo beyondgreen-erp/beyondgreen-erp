@@ -74,6 +74,8 @@ export default function InvoicesPage() {
   const [showPartial, setShowPartial] = useState(false)
   const [showVoidConfirm, setShowVoidConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
   async function load() {
@@ -230,6 +232,26 @@ export default function InvoicesPage() {
     generateInvoicePDF(sel, customer, lineItems.map(l => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price, uom: l.uom, line_total: l.line_total })), getOrderNumber(sel))
   }
 
+  async function importShipments() {
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const res = await fetch('/api/invoices/import-shipments', { method: 'POST' })
+      const json = await res.json()
+      if (json.error) {
+        setImportMsg(`Error: ${json.error}`)
+      } else if (json.imported === 0) {
+        setImportMsg('All shipments are already invoiced.')
+      } else {
+        setImportMsg(`Imported ${json.imported} shipment${json.imported !== 1 ? 's' : ''} as pending invoices.`)
+        load()
+      }
+    } catch {
+      setImportMsg('Import failed. Check console.')
+    }
+    setImporting(false)
+  }
+
   const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 
   return (
@@ -240,6 +262,16 @@ export default function InvoicesPage() {
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
           <h1 className="text-2xl font-semibold text-white mt-1">Invoices & Billing</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} invoice${rows.length !== 1 ? 's' : ''}`}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button onClick={importShipments} disabled={importing}
+            className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border border-gray-700 text-gray-300 hover:text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+            {importing
+              ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Importing…</>
+              : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Import Shipments</>
+            }
+          </button>
+          {importMsg && <p className="text-xs text-gray-400">{importMsg}</p>}
         </div>
       </div>
 

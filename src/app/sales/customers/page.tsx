@@ -464,36 +464,19 @@ export default function CustomersPage() {
     const finalName = mergeAccountName.trim()
     if (!finalName) { setMergeErr('Account name is required'); return }
     setMerging(true); setMergeErr('')
-    const primaryCustomer = customers.find(c => c.id === mergePrimaryId)
-    const mergeCustomers = customers.filter(c => merge_ids.includes(c.id))
-    // Also include any group members not in loaded customers (from duplicates modal)
-    const selectedCustomersFull = Array.from(selectedIds).map(id => {
-      const found = customers.find(c => c.id === id)
-      return found ?? { id, lifetime_spend: 0, total_shipments: 0, merged_from_names: [] as string[] }
-    })
-    const primaryFull = selectedCustomersFull.find(c => c.id === mergePrimaryId)
-    const mergeFull = selectedCustomersFull.filter(c => merge_ids.includes(c.id))
-    const res = await fetch('/api/customers/merge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        primary_id: mergePrimaryId,
-        merge_ids,
-        primary_name: finalName,
-        merge_names: mergeCustomers.map(c => c.company_name),
-        primary_lifetime_spend: (primaryFull as any)?.lifetime_spend ?? primaryCustomer?.lifetime_spend ?? 0,
-        primary_total_shipments: (primaryFull as any)?.total_shipments ?? primaryCustomer?.total_shipments ?? 0,
-        merge_lifetime_spend: mergeFull.reduce((s, c) => s + ((c as any).lifetime_spend ?? 0), 0),
-        merge_total_shipments: mergeFull.reduce((s, c) => s + ((c as any).total_shipments ?? 0), 0),
-        primary_merged_from_names: (primaryFull as any)?.merged_from_names ?? primaryCustomer?.merged_from_names ?? [],
-      }),
-    })
-    const json = await res.json()
-    if (!res.ok) { setMergeErr(json.error || 'Merge failed'); setMerging(false); return }
-    // If name was changed, update the primary record
-    if (primaryCustomer && finalName !== primaryCustomer.company_name) {
-      await supabase.from('customers').update({ company_name: finalName, updated_at: new Date().toISOString() }).eq('id', mergePrimaryId)
+    let res: Response, json: any
+    try {
+      res = await fetch('/api/customers/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ primary_id: mergePrimaryId, merge_ids, primary_name: finalName }),
+      })
+      json = await res.json()
+    } catch (err) {
+      setMergeErr(`Network error: ${err}`)
+      setMerging(false); return
     }
+    if (!res.ok || json.error) { setMergeErr(json.error || 'Merge failed'); setMerging(false); return }
     setMerging(false); setMergeModal(false); setSelectedIds(new Set()); setMergeAccountName('')
     fetchCustomers()
   }
