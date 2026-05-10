@@ -8,6 +8,7 @@ import { ChatTrigger } from './Chat'
 
 const ADMIN_EMAIL = 'rperrier171991@gmail.com'
 interface Presence { email: string; current_page: string | null; last_seen: string; activity_count: number }
+interface UserProfile { full_name: string; role: string; avatar_color: string; avatar_initials: string | null }
 
 const navigation = [
   {
@@ -46,6 +47,14 @@ const navigation = [
     ],
   },
   {
+    group: 'SETTINGS',
+    color: 'text-gray-400',
+    items: [
+      { label: 'My Profile', href: '/settings/profile' },
+      { label: 'Team Directory', href: '/settings/team' },
+    ],
+  },
+  {
     group: 'BERG SETTINGS',
     color: 'text-emerald-300',
     adminOnly: true,
@@ -60,6 +69,7 @@ export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<Presence[]>([])
   const [topUser, setTopUser] = useState<Presence | null>(null)
@@ -67,7 +77,12 @@ export default function Sidebar() {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient()
     supabase.auth.getUser().then(({ data }) => {
-      setUserEmail(data.user?.email ?? null)
+      const email = data.user?.email ?? null
+      setUserEmail(email)
+      if (email) {
+        supabase.from('user_profiles').select('full_name,role,avatar_color,avatar_initials').eq('email', email).single()
+          .then(({ data: pData }) => { if (pData) setUserProfile(pData as UserProfile) })
+      }
     })
 
     function loadPresence() {
@@ -193,12 +208,25 @@ export default function Sidebar() {
         {/* User info */}
         {userEmail && (
           <div className="flex items-center gap-2.5 px-1">
-            <div className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center shrink-0">
-              <span className="text-gray-300 text-xs font-semibold uppercase">
-                {userEmail[0]}
-              </span>
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold"
+              style={{ backgroundColor: userProfile?.avatar_color ?? '#374151' }}
+            >
+              {userProfile?.avatar_initials ?? userEmail[0].toUpperCase()}
             </div>
-            <p className="text-gray-400 text-xs truncate">{userEmail}</p>
+            <div className="min-w-0">
+              {userProfile ? (
+                <>
+                  <p className="text-white text-xs font-medium truncate">{userProfile.full_name}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-gray-500 text-xs">{userProfile.role}</span>
+                  </div>
+                  <p className="text-gray-600 text-xs truncate">{userEmail}</p>
+                </>
+              ) : (
+                <p className="text-gray-400 text-xs truncate">{userEmail}</p>
+              )}
+            </div>
           </div>
         )}
 

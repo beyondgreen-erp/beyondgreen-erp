@@ -13,9 +13,11 @@ export interface TagInputHandle {
   sendNotifications: () => Promise<void>
 }
 
+interface TeamUser { email: string; full_name: string; department: string | null; avatar_color: string; avatar_initials: string | null }
+
 const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, onChange, page, className }, ref) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
-  const [users, setUsers] = useState<string[]>([])
+  const [users, setUsers] = useState<TeamUser[]>([])
   const [showDrop, setShowDrop] = useState(false)
   const [dropIdx, setDropIdx] = useState(0)
   const [atPos, setAtPos] = useState(-1)
@@ -25,8 +27,8 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
 
   useEffect(() => {
     sb.auth.getUser().then(({ data }) => setSenderEmail(data.user?.email ?? null))
-    sb.from('user_presence').select('email').then(({ data }) => {
-      if (data) setUsers(data.map((u: { email: string }) => u.email))
+    sb.from('user_profiles').select('email,full_name,department,avatar_color,avatar_initials').eq('is_active', true).then(({ data }) => {
+      if (data) setUsers(data as TeamUser[])
     })
   }, []) // eslint-disable-line
 
@@ -45,7 +47,7 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
     },
   }))
 
-  const filtered = users.filter(u => u.toLowerCase().includes(query.toLowerCase()) && u !== senderEmail)
+  const filtered = users.filter(u => (u.full_name.toLowerCase().includes(query.toLowerCase()) || u.email.toLowerCase().includes(query.toLowerCase())) && u.email !== senderEmail)
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const v = e.target.value
@@ -87,7 +89,7 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
     if (!showDrop || filtered.length === 0) return
     if (e.key === 'ArrowDown') { e.preventDefault(); setDropIdx(i => (i + 1) % filtered.length) }
     if (e.key === 'ArrowUp') { e.preventDefault(); setDropIdx(i => (i - 1 + filtered.length) % filtered.length) }
-    if (e.key === 'Enter' && showDrop) { e.preventDefault(); selectUser(filtered[dropIdx]) }
+    if (e.key === 'Enter' && showDrop) { e.preventDefault(); selectUser(filtered[dropIdx].email) }
     if (e.key === 'Escape') setShowDrop(false)
   }
 
@@ -116,15 +118,21 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
           <div className="absolute z-50 left-0 bottom-full mb-1 w-64 bg-gray-800 border border-gray-700 rounded-xl shadow-xl overflow-hidden">
             {filtered.slice(0, 6).map((u, i) => (
               <button
-                key={u}
+                key={u.email}
                 type="button"
-                onMouseDown={() => selectUser(u)}
-                className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-gray-700'}`}
+                onMouseDown={() => selectUser(u.email)}
+                className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-gray-700'}`}
               >
-                <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center shrink-0">
-                  <span className="text-xs font-semibold uppercase text-gray-300">{u[0]}</span>
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold"
+                  style={{ backgroundColor: u.avatar_color }}
+                >
+                  {u.avatar_initials ?? u.full_name[0]}
                 </div>
-                <span className="truncate">{u}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{u.full_name}</p>
+                  {u.department && <p className="text-xs text-gray-500 truncate">{u.department}</p>}
+                </div>
               </button>
             ))}
           </div>

@@ -5,6 +5,7 @@ import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 
 interface Customer { id: string; company_name: string }
+interface TeamMember { id: string; email: string; full_name: string; avatar_color: string; avatar_initials: string | null }
 interface Task { id: string; task_name: string; assigned_to: string | null; due_date: string | null; priority: string; status: string; customer_id: string | null; notes: string | null; is_active: boolean }
 const PRIORITIES = ['Low','Medium','High','Critical']
 const STATUSES = ['Backlog','In Progress','Review','Done','Blocked']
@@ -20,6 +21,7 @@ export default function TasksPage() {
   const sb=useMemo(()=>createSupabaseBrowserClient(),[])
   const [rows,setRows]=useState<Task[]>([])
   const [customers,setCustomers]=useState<Customer[]>([])
+  const [teamMembers,setTeamMembers]=useState<TeamMember[]>([])
   const [loading,setLoading]=useState(true)
   const [search,setSearch]=useState('')
   const [archived,setArchived]=useState(false)
@@ -34,12 +36,14 @@ export default function TasksPage() {
 
   async function load(){
     setLoading(true)
-    const [{data:t},{data:c}]=await Promise.all([
+    const [{data:t},{data:c},{data:tm}]=await Promise.all([
       sb.from('tasks').select('*').order('due_date',{ascending:true}),
       sb.from('customers').select('id,company_name').eq('is_active',true).order('company_name'),
+      sb.from('user_profiles').select('id,email,full_name,avatar_color,avatar_initials').eq('is_active',true).order('full_name'),
     ])
     if(t) setRows(t as Task[])
     if(c) setCustomers(c as Customer[])
+    if(tm) setTeamMembers(tm as TeamMember[])
     setLoading(false)
   }
   useEffect(()=>{load()},[]) // eslint-disable-line
@@ -117,7 +121,7 @@ export default function TasksPage() {
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit Task':'Add Task'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">Task Name <span className="text-red-400">*</span></label><input value={form.task_name} onChange={e=>setForm(p=>({...p,task_name:e.target.value}))} className={inp}/></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Assigned To</label><input value={form.assigned_to} onChange={e=>setForm(p=>({...p,assigned_to:e.target.value}))} className={inp}/></div>
+          <div><label className="block text-xs text-gray-400 mb-1.5">Assigned To</label><select value={form.assigned_to} onChange={e=>setForm(p=>({...p,assigned_to:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— Unassigned —</option>{teamMembers.map(m=><option key={m.id} value={m.email}>{m.full_name}</option>)}</select></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Due Date</label><input type="date" value={form.due_date} onChange={e=>setForm(p=>({...p,due_date:e.target.value}))} className={inp}/></div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-xs text-gray-400 mb-1.5">Priority</label><select value={form.priority} onChange={e=>setForm(p=>({...p,priority:e.target.value}))} className={inp+' cursor-pointer'}>{PRIORITIES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
