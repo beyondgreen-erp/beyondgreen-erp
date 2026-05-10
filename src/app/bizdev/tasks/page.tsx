@@ -122,7 +122,11 @@ export default function TasksPage() {
   const groupKeys = [...GROUP_ORDER, ...(grouped['Other']?.length ? ['Other'] : [])]
 
   function toggleGroup(g: string) {
-    setCollapsedGroups(prev => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n })
+    setCollapsedGroups(prev => {
+      const n = new Set(prev)
+      if (n.has(g)) { n.delete(g) } else { n.add(g) }
+      return n
+    })
   }
   function selectPerson(email: string) { setFilterAssignee(p => p === email ? '' : email) }
   function openAdd() { setEditing(null); setForm(empty); setErr(''); setOpen(true) }

@@ -17,16 +17,6 @@ const TIMEZONES = [
   'Australia/Sydney',
 ]
 
-interface CompanySettings {
-  id: string
-  company_name: string
-  industry: string
-  website: string | null
-  phone: string | null
-  address: string | null
-  contact_email: string | null
-  timezone: string
-}
 
 export default function CompanyPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
