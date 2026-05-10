@@ -18,6 +18,13 @@ interface Customer {
   priority: string | null; industry: string | null; lead_source: string | null
   expected_close_date: string | null; next_follow_up: string | null
   do_not_contact: boolean; customer_status: string | null
+  lifetime_spend: number | null; total_shipments: number | null
+  first_shipment_date: string | null; last_shipment_date: string | null
+}
+interface ActivityEntry {
+  id: string; customer_id: string; activity_type: string; source_type: string
+  source_id: string | null; source_label: string | null; author_email: string | null
+  content: string; created_at: string
 }
 interface Contact {
   id: string; customer_id: string; full_name: string; title: string | null
@@ -56,8 +63,20 @@ const emptyForm = {
 type F = typeof emptyForm
 const emptyContact = { full_name:'', title:'', email:'', phone:'', is_primary:false, notes:'' }
 
-const fmt$ = (n:number|null) => n ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '—'
+const fmt$ = (n:number|null) => n != null ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '—'
+const fmt$2 = (n:number|null) => n != null ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}).format(n) : '—'
 const fmtD = (d:string|null) => d ? new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'
+function timeAgo(iso:string){
+  const diff=Date.now()-new Date(iso).getTime()
+  const m=Math.floor(diff/60000)
+  if(m<1)return 'just now'
+  if(m<60)return `${m}m ago`
+  const h=Math.floor(m/60)
+  if(h<24)return `${h}h ago`
+  const d=Math.floor(h/24)
+  if(d<30)return `${d}d ago`
+  return `${Math.floor(d/30)}mo ago`
+}
 function initials(name:string){ return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) }
 const AVATAR_COLORS = ['bg-blue-600','bg-violet-600','bg-emerald-600','bg-amber-600','bg-rose-600','bg-cyan-600']
 function avatarColor(str:string){ let h=0; for(let i=0;i<str.length;i++)h=str.charCodeAt(i)+((h<<5)-h); return AVATAR_COLORS[Math.abs(h)%AVATAR_COLORS.length] }
@@ -75,7 +94,7 @@ export default function CustomersPage() {
   // Panel
   const [panelOpen, setPanelOpen] = useState(false)
   const [editing, setEditing] = useState<Customer|null>(null)
-  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'activity'|'files'>('info')
+  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'activity'|'feed'|'files'>('info')
   const [form, setForm] = useState<F>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -91,12 +110,19 @@ export default function CustomersPage() {
   const [savingContact, setSavingContact] = useState(false)
   const [deletingContact, setDeletingContact] = useState<string|null>(null)
 
-  // Activity
+  // Activity (orders/quotes/tasks)
   const [activityTab, setActivityTab] = useState<'orders'|'quotes'|'tasks'>('orders')
   const [activityOrders, setActivityOrders] = useState<any[]>([])
   const [activityQuotes, setActivityQuotes] = useState<any[]>([])
   const [activityTasks, setActivityTasks] = useState<any[]>([])
   const [activityLoading, setActivityLoading] = useState(false)
+
+  // Activity feed
+  const [feedEntries, setFeedEntries] = useState<ActivityEntry[]>([])
+  const [feedFilter, setFeedFilter] = useState('all')
+  const [feedPage, setFeedPage] = useState(0)
+  const [feedLoading, setFeedLoading] = useState(false)
+  const [feedTotal, setFeedTotal] = useState(0)
 
   // Pipeline drag
   const [draggingId, setDraggingId] = useState<string|null>(null)
@@ -160,6 +186,7 @@ export default function CustomersPage() {
     })
     setFormError(''); setActiveTab('info')
     setAddingContact(false); setEditingContact(null)
+    setFeedEntries([]); setFeedPage(0); setFeedFilter('all')
     setPanelOpen(true)
     // Load contacts
     const { data: cts } = await supabase.from('customer_contacts').select('*').eq('customer_id', c.id).order('is_primary', { ascending: false })
@@ -188,6 +215,33 @@ export default function CustomersPage() {
   useEffect(() => {
     if (activeTab === 'activity' && editing) loadActivity(editing.id)
   }, [activeTab, editing?.id]) // eslint-disable-line
+
+  async function loadFeed(cid:string, filter:string, page:number, append=false){
+    setFeedLoading(true)
+    let q = supabase.from('customer_activity')
+      .select('*', { count:'exact' })
+      .eq('customer_id', cid)
+      .order('created_at', { ascending:false })
+      .range(page*20, page*20+19)
+    if(filter!=='all') q = q.eq('activity_type', filter)
+    const { data, count } = await q
+    if(append) setFeedEntries(p=>[...p, ...(data as ActivityEntry[]??[])])
+    else setFeedEntries((data as ActivityEntry[])??[])
+    setFeedTotal(count??0)
+    setFeedLoading(false)
+  }
+
+  useEffect(()=>{
+    if(activeTab==='feed' && editing){
+      setFeedPage(0)
+      loadFeed(editing.id, feedFilter, 0)
+      const ch = supabase.channel(`feed-${editing.id}`)
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'customer_activity',filter:`customer_id=eq.${editing.id}`},
+          (p)=>setFeedEntries(prev=>[p.new as ActivityEntry,...prev]))
+        .subscribe()
+      return ()=>{ supabase.removeChannel(ch) }
+    }
+  },[activeTab, editing?.id, feedFilter]) // eslint-disable-line
 
   // ── Save customer ─────────────────────────────────────────
   async function handleSave() {
@@ -275,10 +329,11 @@ export default function CustomersPage() {
   // ── Helpers ───────────────────────────────────────────────
   const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
   const sel = inp + ' cursor-pointer'
-  const tabs: { key: 'info'|'contacts'|'activity'|'files'; label: string }[] = [
+  const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
     { key: 'contacts', label: `Contacts${contacts.length ? ` (${contacts.length})` : ''}` },
     { key: 'activity', label: 'Activity' },
+    { key: 'feed', label: 'Activity Feed' },
     { key: 'files', label: 'Files & Notes' },
   ]
 
@@ -336,9 +391,9 @@ export default function CustomersPage() {
         <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
           {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
           :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':showArchived?'No archived customers.':'No customers yet.'}</p></div>
-          :<table className="w-full min-w-[800px] text-sm">
+          :<table className="w-full min-w-[1050px] text-sm">
             <thead><tr className="border-b border-gray-800">
-              {['Company','Primary Contact','Email','Phone','Pipeline Stage','Deal Value','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}
+              {['Company','Primary Contact','Email','Status','Total Spent','Shipments','Last Ship'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}
             </tr></thead>
             <tbody>{filtered.map((c,i)=>{
               const pc=primaryContacts[c.id]
@@ -353,10 +408,10 @@ export default function CustomersPage() {
                 </td>
                 <td className="px-4 py-3.5 text-gray-400 text-sm">{pc?.full_name||'—'}</td>
                 <td className="px-4 py-3.5 text-gray-400 text-sm">{pc?.email||c.email||'—'}</td>
-                <td className="px-4 py-3.5 text-gray-400 text-sm">{pc?.phone||c.phone||'—'}</td>
-                <td className="px-4 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${STAGE_BADGE[c.pipeline_stage||'Lead']||STAGE_BADGE.Lead}`}>{c.pipeline_stage||'Lead'}</span></td>
-                <td className="px-4 py-3.5 text-gray-300 font-medium">{fmt$(c.deal_value)}</td>
                 <td className="px-4 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${STATUS_BADGE[c.customer_status||'Lead']||STATUS_BADGE.Lead}`}>{c.customer_status||'Lead'}</span></td>
+                <td className="px-4 py-3.5 text-emerald-400 font-medium">{c.lifetime_spend!=null?fmt$2(c.lifetime_spend):'—'}</td>
+                <td className="px-4 py-3.5 text-blue-400 font-medium">{c.total_shipments!=null?c.total_shipments:'—'}</td>
+                <td className="px-4 py-3.5 text-gray-400">{fmtD(c.last_shipment_date)}</td>
               </tr>
             })}</tbody>
           </table>}
@@ -430,10 +485,32 @@ export default function CustomersPage() {
           <button onClick={closePanel} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
         </div>
 
+        {/* Spend summary (editing only, has data) */}
+        {editing&&(editing.lifetime_spend!=null||editing.total_shipments!=null)&&(
+          <div className="grid grid-cols-4 gap-px bg-gray-800 border-b border-gray-800 shrink-0">
+            <div className="bg-gray-900 px-4 py-2.5">
+              <p className="text-xs text-gray-500">Total Spent</p>
+              <p className="text-sm font-semibold text-emerald-400 mt-0.5">{fmt$2(editing.lifetime_spend)}</p>
+            </div>
+            <div className="bg-gray-900 px-4 py-2.5">
+              <p className="text-xs text-gray-500">Shipments</p>
+              <p className="text-sm font-semibold text-blue-400 mt-0.5">{editing.total_shipments??0}</p>
+            </div>
+            <div className="bg-gray-900 px-4 py-2.5">
+              <p className="text-xs text-gray-500">First Ship</p>
+              <p className="text-sm font-semibold text-gray-300 mt-0.5">{fmtD(editing.first_shipment_date)}</p>
+            </div>
+            <div className="bg-gray-900 px-4 py-2.5">
+              <p className="text-xs text-gray-500">Last Ship</p>
+              <p className="text-sm font-semibold text-gray-300 mt-0.5">{fmtD(editing.last_shipment_date)}</p>
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
-        <div className="flex border-b border-gray-800 shrink-0 px-2">
+        <div className="flex border-b border-gray-800 shrink-0 px-2 overflow-x-auto">
           {tabs.map(t=>(
-            <button key={t.key} onClick={()=>setActiveTab(t.key)} className={`px-4 py-3 text-xs font-medium transition-colors relative ${activeTab===t.key?'text-white after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-500':'text-gray-500 hover:text-gray-300'}`}>{t.label}</button>
+            <button key={t.key} onClick={()=>setActiveTab(t.key)} className={`px-4 py-3 text-xs font-medium transition-colors relative whitespace-nowrap ${activeTab===t.key?'text-white after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-500':'text-gray-500 hover:text-gray-300'}`}>{t.label}</button>
           ))}
         </div>
 
@@ -601,6 +678,61 @@ export default function CustomersPage() {
                 </a>)}
               </div>)}
             </div>
+          )}
+
+          {/* ── TAB: Activity Feed ── */}
+          {activeTab==='feed'&&editing&&(
+            <div className="px-6 py-5">
+              {/* Filter bar */}
+              <div className="flex gap-1 mb-4 flex-wrap">
+                {[['all','All'],['shipment','Shipments'],['order','Orders'],['quote','Quotes'],['task','Tasks'],['comment','Comments']].map(([val,lbl])=>(
+                  <button key={val} onClick={()=>setFeedFilter(val)} className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${feedFilter===val?'bg-blue-600 border-blue-600 text-white':'border-gray-700 text-gray-400 hover:text-white'}`}>{lbl}</button>
+                ))}
+              </div>
+              {feedLoading&&feedEntries.length===0
+                ?<div className="flex justify-center py-10"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+                :feedEntries.length===0
+                  ?<p className="text-sm text-gray-500 italic py-4">No activity yet.</p>
+                  :<div className="space-y-0">
+                    {feedEntries.map(e=>{
+                      const typeStyles: Record<string,{border:string;icon:JSX.Element}> = {
+                        shipment:{border:'border-l-blue-500',icon:<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1 13h12l1-13M10 12h4"/></svg>},
+                        order:{border:'border-l-emerald-500',icon:<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>},
+                        quote:{border:'border-l-amber-500',icon:<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>},
+                        task:{border:'border-l-violet-500',icon:<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>},
+                        comment:{border:'border-l-gray-500',icon:<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>},
+                        note:{border:'border-l-teal-500',icon:<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>},
+                      }
+                      const sourceLinks: Record<string,string> = {shipments:'/sales/shipments',sales_orders:'/sales/orders',quotations:'/sales/quotations',tasks:'/bizdev/tasks'}
+                      const s=typeStyles[e.activity_type]||typeStyles.note
+                      return (
+                        <div key={e.id} className={`border-l-2 ${s.border} pl-4 py-3 mb-0 border-b border-gray-800/40 last:border-b-0`}>
+                          <div className="flex items-start gap-2">
+                            <span className="text-gray-500 mt-0.5 shrink-0">{s.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {e.source_label&&<span className="text-xs text-gray-400 font-medium">{e.source_label}</span>}
+                                <span className="text-xs text-gray-600">{timeAgo(e.created_at)}</span>
+                                {e.author_email&&e.author_email!=='system'&&<span className="text-xs text-gray-600">· {e.author_email.split('@')[0]}</span>}
+                                {sourceLinks[e.source_type]&&<a href={sourceLinks[e.source_type]} className="text-xs text-blue-500 hover:text-blue-400 ml-auto shrink-0">View →</a>}
+                              </div>
+                              <p className="text-xs text-gray-300 mt-1 leading-relaxed">{e.content}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {feedEntries.length<feedTotal&&(
+                      <button onClick={()=>{const next=feedPage+1;setFeedPage(next);loadFeed(editing.id,feedFilter,next,true)}} disabled={feedLoading} className="w-full mt-3 text-xs text-gray-400 hover:text-white py-2.5 border border-gray-700 rounded-lg transition-colors disabled:opacity-50">
+                        {feedLoading?'Loading…':`Load more (${feedTotal-feedEntries.length} remaining)`}
+                      </button>
+                    )}
+                  </div>
+              }
+            </div>
+          )}
+          {activeTab==='feed'&&!editing&&(
+            <div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first.</p></div>
           )}
 
           {/* ── TAB: Files & Comments ── */}
