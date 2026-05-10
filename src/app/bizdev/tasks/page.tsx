@@ -69,6 +69,7 @@ export default function TasksPage() {
   const [assigneeOpen, setAssigneeOpen] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['Completed']))
   const tagRef = useRef<TagInputHandle>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
 
   async function load() {
     setLoading(true)
@@ -136,6 +137,15 @@ export default function TasksPage() {
     setErr(''); setOpen(true)
   }
   function close() { setOpen(false); setAssigneeOpen(false); setTimeout(() => { setEditing(null); setForm(empty) }, 300) }
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) close()
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open]) // eslint-disable-line
 
   async function save() {
     if (!form.task_name.trim()) { setErr('Task Name is required.'); return }
@@ -383,14 +393,15 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* ── Backdrop — click to close drawer (fixes the bug) ── */}
-      <div
-        className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={close}
-      />
+      {/* ── Backdrop — purely visual, never intercepts clicks ── */}
+      <div className={`fixed inset-0 bg-black/60 z-40 pointer-events-none transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}/>
 
       {/* ── Slide-out drawer ── */}
-      <div className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-950 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div
+        ref={drawerRef}
+        onMouseDown={e => e.stopPropagation()}
+        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-950 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
+      >
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0">
           <div>
             <h2 className="text-white font-semibold text-lg">{editing ? 'Edit Task' : 'New Task'}</h2>
