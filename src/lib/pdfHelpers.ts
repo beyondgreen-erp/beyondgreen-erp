@@ -232,6 +232,100 @@ export function generateBOL(order: PDFOrder, lines: PDFLine[], customer: PDFCust
   doc.save(`bol-${order.order_number}.pdf`)
 }
 
+export function generateOrderPDF(
+  order: PDFOrder,
+  lines: PDFLine[],
+  customer: PDFCustomer | null
+) {
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  const W = doc.internal.pageSize.getWidth()
+  header(doc, 'SALES ORDER')
+
+  let y = 76
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text(order.order_number, 36, y); y += 14
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  if (order.order_date) { doc.text(`Order Date: ${order.order_date}`, 36, y); y += 12 }
+  if (order.required_ship_date) { doc.text(`Required Ship: ${order.required_ship_date}`, 36, y); y += 12 }
+  if (order.po_number) { doc.text(`PO #: ${order.po_number}`, 36, y); y += 12 }
+  doc.text(`Status: ${order.status}`, 36, y)
+
+  if (customer) {
+    doc.setFontSize(8)
+    doc.setTextColor(...GRAY)
+    doc.text('BILL TO', W / 2, 76)
+    doc.setTextColor(...DARK)
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.text(customer.company_name, W / 2, 88)
+    doc.setFont('helvetica', 'normal')
+    let cy = 100
+    if (customer.contact_name) { doc.text(customer.contact_name, W / 2, cy); cy += 11 }
+    if (customer.email) { doc.text(customer.email, W / 2, cy); cy += 11 }
+    if (customer.phone) doc.text(customer.phone, W / 2, cy)
+  }
+
+  autoTable(doc, {
+    startY: 154,
+    head: [['#', 'SKU', 'Description', 'Qty', 'UOM', 'Unit Price', 'Disc%', 'Total']],
+    body: lines.map(l => {
+      const total = l.quantity * l.unit_price * (1 - l.discount_pct / 100)
+      return [l.line_number, l.sku ?? '—', l.description, l.quantity, l.unit_of_measure ?? '—', fmt$(l.unit_price), l.discount_pct ? l.discount_pct + '%' : '—', fmt$(total)]
+    }),
+    headStyles: { fillColor: GREEN, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 9 },
+    alternateRowStyles: { fillColor: [246, 250, 247] },
+    columnStyles: {
+      0: { cellWidth: 24, halign: 'center' },
+      1: { cellWidth: 68, font: 'courier', fontSize: 8 },
+      3: { cellWidth: 44, halign: 'center' },
+      4: { cellWidth: 44 },
+      5: { cellWidth: 68, halign: 'right' },
+      6: { cellWidth: 44, halign: 'center' },
+      7: { cellWidth: 68, halign: 'right' },
+    },
+  })
+
+  const afterTable = (doc as any).lastAutoTable.finalY + 12
+  const tax = order.subtotal * (order.tax_pct ?? 0) / 100
+
+  const totals: [string, string][] = [
+    ['Subtotal:', fmt$(order.subtotal)],
+    [`Tax (${order.tax_pct ?? 0}%):`, fmt$(tax)],
+    ['TOTAL:', fmt$(order.total)],
+  ]
+  let ty = afterTable
+  totals.forEach(([label, value], i) => {
+    doc.setFontSize(i === 2 ? 10 : 9)
+    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
+    doc.text(label, W - 160, ty)
+    doc.text(value, W - 36, ty, { align: 'right' })
+    if (i === 1) { doc.setDrawColor(...GRAY); doc.line(W - 160, ty + 4, W - 36, ty + 4) }
+    ty += i === 2 ? 0 : 14
+  })
+
+  if (order.shipping_address) {
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Ship To:', 36, afterTable)
+    doc.setFont('helvetica', 'normal')
+    doc.text(doc.splitTextToSize(order.shipping_address, (W - 80) / 2) as string[], 36, afterTable + 12)
+  } else if (order.notes) {
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Notes:', 36, afterTable)
+    doc.setFont('helvetica', 'normal')
+    doc.text(doc.splitTextToSize(order.notes, (W - 80) / 2) as string[], 36, afterTable + 12)
+  }
+
+  doc.setFontSize(8)
+  doc.setTextColor(...GRAY)
+  doc.text(`Generated ${new Date().toLocaleString()} · beyondGREEN ERP`, W / 2, doc.internal.pageSize.getHeight() - 18, { align: 'center' })
+  doc.save(`order-${order.order_number}.pdf`)
+}
+
 export function generateQuotePDF(
   quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null },
   lines: PDFLine[],

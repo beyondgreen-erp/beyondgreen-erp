@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
-import { generatePackingSlip, generateBOL } from '@/lib/pdfHelpers'
+import { generatePackingSlip, generateBOL, generateOrderPDF } from '@/lib/pdfHelpers'
 import LinkedTasks from '@/components/LinkedTasks'
 import { useToast } from '@/components/Toast'
 
@@ -174,8 +174,24 @@ export default function SalesOrdersPage() {
   }
 
   function getCustomer(){return customers.find(c=>c.id===form.customer_id)||null}
-  function doPackingSlip(){generatePackingSlip({order_number:form.order_number,order_date:form.order_date||null,required_ship_date:form.required_ship_date||null,status:form.status,po_number:form.po_number||null,shipping_address:form.shipping_address||null,carrier:form.carrier||null,tracking_number:form.tracking_number||null,subtotal,tax_pct:parseFloat(form.tax_pct)||0,total:grandTotal,notes:form.notes||null},lines.map(l=>({line_number:l.line_number,sku:l.sku||null,description:l.description,quantity:parseFloat(l.quantity)||0,quantity_shipped:parseFloat(l.quantity_shipped)||0,unit_of_measure:l.unit_of_measure||null,unit_price:parseFloat(l.unit_price)||0,discount_pct:parseFloat(l.discount_pct)||0})),getCustomer())}
-  function doBOL(){generateBOL({order_number:form.order_number,order_date:form.order_date||null,required_ship_date:form.required_ship_date||null,status:form.status,po_number:form.po_number||null,shipping_address:form.shipping_address||null,carrier:form.carrier||null,tracking_number:form.tracking_number||null,subtotal,tax_pct:parseFloat(form.tax_pct)||0,total:grandTotal,notes:form.notes||null},lines.map(l=>({line_number:l.line_number,sku:l.sku||null,description:l.description,quantity:parseFloat(l.quantity)||0,quantity_shipped:parseFloat(l.quantity_shipped)||0,unit_of_measure:l.unit_of_measure||null,unit_price:parseFloat(l.unit_price)||0,discount_pct:parseFloat(l.discount_pct)||0})),getCustomer())}
+  async function doOrderPDF(){
+    if(!editing)return
+    const{data:ls}=await sb.from('sales_order_lines').select('*').eq('sales_order_id',editing.id).order('line_number')
+    const fl=(ls??[]).filter((l:any)=>l.sku||l.description)
+    generateOrderPDF({order_number:editing.order_number,order_date:editing.order_date||null,required_ship_date:editing.required_ship_date||null,status:editing.status,po_number:editing.po_number||null,shipping_address:editing.shipping_address||null,carrier:editing.carrier||null,tracking_number:editing.tracking_number||null,subtotal:editing.subtotal??subtotal,tax_pct:editing.tax_pct??0,total:editing.total??grandTotal,notes:editing.notes||null},fl.map((l:any)=>({line_number:l.line_number,sku:l.sku||null,description:l.description??'',quantity:Number(l.quantity)??0,quantity_shipped:Number(l.quantity_shipped)??0,unit_of_measure:l.unit_of_measure||null,unit_price:Number(l.unit_price)??0,discount_pct:Number(l.discount_pct)??0})),getCustomer())
+  }
+  async function doPackingSlip(){
+    if(!editing)return
+    const{data:ls}=await sb.from('sales_order_lines').select('*').eq('sales_order_id',editing.id).order('line_number')
+    const fl=(ls??[]).filter((l:any)=>l.sku||l.description)
+    generatePackingSlip({order_number:editing.order_number,order_date:editing.order_date||null,required_ship_date:editing.required_ship_date||null,status:editing.status,po_number:editing.po_number||null,shipping_address:editing.shipping_address||null,carrier:editing.carrier||null,tracking_number:editing.tracking_number||null,subtotal:editing.subtotal??subtotal,tax_pct:editing.tax_pct??0,total:editing.total??grandTotal,notes:editing.notes||null},fl.map((l:any)=>({line_number:l.line_number,sku:l.sku||null,description:l.description??'',quantity:Number(l.quantity)??0,quantity_shipped:Number(l.quantity_shipped)??0,unit_of_measure:l.unit_of_measure||null,unit_price:Number(l.unit_price)??0,discount_pct:Number(l.discount_pct)??0})),getCustomer())
+  }
+  async function doBOL(){
+    if(!editing)return
+    const{data:ls}=await sb.from('sales_order_lines').select('*').eq('sales_order_id',editing.id).order('line_number')
+    const fl=(ls??[]).filter((l:any)=>l.sku||l.description)
+    generateBOL({order_number:editing.order_number,order_date:editing.order_date||null,required_ship_date:editing.required_ship_date||null,status:editing.status,po_number:editing.po_number||null,shipping_address:editing.shipping_address||null,carrier:editing.carrier||null,tracking_number:editing.tracking_number||null,subtotal:editing.subtotal??subtotal,tax_pct:editing.tax_pct??0,total:editing.total??grandTotal,notes:editing.notes||null},fl.map((l:any)=>({line_number:l.line_number,sku:l.sku||null,description:l.description??'',quantity:Number(l.quantity)??0,quantity_shipped:Number(l.quantity_shipped)??0,unit_of_measure:l.unit_of_measure||null,unit_price:Number(l.unit_price)??0,discount_pct:Number(l.discount_pct)??0})),getCustomer())
+  }
 
   const skuMatches=(i:number)=>{
     const q=lines[i]?.sku.toLowerCase()
@@ -257,6 +273,9 @@ export default function SalesOrdersPage() {
           </div>
           <div className="flex items-center gap-2">
             {editing && <>
+              <button onClick={doOrderPDF} className="flex items-center gap-1.5 text-xs border border-[#2A2A35] text-[#9898A8] hover:text-white hover:border-[#3A3A45] px-3 py-1.5 rounded-xl transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Order PDF
+              </button>
               <button onClick={doPackingSlip} className="flex items-center gap-1.5 text-xs border border-[#2A2A35] text-[#9898A8] hover:text-white hover:border-[#3A3A45] px-3 py-1.5 rounded-xl transition-colors">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Packing Slip
               </button>

@@ -164,10 +164,12 @@ export default function QuotationsPage() {
     setConverting(false);close();load()
   }
 
-  function downloadPDF(){
+  async function downloadPDF(){
     if(!editing)return
+    const {data:ls}=await sb.from('quotation_lines').select('*').eq('quotation_id',editing.id).order('line_number')
+    const freshLines=(ls??[]).filter((l:any)=>l.sku||l.description)
     const cust=customers.find(c=>c.id===editing.customer_id)||null
-    generateQuotePDF({quote_number:editing.quote_number,quote_date:editing.quote_date,expiry_date:editing.expiry_date,status:editing.status,tax_pct:editing.tax_pct??0,subtotal:editing.subtotal??subtotal,total:editing.total??grandTotal,notes:editing.notes},lines.map(l=>({line_number:l.line_number,sku:l.sku||null,description:l.description,quantity:parseFloat(l.quantity)||0,unit_of_measure:l.unit_of_measure||null,unit_price:parseFloat(l.unit_price)||0,discount_pct:parseFloat(l.discount_pct)||0})),cust)
+    generateQuotePDF({quote_number:editing.quote_number,quote_date:editing.quote_date,expiry_date:editing.expiry_date,status:editing.status,tax_pct:editing.tax_pct??0,subtotal:editing.subtotal??subtotal,total:editing.total??grandTotal,notes:editing.notes},freshLines.map((l:any)=>({line_number:l.line_number,sku:l.sku||null,description:l.description??'',quantity:Number(l.quantity)??0,unit_of_measure:l.unit_of_measure||null,unit_price:Number(l.unit_price)??0,discount_pct:Number(l.discount_pct)??0})),cust)
   }
 
   async function toggleArchive(){if(!editing)return;setBusy(true);await sb.from('quotations').update({is_active:!editing.is_active,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
