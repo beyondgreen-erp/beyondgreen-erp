@@ -77,6 +77,7 @@ export default function InventoryPage() {
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [showDupes, setShowDupes] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState('')
@@ -85,12 +86,16 @@ export default function InventoryPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    setLoadError('')
     const [{ data: p, error: pErr }, { data: v }] = await Promise.all([
-      sb.from('products').select('*').order('name'),
+      sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('vendors').select('id,company_name').eq('is_active', true).order('company_name'),
     ])
-    if (pErr) setImportMsg(`Error loading products: ${pErr.message}`)
-    if (p) setRows(p as Product[])
+    if (pErr) {
+      setLoadError(`Failed to load products: ${pErr.message}`)
+    } else if (p) {
+      setRows(p as Product[])
+    }
     if (v) setVendors(v as Vendor[])
     setLoading(false)
   }, [sb])
@@ -251,6 +256,15 @@ export default function InventoryPage() {
           <svg className="w-5 h-5 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
           <span className="text-red-400 font-medium text-sm">{dupeCount} potential duplicate product{dupeCount !== 1 ? 's' : ''} found</span>
           <button onClick={() => setShowDupes(true)} className="ml-auto text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1 hover:bg-red-500/10 transition-colors">Review Duplicates</button>
+        </div>
+      )}
+
+      {/* Load error */}
+      {loadError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center gap-3">
+          <svg className="w-5 h-5 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span className="text-red-400 text-sm flex-1">{loadError}</span>
+          <button onClick={load} className="text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1 hover:bg-red-500/10 transition-colors">Retry</button>
         </div>
       )}
 
