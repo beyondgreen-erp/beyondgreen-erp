@@ -13,16 +13,34 @@ export async function POST() {
   try {
     const sb = getSb()
 
-    // Fetch shipments not yet linked to an invoice
+    // Get all shipments with a customer name
     const { data: shipments, error: shipErr } = await sb
       .from('shipments')
       .select('*')
-      .is('invoice_id', null)
+      .not('customer_name', 'is', null)
       .order('ship_date', { ascending: true })
 
     if (shipErr) return NextResponse.json({ error: shipErr.message }, { status: 500 })
     if (!shipments || shipments.length === 0) {
-      return NextResponse.json({ imported: 0, message: 'No unlinked shipments found.' })
+      return NextResponse.json({ imported: 0, message: 'No shipments found.' })
+    }
+
+    // Get all existing real invoices (non-zero amount) linked to shipments
+    const { data: existingInvoices } = await sb
+      .from('invoices')
+      .select('shipment_id, total_amount')
+      .not('shipment_id', 'is', null)
+      .gt('total_amount', 0)
+
+    const reallyInvoicedIds = new Set(
+      (existingInvoices ?? []).map((i: { shipment_id: string }) => i.shipment_id)
+    )
+
+    // Only process shipments that don't already have a real (non-zero) invoice
+    const toImport = shipments.filter(s => !reallyInvoicedIds.has(s.id))
+
+    if (toImport.length === 0) {
+      return NextResponse.json({ imported: 0, message: 'All shipments already have invoices.' })
     }
 
     // Get current invoice count to start sequential numbering
@@ -35,7 +53,7 @@ export async function POST() {
 
     let seq = (count ?? 0) + 1
 
-    // Optionally look up customer_ids by name
+    // Build customer lookup map
     const { data: customers } = await sb
       .from('customers')
       .select('id,company_name')
@@ -48,16 +66,15 @@ export async function POST() {
       })
     }
 
-    const today = new Date().toISOString().slice(0, 10)
+    const todayStr = new Date().toISOString().slice(0, 10)
     const imported: string[] = []
     const skipped: string[] = []
 
-    for (const ship of shipments) {
+    for (const ship of toImport) {
       const invoiceNumber = `${prefix}${String(seq).padStart(4, '0')}`
-      const invoiceDate = ship.ship_date ?? today
+      const invoiceDate = ship.ship_date ?? ship.order_date ?? todayStr
 
-      // Due date: Net 30 from ship date
-      const due = new Date((invoiceDate) + 'T00:00:00')
+      const due = new Date(invoiceDate + 'T00:00:00')
       due.setDate(due.getDate() + 30)
       const dueDate = due.toISOString().slice(0, 10)
 
@@ -92,6 +109,7 @@ export async function POST() {
         reminder_count: 0,
         sent_to_finance: false,
         is_active: true,
+        notes: 'Imported from shipment record. Default status: Unpaid. Please verify amount and update payment status.',
       }).select('id,invoice_number_display').single()
 
       if (invErr || !inv) {
@@ -99,7 +117,7 @@ export async function POST() {
         continue
       }
 
-      // Add a line item for the shipping cost
+      // Add line item for the shipping cost
       const lineDesc = [
         'Shipping',
         ship.carrier ? `· ${ship.carrier}` : '',

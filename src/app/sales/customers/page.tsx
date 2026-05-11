@@ -22,6 +22,7 @@ interface Customer {
   first_shipment_date: string | null; last_shipment_date: string | null
   manual_spend_override: boolean | null; manual_lifetime_spend: number | null
   spend_notes: string | null; is_merged: boolean; merged_from_names: string[] | null
+  parent_customer_id: string | null; is_parent_account: boolean | null; account_type: string | null
 }
 interface ActivityEntry {
   id: string; customer_id: string; activity_type: string; source_type: string
@@ -164,6 +165,18 @@ export default function CustomersPage() {
   const [dupesLoading, setDupesLoading] = useState(false)
   const [dupeGroups, setDupeGroups] = useState<{score:string;customers:any[]}[]>([])
 
+  // Parent/child grouping
+  const [groupModal, setGroupModal] = useState(false)
+  const [groupStep, setGroupStep] = useState<1|2|3>(1)
+  const [groupParentId, setGroupParentId] = useState('')
+  const [groupParentName, setGroupParentName] = useState('')
+  const [groupChildIds, setGroupChildIds] = useState<Set<string>>(new Set())
+  const [grouping, setGrouping] = useState(false)
+  const [groupErr, setGroupErr] = useState('')
+  const [suggestedGroups, setSuggestedGroups] = useState<{baseName:string;ids:string[];names:string[];totalSpend:number}[]>([])
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set())
+  const [accountTypeFilter, setAccountTypeFilter] = useState('all')
+
   // ── Load ──────────────────────────────────────────────────
   const fetchCustomers = useCallback(async () => {
     setLoading(true)
@@ -194,6 +207,12 @@ export default function CustomersPage() {
     if (!showArchived && !c.is_active) return false
     if (showArchived && c.is_active) return false
     if (stageFilter !== 'all' && (c.customer_status||'Lead') !== stageFilter) return false
+    if (accountTypeFilter !== 'all') {
+      const acct = c.account_type ?? 'standalone'
+      if (accountTypeFilter === 'parent' && !c.is_parent_account) return false
+      if (accountTypeFilter === 'child' && acct !== 'child') return false
+      if (accountTypeFilter === 'standalone' && acct !== 'standalone') return false
+    }
     if (!search) return true
     const q = search.toLowerCase()
     const pc = primaryContacts[c.id]
@@ -203,6 +222,15 @@ export default function CustomersPage() {
       (pc?.full_name??'').toLowerCase().includes(q) ||
       (pc?.email??'').toLowerCase().includes(q) ||
       (c.pipeline_stage??'').toLowerCase().includes(q)
+  })
+
+  // Build parent → children map for expandable table
+  const childrenByParent: Record<string,Customer[]> = {}
+  customers.forEach(c => {
+    if (c.parent_customer_id) {
+      if (!childrenByParent[c.parent_customer_id]) childrenByParent[c.parent_customer_id] = []
+      childrenByParent[c.parent_customer_id].push(c)
+    }
   })
 
   // ── Panel helpers ──────────────────────────────────────────
@@ -508,6 +536,72 @@ export default function CustomersPage() {
     setMergeModal(true)
   }
 
+  // ── Parent/child grouping ─────────────────────────────────
+  function openGroupModal() {
+    setGroupStep(1)
+    setGroupParentId('')
+    setGroupParentName('')
+    setGroupChildIds(new Set())
+    setGroupErr('')
+    // Build suggested groups by first word of company name
+    const groups: Record<string,{ids:string[];names:string[];totalSpend:number}> = {}
+    customers.filter(c => !c.is_merged && c.account_type !== 'child').forEach(c => {
+      const key = c.company_name.split(/[\s|]+/)[0].toUpperCase()
+      if (key.length < 3) return
+      if (!groups[key]) groups[key] = { ids:[], names:[], totalSpend:0 }
+      groups[key].ids.push(c.id)
+      groups[key].names.push(c.company_name)
+      groups[key].totalSpend += c.lifetime_spend ?? 0
+    })
+    const suggested = Object.entries(groups)
+      .filter(([,g]) => g.ids.length > 1)
+      .sort((a,b) => b[1].ids.length - a[1].ids.length)
+      .slice(0, 10)
+      .map(([baseName,g]) => ({ baseName, ...g }))
+    setSuggestedGroups(suggested)
+    setGroupModal(true)
+  }
+
+  function applySuggestedGroup(group: {baseName:string;ids:string[];names:string[]}) {
+    const parent = customers.find(c => group.ids.includes(c.id) && c.is_parent_account)
+    setGroupParentId(parent?.id ?? '')
+    setGroupParentName(group.baseName)
+    setGroupChildIds(new Set(group.ids))
+    setGroupStep(2)
+  }
+
+  async function performGroup() {
+    if (!groupParentName.trim() && !groupParentId) { setGroupErr('Parent account name is required'); return }
+    if (groupChildIds.size === 0) { setGroupErr('Select at least one child account'); return }
+    setGrouping(true); setGroupErr('')
+    const childArr = Array.from(groupChildIds).filter(id => id !== groupParentId)
+    let res: Response, json: any
+    try {
+      res = await fetch('/api/customers/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parent_id: groupParentId || undefined,
+          child_ids: childArr,
+          parent_name: groupParentId ? undefined : groupParentName.trim(),
+        }),
+      })
+      json = await res.json()
+    } catch(err) {
+      setGroupErr(`Network error: ${err}`); setGrouping(false); return
+    }
+    if (!res.ok || json.error) { setGroupErr(json.error || 'Grouping failed'); setGrouping(false); return }
+    setGrouping(false); setGroupModal(false); fetchCustomers()
+  }
+
+  function toggleParentExpand(id: string) {
+    setExpandedParents(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
   // ── Pipeline drag-and-drop ────────────────────────────────
   async function dropOnStage(stage: string) {
     if (!draggingId) return
@@ -549,6 +643,10 @@ export default function CustomersPage() {
               Merge {selectedArr.length} Selected
             </button>
           )}
+          <button onClick={openGroupModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-600 text-white font-medium transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Group Accounts
+          </button>
           <button onClick={findDuplicates} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
             Find Duplicates
@@ -589,6 +687,12 @@ export default function CustomersPage() {
               {f==='all'?'All':f}
             </button>
           ))}
+          <span className="text-gray-700 text-xs">|</span>
+          {(['all','parent','child','standalone'] as const).map(f=>(
+            <button key={f} onClick={()=>setAccountTypeFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${accountTypeFilter===f?'bg-teal-600 border-teal-600 text-white':'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-white'}`}>
+              {f==='all'?'All Accounts':f==='parent'?'Parent Accounts':f==='child'?'Locations':f==='standalone'?'Standalone':''}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -605,31 +709,68 @@ export default function CustomersPage() {
             <tbody>{filtered.map((c,i)=>{
               const pc=primaryContacts[c.id]
               const isSelected=selectedIds.has(c.id)
-              return <tr key={c.id} className={`border-b border-gray-800/60 last:border-0 hover:bg-gray-800/40 transition-colors ${i%2?'bg-gray-800/10':''} ${isSelected?'bg-blue-900/10':''}`}>
-                <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
-                  <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(c.id)} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 cursor-pointer"/>
-                </td>
-                <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}>
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}>
-                      <span className="text-white font-semibold text-xs">{initials(c.company_name)}</span>
+              const isParent=c.is_parent_account===true
+              const isChild=c.account_type==='child'
+              const isExpanded=expandedParents.has(c.id)
+              const children=isParent?(childrenByParent[c.id]??[]):[]
+              // Combined spend for parent
+              const combinedSpend=isParent ? (c.lifetime_spend??0)+children.reduce((s,ch)=>s+(ch.lifetime_spend??0),0) : (c.lifetime_spend??null)
+              const combinedShips=isParent ? (c.total_shipments??0)+children.reduce((s,ch)=>s+(ch.total_shipments??0),0) : (c.total_shipments??null)
+              return [
+                <tr key={c.id} className={`border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors ${isParent?'bg-teal-950/10':isChild?'bg-gray-800/5':i%2?'bg-gray-800/10':''} ${isSelected?'bg-blue-900/10':''}`}>
+                  <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
+                    <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(c.id)} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 cursor-pointer"/>
+                  </td>
+                  <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}>
+                    <div className="flex items-center gap-2.5" style={{paddingLeft:isChild?'1.25rem':0}}>
+                      {isParent&&(
+                        <button onClick={e=>{e.stopPropagation();toggleParentExpand(c.id)}} className="text-teal-400 hover:text-teal-300 shrink-0">
+                          {isExpanded?<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>:<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>}
+                        </button>
+                      )}
+                      {isChild&&<span className="text-gray-600 text-xs shrink-0">↳</span>}
+                      {!isParent&&!isChild&&<div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-xs">{initials(c.company_name)}</span></div>}
+                      {(isParent||isChild)&&<div className={`w-7 h-7 rounded-full ${isParent?'bg-teal-700':avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-xs">{initials(c.company_name)}</span></div>}
+                      <div>
+                        <span className={`font-medium ${isParent?'text-teal-100':'text-white'}`}>{c.company_name}</span>
+                        {isParent&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-teal-500/20 text-teal-400 border border-teal-500/30 rounded">Parent · {children.length} locations</span>}
+                        {isChild&&<span className="ml-2 text-xs text-gray-600">location</span>}
+                        {c.is_merged&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded">Merged</span>}
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-white font-medium">{c.company_name}</span>
-                      {c.is_merged&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded">Merged</span>}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.full_name||'—'}</td>
-                <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.email||c.email||'—'}</td>
-                <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${STATUS_BADGE[c.customer_status||'Lead']||STATUS_BADGE.Lead}`}>{c.customer_status||'Lead'}</span></td>
-                <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}>
-                  <span className="text-emerald-400 font-medium">{c.lifetime_spend!=null?fmt$2(c.lifetime_spend):'—'}</span>
-                  {c.manual_spend_override&&<span className="ml-1 text-xs text-amber-400" title="Manual override">M</span>}
-                </td>
-                <td className="px-4 py-3.5 text-blue-400 font-medium cursor-pointer" onClick={()=>openEdit(c)}>{c.total_shipments!=null?c.total_shipments:'—'}</td>
-                <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(c)}>{fmtD(c.last_shipment_date)}</td>
-              </tr>
+                  </td>
+                  <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.full_name||'—'}</td>
+                  <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.email||c.email||'—'}</td>
+                  <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${STATUS_BADGE[c.customer_status||'Lead']||STATUS_BADGE.Lead}`}>{c.customer_status||'Lead'}</span></td>
+                  <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}>
+                    <span className={`font-medium ${isParent?'text-teal-400':'text-emerald-400'}`}>{combinedSpend!=null?fmt$2(combinedSpend):'—'}</span>
+                    {c.manual_spend_override&&<span className="ml-1 text-xs text-amber-400" title="Manual override">M</span>}
+                    {isParent&&children.length>0&&<span className="ml-1 text-xs text-gray-600">combined</span>}
+                  </td>
+                  <td className="px-4 py-3.5 text-blue-400 font-medium cursor-pointer" onClick={()=>openEdit(c)}>{combinedShips!=null?combinedShips:'—'}</td>
+                  <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(c)}>{fmtD(c.last_shipment_date)}</td>
+                </tr>,
+                // Expanded children rows
+                ...(isParent&&isExpanded ? children.map(ch=>{
+                  const chPc=primaryContacts[ch.id]
+                  return <tr key={`child-${ch.id}`} className="border-b border-gray-800/40 bg-teal-950/5 hover:bg-teal-950/20 transition-colors cursor-pointer" onClick={()=>openEdit(ch)}>
+                    <td className="px-3 py-2.5"/>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2 pl-10">
+                        <span className="text-gray-600 text-xs">↳</span>
+                        <div className={`w-5 h-5 rounded-full ${avatarColor(ch.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-xs">{initials(ch.company_name)}</span></div>
+                        <span className="text-gray-300 text-xs">{ch.company_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-500 text-xs">{chPc?.full_name||'—'}</td>
+                    <td className="px-4 py-2.5 text-gray-500 text-xs">{chPc?.email||ch.email||'—'}</td>
+                    <td className="px-4 py-2.5"><span className={`text-xs px-1.5 py-0.5 rounded-full border ${STATUS_BADGE[ch.customer_status||'Lead']||STATUS_BADGE.Lead}`}>{ch.customer_status||'Lead'}</span></td>
+                    <td className="px-4 py-2.5 text-emerald-400 text-xs">{ch.lifetime_spend!=null?fmt$2(ch.lifetime_spend):'—'}</td>
+                    <td className="px-4 py-2.5 text-blue-400 text-xs">{ch.total_shipments!=null?ch.total_shipments:'—'}</td>
+                    <td className="px-4 py-2.5 text-gray-500 text-xs">{fmtD(ch.last_shipment_date)}</td>
+                  </tr>
+                }) : [])
+              ]
             })}</tbody>
           </table>}
         </div>
@@ -687,7 +828,12 @@ export default function CustomersPage() {
             {editing&&<div className={`w-8 h-8 rounded-full ${avatarColor(editing.company_name)} flex items-center justify-center`}><span className="text-white font-bold text-xs">{initials(editing.company_name)}</span></div>}
             <div>
               <h2 className="text-white font-semibold text-sm">{editing?editing.company_name:'Add Customer'}</h2>
-              {editing&&<p className="text-xs text-gray-500">{editing.customer_status||'Lead'}{editing.is_merged&&<span className="ml-2 text-amber-400">· Merged</span>}</p>}
+              <p className="text-xs text-gray-500">
+                {editing?.customer_status||'Lead'}
+                {editing?.is_merged&&<span className="ml-2 text-amber-400">· Merged</span>}
+                {editing?.is_parent_account&&<span className="ml-2 text-teal-400">· Parent Account ({(childrenByParent[editing.id]??[]).length} locations)</span>}
+                {editing?.account_type==='child'&&editing?.parent_customer_id&&(()=>{const p=customers.find(x=>x.id===editing.parent_customer_id);return p?<span className="ml-2 text-teal-400">· Part of {p.company_name}</span>:null})()}
+              </p>
             </div>
           </div>
           <button onClick={closePanel} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
@@ -1099,6 +1245,126 @@ export default function CustomersPage() {
             <div className="px-6 py-4 border-t border-gray-800 flex gap-3">
               <button onClick={()=>setMergeModal(false)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
               <button onClick={performMerge} disabled={merging} className="flex-1 text-sm px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-semibold transition-colors">{merging?'Merging…':'Confirm Merge'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── GROUP ACCOUNTS MODAL ── */}
+      {groupModal&&(
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-white font-semibold">Group Customer Locations</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Step {groupStep} of 3</p>
+              </div>
+              <button onClick={()=>setGroupModal(false)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+              {/* Step 1 - Suggested groups */}
+              {groupStep===1&&(
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold text-white mb-1">Select or create a parent account</p>
+                    <p className="text-xs text-gray-500">Type a new parent name (e.g. WALMART) or select an existing parent account.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Parent Account Name</label>
+                    <input value={groupParentName} onChange={e=>setGroupParentName(e.target.value)} placeholder="e.g. WALMART" className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Or select existing parent</label>
+                    <select value={groupParentId} onChange={e=>{setGroupParentId(e.target.value);if(e.target.value){const p=customers.find(c=>c.id===e.target.value);if(p)setGroupParentName(p.company_name)}}} className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500 transition">
+                      <option value="">— None (create new) —</option>
+                      {customers.filter(c=>c.is_active&&!c.is_merged).map(c=><option key={c.id} value={c.id}>{c.company_name}{c.is_parent_account?' (Parent)':''}</option>)}
+                    </select>
+                  </div>
+                  {suggestedGroups.length>0&&(
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Suggested Groups</p>
+                      <div className="space-y-2">
+                        {suggestedGroups.map(g=>(
+                          <div key={g.baseName} className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-3">
+                            <div>
+                              <span className="text-sm text-white font-medium">{g.baseName}</span>
+                              <span className="text-xs text-gray-500 ml-2">— {g.ids.length} locations found</span>
+                              <p className="text-xs text-gray-600 mt-0.5">{g.names.slice(0,3).join(', ')}{g.names.length>3?` +${g.names.length-3} more`:''}</p>
+                            </div>
+                            <button onClick={()=>applySuggestedGroup(g)} className="text-xs px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-white font-medium transition-colors whitespace-nowrap">Group All →</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <button onClick={()=>{if(!groupParentName.trim()&&!groupParentId){setGroupErr('Enter a parent name or select existing');return}setGroupErr('');setGroupStep(2)}} className="w-full py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors">
+                    Next: Select Locations →
+                  </button>
+                  {groupErr&&<p className="text-red-400 text-xs">{groupErr}</p>}
+                </div>
+              )}
+
+              {/* Step 2 - Select children */}
+              {groupStep===2&&(
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Select locations to group under <span className="text-teal-400">{groupParentName||'parent'}</span></p>
+                    <p className="text-xs text-gray-500 mt-0.5">{groupChildIds.size} selected</p>
+                  </div>
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                    {customers.filter(c=>c.is_active&&!c.is_merged&&c.id!==groupParentId).map(c=>{
+                      const checked=groupChildIds.has(c.id)
+                      return (
+                        <label key={c.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${checked?'border-teal-500/50 bg-teal-900/20':'border-gray-700 hover:border-gray-600'}`}>
+                          <input type="checkbox" checked={checked} onChange={()=>{setGroupChildIds(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n})}} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-teal-500 cursor-pointer"/>
+                          <div className={`w-6 h-6 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-bold text-xs">{initials(c.company_name)}</span></div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white truncate">{c.company_name}</p>
+                            <p className="text-xs text-gray-500">{c.customer_status||'Lead'} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
+                          </div>
+                          {c.is_parent_account&&<span className="text-xs text-teal-400 shrink-0">Parent</span>}
+                          {c.account_type==='child'&&<span className="text-xs text-gray-500 shrink-0">Location</span>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={()=>setGroupStep(1)} className="flex-1 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white text-sm transition-colors">← Back</button>
+                    <button onClick={()=>{if(groupChildIds.size===0){setGroupErr('Select at least one location');return}setGroupErr('');setGroupStep(3)}} className="flex-1 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors">
+                      Preview Grouping →
+                    </button>
+                  </div>
+                  {groupErr&&<p className="text-red-400 text-xs">{groupErr}</p>}
+                </div>
+              )}
+
+              {/* Step 3 - Confirm */}
+              {groupStep===3&&(
+                <div className="space-y-4">
+                  <p className="text-sm font-semibold text-white">Confirm grouping</p>
+                  <div className="bg-gray-800/60 border border-teal-800/40 rounded-xl p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-400 border border-teal-500/30">PARENT</span>
+                      <span className="text-white font-semibold">{groupParentName}</span>
+                      {groupParentId&&<span className="text-xs text-gray-500">(existing)</span>}
+                      {!groupParentId&&<span className="text-xs text-gray-500">(new)</span>}
+                    </div>
+                    {customers.filter(c=>groupChildIds.has(c.id)).map(c=>(
+                      <div key={c.id} className="flex items-center gap-2 pl-4">
+                        <span className="text-gray-600 text-xs">↳</span>
+                        <span className="text-gray-300 text-sm">{c.company_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {groupErr&&<p className="text-red-400 text-xs">{groupErr}</p>}
+                  <div className="flex gap-3">
+                    <button onClick={()=>setGroupStep(2)} className="flex-1 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white text-sm transition-colors">← Back</button>
+                    <button onClick={performGroup} disabled={grouping} className="flex-1 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors">{grouping?'Saving…':'Confirm Group'}</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
