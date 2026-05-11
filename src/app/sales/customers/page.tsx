@@ -7,6 +7,7 @@ import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
 import RichTextEditor from '@/components/RichTextEditor'
 import LinkedTasks from '@/components/LinkedTasks'
+import ConversationLog from '@/components/ConversationLog'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -104,7 +105,8 @@ export default function CustomersPage() {
   // Panel
   const [panelOpen, setPanelOpen] = useState(false)
   const [editing, setEditing] = useState<Customer|null>(null)
-  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'activity'|'feed'|'files'>('info')
+  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'activity'|'feed'|'files'|'conversations'>('info')
+  const [convoCount, setConvoCount] = useState(0)
   const [form, setForm] = useState<F>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -265,6 +267,8 @@ export default function CustomersPage() {
     ])
     setContacts((cts as Contact[]) ?? [])
     setShipLocs((locs as ShipLocation[]) ?? [])
+    supabase.from('customer_conversations').select('id', { count: 'exact', head: true }).eq('customer_id', c.id)
+      .then(({ count }) => setConvoCount(count ?? 0))
   }
 
   function closePanel() {
@@ -614,9 +618,10 @@ export default function CustomersPage() {
   const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
   const inpSm = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
   const sel = inp + ' cursor-pointer'
-  const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'; label: string }[] = [
+  const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
     { key: 'contacts', label: `Contacts${contacts.length ? ` (${contacts.length})` : ''}` },
+    { key: 'conversations', label: `Conversations${convoCount > 0 ? ` (${convoCount})` : ''}` },
     { key: 'activity', label: 'Activity' },
     { key: 'feed', label: 'Activity Feed' },
     { key: 'files', label: 'Files & Notes' },
@@ -1172,6 +1177,18 @@ export default function CustomersPage() {
             </div>
           )}
           {activeTab==='feed'&&!editing&&<div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first.</p></div>}
+
+          {/* ── TAB: Conversations ── */}
+          {activeTab==='conversations'&&editing&&(
+            <div className="px-6 py-5">
+              <ConversationLog
+                customerId={editing.id}
+                customerName={editing.company_name}
+                currentUserEmail={userEmail}
+              />
+            </div>
+          )}
+          {activeTab==='conversations'&&!editing&&<div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first.</p></div>}
 
           {/* ── TAB: Files & Comments ── */}
           {activeTab==='files'&&editing&&(

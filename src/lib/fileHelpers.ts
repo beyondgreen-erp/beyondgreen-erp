@@ -12,7 +12,7 @@ export async function uploadFile(
 
   const { error: uploadError } = await supabase.storage
     .from('erp-files')
-    .upload(path, file, { cacheControl: '3600', upsert: false })
+    .upload(path, file, { cacheControl: '3600', upsert: true })
 
   if (uploadError) return { success: false, error: uploadError.message }
 

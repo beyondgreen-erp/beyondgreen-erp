@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import RemindersWidget from '@/components/RemindersWidget'
 
 interface KPI { openOrders: number; revenueMTD: number; shipmentsMTD: number; invoicesDue: number; openTasks: number; lowStock: number; openWorkOrders: number; overdueInvoices: number; overdueAmount: number; totalCustomers: number }
 const INIT: KPI = { openOrders:0, revenueMTD:0, shipmentsMTD:0, invoicesDue:0, openTasks:0, lowStock:0, openWorkOrders:0, overdueInvoices:0, overdueAmount:0, totalCustomers:0 }
@@ -242,6 +243,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Reminders */}
+      <RemindersWidget />
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
