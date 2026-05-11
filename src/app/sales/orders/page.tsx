@@ -166,9 +166,9 @@ export default function SalesOrdersPage() {
       if(error||!data){setErr(error?dbErr(error):'Insert failed');setSaving(false);return}
       sid=(data as any).id
     }
-    if(editing)await sb.from('sales_order_lines').delete().eq('sales_order_id',sid!)
+    if(editing){const{error:de}=await sb.from('sales_order_lines').delete().eq('sales_order_id',sid!);if(de){setErr('Failed to clear lines: '+de.message);setSaving(false);return}}
     const lineRows=lines.filter(l=>l.sku||l.description).map((l,i)=>({sales_order_id:sid!,line_number:i+1,product_id:l.product_id||null,sku:l.sku||null,description:l.description,quantity:parseFloat(l.quantity)||1,quantity_shipped:parseFloat(l.quantity_shipped)||0,unit_of_measure:l.unit_of_measure||null,unit_price:parseFloat(l.unit_price)||0,discount_pct:parseFloat(l.discount_pct)||0}))
-    if(lineRows.length>0)await sb.from('sales_order_lines').insert(lineRows)
+    if(lineRows.length>0){const{error:le}=await sb.from('sales_order_lines').insert(lineRows);if(le){setErr('Failed to save line items: '+le.message);setSaving(false);return}}
     toast(editing ? 'Order updated' : 'Order created', 'success')
     setSaving(false);close();load()
   }
