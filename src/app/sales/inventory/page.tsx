@@ -85,10 +85,11 @@ export default function InventoryPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: p }, { data: v }] = await Promise.all([
-      sb.from('products').select('*').order('sku'),
+    const [{ data: p, error: pErr }, { data: v }] = await Promise.all([
+      sb.from('products').select('*').order('name'),
       sb.from('vendors').select('id,company_name').eq('is_active', true).order('company_name'),
     ])
+    if (pErr) setImportMsg(`Error loading products: ${pErr.message}`)
     if (p) setRows(p as Product[])
     if (v) setVendors(v as Vendor[])
     setLoading(false)
@@ -101,21 +102,22 @@ export default function InventoryPage() {
     const q = search.toLowerCase().trim()
     let pool = rows
 
-    if (statusFilter === 'active') pool = pool.filter(r => r.is_active && !r.is_discontinued)
-    else if (statusFilter === 'low_stock') pool = pool.filter(r => r.is_active && r.on_hand_qty > 0 && r.on_hand_qty <= r.reorder_point)
-    else if (statusFilter === 'out_of_stock') pool = pool.filter(r => r.is_active && r.on_hand_qty === 0)
+    if (statusFilter === 'active') pool = pool.filter(r => r.is_active !== false && !r.is_discontinued)
+    else if (statusFilter === 'low_stock') pool = pool.filter(r => r.is_active !== false && r.on_hand_qty > 0 && r.on_hand_qty <= r.reorder_point)
+    else if (statusFilter === 'out_of_stock') pool = pool.filter(r => r.is_active !== false && r.on_hand_qty === 0)
     else if (statusFilter === 'discontinued') pool = pool.filter(r => r.is_discontinued === true)
     else if (statusFilter === 'duplicates') pool = pool.filter(r => r.duplicate_flag === true && r.duplicate_reviewed !== true)
-    else pool = pool.filter(r => r.is_active !== false) // 'all' = active only
+    // 'all' — show everything
 
     if (catFilter !== 'All') pool = pool.filter(r => (r.category ?? '') === catFilter)
 
     if (!q) return pool
 
-    const skuMatch = pool.filter(r => r.sku.toLowerCase() === q)
-    const skuStarts = pool.filter(r => r.sku.toLowerCase().startsWith(q) && r.sku.toLowerCase() !== q)
-    const skuContains = pool.filter(r => r.sku.toLowerCase().includes(q) && !r.sku.toLowerCase().startsWith(q))
-    const nameMatch = pool.filter(r => pname(r).toLowerCase().includes(q) && !r.sku.toLowerCase().includes(q))
+    const sku = (r: Product) => (r.sku ?? '').toLowerCase()
+    const skuMatch = pool.filter(r => sku(r) === q)
+    const skuStarts = pool.filter(r => sku(r).startsWith(q) && sku(r) !== q)
+    const skuContains = pool.filter(r => sku(r).includes(q) && !sku(r).startsWith(q))
+    const nameMatch = pool.filter(r => pname(r).toLowerCase().includes(q) && !sku(r).includes(q))
 
     return [...skuMatch, ...skuStarts, ...skuContains, ...nameMatch]
   }, [rows, search, catFilter, statusFilter])
@@ -320,8 +322,14 @@ export default function InventoryPage() {
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center py-20">
-            <p className="text-gray-500 text-sm">{search ? 'No items match.' : 'No items.'}</p>
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <p className="text-gray-500 text-sm">
+              {rows.length === 0
+                ? 'No products in database. Use "Import XLSX" to upload your inventory file, or click "Add Item" to add manually.'
+                : search
+                ? `No items match "${search}".`
+                : `No items match the current filters. (${rows.length} total in DB)`}
+            </p>
           </div>
         ) : (
           <table className="w-full min-w-[1100px] text-sm">
