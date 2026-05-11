@@ -9,7 +9,7 @@ import LinkedTasks from '@/components/LinkedTasks'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface Customer { id: string; company_name: string; email?: string; phone?: string; billing_address?: string; contact_name?: string }
-interface Product { id: string; sku: string; name: string; unit_of_measure: string | null; unit_price: number | null }
+interface Product { id: string; sku: string; product_name: string; unit_of_measure: string | null; unit_price: number | null; on_hand_qty: number | null }
 interface QuoteLine { id?: string; line_number: number; product_id: string | null; sku: string; description: string; quantity: string; unit_of_measure: string; unit_price: string; discount_pct: string }
 interface Quotation { id: string; quote_number: string; customer_id: string | null; quote_date: string | null; expiry_date: string | null; status: string; subtotal: number; tax_pct: number; total: number; notes: string | null; is_active: boolean }
 interface ShipLocation { id: string; location_name: string; address: string | null; city: string | null; state: string | null; zip: string | null; is_default: boolean }
@@ -52,7 +52,7 @@ export default function QuotationsPage() {
     const [{data:q},{data:c},{data:p}]=await Promise.all([
       sb.from('quotations').select('*').order('created_at',{ascending:false}),
       sb.from('customers').select('*').eq('is_active',true).order('company_name'),
-      sb.from('products').select('id,sku,name,unit_of_measure,unit_price').eq('is_active',true).order('sku'),
+      sb.from('products').select('id,sku,product_name,unit_of_measure,unit_price,on_hand_qty').eq('is_active',true).order('sku'),
     ])
     if(q)setRows(q as Quotation[])
     if(c)setCustomers(c as Customer[])
@@ -123,7 +123,7 @@ export default function QuotationsPage() {
   function removeLine(i:number){setLines(prev=>prev.filter((_,idx)=>idx!==i).map((l,idx)=>({...l,line_number:idx+1})))}
 
   function selectProduct(i:number,p:Product){
-    setLine(i,{product_id:p.id,sku:p.sku,description:p.name,unit_of_measure:p.unit_of_measure??'',unit_price:p.unit_price!==null?String(p.unit_price):'0'})
+    setLine(i,{product_id:p.id,sku:p.sku,description:p.product_name,unit_of_measure:p.unit_of_measure??'',unit_price:p.unit_price!==null?String(p.unit_price):'0'})
     setSkuFocus(null)
   }
 
@@ -178,7 +178,7 @@ export default function QuotationsPage() {
   const skuMatches=(i:number)=>{
     const q=lines[i]?.sku.toLowerCase()
     if(!q) return products.slice(0,6)
-    const pool=products.filter(p=>p.sku.toLowerCase().includes(q)||p.name.toLowerCase().includes(q))
+    const pool=products.filter(p=>p.sku.toLowerCase().includes(q)||(p.product_name??'').toLowerCase().includes(q))
     return pool.sort((a,b)=>{
       const as=a.sku.toLowerCase(),bs=b.sku.toLowerCase()
       if(as===q&&bs!==q) return -1; if(bs===q&&as!==q) return 1
@@ -277,13 +277,22 @@ export default function QuotationsPage() {
                       <td className="px-1 py-1 relative w-28">
                         <input value={l.sku} onChange={e=>{setLine(i,{sku:e.target.value,product_id:null});setSkuFocus(i)}} onFocus={()=>setSkuFocus(i)} onBlur={()=>setTimeout(()=>setSkuFocus(f=>f===i?null:f),150)} placeholder="SKU…" className={inpSm}/>
                         {skuFocus===i&&skuMatches(i).length>0&&(
-                          <div className="absolute top-full left-0 z-20 mt-0.5 w-60 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
-                            {skuMatches(i).map(p=>(
-                              <button key={p.id} type="button" onMouseDown={()=>selectProduct(i,p)} className="w-full text-left px-3 py-2 hover:bg-gray-700 transition-colors flex items-center gap-2">
-                                <span className="text-emerald-400 font-mono text-xs shrink-0">{p.sku}</span>
-                                <span className="text-gray-300 text-xs truncate">{p.name}</span>
+                          <div className="absolute top-full left-0 z-20 mt-0.5 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+                            {skuMatches(i).map(p=>{
+                              const qty=parseFloat(lines[i]?.quantity)||1
+                              const stock=p.on_hand_qty??0
+                              const lowStock=stock>0&&stock<qty
+                              const noStock=stock===0
+                              return(
+                              <button key={p.id} type="button" onMouseDown={()=>selectProduct(i,p)} className="w-full text-left px-3 py-2 hover:bg-gray-700 transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-emerald-400 font-mono text-xs shrink-0">{p.sku}</span>
+                                  <span className="text-gray-300 text-xs truncate flex-1">{p.product_name}</span>
+                                  <span className={`text-xs shrink-0 ${noStock?'text-red-400':lowStock?'text-amber-400':'text-gray-500'}`}>{stock} on hand</span>
+                                </div>
+                                {(lowStock||noStock)&&<p className="text-xs mt-0.5 text-amber-400">{noStock?'Out of stock':'Low stock'}</p>}
                               </button>
-                            ))}
+                            )})}
                           </div>
                         )}
                       </td>
