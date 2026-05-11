@@ -6,6 +6,7 @@ import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
+import LinkedTasks from '@/components/LinkedTasks'
 
 interface Customer { id: string; company_name: string }
 interface Vendor { id: string; company_name: string }
@@ -135,7 +136,7 @@ export default function CertificationsPage() {
         ))}</tbody></table>}
       </div>
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
+      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[700px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit Certification':'Add Certification'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">Certification Name <span className="text-red-400">*</span></label><input value={form.cert_name} onChange={e=>setForm(p=>({...p,cert_name:e.target.value}))} className={inp}/></div>
@@ -151,6 +152,7 @@ export default function CertificationsPage() {
           <div><label className="block text-xs text-gray-400 mb-1.5">Linked Vendor</label><select value={form.vendor_id} onChange={e=>setForm(p=>({...p,vendor_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.company_name}</option>)}</select></div>
           <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Certifications" className={inp+' resize-none'}/>
           {editing&&(<>
+            <div className="border-t border-gray-800 pt-4"><LinkedTasks recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-gray-800 pt-4"><FileUpload supabase={sb} recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-gray-800 pt-4"><CommentSection recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
           </>)}
