@@ -11,7 +11,9 @@ import TiptapLink from '@tiptap/extension-link'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import TextAlign from '@tiptap/extension-text-align'
-import { useEffect, useRef } from 'react'
+import Mention from '@tiptap/extension-mention'
+import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState } from 'react'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface Props {
@@ -21,6 +23,50 @@ interface Props {
   readOnly?: boolean
   minHeight?: string
   supabase?: any
+}
+
+interface Profile {
+  email: string
+  full_name: string
+  avatar_color: string
+  avatar_initials: string | null
+}
+
+interface MentionState {
+  items: Profile[]
+  command: (item: { id: string; label: string }) => void
+  rect: DOMRect | null
+  selectedIndex: number
+}
+
+function MentionDropdown({ state, onSelect }: { state: MentionState; onSelect: (p: Profile, idx: number) => void }) {
+  if (!state.rect || state.items.length === 0) return null
+  return createPortal(
+    <div
+      style={{ position: 'fixed', top: state.rect.bottom + 6, left: state.rect.left, zIndex: 99999 }}
+      className="bg-[#1E1E28] border border-[#3A3A45] rounded-xl shadow-2xl py-1.5 min-w-52 overflow-hidden"
+    >
+      {state.items.map((p, i) => (
+        <button
+          key={p.email}
+          onMouseDown={e => { e.preventDefault(); onSelect(p, i) }}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${i === state.selectedIndex ? 'bg-[#2A2A35]' : 'hover:bg-[#2A2A35]'}`}
+        >
+          <div
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
+            style={{ backgroundColor: p.avatar_color || '#374151' }}
+          >
+            {p.avatar_initials || p.email[0].toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-white font-medium truncate">{p.full_name || p.email.split('@')[0]}</p>
+            <p className="text-[11px] text-[#5A5A6A] truncate">{p.email}</p>
+          </div>
+        </button>
+      ))}
+    </div>,
+    document.body
+  )
 }
 
 function Divider() {
@@ -47,9 +93,7 @@ function Btn({
       title={title}
       disabled={disabled}
       className={`p-1.5 rounded text-xs transition-colors shrink-0 ${
-        active
-          ? 'bg-gray-600 text-white'
-          : 'text-gray-400 hover:text-white hover:bg-gray-700'
+        active ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'
       } disabled:opacity-40`}
     >
       {children}
@@ -57,15 +101,25 @@ function Btn({
   )
 }
 
-export default function RichTextEditor({
-  content,
-  onChange,
-  placeholder,
-  readOnly,
-  minHeight = '120px',
-  supabase,
-}: Props) {
+export default function RichTextEditor({ content, onChange, placeholder, readOnly, minHeight = '120px', supabase }: Props) {
   const pasteRef = useRef<((src: string) => void) | null>(null)
+  const profilesRef = useRef<Profile[]>([])
+  const mentionStateRef = useRef<MentionState | null>(null)
+  const [mentionState, setMentionState] = useState<MentionState | null>(null)
+
+  useEffect(() => {
+    mentionStateRef.current = mentionState
+  }, [mentionState])
+
+  useEffect(() => {
+    if (!supabase) return
+    supabase
+      .from('user_profiles')
+      .select('email,full_name,avatar_color,avatar_initials')
+      .then(({ data }: { data: Profile[] | null }) => {
+        if (data) profilesRef.current = data
+      })
+  }, [supabase])
 
   const editor = useEditor({
     extensions: [
@@ -79,6 +133,74 @@ export default function RichTextEditor({
       TiptapLink.configure({ openOnClick: false, autolink: true }),
       Placeholder.configure({ placeholder: placeholder || 'Write a comment…' }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      Mention.configure({
+        HTMLAttributes: { class: 'mention-tag' },
+        suggestion: {
+          items: ({ query }: { query: string }) =>
+            profilesRef.current
+              .filter(p => (p.full_name || p.email).toLowerCase().includes(query.toLowerCase()))
+              .slice(0, 6),
+          render: () => ({
+            onStart: (props: any) => {
+              const state: MentionState = {
+                items: props.items,
+                command: props.command,
+                rect: props.clientRect?.() || null,
+                selectedIndex: 0,
+              }
+              mentionStateRef.current = state
+              setMentionState(state)
+            },
+            onUpdate: (props: any) => {
+              const prev = mentionStateRef.current
+              const state: MentionState = {
+                items: props.items,
+                command: props.command,
+                rect: props.clientRect?.() || null,
+                selectedIndex: prev?.selectedIndex ?? 0,
+              }
+              mentionStateRef.current = state
+              setMentionState(state)
+            },
+            onExit: () => {
+              mentionStateRef.current = null
+              setMentionState(null)
+            },
+            onKeyDown: ({ event }: { event: KeyboardEvent }) => {
+              const state = mentionStateRef.current
+              if (!state || state.items.length === 0) return false
+
+              if (event.key === 'ArrowDown') {
+                const next: MentionState = { ...state, selectedIndex: (state.selectedIndex + 1) % state.items.length }
+                mentionStateRef.current = next
+                setMentionState(next)
+                return true
+              }
+              if (event.key === 'ArrowUp') {
+                const next: MentionState = { ...state, selectedIndex: (state.selectedIndex - 1 + state.items.length) % state.items.length }
+                mentionStateRef.current = next
+                setMentionState(next)
+                return true
+              }
+              if (event.key === 'Enter' || event.key === 'Tab') {
+                const item = state.items[state.selectedIndex]
+                if (item) {
+                  state.command({ id: item.email, label: item.full_name || item.email.split('@')[0] })
+                  mentionStateRef.current = null
+                  setMentionState(null)
+                }
+                return true
+              }
+              if (event.key === 'Escape') {
+                mentionStateRef.current = null
+                setMentionState(null)
+                return true
+              }
+              return false
+            },
+          }),
+        },
+      }),
     ],
     content,
     editable: !readOnly,
@@ -94,9 +216,7 @@ export default function RichTextEditor({
         const file = imageItem.getAsFile()
         if (!file) return true
         const reader = new FileReader()
-        reader.onload = () => {
-          pasteRef.current?.(reader.result as string)
-        }
+        reader.onload = () => { pasteRef.current?.(reader.result as string) }
         reader.readAsDataURL(file)
         return true
       },
@@ -117,13 +237,9 @@ export default function RichTextEditor({
           for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i)
           const blob = new Blob([u8], { type: mime })
           const path = `editor/${Date.now()}.${ext}`
-          const { data, error } = await supabase.storage
-            .from('erp-images')
-            .upload(path, blob, { upsert: false })
+          const { data, error } = await supabase.storage.from('erp-images').upload(path, blob, { upsert: false })
           if (!error && data) {
-            const { data: urlData } = supabase.storage
-              .from('erp-images')
-              .getPublicUrl(data.path)
+            const { data: urlData } = supabase.storage.from('erp-images').getPublicUrl(data.path)
             editor.chain().focus().setImage({ src: urlData.publicUrl }).run()
             return
           }
@@ -174,23 +290,10 @@ export default function RichTextEditor({
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6h11M10 12h11M10 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>
         </Btn>
         <Divider />
-        <Btn
-          onClick={() => {
-            editor?.chain().focus()
-              .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-              .run()
-          }}
-          title="Insert table"
-        >
+        <Btn onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="Insert table">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18M8 6v12M16 6v12"/></svg>
         </Btn>
-        <Btn
-          onClick={() => {
-            const url = prompt('Image URL:')
-            if (url) editor?.chain().focus().setImage({ src: url }).run()
-          }}
-          title="Insert image from URL"
-        >
+        <Btn onClick={() => { const url = prompt('Image URL:'); if (url) editor?.chain().focus().setImage({ src: url }).run() }} title="Insert image from URL">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
         </Btn>
         <Btn
@@ -198,11 +301,8 @@ export default function RichTextEditor({
             const prev = editor?.getAttributes('link').href || ''
             const url = prompt('Link URL:', prev)
             if (url === null) return
-            if (url === '') {
-              editor?.chain().focus().unsetLink().run()
-            } else {
-              editor?.chain().focus().setLink({ href: url }).run()
-            }
+            if (url === '') { editor?.chain().focus().unsetLink().run() }
+            else { editor?.chain().focus().setLink({ href: url }).run() }
           }}
           active={editor?.isActive('link')}
           title="Insert link"
@@ -223,8 +323,23 @@ export default function RichTextEditor({
         <Btn onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()} title="Clear formatting">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
         </Btn>
+        {supabase && (
+          <>
+            <Divider />
+            <span className="text-[10px] text-gray-600 px-1">@ to mention</span>
+          </>
+        )}
       </div>
       <EditorContent editor={editor} style={{ minHeight }} />
+      {mentionState && (
+        <MentionDropdown
+          state={mentionState}
+          onSelect={(p) => {
+            mentionState.command({ id: p.email, label: p.full_name || p.email.split('@')[0] })
+            setMentionState(null)
+          }}
+        />
+      )}
     </div>
   )
 }
