@@ -84,19 +84,21 @@ export async function GET(req: Request) {
     r('B - Create customer', 'PASS', `id=${custId}`)
   } catch (err: any) { r('B - Create customer', 'FAIL', err.message) }
 
-  // C – create quotation (FIX 1: omit quote_number — let serial auto-generate)
+  // C – create quotation
+  // quote_number is TEXT with UNIQUE constraint — use timestamp suffix to avoid dup key on reruns
   try {
     if (!custId) throw new Error('prerequisite failed: no customer id')
+    const quoteNumber = 'Q-' + Date.now()
     const { data, error } = await sb.from('quotations').insert({
-      // quote_number intentionally omitted — serial column, auto-increments
-      customer_id: custId,
-      quote_date:  new Date().toISOString().slice(0, 10),
-      status:      'Draft',
-      tax_pct:     0,
-      subtotal:    59.80,
-      total:       59.80,
-      total_value: 59.80,
-      is_active:   true,
+      quote_number: quoteNumber,
+      customer_id:  custId,
+      quote_date:   new Date().toISOString().slice(0, 10),
+      status:       'Draft',
+      tax_pct:      0,
+      subtotal:     59.80,
+      total:        59.80,
+      total_value:  59.80,
+      is_active:    true,
     }).select('id,quote_number').single()
     if (error) throw error
     quoteId = (data as any).id
@@ -132,10 +134,12 @@ export async function GET(req: Request) {
   } catch (err: any) { r('D - Accept quotation', 'FAIL', err.message) }
 
   // E – convert to sales order
+  // order_number is TEXT with UNIQUE constraint — use timestamp suffix to avoid dup key on reruns
   try {
     if (!custId) throw new Error('prerequisite failed: no customer id')
+    const orderNumber = 'SO-' + Date.now()
     const payload: Record<string, any> = {
-      // order_number intentionally omitted — let serial auto-generate
+      order_number: orderNumber,
       customer_id:  custId,
       order_date:   new Date().toISOString().slice(0, 10),
       status:       'New',
