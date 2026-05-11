@@ -154,7 +154,7 @@ export default function QuotationsPage() {
     if(!editing)return
     setConverting(true)
     const soNum='SO-'+editing.quote_number.replace(/^Q[-_]?/i,'')
-    const{data:so,error:soErr}=await sb.from('sales_orders').insert({order_number:soNum,customer_id:editing.customer_id,quotation_id:editing.id,order_date:new Date().toISOString().slice(0,10),status:'New',tax_pct:editing.tax_pct??0,subtotal:editing.subtotal??0,total:editing.total??0,notes:editing.notes,is_active:true}).select('id').single()
+    const{data:so,error:soErr}=await sb.from('sales_orders').insert({order_number:soNum,customer_id:editing.customer_id,quotation_id:editing.id,order_date:new Date().toISOString().slice(0,10),status:'New',tax_pct:editing.tax_pct??0,subtotal:editing.subtotal??0,total:editing.total??0,notes:editing.notes}).select('id').single()
     if(soErr||!so){setErr(soErr?dbErr(soErr):'Failed to create sales order');setConverting(false);return}
     const{data:ql}=await sb.from('quotation_lines').select('*').eq('quotation_id',editing.id).order('line_number')
     if(ql&&ql.length>0){

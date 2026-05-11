@@ -34,7 +34,7 @@ export default function ShippingQueuePage() {
     setLoading(true)
     const [{data:sq},{data:o},{data:c}]=await Promise.all([
       sb.from('shipping_queue').select('*').order('created_at',{ascending:false}),
-      sb.from('sales_orders').select('id,order_number,customer_id').eq('is_active',true).order('order_number'),
+      sb.from('sales_orders').select('id,order_number,customer_id').not('status','in','("Closed","Cancelled")').order('order_number'),
       sb.from('customers').select('id,company_name').eq('is_active',true),
     ])
     if(sq) setRows(sq as ShipQItem[])

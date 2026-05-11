@@ -7,6 +7,7 @@ import NotificationBell from './NotificationBell'
 import Chat from './Chat'
 import MobileNav from './MobileNav'
 import InstallPrompt from './InstallPrompt'
+import { ToastProvider } from './Toast'
 
 export default function ClientShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -14,18 +15,18 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   if (pathname === '/login') return <>{children}</>
 
   return (
-    <>
+    <ToastProvider>
       <InstallPrompt />
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen bg-[#0A0A0B]">
         <div className="hidden md:flex">
           <Sidebar />
         </div>
         <div className="flex-1 flex flex-col overflow-hidden">
-          <header className="shrink-0 bg-gray-950 border-b border-gray-800" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+          <header className="shrink-0 bg-[#111113] border-b border-[#2A2A35]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
             <div className="h-12 flex items-center justify-end px-5 gap-2">
               <button
                 onClick={() => router.push('/settings')}
-                className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
+                className="p-1.5 rounded-lg text-[#5A5A6A] hover:text-white hover:bg-[#22222A] transition-colors"
                 title="Settings"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -36,7 +37,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
               <NotificationBell />
             </div>
           </header>
-          <main className="flex-1 overflow-auto bg-gray-950 pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0">
+          <main className="flex-1 overflow-auto bg-[#0A0A0B] pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0">
             {children}
           </main>
         </div>
@@ -47,6 +48,6 @@ export default function ClientShell({ children }: { children: React.ReactNode })
       <div className="md:hidden">
         <MobileNav />
       </div>
-    </>
+    </ToastProvider>
   )
 }

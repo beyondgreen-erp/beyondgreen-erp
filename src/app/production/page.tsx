@@ -43,7 +43,7 @@ export default function ProductionPage() {
     setLoading(true)
     const [{data:w},{data:o},{data:c},{data:p},{data:m}]=await Promise.all([
       sb.from('work_orders').select('*').order('created_at',{ascending:false}),
-      sb.from('sales_orders').select('id,order_number,customer_id').eq('is_active',true).order('order_number'),
+      sb.from('sales_orders').select('id,order_number,customer_id').not('status','in','("Closed","Cancelled")').order('order_number'),
       sb.from('customers').select('id,company_name').eq('is_active',true),
       sb.from('products').select('id,name').eq('is_active',true).order('name'),
       sb.from('machines').select('id,name').eq('is_active',true).order('name'),
