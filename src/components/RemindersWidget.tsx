@@ -1,6 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Reminder {
@@ -40,46 +40,111 @@ export default function RemindersWidget() {
   const [showAdd, setShowAdd] = useState(false)
   const [loading, setLoading] = useState(true)
   const [tableExists, setTableExists] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
     title: '', notes: '', due_date: '', due_time: '',
     priority: 'medium', reminder_type: 'personal', color: '#1D9E75',
   })
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user?.email) {
-        setUserEmail(data.user.email)
-        fetchReminders(data.user.email)
-      }
-    })
-  }, []) // eslint-disable-line
-
-  async function fetchReminders(email: string) {
+  const fetchReminders = useCallback(async (email: string) => {
+    console.log('Fetching reminders for:', email)
     setLoading(true)
-    const { data, error } = await supabase
+    setError(null)
+
+    const { data, error: fetchError } = await supabase
       .from('user_reminders')
       .select('*')
       .eq('user_email', email)
       .eq('is_completed', false)
-      .order('due_date', { ascending: true, nullsFirst: false })
-    if (error?.code === '42P01') { setTableExists(false); setLoading(false); return }
-    setReminders(data ?? [])
+      .order('created_at', { ascending: false })
+
+    console.log('Reminders result:', data, fetchError)
+
+    if (fetchError) {
+      if (fetchError.code === '42P01') {
+        setTableExists(false)
+        setLoading(false)
+        return
+      }
+      console.error('Reminders fetch error:', fetchError)
+      setError(fetchError.message)
+      setLoading(false)
+      return
+    }
+
+    setReminders(data || [])
     setLoading(false)
-  }
+  }, [supabase])
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user }, error: authError }) => {
+      console.log('Reminders user:', user?.email, authError)
+      if (!user?.email) {
+        console.error('No user email found for reminders')
+        setLoading(false)
+        return
+      }
+      setUserEmail(user.email)
+      fetchReminders(user.email)
+    })
+  }, []) // eslint-disable-line
+
+  // Realtime subscription
+  useEffect(() => {
+    if (!userEmail) return
+
+    const channel = supabase
+      .channel('user_reminders_' + userEmail)
+      .on('postgres_changes' as any, {
+        event: '*',
+        schema: 'public',
+        table: 'user_reminders',
+        filter: `user_email=eq.${userEmail}`,
+      }, () => {
+        fetchReminders(userEmail)
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [userEmail, fetchReminders, supabase])
 
   async function addReminder() {
-    if (!form.title.trim() || !userEmail) return
-    await supabase.from('user_reminders').insert({
-      ...form,
-      user_email: userEmail,
-      is_private: true,
-      due_date: form.due_date || null,
-      due_time: form.due_time || null,
-      notes: form.notes || null,
-    })
+    if (!form.title.trim()) return
+    if (!userEmail) {
+      alert('Not logged in')
+      return
+    }
+
+    console.log('Adding reminder for:', userEmail)
+
+    const { data, error: insertError } = await supabase
+      .from('user_reminders')
+      .insert({
+        user_email: userEmail,
+        title: form.title.trim(),
+        notes: form.notes.trim() || null,
+        due_date: form.due_date || null,
+        due_time: form.due_time || null,
+        priority: form.priority,
+        reminder_type: form.reminder_type,
+        is_completed: false,
+        is_private: true,
+        color: '#1D9E75',
+      })
+      .select()
+
+    console.log('Insert result:', data, insertError)
+
+    if (insertError) {
+      alert('Failed to save reminder: ' + insertError.message)
+      return
+    }
+
     setForm({ title: '', notes: '', due_date: '', due_time: '', priority: 'medium', reminder_type: 'personal', color: '#1D9E75' })
     setShowAdd(false)
-    fetchReminders(userEmail)
+    await fetchReminders(userEmail)
   }
 
   async function completeReminder(id: string) {
@@ -123,6 +188,19 @@ export default function RemindersWidget() {
           Add
         </button>
       </div>
+
+      {/* Error display */}
+      {error && (
+        <div className="mx-4 mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+          <p className="text-red-400 text-xs">{error}</p>
+          <button
+            onClick={() => { setError(null); if (userEmail) fetchReminders(userEmail) }}
+            className="text-red-400 text-xs underline mt-1"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Add form */}
       {showAdd && (
@@ -186,6 +264,7 @@ export default function RemindersWidget() {
             </svg>
             <p className="text-[#5A5A6A] text-sm">No reminders</p>
             <p className="text-[#3A3A45] text-xs mt-0.5">Only you can see your reminders</p>
+            <p className="text-[#2A2A35] text-xs mt-1">Logged in as: {userEmail || 'unknown'}</p>
           </div>
         )}
 
