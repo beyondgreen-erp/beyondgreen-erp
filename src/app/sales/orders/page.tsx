@@ -99,7 +99,11 @@ export default function SalesOrdersPage() {
     setForm(p => ({ ...p, shipping_address: addr }))
   }
 
-  function openAdd(){setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setErr('');setOpen(true)}
+  function openAdd(){
+    const nums=rows.map(r=>parseInt(r.order_number)).filter(n=>!isNaN(n))
+    const next=nums.length>0?Math.max(...nums)+1:1001
+    setEditing(null);setForm({...emptyForm,order_number:String(next)});setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setErr('');setOpen(true)
+  }
 
   async function openEdit(r:SalesOrder){
     setEditing(r)

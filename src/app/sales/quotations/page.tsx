@@ -94,7 +94,11 @@ export default function QuotationsPage() {
     setSelLocAddr([loc.address, loc.city && loc.state ? `${loc.city}, ${loc.state}` : (loc.city || loc.state), loc.zip].filter(Boolean).join('\n'))
   }
 
-  function openAdd(){setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setSelLocAddr('');setErr('');setOpen(true)}
+  function openAdd(){
+    const nums=rows.map(r=>parseInt(r.quote_number)).filter(n=>!isNaN(n))
+    const next=nums.length>0?Math.max(...nums)+1:1001
+    setEditing(null);setForm({...emptyForm,quote_number:String(next)});setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setSelLocAddr('');setErr('');setOpen(true)
+  }
 
   async function openEdit(r:Quotation){
     setEditing(r)
