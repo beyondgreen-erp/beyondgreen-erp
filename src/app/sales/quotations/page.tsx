@@ -173,8 +173,14 @@ export default function QuotationsPage() {
 
   const skuMatches=(i:number)=>{
     const q=lines[i]?.sku.toLowerCase()
-    const pool=q?products.filter(p=>p.sku.toLowerCase().includes(q)||p.name.toLowerCase().includes(q)):products
-    return pool.slice(0,6)
+    if(!q) return products.slice(0,6)
+    const pool=products.filter(p=>p.sku.toLowerCase().includes(q)||p.name.toLowerCase().includes(q))
+    return pool.sort((a,b)=>{
+      const as=a.sku.toLowerCase(),bs=b.sku.toLowerCase()
+      if(as===q&&bs!==q) return -1; if(bs===q&&as!==q) return 1
+      if(as.startsWith(q)&&!bs.startsWith(q)) return -1; if(bs.startsWith(q)&&!as.startsWith(q)) return 1
+      return 0
+    }).slice(0,6)
   }
 
   return (
