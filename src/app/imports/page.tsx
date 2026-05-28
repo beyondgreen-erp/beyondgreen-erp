@@ -811,12 +811,19 @@ export default function ImportsPage() {
   const [editShipment, setEditShipment] = useState<ImportShipment | null>(null)
   const [finShipment, setFinShipment] = useState<ImportShipment | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
-  const supabase = createSupabaseBrowserClient()
+  // stable client ref — don't recreate on every render
+  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
 
   const load = useCallback(async () => {
+    setFetchError(null)
     const { data, error } = await supabase.from('import_shipments').select('*').order('created_at', { ascending: false })
-    if (!error && data) setShipments(data as ImportShipment[])
+    if (error) {
+      setFetchError(error.message)
+    } else {
+      setShipments((data ?? []) as ImportShipment[])
+    }
     setLoading(false)
   }, [supabase])
 
@@ -900,6 +907,23 @@ export default function ImportsPage() {
         <div className="flex flex-col items-center gap-3">
           <Spinner />
           <p className="text-[#5A5A6A] text-sm">Loading import tracker…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-screen">
+        <div className="max-w-lg w-full mx-4 bg-red-500/10 border border-red-500/30 rounded-2xl p-6">
+          <p className="text-red-400 font-semibold mb-2">Database error</p>
+          <p className="text-red-300 text-sm font-mono break-all">{fetchError}</p>
+          <p className="text-[#5A5A6A] text-xs mt-4">
+            Run <code className="text-[#9898A8]">supabase/migrations/20260528_import_tracker_v2.sql</code> in the Supabase SQL editor to create the table.
+          </p>
+          <button onClick={load} className="mt-4 px-4 py-2 bg-[#18181C] border border-[#2A2A35] rounded-xl text-sm text-white hover:bg-[#2A2A35]">
+            Retry
+          </button>
         </div>
       </div>
     )
