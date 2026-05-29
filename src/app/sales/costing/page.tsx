@@ -80,9 +80,11 @@ function calcLine(l: QuoteLine) {
   const other2 = parseFloat(l.other_cost_2_amount) || 0
   const broker = parseFloat(l.broker_fee) || 0
 
-  const china25 = l.country_of_origin === 'CHINA' ? exw * 0.25 : 0
-  const duty10 = l.country_of_origin !== 'USA' ? exw * 0.10 : 0
-  const totalDuties = l.country_of_origin === 'USA' ? 0 : china25 + duty10 + mpf + hmf
+  const isDomestic = l.freight_method === 'DOMESTIC' || l.country_of_origin === 'USA'
+  const china25 = !isDomestic && l.country_of_origin === 'CHINA' ? exw * 0.25 : 0
+  const duty10 = !isDomestic ? exw * 0.10 : 0
+  const effectiveHmf = !isDomestic && l.freight_method === 'OCEAN' ? hmf : 0
+  const totalDuties = isDomestic ? 0 : china25 + duty10 + mpf + effectiveHmf
   const totalCost = exw + freight + totalDuties + packaging + other1 + other2 + broker
   const costPerPiece = packing > 0 ? totalCost / packing : 0
   const selling = totalCost * (1 + markup / 100)
@@ -92,7 +94,7 @@ function calcLine(l: QuoteLine) {
   const totalProfit = orderQty * profit
   const totalIncome = orderQty * selling
 
-  return { exw, freight, china25, duty10, totalDuties, mpf, hmf, packaging, other1, other2, broker, totalCost, costPerPiece, selling, sellPiece, profit, margin, totalProfit, totalIncome, packing, orderQty, markup }
+  return { exw, freight, china25, duty10, totalDuties, mpf, hmf: effectiveHmf, packaging, other1, other2, broker, totalCost, costPerPiece, selling, sellPiece, profit, margin, totalProfit, totalIncome, packing, orderQty, markup, isDomestic }
 }
 
 function marginColor(pct: number) {
@@ -128,7 +130,7 @@ const emptyLine = (): QuoteLine => ({
   line_number: 1, description: '', product_type: '', specs: '',
   country_of_origin: 'CHINA', hs_code: '', freight_method: 'OCEAN',
   uom: 'Case', moq_qty: '0', order_qty: '0', packing_per_case: '0',
-  exw_cost: '0', freight_cost: '0', mpf: '21.40', hmf: '1.28',
+  exw_cost: '0', freight_cost: '0', mpf: '0', hmf: '0',
   packaging_cost: '0', other_cost_1_label: '', other_cost_1_amount: '0',
   other_cost_2_label: '', other_cost_2_amount: '0', broker_fee: '0',
   markup_pct: '45', has_retail_packaging: false, retail_packaging_desc: '',
@@ -282,6 +284,20 @@ export default function QuoteCostingPage() {
   function setLF(patch: Partial<QuoteLine>) {
     setLineForm(prev => ({ ...prev, ...patch }))
   }
+
+  // Auto-calculate MPF and HMF when EXW, freight method, or origin changes
+  useEffect(() => {
+    const exw = parseFloat(lineForm.exw_cost) || 0
+    const isDom = lineForm.freight_method === 'DOMESTIC' || lineForm.country_of_origin === 'USA'
+    if (exw > 0 && !isDom) {
+      const mpf = parseFloat((exw * 0.003464).toFixed(4))
+      const hmf = lineForm.freight_method === 'OCEAN' ? parseFloat((exw * 0.00125).toFixed(4)) : 0
+      setLineForm(f => ({ ...f, mpf: String(mpf), hmf: String(hmf) }))
+    } else {
+      setLineForm(f => ({ ...f, mpf: '0', hmf: '0' }))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineForm.exw_cost, lineForm.freight_method, lineForm.country_of_origin])
 
   function commitLine() {
     if (!lineForm.description.trim()) { setErr('Description is required.'); return }
@@ -1022,7 +1038,7 @@ export default function QuoteCostingPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={label}>EXW Cost per Case</label>
-                  <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span><input type="number" value={lineForm.exw_cost} onChange={e => setLF({ exw_cost: e.target.value })} min="0" step="0.01" className={inp + ' pl-7'} /></div>
+                  <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span><input type="number" value={lineForm.exw_cost} onChange={e => setLF({ exw_cost: e.target.value })} min="0" step="0.01" placeholder="Enter factory/supplier cost" className={inp + ' pl-7'} /></div>
                 </div>
                 <div>
                   <label className={label} title="Inbound freight to Santa Ana">Freight/Logistics per Case ⓘ</label>
@@ -1031,40 +1047,54 @@ export default function QuoteCostingPage() {
               </div>
 
               {/* Duty calculator */}
-              {lineForm.country_of_origin !== 'USA' && (
+              {(lineForm.freight_method === 'DOMESTIC' || lineForm.country_of_origin === 'USA') ? (
+                <div className="bg-gray-800/40 border border-gray-700/40 rounded-lg p-3 text-xs text-gray-500 text-center">
+                  {lineForm.freight_method === 'DOMESTIC'
+                    ? 'No import duties — domestic freight selected.'
+                    : 'No import duties — USA origin product.'}
+                </div>
+              ) : (
                 <div className="bg-gray-800/60 border border-gray-700/60 rounded-lg p-4">
-                  <p className="text-xs font-semibold text-gray-400 mb-3">Duty Calculator — Auto-Calculated</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-3">Duty Calculator — Auto-Calculated from EXW</p>
                   <div className="space-y-2">
                     {lineForm.country_of_origin === 'CHINA' && (
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-gray-400">China 25% Tariff <span className="text-gray-600">(EXW × 25%)</span></span>
-                        <span className="text-amber-400 tabular-nums font-medium">{fmt$(liveCalc.china25)}</span>
+                        <span className={`tabular-nums font-medium ${liveCalc.exw > 0 ? 'text-amber-400' : 'text-gray-600'}`}>
+                          {liveCalc.exw > 0 ? fmt$(liveCalc.china25) : '—'}
+                        </span>
                       </div>
                     )}
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-gray-400">Duty 10% <span className="text-gray-600">(EXW × 10%)</span></span>
-                      <span className="text-gray-300 tabular-nums">{fmt$(liveCalc.duty10)}</span>
+                      <span className={`tabular-nums ${liveCalc.exw > 0 ? 'text-gray-300' : 'text-gray-600'}`}>
+                        {liveCalc.exw > 0 ? fmt$(liveCalc.duty10) : '—'}
+                      </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className={label}>MPF</label>
-                        <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span><input type="number" value={lineForm.mpf} onChange={e => setLF({ mpf: e.target.value })} step="0.01" className={inpSm + ' pl-5'} /></div>
+                        <label className={label}>
+                          MPF <span className="text-gray-600 text-[10px]">auto: EXW × 0.3464%</span>
+                        </label>
+                        <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span><input type="number" value={lineForm.mpf} onChange={e => setLF({ mpf: e.target.value })} step="0.0001" className={inpSm + ' pl-5'} /></div>
+                        <p className="text-[10px] text-gray-600 mt-0.5">Min $32.71/shipment entry (not per case)</p>
                       </div>
                       <div>
-                        <label className={label}>HMF</label>
-                        <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span><input type="number" value={lineForm.hmf} onChange={e => setLF({ hmf: e.target.value })} step="0.01" className={inpSm + ' pl-5'} /></div>
+                        <label className={label}>
+                          HMF <span className="text-gray-600 text-[10px]">{lineForm.freight_method === 'OCEAN' ? 'auto: EXW × 0.125%' : 'ocean only'}</span>
+                        </label>
+                        <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span><input type="number" value={lineForm.hmf} onChange={e => setLF({ hmf: e.target.value })} step="0.0001" disabled={lineForm.freight_method !== 'OCEAN'} className={inpSm + ' pl-5' + (lineForm.freight_method !== 'OCEAN' ? ' opacity-40 cursor-not-allowed' : '')} /></div>
+                        <p className="text-[10px] text-gray-600 mt-0.5">Ocean freight only: 0.125% of EXW cost</p>
                       </div>
                     </div>
                     <div className="border-t border-gray-700 pt-2 flex justify-between items-center text-xs font-semibold">
                       <span className="text-gray-400">Total Duties per Case</span>
-                      <span className="text-white tabular-nums">{fmt$(liveCalc.totalDuties)}</span>
+                      <span className={`tabular-nums ${liveCalc.exw > 0 ? 'text-white' : 'text-gray-600'}`}>
+                        {liveCalc.exw > 0 ? fmt$(liveCalc.totalDuties) : '—'}
+                      </span>
                     </div>
                   </div>
                 </div>
-              )}
-
-              {lineForm.country_of_origin === 'USA' && (
-                <div className="bg-gray-800/40 border border-gray-700/40 rounded-lg p-3 text-xs text-gray-500 text-center">No import duties for domestic (USA) items.</div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
@@ -1122,79 +1152,89 @@ export default function QuoteCostingPage() {
               Live Cost & Selling Price
             </p>
             <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl overflow-hidden">
-              {/* Cost breakdown */}
-              <div className="px-4 py-3 space-y-1.5">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Cost Breakdown (Internal)</p>
-                {[
-                  { label: 'EXW Cost', val: liveCalc.exw },
-                  { label: 'Freight/Logistics', val: liveCalc.freight },
-                  lineForm.country_of_origin === 'CHINA' ? { label: 'China 25% Tariff', val: liveCalc.china25 } : null,
-                  lineForm.country_of_origin !== 'USA' ? { label: 'Duty 10%', val: liveCalc.duty10 } : null,
-                  lineForm.country_of_origin !== 'USA' ? { label: 'MPF + HMF', val: liveCalc.mpf + liveCalc.hmf } : null,
-                  liveCalc.packaging > 0 ? { label: 'Packaging', val: liveCalc.packaging } : null,
-                  liveCalc.other1 > 0 ? { label: lineForm.other_cost_1_label || 'Other Cost 1', val: liveCalc.other1 } : null,
-                  liveCalc.other2 > 0 ? { label: lineForm.other_cost_2_label || 'Other Cost 2', val: liveCalc.other2 } : null,
-                  liveCalc.broker > 0 ? { label: 'Broker Fee', val: liveCalc.broker } : null,
-                ].filter(Boolean).map((row, i) => (
-                  <div key={i} className="flex justify-between items-center text-xs">
-                    <span className="text-gray-400">{(row as any).label}</span>
-                    <span className="text-gray-300 tabular-nums">{fmt$((row as any).val)}/case</span>
+              {liveCalc.exw === 0 ? (
+                /* Empty state — no EXW entered yet */
+                <div className="px-4 py-8 text-center">
+                  <svg className="w-8 h-8 text-gray-700 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <p className="text-gray-500 text-sm">Enter EXW cost above to see cost breakdown</p>
+                </div>
+              ) : (
+                <>
+                  {/* Cost breakdown */}
+                  <div className="px-4 py-3 space-y-1.5">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Cost Breakdown (Internal)</p>
+                    {[
+                      { label: 'EXW Cost', val: liveCalc.exw },
+                      liveCalc.freight > 0 ? { label: 'Freight/Logistics', val: liveCalc.freight } : null,
+                      liveCalc.china25 > 0 ? { label: 'China 25% Tariff', val: liveCalc.china25 } : null,
+                      liveCalc.duty10 > 0 ? { label: 'Duty 10%', val: liveCalc.duty10 } : null,
+                      (liveCalc.mpf + liveCalc.hmf) > 0 ? { label: 'MPF + HMF', val: liveCalc.mpf + liveCalc.hmf } : null,
+                      liveCalc.packaging > 0 ? { label: 'Packaging', val: liveCalc.packaging } : null,
+                      liveCalc.other1 > 0 ? { label: lineForm.other_cost_1_label || 'Other Cost 1', val: liveCalc.other1 } : null,
+                      liveCalc.other2 > 0 ? { label: lineForm.other_cost_2_label || 'Other Cost 2', val: liveCalc.other2 } : null,
+                      liveCalc.broker > 0 ? { label: 'Broker Fee', val: liveCalc.broker } : null,
+                    ].filter(Boolean).map((row, i) => (
+                      <div key={i} className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400">{(row as any).label}</span>
+                        <span className="text-gray-300 tabular-nums">{fmt$((row as any).val)}/case</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              {/* Total landed */}
-              <div className="border-t border-gray-700 px-4 py-3 bg-gray-800/50 flex justify-between items-center">
-                <span className="text-sm font-bold text-white">TOTAL LANDED COST</span>
-                <span className="text-sm font-bold text-white tabular-nums">{fmt$(liveCalc.totalCost)}/case</span>
-              </div>
-              {liveCalc.packing > 0 && (
-                <div className="px-4 pb-2 flex justify-between items-center text-xs">
-                  <span className="text-gray-500">Cost per Piece</span>
-                  <span className="text-gray-400 tabular-nums">{fmt$(liveCalc.costPerPiece)}/piece</span>
-                </div>
-              )}
+                  {/* Total landed */}
+                  <div className="border-t border-gray-700 px-4 py-3 bg-gray-800/50 flex justify-between items-center">
+                    <span className="text-sm font-bold text-white">TOTAL LANDED COST</span>
+                    <span className="text-sm font-bold text-white tabular-nums">{fmt$(liveCalc.totalCost)}/case</span>
+                  </div>
+                  {liveCalc.packing > 0 && (
+                    <div className="px-4 pb-2 flex justify-between items-center text-xs">
+                      <span className="text-gray-500">Cost per Piece</span>
+                      <span className="text-gray-400 tabular-nums">{fmt$(liveCalc.costPerPiece)}/piece</span>
+                    </div>
+                  )}
 
-              {/* Selling price */}
-              <div className="border-t border-gray-700 px-4 py-3 space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-xs font-semibold text-gray-400">MARKUP %</span>
-                  <div className="flex items-center gap-1">
-                    <input type="number" value={lineForm.markup_pct} onChange={e => setLF({ markup_pct: e.target.value })} min="0" max="500" step="1" className="w-20 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                    <span className="text-gray-400 text-sm">%</span>
+                  {/* Selling price */}
+                  <div className="border-t border-gray-700 px-4 py-3 space-y-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-xs font-semibold text-gray-400">MARKUP %</span>
+                      <div className="flex items-center gap-1">
+                        <input type="number" value={lineForm.markup_pct} onChange={e => setLF({ markup_pct: e.target.value })} min="0" max="500" step="1" className="w-20 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                        <span className="text-gray-400 text-sm">%</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Selling Price/Case</span>
+                      <span className="text-emerald-400 font-bold tabular-nums">{fmt$(liveCalc.selling)}</span>
+                    </div>
+                    {liveCalc.packing > 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">Selling Price/Piece</span>
+                        <span className="text-emerald-300 tabular-nums">{fmt$(liveCalc.sellPiece)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Profit/Case</span>
+                      <span className="text-gray-300 tabular-nums">{fmt$(liveCalc.profit)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500">Profit Margin</span>
+                      <span className={`text-base font-bold tabular-nums ${marginColor(liveCalc.margin)}`}>{fmtPct(liveCalc.margin)}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Selling Price/Case</span>
-                  <span className="text-emerald-400 font-bold tabular-nums">{fmt$(liveCalc.selling)}</span>
-                </div>
-                {liveCalc.packing > 0 && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">Selling Price/Piece</span>
-                    <span className="text-emerald-300 tabular-nums">{fmt$(liveCalc.sellPiece)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-500">Profit/Case</span>
-                  <span className="text-gray-300 tabular-nums">{fmt$(liveCalc.profit)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-gray-500">Profit Margin</span>
-                  <span className={`text-base font-bold tabular-nums ${marginColor(liveCalc.margin)}`}>{fmtPct(liveCalc.margin)}</span>
-                </div>
-              </div>
 
-              {parseInt(lineForm.order_qty) > 0 && (
-                <div className="border-t border-gray-700 px-4 py-3 bg-emerald-900/20 space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-400">Total Income ({lineForm.order_qty} cases)</span>
-                    <span className="text-emerald-300 font-semibold tabular-nums">{fmt$(liveCalc.totalIncome)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-400">Total Profit</span>
-                    <span className="text-emerald-400 font-bold tabular-nums">{fmt$(liveCalc.totalProfit)}</span>
-                  </div>
-                </div>
+                  {parseInt(lineForm.order_qty) > 0 && (
+                    <div className="border-t border-gray-700 px-4 py-3 bg-emerald-900/20 space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400">Total Income ({lineForm.order_qty} cases)</span>
+                        <span className="text-emerald-300 font-semibold tabular-nums">{fmt$(liveCalc.totalIncome)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400">Total Profit</span>
+                        <span className="text-emerald-400 font-bold tabular-nums">{fmt$(liveCalc.totalProfit)}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
