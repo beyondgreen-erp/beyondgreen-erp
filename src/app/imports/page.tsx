@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import nextDynamic from 'next/dynamic'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { PieChart, Pie, Cell, Tooltip as ReTooltip, ResponsiveContainer, Legend } from 'recharts'
@@ -222,7 +222,7 @@ function ShipmentsTable({
           </thead>
           <tbody>
             {Object.entries(groups).map(([groupKey, items]) => (
-              <>
+              <React.Fragment key={groupKey}>
                 {grouped && groupKey !== '' && (
                   <tr
                     key={`g-${groupKey}`}
@@ -290,7 +290,7 @@ function ShipmentsTable({
                     </td>
                   </tr>
                 ))}
-              </>
+              </React.Fragment>
             ))}
             {filtered.length === 0 && (
               <tr><td colSpan={15} className="px-4 py-12 text-center text-[#5A5A6A]">No shipments found</td></tr>
@@ -818,13 +818,23 @@ export default function ImportsPage() {
 
   const load = useCallback(async () => {
     setFetchError(null)
-    const { data, error } = await supabase.from('import_shipments').select('*').order('created_at', { ascending: false })
-    if (error) {
-      setFetchError(error.message)
-    } else {
-      setShipments((data ?? []) as ImportShipment[])
+    try {
+      const { data, error } = await supabase
+        .from('import_shipments')
+        .select('*')
+        .order('eta_los_angeles', { ascending: true, nullsFirst: false })
+      if (error) {
+        console.error('Import Tracker fetch error:', error)
+        setFetchError(error.message)
+      } else {
+        setShipments((data ?? []) as ImportShipment[])
+      }
+    } catch (e: any) {
+      console.error('Import Tracker unexpected error:', e)
+      setFetchError(e?.message ?? 'Unexpected error loading shipments')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [supabase])
 
   useEffect(() => { load() }, [load])
