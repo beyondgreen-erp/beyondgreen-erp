@@ -1,6 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
@@ -32,6 +33,8 @@ export default function QuotationsPage() {
   const [loading,setLoading]=useState(true)
   const [search,setSearch]=useState('')
   const [archived,setArchived]=useState(false)
+  const [costingQuotes,setCostingQuotes]=useState<any[]>([])
+  const [activeTab,setActiveTab]=useState<'quotes'|'costing'>('quotes')
   const [open,setOpen]=useState(false)
   const [editing,setEditing]=useState<Quotation|null>(null)
   const [form,setForm]=useState<F>(emptyForm)
@@ -49,14 +52,16 @@ export default function QuotationsPage() {
 
   async function load(){
     setLoading(true)
-    const [{data:q},{data:c},{data:p}]=await Promise.all([
+    const [{data:q},{data:c},{data:p},{data:cq}]=await Promise.all([
       sb.from('quotations').select('*').order('created_at',{ascending:false}),
       sb.from('customers').select('*').eq('is_active',true).order('company_name'),
-      sb.from('products').select('id,sku,product_name,unit_of_measure,unit_price,on_hand_qty').eq('is_active',true).order('sku'),
+      sb.from('products').select('id,sku,product_name,unit_of_measure,unit_price,on_hand_qty').neq('is_active',false).order('sku'),
+      sb.from('quote_costing').select('*').order('created_at',{ascending:false}),
     ])
     if(q)setRows(q as Quotation[])
     if(c)setCustomers(c as Customer[])
     if(p)setProducts(p as Product[])
+    if(cq)setCostingQuotes(cq)
     setLoading(false)
   }
   useEffect(()=>{
@@ -197,10 +202,52 @@ export default function QuotationsPage() {
           <h1 className="text-2xl font-semibold text-white mt-1">Quotations</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} quotation${filtered.length!==1?'s':''}`}</p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors self-start">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>New Quote
+        <div className="flex items-center gap-2 self-start">
+          <Link href="/sales/costing" className="flex items-center gap-2 border border-emerald-600 text-emerald-400 hover:bg-emerald-600 hover:text-white text-sm font-medium px-3 py-2.5 rounded-lg transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>Quick Quote
+          </Link>
+          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>New Quote
+          </button>
+        </div>
+      </div>
+      {/* Tabs */}
+      <div className="flex items-center gap-1 mb-4 border-b border-gray-800 pb-0">
+        <button onClick={()=>setActiveTab('quotes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab==='quotes'?'border-blue-500 text-white':'border-transparent text-gray-500 hover:text-gray-300'}`}>All Quotes</button>
+        <button onClick={()=>setActiveTab('costing')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab==='costing'?'border-emerald-500 text-emerald-400':'border-transparent text-gray-500 hover:text-gray-300'}`}>
+          Costing Quotes {costingQuotes.length>0&&<span className="ml-1.5 text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">{costingQuotes.length}</span>}
         </button>
       </div>
+
+      {activeTab==='costing'?(
+        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto mb-4">
+          {costingQuotes.length===0?(
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <p className="text-gray-500 text-sm">No costing quotes yet.</p>
+              <Link href="/sales/costing" className="text-xs text-emerald-400 hover:text-emerald-300">→ Go to Quick Quote tool</Link>
+            </div>
+          ):(
+            <table className="w-full min-w-[700px] text-sm">
+              <thead><tr className="border-b border-gray-800">{['Quote #','Customer','Date','Selling Price','Profit','Margin','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
+              <tbody>
+                {costingQuotes.filter(q=>{if(!search)return true;const s=search.toLowerCase();return(q.quote_number||'').toLowerCase().includes(s)||(q.customer_name||'').toLowerCase().includes(s)}).map((q:any,i:number)=>(
+                  <tr key={q.id} className={`border-b border-gray-800/60 last:border-0 ${i%2?'bg-gray-800/10':''}`}>
+                    <td className="px-5 py-3.5 text-white font-medium font-mono text-xs">
+                      <Link href="/sales/costing" className="hover:text-emerald-400 transition-colors">{q.quote_number}</Link>
+                    </td>
+                    <td className="px-5 py-3.5 text-gray-400">{q.customer_name||'—'}</td>
+                    <td className="px-5 py-3.5 text-gray-400">{q.quote_date?new Date(q.quote_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</td>
+                    <td className="px-5 py-3.5 text-white font-medium tabular-nums">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(q.total_selling_price||0)}</td>
+                    <td className="px-5 py-3.5 text-emerald-400 tabular-nums">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(q.total_profit||0)}</td>
+                    <td className="px-5 py-3.5"><span className={`text-xs px-2 py-0.5 rounded font-medium border ${(q.avg_margin_pct||0)>=40?'bg-emerald-500/15 text-emerald-400 border-emerald-500/20':(q.avg_margin_pct||0)>=25?'bg-amber-500/15 text-amber-400 border-amber-500/20':'bg-red-500/15 text-red-400 border-red-500/20'}`}>{(q.avg_margin_pct||0).toFixed(1)}%</span></td>
+                    <td className="px-5 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[q.status]||SC.Draft}`}>{q.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ):(<>
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search quotations…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/></div>
         <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-blue-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Archived</span></label>
@@ -218,6 +265,7 @@ export default function QuotationsPage() {
           <td className="px-5 py-3.5 text-gray-300 font-medium">{fmt$(r.total??0)}</td>
         </tr>)}</tbody></table>}
       </div>
+      </>)}
 
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
 

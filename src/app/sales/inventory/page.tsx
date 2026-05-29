@@ -33,7 +33,7 @@ interface Product {
 interface Vendor { id: string; company_name: string }
 
 const CATEGORIES = ['All','Finished Goods','Packaging','Raw Material','Print Plates','Composter Components','Molds','Additives','WIP','Discontinued','Other']
-const STATUS_FILTERS = ['all','active','low_stock','out_of_stock','discontinued','duplicates'] as const
+const STATUS_FILTERS = ['all','active','quoted','low_stock','out_of_stock','discontinued','duplicates'] as const
 type StatusFilter = typeof STATUS_FILTERS[number]
 const UOM_OPTIONS = ['EA','PKS','LBS','ROLLS','CASE','M','FT','OZ','GAL','KG','SET','Other']
 const CATEGORY_OPTIONS = ['Finished Goods','Packaging','Raw Material','Print Plates','Composter Components','Molds','Additives','WIP','Other']
@@ -107,7 +107,8 @@ export default function InventoryPage() {
     const q = search.toLowerCase().trim()
     let pool = rows
 
-    if (statusFilter === 'active') pool = pool.filter(r => r.is_active !== false && !r.is_discontinued)
+    if (statusFilter === 'active') pool = pool.filter(r => r.is_active !== false && !r.is_discontinued && (r as any).inventory_status !== 'Quoted-Not Launched')
+    else if (statusFilter === 'quoted') pool = pool.filter(r => (r as any).inventory_status === 'Quoted-Not Launched')
     else if (statusFilter === 'low_stock') pool = pool.filter(r => r.is_active !== false && r.on_hand_qty > 0 && r.on_hand_qty <= r.reorder_point)
     else if (statusFilter === 'out_of_stock') pool = pool.filter(r => r.is_active !== false && r.on_hand_qty === 0)
     else if (statusFilter === 'discontinued') pool = pool.filter(r => r.is_discontinued === true)
@@ -239,9 +240,11 @@ export default function InventoryPage() {
 
   const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 
+  const quotedCount = rows.filter(r => (r as any).inventory_status === 'Quoted-Not Launched').length
   const statusFilterLabels: Record<StatusFilter, string> = {
-    all: `All Active (${rows.filter(r => r.is_active !== false).length})`,
+    all: `All (${rows.filter(r => r.is_active !== false).length})`,
     active: 'Active',
+    quoted: `Quoted-Not Launched (${quotedCount})`,
     low_stock: `Low Stock (${lowStock})`,
     out_of_stock: `Out of Stock (${outOfStock})`,
     discontinued: `Discontinued (${rows.filter(r => r.is_discontinued).length})`,
@@ -305,6 +308,7 @@ export default function InventoryPage() {
               : f === 'low_stock' ? 'bg-amber-600 text-white'
               : f === 'out_of_stock' ? 'bg-red-700 text-white'
               : f === 'discontinued' ? 'bg-gray-600 text-white'
+              : f === 'quoted' ? 'bg-violet-600 text-white'
               : 'bg-blue-600 text-white'
               : 'text-gray-400 hover:text-white'}`}>
             {statusFilterLabels[f]}
@@ -361,11 +365,12 @@ export default function InventoryPage() {
                 const isOut = p.is_active && p.on_hand_qty === 0
                 const isDisc = p.is_discontinued === true
                 const isDupe = p.duplicate_flag === true && p.duplicate_reviewed !== true
+                const isQuoted = (p as any).inventory_status === 'Quoted-Not Launched'
                 return (
                   <tr key={p.id} onClick={() => openEdit(p)}
                     style={isOut ? { borderLeft: '3px solid rgb(239 68 68)' } : isLow ? { borderLeft: '3px solid rgb(245 158 11)' } : {}}
                     className={`border-b border-gray-800/60 last:border-0 cursor-pointer transition-colors
-                      ${isDisc ? 'opacity-60 bg-gray-800/20 hover:bg-gray-800/40' : isOut ? 'bg-red-950/10 hover:bg-red-950/20' : isLow ? 'bg-amber-950/10 hover:bg-amber-950/20' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/40' : 'hover:bg-gray-800/40'}`}>
+                      ${isDisc ? 'opacity-60 bg-gray-800/20 hover:bg-gray-800/40' : isQuoted ? 'opacity-70 bg-violet-950/10 hover:bg-violet-950/20' : isOut ? 'bg-red-950/10 hover:bg-red-950/20' : isLow ? 'bg-amber-950/10 hover:bg-amber-950/20' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/40' : 'hover:bg-gray-800/40'}`}>
                     <td className="px-2 py-3">
                       {isDupe && (
                         <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
