@@ -1,324 +1,343 @@
 'use client'
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+
+import { useState } from 'react'
 
 export interface ImportShipment {
   id: string
-  description: string
-  freight_method: string
   vessel_name: string | null
-  vessel_number: string | null
-  booking_number: string | null
-  container_number: string | null
+  freight_method: string
   status: string
-  etd: string | null
   eta_los_angeles: string | null
+  etd: string | null
+  booking_number: string | null
   shipper: string | null
-  case_qty: number
-  comm_inv_amt: number
-  total_landed_cost: number
-  bg_po_number: string | null
+  container_number: string | null
+  bl_number: string | null
   current_lat: number | null
   current_lng: number | null
   last_tracked: string | null
+  description?: string
+  case_qty?: number
+  comm_inv_amt?: number
 }
 
-interface Props {
-  shipments: ImportShipment[]
+// ── Projection ───────────────────────────────────────────────────────────────
+// Equirectangular: SVG viewBox 0 0 1000 500
+
+function project(lat: number, lng: number): [number, number] {
+  return [(lng + 180) * (1000 / 360), (90 - lat) * (500 / 180)]
 }
 
-// ── Ports ────────────────────────────────────────────────────────────────────
+// ── Origin ports ─────────────────────────────────────────────────────────────
 
-const PORTS = {
-  SHANGHAI:    { lat: 31.2304,  lng: 121.4737, label: 'Shanghai' },
-  XIAMEN:      { lat: 24.4798,  lng: 118.0894, label: 'Xiamen' },
-  QINGDAO:     { lat: 36.0671,  lng: 120.3826, label: 'Qingdao' },
-  MUMBAI:      { lat: 18.9220,  lng: 72.8347,  label: 'Mumbai' },
-  AMSTERDAM:   { lat: 52.3086,  lng: 4.7639,   label: 'Amsterdam' },
-  LOS_ANGELES: { lat: 33.7405,  lng: -118.2764, label: 'Los Angeles' },
-  LAX:         { lat: 33.9425,  lng: -118.4081, label: 'LAX' },
+function getOriginPort(shipper: string | null, vessel: string | null): [number, number] {
+  const s = (shipper ?? '').toUpperCase()
+  const v = (vessel ?? '').toUpperCase()
+  if (s.includes('PARAS') || s.includes('BUZIL') || s.includes('PVT')) return [18.92, 72.83]   // Mumbai
+  if (s.includes('SHANDONG') || s.includes('SHENGHE')) return [36.07, 120.37]                  // Qingdao
+  if (s.includes('XIAMEN') || s.includes('HONGJU') || v.includes('XMN')) return [24.48, 118.09] // Xiamen
+  if (s.includes('YICHEN') || s.includes('ENTEN')) return [31.23, 121.47]                      // Shanghai
+  if (v.includes('KLM') || v.includes('AMSTERDAM') || s.includes('AMSTERDAM')) return [52.31, 4.76] // Amsterdam
+  return [31.23, 121.47] // Default: Shanghai
 }
 
-// Trans-Pacific waypoints (China → LA)
-const WP_CHINA_LA: [number, number][] = [
-  [30, 135], [40, 160], [45, 180], [42, -160], [38, -140], [34, -125],
-]
-// India via Malacca → LA
-const WP_INDIA_LA: [number, number][] = [
-  [6, 80], [1.3, 103.8], [10, 115], [25, 130], [35, 150], [42, 170], [45, 180], [42, -160], [35, -130],
-]
-// Air Asia → LAX (polar)
-const WP_AIR_ASIA: [number, number][] = [
-  [45, 140], [55, 160], [55, -160], [48, -125],
-]
-// Air Amsterdam → LAX
-const WP_AIR_AMS: [number, number][] = [
-  [55, -20], [45, -60], [40, -90],
-]
+// ── Route waypoints ───────────────────────────────────────────────────────────
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+function getWaypoints(origin: [number, number], freight: string): [number, number][] {
+  const LA: [number, number]  = [33.74, -118.28]
+  const LAX: [number, number] = [33.94, -118.41]
 
-function getOrigin(s: ImportShipment) {
-  const t = `${s.shipper ?? ''} ${s.vessel_name ?? ''}`.toUpperCase()
-  if (t.includes('PARAS') || t.includes('BUZIL') || t.includes('INDIA')) return PORTS.MUMBAI
-  if (t.includes('SHANDONG') || t.includes('SHENGHE') || t.includes('QINGDAO')) return PORTS.QINGDAO
-  if (t.includes('XIAMEN') || t.includes('HONGJU') || t.includes('CNXMN')) return PORTS.XIAMEN
-  if (t.includes('KLM') || t.includes('AMSTERDAM')) return PORTS.AMSTERDAM
-  return PORTS.SHANGHAI
-}
-
-function getRouteWaypoints(s: ImportShipment, origin: { lat: number; lng: number }): [number, number][] {
-  const o: [number, number] = [origin.lat, origin.lng]
-  const dest: [number, number] = [PORTS.LOS_ANGELES.lat, PORTS.LOS_ANGELES.lng]
-  if (s.freight_method === 'AIR') {
-    const isAms = origin.lng < 20
-    return [o, ...(isAms ? WP_AIR_AMS : WP_AIR_ASIA), dest]
+  if (freight === 'AIR') {
+    if (origin[1] > 100) {
+      // Asia → LAX polar arc
+      return [origin, [42, 130], [52, 155], [58, -170], [50, -140], [40, -125], LAX]
+    }
+    // Europe → LAX
+    return [origin, [52, -10], [48, -40], [44, -70], [38, -100], LAX]
   }
-  if (origin === PORTS.MUMBAI) return [o, ...WP_INDIA_LA, dest]
-  return [o, ...WP_CHINA_LA, dest]
+
+  // Ocean
+  if (origin[1] > 100 && origin[0] > 20) {
+    // China / East Asia → Trans-Pacific
+    return [origin, [30, 140], [38, 160], [43, 180], [41, -165], [37, -140], [34, -125], LA]
+  }
+  if (origin[1] > 60 && origin[0] < 25) {
+    // India → Malacca → Pacific → LA
+    return [origin, [8, 78], [2, 104], [8, 112], [18, 122], [28, 132], [38, 152], [43, 175], [41, -165], [37, -140], LA]
+  }
+  // Europe → Panama Canal → LA
+  return [origin, [48, -5], [36, -15], [20, -30], [10, -60], [9, -80], [15, -90], [20, -105], [28, -115], LA]
 }
 
-function getLivePosition(s: ImportShipment): [number, number] | null {
-  if (!s.current_lat || !s.current_lng || !s.last_tracked) return null
-  const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000
-  if (new Date(s.last_tracked).getTime() < fourHoursAgo) return null
-  return [s.current_lat, s.current_lng]
-}
+// ── Interpolation ─────────────────────────────────────────────────────────────
 
-function interpolateRoute(waypoints: [number, number][], progress: number): [number, number] {
+function interpolate(waypoints: [number, number][], progress: number): [number, number] {
   if (progress <= 0) return waypoints[0]
   if (progress >= 1) return waypoints[waypoints.length - 1]
-
-  // Compute cumulative distances
-  const segs: number[] = []
-  let total = 0
-  for (let i = 0; i < waypoints.length - 1; i++) {
-    const d = Math.hypot(waypoints[i + 1][0] - waypoints[i][0], waypoints[i + 1][1] - waypoints[i][1])
-    segs.push(d)
-    total += d
-  }
-
-  let target = progress * total
-  for (let i = 0; i < segs.length; i++) {
-    if (target <= segs[i]) {
-      const t = target / segs[i]
-      return [
-        waypoints[i][0] + (waypoints[i + 1][0] - waypoints[i][0]) * t,
-        waypoints[i][1] + (waypoints[i + 1][1] - waypoints[i][1]) * t,
-      ]
-    }
-    target -= segs[i]
-  }
-  return waypoints[waypoints.length - 1]
+  const n = waypoints.length - 1
+  const t = progress * n
+  const i = Math.floor(t)
+  const f = t - i
+  if (i >= n) return waypoints[n]
+  return [
+    waypoints[i][0] + (waypoints[i + 1][0] - waypoints[i][0]) * f,
+    waypoints[i][1] + (waypoints[i + 1][1] - waypoints[i][1]) * f,
+  ]
 }
 
-function getProgress(etd: string | null, eta: string | null): number {
-  if (!etd || !eta) return 0
-  return Math.max(0, Math.min(1, (Date.now() - new Date(etd).getTime()) / (new Date(eta).getTime() - new Date(etd).getTime())))
-}
+// ── Landmasses (approximate polygons for major continents) ────────────────────
 
-function etaDays(eta: string | null): string {
-  if (!eta) return '—'
-  const diff = Math.round((new Date(eta).getTime() - Date.now()) / 86400000)
-  if (diff < 0) return `${Math.abs(diff)}d late`
-  if (diff === 0) return 'TODAY'
-  if (diff === 1) return 'Tomorrow'
-  return `${diff} days`
-}
+const LANDMASSES = [
+  // North America
+  'M 80,55 L 95,50 L 110,52 L 130,58 L 145,65 L 155,75 L 160,90 L 155,105 L 145,115 L 140,130 L 130,140 L 120,148 L 110,155 L 100,165 L 92,175 L 88,168 L 80,160 L 72,148 L 68,135 L 65,120 L 62,108 L 60,95 L 62,80 L 68,68 Z',
+  // South America
+  'M 95,175 L 105,170 L 118,168 L 125,175 L 128,188 L 130,205 L 128,225 L 122,245 L 115,262 L 108,278 L 102,290 L 96,285 L 90,270 L 86,252 L 84,232 L 86,210 L 90,192 Z',
+  // Europe (western)
+  'M 452,58 L 462,55 L 468,60 L 465,68 L 458,72 L 450,68 Z',
+  // Europe/Russia
+  'M 462,52 L 510,40 L 570,38 L 640,42 L 680,48 L 700,55 L 690,65 L 660,68 L 620,65 L 580,62 L 545,60 L 515,62 L 490,65 L 468,62 Z',
+  // Africa
+  'M 468,95 L 490,90 L 512,92 L 530,100 L 540,115 L 544,132 L 542,155 L 536,175 L 526,198 L 512,215 L 498,228 L 484,232 L 470,225 L 460,210 L 453,192 L 451,170 L 452,148 L 455,128 L 460,110 Z',
+  // Asia main
+  'M 520,55 L 590,48 L 660,44 L 720,46 L 775,52 L 820,58 L 850,68 L 858,82 L 850,96 L 832,106 L 806,110 L 778,114 L 748,116 L 720,113 L 695,118 L 670,124 L 648,126 L 625,122 L 600,115 L 575,108 L 548,104 L 525,98 L 515,82 L 514,66 Z',
+  // Indian subcontinent
+  'M 590,115 L 618,112 L 632,118 L 635,132 L 630,148 L 618,160 L 605,163 L 594,156 L 586,140 L 585,126 Z',
+  // Southeast Asia
+  'M 682,116 L 718,113 L 742,120 L 750,136 L 744,150 L 728,157 L 710,158 L 695,150 L 685,138 Z',
+  // Australia
+  'M 718,268 L 762,260 L 806,262 L 832,272 L 842,288 L 840,305 L 826,318 L 805,324 L 780,326 L 756,320 L 735,308 L 718,292 L 712,278 Z',
+  // Japan
+  'M 789,86 L 800,83 L 808,90 L 804,97 L 793,100 L 785,94 Z',
+  // Greenland
+  'M 125,18 L 148,14 L 165,18 L 170,30 L 162,42 L 145,46 L 128,40 L 118,28 Z',
+  // UK
+  'M 450,57 L 462,54 L 468,60 L 464,68 L 455,71 L 448,65 Z',
+]
 
-function makeIcon(emoji: string) {
-  return L.divIcon({
-    className: '',
-    html: `<div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.8));cursor:pointer;">${emoji}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -16],
-  })
-}
+// ── Component ─────────────────────────────────────────────────────────────────
 
-const STATUS_COLOR: Record<string, string> = {
-  'In Transit': '#3B82F6', 'Gated': '#6B7280', 'At Port of Dispatch': '#F59E0B',
-  'Air Cargo Warehouse': '#06B6D4', 'Arriving Tomorrow': '#F59E0B',
-  'Arriving Today': '#EF4444', 'Received': '#10B981', 'Cleared': '#14B8A6',
-  'Delivered': '#059669', 'Pending': '#4B5563',
-}
+export default function ImportMap({ shipments }: { shipments: ImportShipment[] }) {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[] } | null>(null)
 
-function FitBounds({ bounds }: { bounds: [number, number][] }) {
-  const map = useMap()
-  useEffect(() => {
-    if (bounds.length > 1) map.fitBounds(bounds as any, { padding: [40, 40] })
-  }, [map, bounds])
-  return null
-}
-
-// ── Component ────────────────────────────────────────────────────────────────
-
-export default function ImportMap({ shipments }: Props) {
-  const dest = PORTS.LOS_ANGELES
-  const bounds: [number, number][] = [[dest.lat, dest.lng]]
-
-  // Group by booking/vessel for one route line per vessel
+  // Group by booking number
   const groups: Record<string, ImportShipment[]> = {}
-  for (const s of shipments) {
-    const key = s.booking_number ?? s.vessel_name ?? s.id
-    if (!groups[key]) groups[key] = []
-    groups[key].push(s)
-  }
+  shipments.forEach(s => {
+    const k = s.booking_number ?? s.id
+    if (!groups[k]) groups[k] = []
+    groups[k].push(s)
+  })
 
-  type RouteEntry = {
-    key: string
-    rep: ImportShipment
-    origin: { lat: number; lng: number; label: string }
-    markerPos: [number, number]
-    routeLine: [number, number][]
-    isLive: boolean
-    isReceived: boolean
-    isNotDeparted: boolean
+  const LA = project(33.74, -118.28)
+  const now = Date.now()
+
+  type VesselEntry = {
+    svgPos: [number, number]
+    svgWaypoints: [number, number][]
     progress: number
-    items: ImportShipment[]
+    isAir: boolean
+    isReceived: boolean
+    isLive: boolean
+    label: string
+    eta: string
+    booking: string
+    items: number
+    status: string
+    totalCases: number
+    totalInv: number
   }
 
-  const routes: RouteEntry[] = []
-
-  for (const [key, items] of Object.entries(groups)) {
+  const vessels: VesselEntry[] = Object.values(groups).map(items => {
     const rep = items[0]
     const isReceived = ['Received', 'Cleared', 'Delivered'].includes(rep.status)
-    const origin = getOrigin(rep)
-    const waypoints = getRouteWaypoints(rep, origin)
-    const progress = getProgress(rep.etd, rep.eta_los_angeles)
-    const isNotDeparted = progress <= 0 && !isReceived
+    const isAir = rep.freight_method === 'AIR'
 
-    const livePos = getLivePosition(rep)
-    const isLive = !!livePos
-
-    let markerPos: [number, number]
-    if (isReceived) {
-      markerPos = [dest.lat, dest.lng]
-    } else if (isNotDeparted) {
-      markerPos = [origin.lat, origin.lng]
-    } else if (isLive) {
-      markerPos = livePos!
-    } else {
-      markerPos = interpolateRoute(waypoints, progress)
+    // Real tracked position (within 4 hrs)
+    let liveLatLng: [number, number] | null = null
+    if (rep.current_lat && rep.current_lng && rep.last_tracked) {
+      if (now - new Date(rep.last_tracked).getTime() < 4 * 3600 * 1000) {
+        liveLatLng = [rep.current_lat, rep.current_lng]
+      }
     }
 
-    routes.push({ key, rep, origin, markerPos, routeLine: waypoints, isLive, isReceived, isNotDeparted, progress, items })
-    bounds.push(markerPos)
-    if (!isReceived) bounds.push([origin.lat, origin.lng])
-  }
+    const origin = getOriginPort(rep.shipper, rep.vessel_name)
+    const waypointsGeo = getWaypoints(origin, rep.freight_method)
+
+    let progress = 0
+    if (rep.etd && rep.eta_los_angeles) {
+      const etd = new Date(rep.etd).getTime()
+      const eta = new Date(rep.eta_los_angeles).getTime()
+      progress = Math.max(0, Math.min(0.99, (now - etd) / (eta - etd)))
+    }
+
+    const posGeo = isReceived
+      ? [33.74, -118.28] as [number, number]
+      : liveLatLng ?? interpolate(waypointsGeo, progress)
+
+    const daysLeft = rep.eta_los_angeles
+      ? Math.ceil((new Date(rep.eta_los_angeles).getTime() - now) / 86400000)
+      : null
+    const etaLabel = rep.eta_los_angeles
+      ? new Date(rep.eta_los_angeles + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : '—'
+    const eta = daysLeft !== null
+      ? `${etaLabel} (${daysLeft > 0 ? daysLeft + 'd' : daysLeft === 0 ? 'today' : 'late'})`
+      : '—'
+
+    return {
+      svgPos: project(posGeo[0], posGeo[1]),
+      svgWaypoints: waypointsGeo.map(([lat, lng]) => project(lat, lng)),
+      progress,
+      isAir,
+      isReceived,
+      isLive: !!liveLatLng,
+      label: (rep.vessel_name ?? 'Unknown').split(' ').slice(0, 3).join(' ').substring(0, 20),
+      eta,
+      booking: rep.booking_number ?? '—',
+      items: items.length,
+      status: rep.status,
+      totalCases: items.reduce((a, s) => a + (s.case_qty ?? 0), 0),
+      totalInv: items.reduce((a, s) => a + (s.comm_inv_amt ?? 0), 0),
+    }
+  })
 
   return (
-    <div className="w-full" style={{ minHeight: 480 }}>
-      <MapContainer
-        center={[30, 160]}
-        zoom={3}
-        style={{ height: 480, width: '100%', borderRadius: 12, background: '#0d1117' }}
-        zoomControl
-      >
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; OpenStreetMap &copy; CARTO'
-          subdomains="abcd"
-          maxZoom={19}
-        />
-        <FitBounds bounds={bounds} />
+    <div>
+      <div className="bg-[#0d1520] rounded-2xl overflow-hidden border border-[#2A2A35]">
+        <svg
+          viewBox="0 0 1000 500"
+          className="w-full"
+          style={{ height: 520 }}
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {/* Ocean */}
+          <rect width="1000" height="500" fill="#0d1520" />
 
-        {/* LA port anchor */}
-        <Marker position={[dest.lat, dest.lng]} icon={makeIcon('⚓')}>
-          <Popup>
-            <div style={{ fontWeight: 700 }}>Port of Los Angeles</div>
-            <div style={{ color: '#888', fontSize: 12 }}>Destination</div>
-          </Popup>
-        </Marker>
+          {/* Grid */}
+          {[-60, -30, 0, 30, 60].map(lat => {
+            const [, y] = project(lat, 0)
+            return <line key={`lat${lat}`} x1={0} y1={y} x2={1000} y2={y} stroke="#1a2535" strokeWidth="0.5" />
+          })}
+          {[-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150].map(lng => {
+            const [x] = project(0, lng)
+            return <line key={`lng${lng}`} x1={x} y1={0} x2={x} y2={500} stroke="#1a2535" strokeWidth="0.5" />
+          })}
 
-        {routes.map(({ key, rep, origin, markerPos, routeLine, isLive, isReceived, isNotDeparted, progress, items }) => {
-          const isAir = rep.freight_method === 'AIR'
-          const emoji = isReceived ? '📦' : isNotDeparted ? '🏭' : isAir ? '✈️' : '🚢'
-          const color = STATUS_COLOR[rep.status] ?? '#6B7280'
-          const totalCases = items.reduce((a, s) => a + (s.case_qty ?? 0), 0)
-          const totalInv = items.reduce((a, s) => a + (s.comm_inv_amt ?? 0), 0)
+          {/* Landmasses */}
+          {LANDMASSES.map((d, i) => (
+            <path key={i} d={d} fill="#1e3a2f" stroke="#2d5a42" strokeWidth="0.8" />
+          ))}
 
-          // Route line: origin → current pos (solid) + current → dest (dashed)
-          const traveledLine: [number, number][] = isReceived
-            ? []
-            : [...routeLine.slice(0, Math.ceil(routeLine.length * Math.min(progress, 0.99) + 1)), markerPos]
-          const remainingLine: [number, number][] = isReceived
-            ? []
-            : [markerPos, ...routeLine.slice(-3), [dest.lat, dest.lng]]
+          {/* Route lines */}
+          {vessels.map((v, i) => {
+            if (v.isReceived) return null
+            const wp = v.svgWaypoints
+            const [cx, cy] = v.svgPos
+            const color = v.isAir ? '#22d3ee' : '#3b82f6'
 
-          const posLabel = isLive
-            ? '<span style="color:#22c55e;font-weight:700">🟢 LIVE POSITION</span>'
-            : isNotDeparted
-            ? '<span style="color:#9898A8">⬜ NOT YET DEPARTED</span>'
-            : '<span style="color:#f59e0b;font-weight:700">🟡 ESTIMATED</span>'
+            // Full route dim
+            const fullD = wp.map(([x, y], j) => `${j === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
 
-          return (
-            <div key={key}>
-              {/* Traveled portion */}
-              {traveledLine.length > 1 && (
-                <Polyline
-                  positions={traveledLine}
-                  pathOptions={{ color, weight: 2.5, opacity: 0.8 }}
-                />
-              )}
-              {/* Remaining portion */}
-              {remainingLine.length > 1 && (
-                <Polyline
-                  positions={remainingLine}
-                  pathOptions={{ color, weight: 1.5, opacity: 0.35, dashArray: '6 5' }}
-                />
-              )}
+            // Completed portion up to current position
+            const cutIdx = Math.min(Math.ceil(v.progress * (wp.length - 1)), wp.length - 1)
+            const donePoints: [number, number][] = [...wp.slice(0, cutIdx + 1), [cx, cy]]
+            const doneD = donePoints.map(([x, y], j) => `${j === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
 
-              <Marker position={markerPos} icon={makeIcon(emoji)}>
-                <Popup>
-                  <div style={{ fontSize: 13, minWidth: 230, lineHeight: 1.6 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                      {isAir ? '✈️' : '🚢'} {rep.vessel_name ?? 'Unknown Vessel'}
-                    </div>
-                    <div dangerouslySetInnerHTML={{ __html: posLabel }} style={{ marginBottom: 6 }} />
-                    <div><b>Status:</b> {rep.status}</div>
-                    <div><b>Booking:</b> {rep.booking_number ?? '—'}</div>
-                    {rep.container_number && <div><b>Container:</b> {rep.container_number}</div>}
-                    <div><b>From:</b> {origin.label}</div>
-                    <div><b>ETD:</b> {rep.etd ?? '—'}</div>
-                    <div><b>ETA LA:</b> {rep.eta_los_angeles ?? '—'} ({etaDays(rep.eta_los_angeles)})</div>
-                    <div><b>Items:</b> {items.length} · {totalCases} cases</div>
-                    {totalInv > 0 && (
-                      <div><b>Comm Inv:</b> ${totalInv.toLocaleString('en-US', { minimumFractionDigits: 0 })}</div>
-                    )}
-                    {isLive && rep.last_tracked && (
-                      <div style={{ color: '#888', fontSize: 11, marginTop: 4 }}>
-                        Updated {new Date(rep.last_tracked).toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-                </Popup>
-              </Marker>
-            </div>
-          )
-        })}
-      </MapContainer>
+            return (
+              <g key={i}>
+                <path d={fullD} fill="none" stroke={color} strokeWidth="1" strokeOpacity="0.12" strokeDasharray="3,3" />
+                <path d={doneD} fill="none" stroke={color} strokeWidth="2" strokeOpacity="0.75" />
+              </g>
+            )
+          })}
+
+          {/* LA Port anchor */}
+          <g>
+            <circle cx={LA[0]} cy={LA[1]} r="10" fill="#00C896" fillOpacity="0.2" stroke="#00C896" strokeWidth="1.5" />
+            <circle cx={LA[0]} cy={LA[1]} r="4" fill="#00C896" />
+            <text x={LA[0] + 13} y={LA[1] + 4} fill="#00C896" fontSize="9" fontWeight="bold">LA/LB Port</text>
+          </g>
+
+          {/* Vessel markers */}
+          {vessels.map((v, i) => {
+            const [vx, vy] = v.svgPos
+            const color = v.isReceived ? '#00C896' : v.isAir ? '#22d3ee' : '#3b82f6'
+            const icon = v.isReceived ? '✓' : v.isAir ? '✈' : '▲'
+
+            return (
+              <g
+                key={i}
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={() => {
+                  const lines = [
+                    v.label,
+                    `${v.isAir ? 'AIR' : 'OCEAN'} · ${v.status}`,
+                    `ETA: ${v.eta}`,
+                    `${v.items} item${v.items !== 1 ? 's' : ''}${v.totalCases ? ' · ' + v.totalCases + ' cases' : ''}`,
+                    `Booking: ${v.booking}`,
+                    v.isLive ? '🟢 LIVE POSITION' : '🟡 ESTIMATED',
+                  ]
+                  setTooltip({ x: vx, y: vy, lines })
+                }}
+              >
+                {/* Pulse ring */}
+                {!v.isReceived && (
+                  <circle cx={vx} cy={vy} r="13" fill="none" stroke={color} strokeWidth="1" strokeOpacity="0.35" />
+                )}
+                {/* Body */}
+                <circle cx={vx} cy={vy} r="8" fill={color} fillOpacity="0.9" stroke={color} strokeWidth="1" />
+                {/* Icon */}
+                <text x={vx} y={vy + 4} textAnchor="middle" fontSize="8" fill="white">{icon}</text>
+                {/* Vessel name */}
+                <text x={vx} y={vy - 14} textAnchor="middle" fill="white" fontSize="7.5" fontWeight="500" style={{ pointerEvents: 'none' }}>
+                  {v.label}
+                </text>
+                {/* Live dot */}
+                {v.isLive && <circle cx={vx + 9} cy={vy - 9} r="3.5" fill="#22c55e" />}
+              </g>
+            )
+          })}
+
+          {/* Tooltip */}
+          {tooltip && (() => {
+            const W = 175, LH = 14, PAD = 8
+            const H = tooltip.lines.length * LH + PAD * 2
+            let tx = tooltip.x + 14
+            let ty = tooltip.y - H / 2
+            if (tx + W > 985) tx = tooltip.x - W - 10
+            if (ty < 4) ty = 4
+            if (ty + H > 496) ty = 496 - H
+            return (
+              <g style={{ pointerEvents: 'none' }}>
+                <rect x={tx - PAD} y={ty - PAD} width={W + PAD * 2} height={H + PAD}
+                  rx="6" fill="#111827" stroke="#374151" strokeWidth="1" />
+                {tooltip.lines.map((line, j) => (
+                  <text key={j} x={tx} y={ty + j * LH + LH / 2}
+                    fill={j === 0 ? '#ffffff' : '#9ca3af'}
+                    fontSize="9"
+                    fontWeight={j === 0 ? 'bold' : 'normal'}
+                    dominantBaseline="middle"
+                  >
+                    {line}
+                  </text>
+                ))}
+              </g>
+            )
+          })()}
+        </svg>
+      </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-between mt-2 px-1">
-        <div className="flex items-center gap-4 text-xs text-gray-500">
-          <span>🚢 Ocean</span>
-          <span>✈️ Air</span>
-          <span>🏭 Not departed</span>
-          <span>📦 Received</span>
-          <span>⚓ LA Port</span>
-          <span className="text-green-400">🟢 Live</span>
-          <span className="text-amber-400">🟡 Estimated</span>
+      <div className="flex items-center justify-between mt-3 px-1">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" />Ocean</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-cyan-400 inline-block" />Air freight</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />Received / LA</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />Live GPS</span>
+          <span className="text-amber-400">🟡 Estimated from ETD/ETA</span>
         </div>
-        <p className="text-xs text-gray-600">
-          Live tracking by{' '}
-          <a href="https://shipsgo.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-            ShipsGo
-          </a>
-          {' '}· Estimated from ETD/ETA
+        <p className="text-gray-600 text-xs shrink-0">
+          Hover vessels for details ·{' '}
+          <a href="https://shipsgo.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Powered by ShipsGo</a>
         </p>
       </div>
     </div>

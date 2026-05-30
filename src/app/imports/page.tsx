@@ -2,18 +2,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useState, useEffect, useCallback, memo } from 'react'
-import dynamicImport from 'next/dynamic'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-
-// Dynamic import keeps leaflet off the SSR bundle
-const ImportMap = dynamicImport(() => import('@/components/ImportMap'), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[500px] bg-[#111113] border border-[#2A2A35] rounded-2xl flex items-center justify-center text-gray-500 text-sm">
-      Loading map…
-    </div>
-  ),
-})
+import ImportMap from '@/components/ImportMap'
 
 const supabase = createSupabaseBrowserClient()
 
