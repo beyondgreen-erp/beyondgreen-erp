@@ -414,31 +414,53 @@ export async function GET() {
       }
     }
 
-    const { data: newOrder, error: oErr } = await supabase
+    // Build insert using guaranteed-existing columns; add new ones if available
+    const orderInsert: Record<string, any> = {
+      customer_id: customerId,
+      order_number: order.po_number ?? ('SO-' + order.monday_item_id),
+      status: STATUS_MAP[order.status] ?? order.status ?? 'Pending',
+      order_date: order.order_date ?? null,
+      required_ship_date: order.ship_date ?? null,
+      po_number: order.po_number ?? null,
+      // Store the full order name in notes; repurpose carrier for facility
+      notes: order.name,
+      carrier: order.facility ?? null,
+      shipping_address: order.shipping_address ?? null,
+      subtotal: order.total_value ?? 0,
+      total: order.total_value ?? 0,
+      tax_pct: 0,
+    }
+    // Try new columns — Supabase will ignore unknown ones silently in upsert
+    // but reject them on insert. We add them speculatively and catch errors.
+    const newCols = {
+      monday_item_id: order.monday_item_id ?? null,
+      order_section: order.section ?? null,
+      facility: order.facility ?? null,
+      production_start: order.production_start ?? null,
+      estimated_completion: order.estimated_completion ?? null,
+      ship_date: order.ship_date ?? null,
+      customer_email: order.customer_email ?? null,
+      additional_comments: order.additional_comments ?? null,
+      total_amount: order.total_value ?? 0,
+    }
+
+    // Try with all columns first; fall back to base if schema error
+    let { data: newOrder, error: oErr } = await supabase
       .from('sales_orders')
-      .insert({
-        customer_id: customerId,
-        order_number: order.po_number ?? ('SO-' + order.monday_item_id),
-        status: STATUS_MAP[order.status] ?? order.status ?? 'Pending',
-        monday_item_id: order.monday_item_id ?? null,
-        order_section: order.section ?? null,
-        facility: order.facility ?? null,
-        order_date: order.order_date ?? null,
-        production_start: order.production_start ?? null,
-        estimated_completion: order.estimated_completion ?? null,
-        ship_date: order.ship_date ?? null,
-        customer_email: order.customer_email ?? null,
-        additional_comments: order.additional_comments ?? null,
-        total_amount: order.total_value ?? 0,
-        notes: order.name,
-        po_number: order.po_number ?? null,
-        required_ship_date: order.ship_date ?? null,
-        subtotal: order.total_value ?? 0,
-        total: order.total_value ?? 0,
-        tax_pct: 0,
-      })
+      .insert({ ...orderInsert, ...newCols })
       .select('id')
       .single()
+
+    if (oErr && oErr.message.includes('column')) {
+      // Schema not migrated yet — retry without new columns
+      const fallback = await supabase
+        .from('sales_orders')
+        .insert(orderInsert)
+        .select('id')
+        .single()
+      oErr = fallback.error
+      if (!oErr) newOrder = fallback.data
+    }
 
     if (oErr) { errors.push(`${order.name}: ${oErr.message}`); continue }
 
@@ -456,25 +478,30 @@ export async function GET() {
         if (prod) { productId = prod.id; productName = prod.product_name; unitCost = prod.unit_cost ?? 0 }
       }
 
-      await supabase.from('sales_order_lines').insert({
+      const lineBase: Record<string, any> = {
         sales_order_id: newOrder!.id,
-        order_id: newOrder!.id,
         product_id: productId,
         sku: line.sku ?? null,
         description: productName,
-        added_details: line.added_details ?? null,
         quantity: line.qty ?? 0,
-        completed_qty: line.completed_qty ?? 0,
-        qty_per_case: line.qty_per_case ?? null,
         quantity_shipped: line.completed_qty ?? 0,
         unit_of_measure: line.uom ?? null,
         unit_price: unitCost,
+        line_number: line.line_number ?? 1,
+        discount_pct: 0,
+      }
+      const lineNew = {
+        added_details: line.added_details ?? null,
+        completed_qty: line.completed_qty ?? 0,
+        qty_per_case: line.qty_per_case ?? null,
         packaging: line.packaging ?? null,
         production_status: line.production_status ?? null,
         sku_flagged: line.sku_flagged ?? false,
-        line_number: line.line_number ?? 1,
-        discount_pct: 0,
-      })
+      }
+      const lRes = await supabase.from('sales_order_lines').insert({ ...lineBase, ...lineNew })
+      if (lRes.error?.message.includes('column')) {
+        await supabase.from('sales_order_lines').insert(lineBase)
+      }
     }
 
     inserted++
