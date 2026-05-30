@@ -3,7 +3,22 @@
 
 import { useState, useEffect, useCallback, memo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import ImportMap from '@/components/ImportMap'
+import dynamic from 'next/dynamic'
+
+const ImportMap = dynamic(
+  () => import('@/components/ImportMap'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[520px] bg-[#0a1628] rounded-2xl border border-[#2A2A35] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-gray-500 text-sm">Loading map...</p>
+        </div>
+      </div>
+    ),
+  }
+)
 
 const supabase = createSupabaseBrowserClient()
 
@@ -854,7 +869,7 @@ export default function ImportsPage() {
           </div>
 
           <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden p-3">
-            <ImportMap shipments={rows as any} />
+            <ImportMap shipments={rows} />
           </div>
         </div>
       )}

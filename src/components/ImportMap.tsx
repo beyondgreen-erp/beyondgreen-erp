@@ -1,12 +1,22 @@
 'use client'
 
 import { useState } from 'react'
+import {
+  ComposableMap,
+  Geographies,
+  Geography,
+  Marker,
+  Line,
+  ZoomableGroup,
+} from 'react-simple-maps'
+
+const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
 
 interface Shipment {
   id: string
   vessel_name?: string | null
-  freight_method?: string
-  status?: string
+  freight_method?: string | null
+  status?: string | null
   eta_los_angeles?: string | null
   etd?: string | null
   booking_number?: string | null
@@ -16,52 +26,74 @@ interface Shipment {
   last_tracked?: string | null
 }
 
-// Equirectangular projection — maps lat/lng to percentage positions on map
-function toXY(lat: number, lng: number): [number, number] {
-  const x = ((lng + 180) / 360) * 100
-  const y = ((90 - lat) / 180) * 100
-  return [x, y]
-}
-
+// react-simple-maps uses [longitude, latitude]
 function getOrigin(shipper: string | null, vessel: string | null): [number, number] {
   const s = (shipper || '').toUpperCase()
   const v = (vessel || '').toUpperCase()
   if (s.includes('PARAS') || s.includes('BUZIL') || s.includes('PVT'))
-    return [18.92, 72.83]
+    return [72.83, 18.92]   // Mumbai
   if (s.includes('SHANDONG') || s.includes('SHENGHE'))
-    return [36.07, 120.37]
+    return [120.37, 36.07]  // Qingdao
   if (s.includes('XIAMEN') || s.includes('HONGJU'))
-    return [24.48, 118.09]
+    return [118.09, 24.48]  // Xiamen
   if (s.includes('YICHEN') || s.includes('ENTEN'))
-    return [31.23, 121.47]
+    return [121.47, 31.23]  // Shanghai
   if (v.includes('KLM') || s.includes('KLM'))
-    return [52.31, 4.76]
-  return [31.23, 121.47]
+    return [4.76, 52.31]    // Amsterdam
+  return [121.47, 31.23]    // Default Shanghai
 }
 
 function getWaypoints(origin: [number, number], freight: string): [number, number][] {
-  const LA: [number, number] = [33.74, -118.28]
-  const LAX: [number, number] = [33.94, -118.41]
+  const LA: [number, number] = [-118.28, 33.74]
+  const LAX: [number, number] = [-118.41, 33.94]
 
   if (freight === 'AIR') {
-    if (origin[0] > 45) {
+    if (origin[0] < 20 && origin[1] > 45) {
       // Europe to LAX
-      return [origin, [55, -10], [50, -30], [45, -55], [40, -90], LAX]
+      return [origin, [-10, 55], [-30, 50], [-55, 45], [-90, 40], LAX]
     }
-    // Asia to LAX polar
-    return [origin, [45, 135], [55, 160], [60, -175], [55, -150], [48, -125], LAX]
+    // Asia polar to LAX
+    return [origin, [135, 45], [160, 55], [-175, 60], [-150, 58], [-130, 52], [-125, 45], LAX]
   }
 
-  // India via Malacca
-  if (origin[1] < 85) {
-    return [origin, [8, 77], [1.3, 103.8], [8, 112], [20, 125], [35, 150], [44, 175], [44, -175], [40, -158], [34, -125], LA]
+  // India via Malacca Strait
+  if (origin[0] < 85) {
+    return [
+      origin,
+      [77, 8], [98, 3], [103.8, 1.3], [110, 7], [118, 15],
+      [125, 22], [135, 30], [152, 40], [172, 44],
+      [-178, 44], [-158, 41], [-140, 37], [-125, 35], [-122, 34],
+      LA,
+    ]
   }
-  // China north
-  if (origin[0] > 33) {
-    return [origin, [34, 128], [38, 145], [44, 165], [46, 178], [46, -178], [42, -158], [37, -138], [34, -122], LA]
+
+  // Qingdao (north China, lat > 33)
+  if (origin[1] > 33) {
+    return [
+      origin,
+      [128, 34], [140, 36], [155, 42], [170, 46],
+      [178, 46], [-178, 46], [-160, 43], [-140, 38], [-122, 34],
+      LA,
+    ]
   }
-  // China south/central
-  return [origin, [22, 122], [28, 135], [38, 155], [44, 175], [44, -175], [41, -160], [36, -138], [34, -122], LA]
+
+  // Xiamen / south China
+  if (origin[1] < 30) {
+    return [
+      origin,
+      [122, 22], [135, 28], [152, 38], [170, 44],
+      [-178, 44], [-160, 41], [-138, 36], [-122, 34],
+      LA,
+    ]
+  }
+
+  // Shanghai default
+  return [
+    origin,
+    [125, 28], [140, 32], [155, 40], [175, 45],
+    [-178, 45], [-160, 42], [-140, 37], [-122, 34],
+    LA,
+  ]
 }
 
 function interpolate(pts: [number, number][], t: number): [number, number] {
@@ -77,14 +109,35 @@ function interpolate(pts: [number, number][], t: number): [number, number] {
   ]
 }
 
-const COLORS = [
+const VESSEL_COLORS = [
   '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899',
   '#14b8a6', '#f97316', '#84cc16', '#a855f7',
   '#ef4444', '#06b6d4',
 ]
 
+interface VesselInfo {
+  key: string
+  name: string
+  color: string
+  isAir: boolean
+  isDone: boolean
+  currentPos: [number, number]
+  waypoints: [number, number][]
+  progress: number
+  status: string
+  eta: string
+  daysLeft: number | null
+  itemCount: number
+  booking: string
+  isLive: boolean
+  shipper: string
+}
+
 export default function ImportMap({ shipments }: { shipments: Shipment[] }) {
-  const [hovered, setHovered] = useState<string | null>(null)
+  const [tooltip, setTooltip] = useState<VesselInfo | null>(null)
+  const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+
+  const now = Date.now()
 
   const groups: Record<string, Shipment[]> = {}
   shipments.forEach(s => {
@@ -93,12 +146,9 @@ export default function ImportMap({ shipments }: { shipments: Shipment[] }) {
     groups[k].push(s)
   })
 
-  const now = Date.now()
-  const LA = toXY(33.74, -118.28)
-
-  const vessels = Object.entries(groups).map(([key, items], idx) => {
+  const vessels: VesselInfo[] = Object.entries(groups).map(([key, items], idx) => {
     const first = items[0]
-    const isAir = first.freight_method === 'AIR'
+    const isAir = (first.freight_method || '') === 'AIR'
     const isDone = first.status === 'Received' || first.status === 'Delivered'
 
     let progress = 0
@@ -111,239 +161,219 @@ export default function ImportMap({ shipments }: { shipments: Shipment[] }) {
     const origin = getOrigin(first.shipper ?? null, first.vessel_name ?? null)
     const waypoints = getWaypoints(origin, first.freight_method || 'OCEAN')
 
-    let currentLatLng: [number, number]
+    const isLive = !!(
+      first.current_lat && first.current_lng && first.last_tracked &&
+      Date.now() - new Date(first.last_tracked).getTime() < 4 * 3600000
+    )
+
+    let currentPos: [number, number]
     if (isDone) {
-      currentLatLng = [33.74, -118.28]
-    } else if (first.current_lat && first.current_lng) {
-      currentLatLng = [first.current_lat, first.current_lng]
+      currentPos = [-118.28, 33.74]
+    } else if (isLive) {
+      currentPos = [first.current_lng!, first.current_lat!]
     } else {
-      currentLatLng = interpolate(waypoints, progress)
+      currentPos = interpolate(waypoints, progress)
     }
 
-    const color = isAir ? '#22d3ee' : COLORS[idx % COLORS.length]
-    const eta = first.eta_los_angeles
+    const etaDate = first.eta_los_angeles
       ? new Date(first.eta_los_angeles + 'T12:00:00')
-          .toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      : '—'
-    const daysLeft = first.eta_los_angeles
-      ? Math.ceil((new Date(first.eta_los_angeles).getTime() - now) / 86400000)
       : null
+    const daysLeft = etaDate
+      ? Math.ceil((etaDate.getTime() - now) / 86400000)
+      : null
+    const etaLabel = etaDate
+      ? etaDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : '—'
 
-    return { key, items, first, origin, waypoints, currentLatLng, progress, color, isAir, isDone, eta, daysLeft }
+    const color = isAir ? '#22d3ee' : VESSEL_COLORS[idx % VESSEL_COLORS.length]
+
+    return {
+      key,
+      name: first.vessel_name || 'Unknown',
+      color,
+      isAir,
+      isDone,
+      currentPos,
+      waypoints,
+      progress: Math.round(progress * 100),
+      status: first.status || 'Unknown',
+      eta: etaLabel,
+      daysLeft,
+      itemCount: items.length,
+      booking: first.booking_number || '—',
+      isLive,
+      shipper: (first.shipper || '').split(',')[0].split(' ').slice(0, 3).join(' '),
+    }
   })
 
   return (
     <div className="space-y-3">
-      {/* Map container */}
-      <div className="relative bg-[#0a1628] rounded-2xl overflow-hidden border border-[#2A2A35]" style={{ paddingTop: '50%' }}>
-        <div className="absolute inset-0">
-          <svg viewBox="0 0 100 50" className="w-full h-full" preserveAspectRatio="none">
-            <rect width="100" height="50" fill="#0a1628" />
-
-            {/* Grid lines - latitude */}
-            {[-60, -30, 0, 30, 60].map(lat => {
-              const [, y] = toXY(lat, 0)
-              return <line key={lat} x1="0" y1={y} x2="100" y2={y} stroke="#1a2a3a" strokeWidth="0.1" />
-            })}
-            {/* Grid lines - longitude */}
-            {[-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180].map(lng => {
-              const [x] = toXY(0, lng)
-              return <line key={lng} x1={x} y1="0" x2={x} y2="50" stroke="#1a2a3a" strokeWidth="0.1" />
-            })}
-
-            {/* Continent outlines — coordinates in equirectangular % space (toXY output) */}
-            {/* North America */}
-            <polygon points="8,10 15,9 22,11 26,13 28,16 27,20 24,23 22,26 19,29 16,31 13,29 10,26 8,22 7,18 7,14" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* South America */}
-            <polygon points="18,29 22,28 26,30 27,34 26,40 23,45 19,47 16,45 14,40 14,35 15,31" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* Europe */}
-            <polygon points="45,8 52,7 55,9 54,12 50,14 47,13 44,11" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* Africa */}
-            <polygon points="44,13 52,12 57,14 59,18 58,24 55,30 50,35 45,36 41,32 40,26 40,20 41,16" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* Russia/Europe landmass */}
-            <polygon points="46,6 60,5 75,7 85,8 90,10 88,13 80,14 70,13 60,12 50,11 46,9" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* Asia main */}
-            <polygon points="55,8 75,7 88,8 92,10 94,13 90,16 85,18 80,19 75,20 70,21 65,20 60,18 56,15 54,12" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* India */}
-            <polygon points="58,17 64,16 67,18 67,22 65,26 62,27 59,25 57,21" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* SE Asia */}
-            <polygon points="72,18 78,17 82,19 83,22 80,24 75,24 72,22" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* Australia */}
-            <polygon points="76,32 84,31 88,33 89,37 87,41 82,43 76,42 72,39 71,35 73,32" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* Greenland */}
-            <polygon points="32,3 38,2 42,4 41,8 37,10 32,9 30,6" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-            {/* Japan */}
-            <polygon points="86,14 88,13 89,15 88,17 86,16" fill="#1a3a28" stroke="#2d5a40" strokeWidth="0.2" />
-
-            {/* Route lines — full dashed */}
-            {vessels.map((v, i) => {
-              if (v.isDone) return null
-              const segments: string[][] = []
-              let current: string[] = []
-              v.waypoints.forEach(([lat, lng], idx) => {
-                const [x, y] = toXY(lat, lng)
-                if (idx > 0) {
-                  const prevLng = v.waypoints[idx - 1][1]
-                  if (Math.abs(lng - prevLng) > 180) {
-                    segments.push(current)
-                    current = []
-                  }
-                }
-                current.push(`${x.toFixed(2)},${y.toFixed(2)}`)
-              })
-              segments.push(current)
-              return segments.map((seg, si) => (
-                <polyline key={`${i}-${si}`}
-                  points={seg.join(' ')}
-                  fill="none"
-                  stroke={v.color}
-                  strokeWidth="0.3"
-                  strokeOpacity="0.4"
-                  strokeDasharray="0.5,0.5"
-                />
-              ))
-            })}
-
-            {/* Completed route portions */}
-            {vessels.map((v, i) => {
-              if (v.isDone || v.progress <= 0) return null
-              const completedWps: [number, number][] = []
-              const totalSeg = v.waypoints.length - 1
-              const stopAt = Math.floor(v.progress * totalSeg)
-              for (let j = 0; j <= stopAt && j < v.waypoints.length; j++) {
-                completedWps.push(v.waypoints[j])
+      {/* Map */}
+      <div
+        className="relative bg-[#0a1628] rounded-2xl overflow-hidden border border-[#2A2A35]"
+        onMouseMove={e => {
+          const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+          setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+        }}
+        onMouseLeave={() => setTooltip(null)}
+      >
+        <ComposableMap
+          projection="geoNaturalEarth1"
+          projectionConfig={{ scale: 153, center: [10, 20] }}
+          style={{ width: '100%', height: '520px', background: '#0a1628' }}
+        >
+          <ZoomableGroup>
+            <Geographies geography={GEO_URL}>
+              {({ geographies }) =>
+                geographies.map(geo => (
+                  <Geography
+                    key={geo.rsmKey}
+                    geography={geo}
+                    fill="#1a3a28"
+                    stroke="#2d5a40"
+                    strokeWidth={0.3}
+                    style={{
+                      default: { outline: 'none' },
+                      hover: { outline: 'none', fill: '#1f4530' },
+                      pressed: { outline: 'none' },
+                    }}
+                  />
+                ))
               }
-              completedWps.push(v.currentLatLng)
+            </Geographies>
 
-              const segments: string[][] = []
-              let current: string[] = []
-              completedWps.forEach(([lat, lng], idx) => {
-                const [x, y] = toXY(lat, lng)
-                if (idx > 0) {
-                  const prevLng = completedWps[idx - 1][1]
-                  if (Math.abs(lng - prevLng) > 180) {
-                    segments.push(current)
-                    current = []
-                  }
-                }
-                current.push(`${x.toFixed(2)},${y.toFixed(2)}`)
-              })
-              segments.push(current)
-
-              return segments.map((seg, si) => (
-                <polyline key={`comp-${i}-${si}`}
-                  points={seg.join(' ')}
-                  fill="none"
+            {/* Full route lines (dim dashed) */}
+            {vessels.map(v => {
+              if (v.isDone) return null
+              return (
+                <Line
+                  key={`route-${v.key}`}
+                  coordinates={v.waypoints}
                   stroke={v.color}
-                  strokeWidth="0.6"
-                  strokeOpacity="0.9"
+                  strokeWidth={0.8}
+                  strokeOpacity={0.25}
+                  strokeDasharray="3,3"
+                  fill="none"
                 />
-              ))
+              )
+            })}
+
+            {/* Completed route (bright) */}
+            {vessels.map(v => {
+              if (v.isDone || v.progress <= 0) return null
+              const n = v.waypoints.length - 1
+              const stopIdx = Math.floor((v.progress / 100) * n)
+              const completed: [number, number][] = [
+                ...v.waypoints.slice(0, stopIdx + 1),
+                v.currentPos,
+              ]
+              return (
+                <Line
+                  key={`done-${v.key}`}
+                  coordinates={completed}
+                  stroke={v.color}
+                  strokeWidth={2}
+                  strokeOpacity={0.9}
+                  fill="none"
+                />
+              )
             })}
 
             {/* LA Port */}
-            <circle cx={LA[0]} cy={LA[1]} r="0.8" fill="#00C896" opacity="0.5" />
-            <circle cx={LA[0]} cy={LA[1]} r="0.4" fill="#00C896" />
-            <text x={LA[0] + 0.8} y={LA[1] + 0.3} fill="#00C896" fontSize="1.2" fontWeight="bold">LA</text>
+            <Marker coordinates={[-118.28, 33.74]}>
+              <circle r={5} fill="#00C896" fillOpacity={0.3} stroke="#00C896" strokeWidth={1.5} />
+              <circle r={2.5} fill="#00C896" />
+              <text y={-10} textAnchor="middle" fill="#00C896" fontSize={9} fontWeight="bold">
+                LA/LB Port
+              </text>
+            </Marker>
 
             {/* Vessel markers */}
-            {vessels.map((v) => {
-              const [x, y] = toXY(v.currentLatLng[0], v.currentLatLng[1])
-              const isHovered = hovered === v.key
-
-              return (
-                <g key={v.key}
+            {vessels.map(v => (
+              <Marker
+                key={`marker-${v.key}`}
+                coordinates={v.currentPos}
+                onMouseEnter={() => setTooltip(v)}
+                onMouseLeave={() => setTooltip(null)}
+              >
+                {!v.isDone && (
+                  <circle r={10} fill="none" stroke={v.color} strokeWidth={1} opacity={0.4} />
+                )}
+                <circle
+                  r={7}
+                  fill={v.isDone ? '#00C896' : v.color}
+                  stroke="white"
+                  strokeWidth={1}
                   style={{ cursor: 'pointer' }}
-                  onMouseEnter={() => setHovered(v.key)}
-                  onMouseLeave={() => setHovered(null)}
+                />
+                <text
+                  textAnchor="middle"
+                  y={4}
+                  fontSize={8}
+                  fill="white"
+                  style={{ pointerEvents: 'none' }}
                 >
-                  {/* Pulse ring */}
-                  {!v.isDone && (
-                    <circle cx={x} cy={y} r={isHovered ? '2.5' : '1.8'}
-                      fill="none"
-                      stroke={v.color}
-                      strokeWidth="0.3"
-                      opacity="0.5"
-                    />
-                  )}
-                  {/* Vessel dot */}
-                  <circle cx={x} cy={y} r="1"
-                    fill={v.isDone ? '#00C896' : v.color}
-                    stroke="white"
-                    strokeWidth="0.2"
-                  />
-                  {/* Icon */}
-                  <text x={x} y={y + 0.4}
-                    textAnchor="middle"
-                    fontSize="1"
-                    fill="white"
-                  >
-                    {v.isDone ? '✓' : v.isAir ? '✈' : '▲'}
-                  </text>
-                  {/* Vessel name label */}
-                  <text x={x} y={y - 1.4}
-                    textAnchor="middle"
-                    fill="white"
-                    fontSize="0.9"
-                    fontWeight="500"
-                    opacity="0.9"
-                  >
-                    {(v.first.vessel_name || '').split(' ').slice(0, 2).join(' ').substring(0, 14)}
-                  </text>
+                  {v.isDone ? '✓' : v.isAir ? '✈' : '▲'}
+                </text>
+                <text
+                  textAnchor="middle"
+                  y={-13}
+                  fontSize={8}
+                  fill="white"
+                  fontWeight="500"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {v.name.split(' ').slice(0, 3).join(' ').substring(0, 16)}
+                </text>
+                {v.isLive && <circle cx={9} cy={-9} r={3} fill="#00C896" />}
+              </Marker>
+            ))}
+          </ZoomableGroup>
+        </ComposableMap>
 
-                  {/* Tooltip on hover */}
-                  {isHovered && (() => {
-                    const tw = 18
-                    const th = 8
-                    let tx = x + 1.5
-                    let ty = y - th / 2
-                    if (tx + tw > 98) tx = x - tw - 1.5
-                    if (ty < 1) ty = 1
-                    if (ty + th > 48) ty = 48 - th
-                    return (
-                      <g>
-                        <rect x={tx} y={ty} width={tw} height={th}
-                          rx="0.5" fill="#0f1f2e" stroke={v.color}
-                          strokeWidth="0.2" opacity="0.95"
-                        />
-                        <text x={tx + 0.6} y={ty + 1.8} fill="white" fontSize="1.1" fontWeight="bold">
-                          {(v.first.vessel_name || 'Unknown').substring(0, 20)}
-                        </text>
-                        <text x={tx + 0.6} y={ty + 3.2} fill="#9ca3af" fontSize="0.9">
-                          {v.first.freight_method} · {v.first.status}
-                        </text>
-                        <text x={tx + 0.6} y={ty + 4.4} fill={v.color} fontSize="0.9">
-                          Progress: {Math.round(v.progress * 100)}% · ETA: {v.eta}
-                        </text>
-                        <text x={tx + 0.6} y={ty + 5.6} fill="#9ca3af" fontSize="0.9">
-                          {v.items.length} items · Bkg: {(v.first.booking_number || '—').substring(0, 12)}
-                        </text>
-                        <text x={tx + 0.6} y={ty + 6.8} fill={v.first.current_lat ? '#00C896' : '#f59e0b'} fontSize="0.85">
-                          {v.first.current_lat ? '🟢 Live position' : '🟡 Estimated position'}
-                        </text>
-                      </g>
-                    )
-                  })()}
-                </g>
-              )
-            })}
-          </svg>
-        </div>
+        {/* Floating tooltip */}
+        {tooltip && (
+          <div
+            className="absolute z-50 bg-[#0f1f2e] border rounded-xl p-3 shadow-2xl pointer-events-none text-xs min-w-48"
+            style={{
+              left: Math.min(mousePos.x + 12, 600),
+              top: Math.max(mousePos.y - 80, 8),
+              borderColor: tooltip.color,
+            }}
+          >
+            <p className="font-bold text-white mb-1">{tooltip.name}</p>
+            <p className="text-gray-400">{tooltip.isAir ? '✈ Air' : '🚢 Ocean'} · {tooltip.status}</p>
+            <p style={{ color: tooltip.color }}>Progress: {tooltip.progress}%</p>
+            <p className="text-gray-400">
+              ETA: {tooltip.eta}
+              {tooltip.daysLeft !== null && (
+                <span className={tooltip.daysLeft < 0 ? ' text-red-400' : tooltip.daysLeft < 4 ? ' text-amber-400' : ' text-blue-400'}>
+                  {' '}({tooltip.daysLeft > 0 ? tooltip.daysLeft + 'd left' : 'overdue'})
+                </span>
+              )}
+            </p>
+            <p className="text-gray-400">{tooltip.itemCount} items · Bkg: {tooltip.booking.substring(0, 14)}</p>
+            {tooltip.shipper && <p className="text-gray-500 mt-0.5">{tooltip.shipper}</p>}
+            <p className={`mt-1 font-medium ${tooltip.isLive ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {tooltip.isLive ? '🟢 Live GPS position' : '🟡 Estimated from ETD/ETA'}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1">
+      <div className="flex flex-wrap gap-x-4 gap-y-2 px-1">
         {vessels.map(v => (
-          <div key={v.key}
-            className="flex items-center gap-1.5 text-xs text-gray-400"
-            onMouseEnter={() => setHovered(v.key)}
-            onMouseLeave={() => setHovered(null)}
+          <div
+            key={v.key}
+            className="flex items-center gap-1.5 text-xs text-gray-400 cursor-default"
+            onMouseEnter={() => setTooltip(v)}
+            onMouseLeave={() => setTooltip(null)}
           >
-            <span className="w-3 h-1.5 rounded-full inline-block"
-              style={{ backgroundColor: v.color }} />
-            <span>{(v.first.vessel_name || 'Unknown').substring(0, 20)}</span>
+            <span className="w-3 h-1.5 rounded-full inline-block" style={{ backgroundColor: v.color }} />
+            <span>{v.name.substring(0, 20)}</span>
             <span className="text-gray-600">
-              ({v.isDone ? 'Received' : v.eta})
+              ({v.isDone ? '✅ Received' : v.eta})
             </span>
           </div>
         ))}
@@ -355,9 +385,13 @@ export default function ImportMap({ shipments }: { shipments: Shipment[] }) {
 
       <p className="text-xs text-gray-600 text-center">
         Hover vessels for details · Positions estimated from ETD/ETA ·{' '}
-        <a href="https://www.marinetraffic.com" target="_blank"
-          className="text-blue-500 hover:underline">
-          MarineTraffic.com
+        <a
+          href="https://www.marinetraffic.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:underline"
+        >
+          MarineTraffic.com for live tracking
         </a>
       </p>
     </div>
