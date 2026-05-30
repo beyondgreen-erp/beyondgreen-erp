@@ -15,6 +15,7 @@ interface Product {
   product_location: string | null
   unit_of_measure: string | null
   on_hand_qty: number
+  reorder_point: number | null
   unit_cost: number | null
   bom_cost: number | null
   case_cost: number | null
@@ -29,6 +30,7 @@ interface Product {
   requires_bom: boolean | null
   is_active: boolean
   is_discontinued: boolean | null
+  notes: string | null
 }
 
 const PRODUCT_TABS = ['All','BAGS','CUTLERY','STRAW-CUPS','RAW MATERIAL','ADDITIVES','WIP','PACKAGING','PRINT PLATE','MOLDING','COMPOSTER']
@@ -38,6 +40,8 @@ const UOM_OPTIONS = ['EA','PKS','LBS','ROLLS','CASE','M','FT','OZ','GAL','KG','S
 
 const fmt$ = (n: number | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+const fmtV = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 
 const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 
@@ -48,6 +52,7 @@ const emptyForm = {
   category: '',
   unit_of_measure: 'EA',
   on_hand_qty: '0',
+  reorder_point: '0',
   unit_cost: '',
   product_location: '',
   upc_gtin: '',
@@ -58,12 +63,24 @@ const emptyForm = {
   msrp: '',
   imap: '',
   map_price: '',
+  notes: '',
   is_active: true,
   is_discontinued: false,
 }
 type F = typeof emptyForm
 
-// EditPanel as a memo'd component so it doesn't re-render on every keystroke
+// ── Stat card ────────────────────────────────────────────────
+function StatCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex flex-col gap-0.5">
+      <span className="text-xs text-gray-500 font-medium">{label}</span>
+      <span className={`text-xl font-bold ${accent ?? 'text-white'}`}>{value}</span>
+      {sub && <span className="text-xs text-gray-600">{sub}</span>}
+    </div>
+  )
+}
+
+// ── Edit panel (memo'd so typing doesn't re-render table) ────
 const EditPanel = memo(function EditPanel({
   open, editing, form, setForm, err, saving, busy,
   onClose, onSave, onDelete, onToggleActive,
@@ -80,11 +97,15 @@ const EditPanel = memo(function EditPanel({
   onDelete: () => void
   onToggleActive: () => void
 }) {
+  const liveValue = (parseFloat(form.on_hand_qty) || 0) * (parseFloat(form.unit_cost) || 0)
+
   return (
     <>
-      <div onClick={onClose} className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
+      <div onClick={onClose}
+        className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
       <div onClick={e => e.stopPropagation()}
         className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[560px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0">
           <div>
             <h2 className="text-white font-semibold">{editing ? 'Edit Product' : 'Add Product'}</h2>
@@ -113,15 +134,13 @@ const EditPanel = memo(function EditPanel({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            {/* Tab/product_category */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Tab / Product Category</label>
+              <label className="block text-xs text-gray-400 mb-1.5">Tab / Category</label>
               <select value={form.product_category} onChange={e => setForm(p => ({ ...p, product_category: e.target.value }))} className={inp + ' cursor-pointer'}>
                 <option value="">— None —</option>
                 {PRODUCT_TAB_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-            {/* Type/category */}
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Type</label>
               <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} className={inp + ' cursor-pointer'}>
@@ -139,19 +158,32 @@ const EditPanel = memo(function EditPanel({
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">On Hand Qty</label>
-              <input type="number" min="0" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inp}/>
+              <label className="block text-xs text-gray-400 mb-1.5">Physical Location</label>
+              <input value={form.product_location} onChange={e => setForm(p => ({ ...p, product_location: e.target.value }))} placeholder="e.g. Shelf A3" className={inp}/>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* On Hand + Reorder + Cost */}
+          <div className="bg-gray-800/40 rounded-xl border border-gray-700 p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Stock & Cost</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">On Hand Qty</label>
+                <input type="number" min="0" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inp}/>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Reorder Point</label>
+                <input type="number" min="0" value={form.reorder_point} onChange={e => setForm(p => ({ ...p, reorder_point: e.target.value }))} className={inp}/>
+              </div>
+            </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Unit Cost ($)</label>
               <input type="number" min="0" step="0.0001" value={form.unit_cost} onChange={e => setForm(p => ({ ...p, unit_cost: e.target.value }))} className={inp}/>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Physical Location</label>
-              <input value={form.product_location} onChange={e => setForm(p => ({ ...p, product_location: e.target.value }))} placeholder="e.g. Shelf A3" className={inp}/>
+              {liveValue > 0 && (
+                <p className="text-xs text-emerald-400 mt-1 font-medium">
+                  Inventory Value: {fmtV(liveValue)}
+                </p>
+              )}
             </div>
           </div>
 
@@ -171,70 +203,71 @@ const EditPanel = memo(function EditPanel({
             <input type="number" min="0" step="0.001" value={form.weight_per_unit_grams} onChange={e => setForm(p => ({ ...p, weight_per_unit_grams: e.target.value }))} className={inp}/>
           </div>
 
+          {/* Pricing */}
           <div className="border-t border-gray-800 pt-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Pricing</p>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Distribution Price</label>
-                <input type="number" min="0" step="0.0001" value={form.distribution_price} onChange={e => setForm(p => ({ ...p, distribution_price: e.target.value }))} className={inp}/>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Wholesale Price</label>
-                <input type="number" min="0" step="0.0001" value={form.wholesale_price} onChange={e => setForm(p => ({ ...p, wholesale_price: e.target.value }))} className={inp}/>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">MSRP</label>
-                <input type="number" min="0" step="0.0001" value={form.msrp} onChange={e => setForm(p => ({ ...p, msrp: e.target.value }))} className={inp}/>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">IMAP</label>
-                <input type="number" min="0" step="0.0001" value={form.imap} onChange={e => setForm(p => ({ ...p, imap: e.target.value }))} className={inp}/>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">MAP Price</label>
-                <input type="number" min="0" step="0.0001" value={form.map_price} onChange={e => setForm(p => ({ ...p, map_price: e.target.value }))} className={inp}/>
-              </div>
+              {([
+                ['Distribution Price', 'distribution_price'],
+                ['Wholesale Price', 'wholesale_price'],
+                ['MSRP', 'msrp'],
+                ['IMAP', 'imap'],
+                ['MAP Price', 'map_price'],
+              ] as const).map(([label, key]) => (
+                <div key={key}>
+                  <label className="block text-xs text-gray-400 mb-1.5">{label}</label>
+                  <input type="number" min="0" step="0.0001" value={(form as any)[key]}
+                    onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} className={inp}/>
+                </div>
+              ))}
             </div>
           </div>
 
+          {/* Notes */}
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Notes</label>
+            <textarea rows={2} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className={inp + ' resize-none'}/>
+          </div>
+
           {/* Toggles */}
-          <div className="space-y-2 pt-2">
-            <label className="flex items-center gap-3 cursor-pointer select-none p-3 bg-gray-800/40 rounded-lg border border-gray-700"
-              onClick={() => setForm(p => ({ ...p, is_active: !p.is_active }))}>
-              <div className={`w-9 h-5 rounded-full transition-colors relative ${form.is_active ? 'bg-emerald-600' : 'bg-gray-700'}`}>
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.is_active ? 'translate-x-4' : 'translate-x-0.5'}`}/>
-              </div>
-              <span className="text-sm text-gray-300">Active</span>
-            </label>
-            <label className="flex items-center gap-3 cursor-pointer select-none p-3 bg-gray-800/40 rounded-lg border border-gray-700"
-              onClick={() => setForm(p => ({ ...p, is_discontinued: !p.is_discontinued }))}>
-              <div className={`w-9 h-5 rounded-full transition-colors relative ${form.is_discontinued ? 'bg-red-600' : 'bg-gray-700'}`}>
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.is_discontinued ? 'translate-x-4' : 'translate-x-0.5'}`}/>
-              </div>
-              <span className="text-sm text-gray-300">Discontinued</span>
-            </label>
+          <div className="space-y-2">
+            {([
+              ['is_active', 'Active', 'bg-emerald-600'],
+              ['is_discontinued', 'Discontinued', 'bg-red-600'],
+            ] as const).map(([key, label, onColor]) => (
+              <label key={key} className="flex items-center gap-3 cursor-pointer select-none p-3 bg-gray-800/40 rounded-lg border border-gray-700"
+                onClick={() => setForm(p => ({ ...p, [key]: !p[key] }))}>
+                <div className={`w-9 h-5 rounded-full transition-colors relative ${(form as any)[key] ? onColor : 'bg-gray-700'}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(form as any)[key] ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                </div>
+                <span className="text-sm text-gray-300">{label}</span>
+              </label>
+            ))}
           </div>
         </div>
 
         <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
           {err && (
-            <div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
               <p className="text-red-400 text-xs">{err}</p>
             </div>
           )}
           <div className="flex gap-3">
             {editing && (
-              <button onClick={onDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete">
+              <button onClick={onDelete}
+                className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
               </button>
             )}
             {editing && (
-              <button onClick={onToggleActive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">
+              <button onClick={onToggleActive} disabled={busy}
+                className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">
                 {busy ? '…' : editing.is_active ? 'Deactivate' : 'Activate'}
               </button>
             )}
             <button onClick={onClose} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-            <button onClick={onSave} disabled={saving} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+            <button onClick={onSave} disabled={saving}
+              className="flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
@@ -244,10 +277,11 @@ const EditPanel = memo(function EditPanel({
   )
 })
 
+// ── Page ─────────────────────────────────────────────────────
 export default function InventoryPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Product[]>([])
-  const [bomMap, setBomMap] = useState<Record<string, number>>({}) // sku -> count of bom entries
+  const [bomMap, setBomMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [tabFilter, setTabFilter] = useState('All')
@@ -258,8 +292,8 @@ export default function InventoryPage() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [loadError, setLoadError] = useState('')
-  const [selectedBomProduct, setSelectedBomProduct] = useState<Product | null>(null)
-  const [selectedLabelProduct, setSelectedLabelProduct] = useState<Product | null>(null)
+  const [bomProduct, setBomProduct] = useState<Product | null>(null)
+  const [labelProduct, setLabelProduct] = useState<Product | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -268,16 +302,11 @@ export default function InventoryPage() {
       sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('product_bom').select('sku'),
     ])
-    if (pErr) {
-      setLoadError(`Failed to load: ${pErr.message}`)
-    } else if (p) {
-      setRows(p as Product[])
-    }
+    if (pErr) { setLoadError(`Failed to load: ${pErr.message}`) }
+    else if (p) { setRows(p as Product[]) }
     if (b) {
       const counts: Record<string, number> = {}
-      for (const r of b as any[]) {
-        counts[r.sku] = (counts[r.sku] ?? 0) + 1
-      }
+      for (const r of b as any[]) counts[r.sku] = (counts[r.sku] ?? 0) + 1
       setBomMap(counts)
     }
     setLoading(false)
@@ -285,24 +314,37 @@ export default function InventoryPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Tab-filtered pool (before search)
+  const tabPool = useMemo(() =>
+    tabFilter === 'All' ? rows : rows.filter(r => (r.product_category ?? '') === tabFilter),
+    [rows, tabFilter])
+
+  // Search on top of tab pool
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    let pool = rows
-    if (tabFilter !== 'All') pool = pool.filter(r => (r.product_category ?? '') === tabFilter)
-    if (!q) return pool
-    const skuExact = pool.filter(r => r.sku.toLowerCase() === q)
-    const skuStart = pool.filter(r => r.sku.toLowerCase().startsWith(q) && r.sku.toLowerCase() !== q)
-    const skuContain = pool.filter(r => r.sku.toLowerCase().includes(q) && !r.sku.toLowerCase().startsWith(q))
-    const nameMatch = pool.filter(r => (r.product_name ?? '').toLowerCase().includes(q) && !r.sku.toLowerCase().includes(q))
-    return [...skuExact, ...skuStart, ...skuContain, ...nameMatch]
-  }, [rows, search, tabFilter])
+    if (!q) return tabPool
+    const exact  = tabPool.filter(r => r.sku.toLowerCase() === q)
+    const starts = tabPool.filter(r => r.sku.toLowerCase().startsWith(q) && r.sku.toLowerCase() !== q)
+    const contains = tabPool.filter(r => r.sku.toLowerCase().includes(q) && !r.sku.toLowerCase().startsWith(q))
+    const name   = tabPool.filter(r => (r.product_name ?? '').toLowerCase().includes(q) && !r.sku.toLowerCase().includes(q))
+    return [...exact, ...starts, ...contains, ...name]
+  }, [tabPool, search])
 
-  function openAdd() {
-    setEditing(null)
-    setForm(emptyForm)
-    setErr('')
-    setOpen(true)
-  }
+  // Stats (based on tab pool, not search-filtered)
+  const stats = useMemo(() => {
+    const totalValue = tabPool.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
+    const finishedGoods = tabPool.filter(p => p.category === 'Finished Goods').length
+    const outOfStock = tabPool.filter(p => !p.on_hand_qty || p.on_hand_qty === 0).length
+    return { totalValue, finishedGoods, outOfStock }
+  }, [tabPool])
+
+  const tabCounts = useMemo(() => {
+    const c: Record<string, number> = { All: rows.length }
+    for (const r of rows) { const t = r.product_category ?? 'Uncategorized'; c[t] = (c[t] ?? 0) + 1 }
+    return c
+  }, [rows])
+
+  function openAdd() { setEditing(null); setForm(emptyForm); setErr(''); setOpen(true) }
 
   function openEdit(r: Product) {
     setEditing(r)
@@ -313,6 +355,7 @@ export default function InventoryPage() {
       category: r.category ?? '',
       unit_of_measure: r.unit_of_measure ?? 'EA',
       on_hand_qty: String(r.on_hand_qty ?? 0),
+      reorder_point: String(r.reorder_point ?? 0),
       unit_cost: r.unit_cost != null ? String(r.unit_cost) : '',
       product_location: r.product_location ?? '',
       upc_gtin: r.upc_gtin ?? '',
@@ -323,6 +366,7 @@ export default function InventoryPage() {
       msrp: r.msrp != null ? String(r.msrp) : '',
       imap: r.imap != null ? String(r.imap) : '',
       map_price: r.map_price != null ? String(r.map_price) : '',
+      notes: r.notes ?? '',
       is_active: r.is_active !== false,
       is_discontinued: r.is_discontinued === true,
     })
@@ -345,6 +389,7 @@ export default function InventoryPage() {
       category: form.category || null,
       unit_of_measure: form.unit_of_measure || null,
       on_hand_qty: parseFloat(form.on_hand_qty) || 0,
+      reorder_point: parseFloat(form.reorder_point) || 0,
       unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : null,
       product_location: form.product_location.trim() || null,
       upc_gtin: form.upc_gtin.trim() || null,
@@ -355,6 +400,7 @@ export default function InventoryPage() {
       msrp: form.msrp ? parseFloat(form.msrp) : null,
       imap: form.imap ? parseFloat(form.imap) : null,
       map_price: form.map_price ? parseFloat(form.map_price) : null,
+      notes: form.notes.trim() || null,
       is_active: form.is_active,
       is_discontinued: form.is_discontinued,
     }
@@ -365,12 +411,10 @@ export default function InventoryPage() {
     setSaving(false); closeEdit(); load()
   }
 
-  async function handleDelete() {
-    if (!editing) return
-    if (!confirm(`Permanently delete ${editing.sku}? This cannot be undone.`)) return
-    const { error } = await sb.from('products').delete().eq('id', editing.id)
-    if (error) { alert('Delete failed: ' + error.message); return }
-    closeEdit(); load()
+  async function handleDelete(id: string, sku: string) {
+    if (!confirm(`Delete ${sku}? This cannot be undone.`)) return
+    await sb.from('products').delete().eq('id', id)
+    load()
   }
 
   async function toggleActive() {
@@ -380,21 +424,12 @@ export default function InventoryPage() {
     setBusy(false); closeEdit(); load()
   }
 
-  const tabCounts = useMemo(() => {
-    const counts: Record<string, number> = { All: rows.length }
-    for (const r of rows) {
-      const t = r.product_category ?? 'Unknown'
-      counts[t] = (counts[t] ?? 0) + 1
-    }
-    return counts
-  }, [rows])
-
   return (
     <div className="p-4 md:p-8 min-h-screen">
       {loadError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center gap-3">
           <span className="text-red-400 text-sm flex-1">{loadError}</span>
-          <button onClick={load} className="text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1 hover:bg-red-500/10">Retry</button>
+          <button onClick={load} className="text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1">Retry</button>
         </div>
       )}
 
@@ -403,9 +438,10 @@ export default function InventoryPage() {
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">INVENTORY</span>
           <h1 className="text-2xl font-semibold text-white mt-1">Products & Inventory</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${filtered.length} product${filtered.length !== 1 ? 's' : ''}`}</p>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} total products`}</p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+        <button onClick={openAdd}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
           Add Product
         </button>
@@ -421,11 +457,22 @@ export default function InventoryPage() {
         ))}
       </div>
 
+      {/* Stats bar */}
+      {!loading && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <StatCard label="Total SKUs" value={String(tabPool.length)} sub={tabFilter !== 'All' ? tabFilter : 'all categories'}/>
+          <StatCard label="Inventory Value" value={fmtV(stats.totalValue)} accent="text-emerald-400" sub="on-hand × unit cost"/>
+          <StatCard label="Finished Goods" value={String(stats.finishedGoods)} sub="category = Finished Goods"/>
+          <StatCard label="Out of Stock" value={String(stats.outOfStock)} accent={stats.outOfStock > 0 ? 'text-red-400' : 'text-white'} sub="qty = 0"/>
+        </div>
+      )}
+
       {/* Search */}
       <div className="relative mb-4 max-w-md">
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
         <input placeholder="Search SKU or product name…" value={search} onChange={e => setSearch(e.target.value)}
           className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+        {search && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">{filtered.length} results</span>}
       </div>
 
       {/* Table */}
@@ -437,100 +484,120 @@ export default function InventoryPage() {
         ) : filtered.length === 0 ? (
           <p className="text-center text-gray-500 py-20 text-sm">No products found.</p>
         ) : (
-          <table className="w-full min-w-[1000px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead>
               <tr className="border-b border-gray-800">
-                {['SKU','Product Name','Tab','Type','UOM','On Hand','Cost','BOM','UPC','Actions'].map(h => (
+                {['SKU','Product Name','Tab','Type','UOM','On Hand','Inv. Value','Unit Cost','BOM','UPC','Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-3">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.map((p, i) => {
+                const invValue = (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0)
+                const isOut  = !p.on_hand_qty || p.on_hand_qty === 0
+                const isLow  = !isOut && (p.on_hand_qty ?? 0) <= 10
+                const isDisc = p.is_discontinued === true
                 const bomCount = bomMap[p.sku] ?? 0
                 const needsBom = p.requires_bom === true
-                const isFinishedGood = p.category === 'Finished Goods'
+                const isFG = p.category === 'Finished Goods'
+
                 return (
                   <tr key={p.id}
-                    className={`border-b border-gray-800/60 last:border-0 transition-colors ${p.is_discontinued ? 'opacity-50' : ''} ${i % 2 === 1 ? 'bg-gray-800/10' : ''} hover:bg-gray-800/40`}>
+                    style={isOut ? { borderLeft: '3px solid rgb(239 68 68)' } : isLow ? { borderLeft: '3px solid rgb(245 158 11)' } : {}}
+                    className={`border-b border-gray-800/60 last:border-0 transition-colors
+                      ${isDisc ? 'opacity-50' : ''}
+                      ${isOut ? 'bg-red-950/20 hover:bg-red-950/30' : isLow ? 'bg-amber-950/20 hover:bg-amber-950/30' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/40' : 'hover:bg-gray-800/40'}`}>
                     <td className="px-3 py-3.5">
                       <span className="text-emerald-400 font-mono font-bold text-xs">{p.sku}</span>
                     </td>
-                    <td className="px-3 py-3.5 text-white font-medium max-w-[220px] truncate">{p.product_name}</td>
+                    <td className={`px-3 py-3.5 text-white font-medium max-w-[200px] truncate ${isDisc ? 'line-through text-gray-500' : ''}`}>
+                      {p.product_name}
+                    </td>
                     <td className="px-3 py-3.5">
                       {p.product_category && (
-                        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">{p.product_category}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                          {p.product_category}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-3.5">
                       {p.category && (
-                        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-gray-700/50 text-gray-400 border border-gray-700">{p.category}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-gray-700/50 text-gray-400 border border-gray-700">
+                          {p.category}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-3.5 text-gray-400 text-xs">{p.unit_of_measure ?? '—'}</td>
-                    <td className="px-3 py-3.5 font-semibold text-gray-200">{p.on_hand_qty ?? 0}</td>
+                    <td className={`px-3 py-3.5 font-semibold text-sm ${isOut ? 'text-red-400' : isLow ? 'text-amber-400' : 'text-gray-200'}`}>
+                      {p.on_hand_qty ?? 0}
+                    </td>
+                    <td className="px-3 py-3.5 text-xs font-medium">
+                      {invValue > 0
+                        ? <span className="text-emerald-400">{fmtV(invValue)}</span>
+                        : <span className="text-gray-700">—</span>
+                      }
+                    </td>
                     <td className="px-3 py-3.5 text-gray-400 text-xs">{fmt$(p.unit_cost)}</td>
                     <td className="px-3 py-3.5">
-                      {bomCount > 0 ? (
-                        <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                      ) : needsBom ? (
-                        <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                      ) : (
-                        <span className="text-gray-700 text-xs">—</span>
-                      )}
+                      {bomCount > 0
+                        ? <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                        : needsBom
+                        ? <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        : <span className="text-gray-700 text-xs">—</span>
+                      }
                     </td>
                     <td className="px-3 py-3.5 text-gray-500 text-xs font-mono">{p.upc_gtin ?? '—'}</td>
                     <td className="px-3 py-3.5">
                       <div className="flex items-center gap-1">
                         <button onClick={() => openEdit(p)}
                           className="text-xs px-2 py-1 rounded bg-gray-700/50 hover:bg-gray-700 text-gray-300 transition-colors">Edit</button>
-                        <button onClick={() => setSelectedBomProduct(p)}
+                        <button onClick={() => setBomProduct(p)}
                           className="text-xs px-2 py-1 rounded bg-violet-700/50 hover:bg-violet-700 text-violet-300 transition-colors">BOM</button>
-                        {isFinishedGood && (
-                          <button onClick={() => setSelectedLabelProduct(p)}
+                        {isFG && (
+                          <button onClick={() => setLabelProduct(p)}
                             className="text-xs px-2 py-1 rounded bg-amber-700/50 hover:bg-amber-700 text-amber-300 transition-colors">Label</button>
                         )}
-                        <button onClick={async () => {
-                          if (!confirm(`Delete ${p.sku}?`)) return
-                          await sb.from('products').delete().eq('id', p.id)
-                          load()
-                        }} className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-900/70 text-red-400 transition-colors">Del</button>
+                        <button onClick={() => handleDelete(p.id, p.sku)}
+                          className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-900/70 text-red-400 transition-colors">Del</button>
                       </div>
                     </td>
                   </tr>
                 )
               })}
             </tbody>
+            {/* Totals footer */}
+            <tfoot>
+              <tr className="border-t border-gray-700 bg-gray-800/40">
+                <td colSpan={5} className="px-3 py-3 text-xs text-gray-500 font-medium">
+                  {filtered.length} products shown
+                </td>
+                <td className="px-3 py-3 text-xs font-semibold text-gray-300">
+                  {filtered.reduce((s, p) => s + (p.on_hand_qty ?? 0), 0).toLocaleString()}
+                </td>
+                <td className="px-3 py-3 text-xs font-bold text-emerald-400">
+                  {fmtV(filtered.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0))}
+                </td>
+                <td colSpan={4}/>
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>
 
       <EditPanel
-        open={open}
-        editing={editing}
-        form={form}
-        setForm={setForm}
-        err={err}
-        saving={saving}
-        busy={busy}
-        onClose={closeEdit}
-        onSave={save}
-        onDelete={handleDelete}
+        open={open} editing={editing} form={form} setForm={setForm}
+        err={err} saving={saving} busy={busy}
+        onClose={closeEdit} onSave={save}
+        onDelete={() => { if (editing) handleDelete(editing.id, editing.sku).then(closeEdit) }}
         onToggleActive={toggleActive}
       />
 
-      {selectedBomProduct && (
-        <BomEditor
-          product={selectedBomProduct}
-          onClose={() => { setSelectedBomProduct(null); load() }}
-        />
+      {bomProduct && (
+        <BomEditor product={bomProduct} onClose={() => { setBomProduct(null); load() }}/>
       )}
-
-      {selectedLabelProduct && (
-        <CaseLabel
-          product={selectedLabelProduct}
-          onClose={() => setSelectedLabelProduct(null)}
-        />
+      {labelProduct && (
+        <CaseLabel product={labelProduct} onClose={() => setLabelProduct(null)}/>
       )}
     </div>
   )
