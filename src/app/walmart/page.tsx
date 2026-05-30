@@ -224,19 +224,29 @@ function DashboardTab({ production, inventory, orders }: {
 
 // ─── LOG PRODUCTION TAB ───────────────────────────────────────────────────────
 
+type ShiftId = '1st Shift' | '2nd Shift' | '3rd Shift'
+const SHIFTS: { id: ShiftId; icon: string; label: string }[] = [
+  { id: '1st Shift', icon: '🌅', label: '1st Shift' },
+  { id: '2nd Shift', icon: '☀️', label: '2nd Shift' },
+  { id: '3rd Shift', icon: '🌙', label: '3rd Shift' },
+]
+
 function ProductionTab({ inventory, onRefresh, showToast }: {
   inventory: WalmartInventory[]
   onRefresh: () => void
   showToast: (msg: string, type: 'success' | 'error') => void
 }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
-  const [shift, setShift] = useState<'Morning' | 'Day' | 'Evening' | 'Night'>('Day')
+  const [selectedDate, setSelectedDate] = useState(today())
+  const [shift, setShift] = useState<ShiftId>('1st Shift')
   const [srps, setSrps] = useState<Record<string, number>>(Object.fromEntries(WALMART_SKUS.map(s => [s.sku, 0])))
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [recent, setRecent] = useState<WalmartProduction[]>([])
   const [recentLoading, setRecentLoading] = useState(true)
   const [userEmail, setUserEmail] = useState('unknown')
+  const [existingEntry, setExistingEntry] = useState<WalmartProduction | null>(null)
+  const [checkingExisting, setCheckingExisting] = useState(false)
 
   const invMap = Object.fromEntries(inventory.map(i => [i.sku, i]))
 
@@ -245,9 +255,41 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
     loadRecent()
   }, []) // eslint-disable-line
 
+  // Check for existing entry whenever date or shift changes
+  useEffect(() => {
+    let cancelled = false
+    async function checkExisting() {
+      setCheckingExisting(true)
+      const { data } = await sb
+        .from('walmart_production')
+        .select('*')
+        .eq('production_date', selectedDate)
+        .eq('shift', shift)
+        .maybeSingle()
+      if (cancelled) return
+      if (data) {
+        setExistingEntry(data as WalmartProduction)
+        // Pre-fill inputs from existing entry
+        const filled: Record<string, number> = {}
+        WALMART_SKUS.forEach(({ sku }) => {
+          filled[sku] = (data as any)[`srp_${sku}`] ?? 0
+        })
+        setSrps(filled)
+        setNotes(data.notes ?? '')
+      } else {
+        setExistingEntry(null)
+        setSrps(Object.fromEntries(WALMART_SKUS.map(s => [s.sku, 0])))
+        setNotes('')
+      }
+      setCheckingExisting(false)
+    }
+    checkExisting()
+    return () => { cancelled = true }
+  }, [selectedDate, shift]) // eslint-disable-line
+
   async function loadRecent() {
     setRecentLoading(true)
-    const { data } = await sb.from('walmart_production').select('*').order('created_at', { ascending: false }).limit(10)
+    const { data } = await sb.from('walmart_production').select('*').order('production_date', { ascending: false }).order('shift').limit(15)
     setRecent(data ?? [])
     setRecentLoading(false)
   }
@@ -262,18 +304,23 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
   async function handleSubmit() {
     setSubmitting(true)
     const row: any = {
-      production_date: today(),
+      production_date: selectedDate,
       shift,
       logged_by: userEmail,
       notes: notes || null,
     }
     WALMART_SKUS.forEach(({ sku }) => { row[`srp_${sku}`] = srps[sku] ?? 0 })
 
-    const { error } = await sb.from('walmart_production').insert([row])
+    const { error } = await sb
+      .from('walmart_production')
+      .upsert(row, { onConflict: 'production_date,shift' })
+
     if (error) {
-      showToast('Failed to log production: ' + error.message, 'error')
+      showToast('Failed to save production: ' + error.message, 'error')
     } else {
-      showToast(`Logged ${fmt(totalSRPs)} SRPs (${fmt(totalPacks)} packs) for ${shift} shift`, 'success')
+      const action = existingEntry ? 'Updated' : 'Logged'
+      showToast(`${action} ${fmt(totalSRPs)} SRPs (${fmt(totalPacks)} packs) — ${shift} · ${selectedDate}`, 'success')
+      setExistingEntry(null)
       setSrps(Object.fromEntries(WALMART_SKUS.map(s => [s.sku, 0])))
       setNotes('')
       loadRecent()
@@ -289,11 +336,6 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
     else { showToast('Entry deleted', 'success'); loadRecent(); onRefresh() }
   }
 
-  const shifts = [
-    { id: 'Morning', icon: '🌅' }, { id: 'Day', icon: '☀️' },
-    { id: 'Evening', icon: '🌆' }, { id: 'Night', icon: '🌙' },
-  ] as const
-
   return (
     <div className="space-y-6">
       <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-6 space-y-6">
@@ -301,27 +343,64 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
         <div>
           <h2 className="text-xl font-bold text-white">Log Production Entry</h2>
           <p className="text-[#5A5A6A] text-sm mt-1">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            {' · '}
-            {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+            Select a date and shift below — you can log or update entries for past shifts.
           </p>
         </div>
 
-        {/* Shift Selector */}
-        <div>
-          <p className="text-[#9898A8] text-xs font-semibold uppercase tracking-wider mb-2">Select Shift</p>
-          <div className="flex flex-wrap gap-2">
-            {shifts.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setShift(s.id)}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all border ${shift === s.id ? 'bg-[#0071CE] border-[#0071CE] text-white' : 'bg-[#18181C] border-[#2A2A35] text-[#9898A8] hover:text-white'}`}
-              >
-                {s.icon} {s.id}
-              </button>
-            ))}
+        {/* Date + Shift row */}
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Date picker */}
+          <div className="flex-1">
+            <p className="text-[#9898A8] text-xs font-semibold uppercase tracking-wider mb-2">Production Date</p>
+            <input
+              type="date"
+              value={selectedDate}
+              max={today()}
+              onChange={e => setSelectedDate(e.target.value)}
+              className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]"
+            />
+          </div>
+
+          {/* Shift selector */}
+          <div className="flex-1">
+            <p className="text-[#9898A8] text-xs font-semibold uppercase tracking-wider mb-2">Select Shift</p>
+            <div className="flex gap-2">
+              {SHIFTS.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setShift(s.id)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+                    shift === s.id
+                      ? 'bg-[#0071CE] border-[#0071CE] text-white'
+                      : 'bg-[#18181C] border-[#2A2A35] text-[#9898A8] hover:text-white'
+                  }`}
+                >
+                  {s.icon} {s.id}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
+        {/* Existing entry banner */}
+        {checkingExisting ? (
+          <div className="flex items-center gap-2 text-[#5A5A6A] text-sm">
+            <Spinner /> Checking for existing entry…
+          </div>
+        ) : existingEntry ? (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2">
+            <span className="text-amber-400 text-base">⚠</span>
+            <div>
+              <p className="text-amber-400 text-sm font-medium">Entry exists for {selectedDate} · {shift}</p>
+              <p className="text-amber-400/70 text-xs mt-0.5">Values have been pre-filled. Saving will update this entry.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+            <span className="text-emerald-400 text-xs font-medium">New entry — no data exists for {selectedDate} · {shift}</span>
+          </div>
+        )}
 
         {/* SKU Input Grid */}
         <div>
@@ -334,7 +413,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
                 <div key={sku} className="bg-[#0A0A0B] border border-[#2A2A35] rounded-xl p-4">
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-mono text-xs text-[#0071CE] font-bold">{sku}</span>
-                    <span className="text-[#5A5A6A] text-[10px]">Avail: {fmt(inv?.srps_available)} SRPs</span>
+                    <span className="text-[#5A5A6A] text-[10px]">Stock: {fmt(inv?.srps_available)} SRPs</span>
                   </div>
                   <p className="text-[#9898A8] text-xs mb-3">{name}</p>
                   <div className="flex items-center gap-2">
@@ -395,14 +474,16 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
           disabled={submitting || totalSRPs === 0}
           className="w-full py-4 rounded-2xl bg-[#00C896] hover:bg-[#00C896]/90 text-black font-bold text-base transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          {submitting ? <Spinner /> : '✓'} Log Production Entry
+          {submitting ? <Spinner /> : '✓'}
+          {existingEntry ? 'Update Entry' : 'Log Production'}
         </button>
       </div>
 
       {/* Recent Entries */}
       <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
-        <div className="px-5 py-3 border-b border-[#2A2A35]">
+        <div className="px-5 py-3 border-b border-[#2A2A35] flex items-center justify-between">
           <h3 className="text-white font-semibold">Recent Entries</h3>
+          <p className="text-[#5A5A6A] text-xs">Click a row to load it for editing</p>
         </div>
         {recentLoading ? (
           <div className="flex items-center justify-center py-12"><Spinner /></div>
@@ -419,14 +500,22 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
             </thead>
             <tbody>
               {recent.map(entry => (
-                <tr key={entry.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
+                <tr
+                  key={entry.id}
+                  className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50 cursor-pointer"
+                  onClick={() => {
+                    setSelectedDate(entry.production_date)
+                    setShift(entry.shift as ShiftId)
+                    window.scrollTo({ top: 0, behavior: 'smooth' })
+                  }}
+                >
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmtDate(entry.production_date)}</td>
                   <td className="px-4 py-3 text-white text-xs">{entry.shift}</td>
                   <td className="px-4 py-3 text-[#0071CE] font-semibold text-xs">{fmt(entry.total_srps)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(entry.total_packs)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs truncate max-w-[140px]">{entry.logged_by}</td>
                   <td className="px-4 py-3 text-[#5A5A6A] text-xs truncate max-w-[160px]">{entry.notes ?? '—'}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     <button onClick={() => handleDelete(entry.id)} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded-lg hover:bg-red-500/10 transition-colors">Delete</button>
                   </td>
                 </tr>
@@ -482,22 +571,26 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
     setAdjSubmitting(false)
   }
 
-  // Group production by period
+  // Group production by day with per-shift columns
   const dailyData = (() => {
-    const map: Record<string, { date: string; total_srps: number; total_packs: number; [key: string]: string | number }> = {}
+    type DayRow = {
+      date: string
+      '1st Shift': number; '2nd Shift': number; '3rd Shift': number
+      total_srps: number; total_packs: number
+    }
+    const map: Record<string, DayRow> = {}
     production.forEach(p => {
       if (!map[p.production_date]) {
-        map[p.production_date] = { date: p.production_date, total_srps: 0, total_packs: 0 }
-        WALMART_SKUS.forEach(({ short }) => { map[p.production_date][short] = 0 })
+        map[p.production_date] = { date: p.production_date, '1st Shift': 0, '2nd Shift': 0, '3rd Shift': 0, total_srps: 0, total_packs: 0 }
+      }
+      const shiftKey = p.shift as '1st Shift' | '2nd Shift' | '3rd Shift'
+      if (shiftKey in map[p.production_date]) {
+        map[p.production_date][shiftKey] += p.total_srps
       }
       map[p.production_date].total_srps += p.total_srps
       map[p.production_date].total_packs += p.total_packs
-      WALMART_SKUS.forEach(({ sku, short }) => {
-        const prev = (map[p.production_date][short] as number) ?? 0
-        map[p.production_date][short] = prev + ((p[`srp_${sku}` as keyof WalmartProduction] as number) ?? 0)
-      })
     })
-    return Object.values(map).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30)
+    return Object.values(map).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30) as DayRow[]
   })()
 
   const weeklyData = (() => {
@@ -620,19 +713,25 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
         </div>
         <div className="overflow-x-auto">
           {view === 'daily' && (
-            <table className="w-full text-sm min-w-[900px]">
+            <table className="w-full text-sm min-w-[700px]">
               <thead><tr className="border-b border-[#2A2A35]">
-                {['Date', 'Total SRPs', 'Total Packs', ...WALMART_SKUS.map(s => s.short)].map(h => (
+                {['Date', '1st Shift', '2nd Shift', '3rd Shift', 'Daily Total'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {dailyData.map(d => (
                   <tr key={d.date} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
-                    <td className="px-4 py-2.5 text-[#9898A8] text-xs">{fmtDate(d.date)}</td>
-                    <td className="px-4 py-2.5 text-[#0071CE] font-semibold text-xs">{fmt(d.total_srps)}</td>
-                    <td className="px-4 py-2.5 text-[#9898A8] text-xs">{fmt(d.total_packs)}</td>
-                    {WALMART_SKUS.map(({ short }) => <td key={short} className="px-4 py-2.5 text-white text-xs">{fmt(d[short] as number)}</td>)}
+                    <td className="px-4 py-2.5 text-[#9898A8] text-xs font-medium">{fmtDate(d.date)}</td>
+                    {(['1st Shift', '2nd Shift', '3rd Shift'] as const).map(sh => (
+                      <td key={sh} className="px-4 py-2.5 text-xs">
+                        {d[sh] > 0
+                          ? <span className="text-white font-semibold">{fmt(d[sh])} SRPs</span>
+                          : <span className="text-[#3A3A45]">—</span>
+                        }
+                      </td>
+                    ))}
+                    <td className="px-4 py-2.5 text-[#0071CE] font-bold text-xs">{fmt(d.total_srps)} SRPs</td>
                   </tr>
                 ))}
               </tbody>
