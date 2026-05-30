@@ -2,580 +2,322 @@
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, memo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+const supabase = createSupabaseBrowserClient()
 
-interface ImportShipment {
-  id: string
-  bg_po_number: string | null
-  description: string
-  case_qty: number | null
-  freight_method: string
-  etd: string | null
-  eta_los_angeles: string | null
-  vessel_name: string | null
-  vessel_number: string | null
-  flight_number: string | null
-  booking_number: string | null
-  bl_number: string | null
-  hbl_number: string | null
-  container_number: string | null
-  shipper: string | null
-  broker: string | null
-  status: string
-  arrival_notice: string | null
-  exw_price: number | null
-  comm_inv_amt: number | null
-  china_tariff_25pct: number | null
-  duty_10pct: number | null
-  mpf: number | null
-  hmf: number | null
-  total_duties: number | null
-  broker_inv_amount: number | null
-  total_landed_cost: number | null
-  broker_invoice_number: string | null
-  broker_inv_date: string | null
-  payment_ref: string | null
-  payment_date: string | null
-  notes: string | null
-  created_at: string
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const STATUS_OPTIONS = [
-  'Pending', 'Gated', 'In Transit', 'At Port of Dispatch',
-  'Air Cargo Warehouse', 'Arriving Tomorrow', 'Arriving Today',
-  'Received', 'Cleared', 'Delivered',
+const FIELDS = [
+  { key: 'bg_po_number', label: 'BG PO#', type: 'text' },
+  { key: 'description', label: 'Description *', type: 'textarea' },
+  { key: 'case_qty', label: 'Cases', type: 'number' },
+  { key: 'freight_method', label: 'Freight', type: 'select',
+    options: ['OCEAN','AIR'] },
+  { key: 'etd', label: 'ETD', type: 'date' },
+  { key: 'eta_los_angeles', label: 'ETA Los Angeles', type: 'date' },
+  { key: 'vessel_name', label: 'Vessel / Flight', type: 'text' },
+  { key: 'vessel_number', label: 'Vessel #', type: 'text' },
+  { key: 'booking_number', label: 'Booking #', type: 'text' },
+  { key: 'bl_number', label: 'BL #', type: 'text' },
+  { key: 'hbl_number', label: 'HBL #', type: 'text' },
+  { key: 'container_number', label: 'Container / Flight #', type: 'text' },
+  { key: 'shipper', label: 'Shipper', type: 'text' },
+  { key: 'broker', label: 'Broker', type: 'text' },
+  { key: 'status', label: 'Status', type: 'select', options: [
+    'Pending','Gated','In Transit','At Port of Dispatch',
+    'Air Cargo Warehouse','Arriving Tomorrow','Arriving Today',
+    'Received','Cleared','Delivered'
+  ]},
+  { key: 'arrival_notice', label: 'Arrival Notice', type: 'text' },
+  { key: 'exw_price', label: 'EXW Price', type: 'number' },
+  { key: 'comm_inv_amt', label: 'Comm Inv Amt', type: 'number' },
+  { key: 'china_tariff_25pct', label: 'China 25%', type: 'number' },
+  { key: 'duty_10pct', label: 'Duty 10%', type: 'number' },
+  { key: 'mpf', label: 'MPF', type: 'number' },
+  { key: 'hmf', label: 'HMF', type: 'number' },
+  { key: 'total_duties', label: 'Total Duties', type: 'number' },
+  { key: 'broker_inv_amount', label: 'Broker Fee', type: 'number' },
+  { key: 'total_landed_cost', label: 'Total Landed Cost', type: 'number' },
+  { key: 'broker_invoice_number', label: 'Broker Invoice #', type: 'text' },
+  { key: 'broker_inv_date', label: 'Invoice Date', type: 'date' },
+  { key: 'payment_ref', label: 'Payment Ref', type: 'text' },
+  { key: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
-const EMPTY_FORM: Record<string, any> = {
-  bg_po_number: '',
-  description: '',
-  case_qty: '',
-  freight_method: 'OCEAN',
-  etd: '',
-  eta_los_angeles: '',
-  vessel_name: '',
-  vessel_number: '',
-  booking_number: '',
-  bl_number: '',
-  hbl_number: '',
-  container_number: '',
-  shipper: '',
-  broker: 'OEC LOGISTICS INC.',
-  status: 'Pending',
-  exw_price: '',
-  comm_inv_amt: '',
-  china_tariff_25pct: '',
-  duty_10pct: '',
-  mpf: '',
-  hmf: '',
-  total_duties: '',
-  broker_inv_amount: '',
-  total_landed_cost: '',
-  broker_invoice_number: '',
-  broker_inv_date: '',
-  payment_ref: '',
-  notes: '',
-}
+// ShipmentForm is a module-level memo'd component — giving it a stable identity
+// so parent state changes never unmount it (which would kill focus mid-typing).
+const ShipmentForm = memo(({
+  initial,
+  onSave,
+  onClose,
+  title,
+  saveLabel,
+}: {
+  initial: Record<string, any>
+  onSave: (data: Record<string, any>) => Promise<void>
+  onClose: () => void
+  title: string
+  saveLabel: string
+}) => {
+  const [form, setForm] = useState<Record<string, any>>(initial)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
-const INP = 'w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500'
+  const set = useCallback((k: string, v: any) => {
+    setForm(prev => ({ ...prev, [k]: v }))
+  }, [])
 
-// ─── FormFields ───────────────────────────────────────────────────────────────
-// MUST be defined at module scope — never inside a component.
-// Defining it inside a component creates a new function identity every render,
-// causing React to unmount+remount the entire subtree on every keystroke (focus lost).
+  async function handleSave() {
+    if (!form.description?.trim()) {
+      setError('Description is required')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      await onSave(form)
+    } catch (e: any) {
+      setError(e.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
 
-interface FormFieldsProps {
-  form: Record<string, any>
-  onChange: (key: string, value: any) => void
-}
+  const cls = 'w-full bg-[#18181C] border border-[#2A2A35] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500'
 
-function FormFields({ form, onChange }: FormFieldsProps) {
   return (
-    <div className="space-y-4">
-
-      {/* Identity */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">BG PO#</label>
-          <input
-            type="text"
-            value={form.bg_po_number ?? ''}
-            onChange={e => onChange('bg_po_number', e.target.value)}
-            className={INP}
-          />
-        </div>
-        <div>
-          <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Status</label>
-          <select
-            value={form.status ?? 'Pending'}
-            onChange={e => onChange('status', e.target.value)}
-            className={INP}
-          >
-            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+    <div
+      className="fixed top-0 right-0 h-full w-full max-w-lg bg-[#0A0A0B] border-l border-[#2A2A35] z-50 flex flex-col shadow-2xl"
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A35] shrink-0">
+        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <button
+          onClick={onClose}
+          className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
-      <div>
-        <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Description *</label>
-        <textarea
-          value={form.description ?? ''}
-          onChange={e => onChange('description', e.target.value)}
-          rows={2}
-          className={INP + ' resize-none'}
-        />
-      </div>
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm">
+            {error}
+          </div>
+        )}
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Cases</label>
-          <input
-            type="number"
-            value={form.case_qty ?? ''}
-            onChange={e => onChange('case_qty', e.target.value)}
-            className={INP}
-          />
-        </div>
-        <div>
-          <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Freight Method</label>
-          <select
-            value={form.freight_method ?? 'OCEAN'}
-            onChange={e => onChange('freight_method', e.target.value)}
-            className={INP}
-          >
-            <option value="OCEAN">OCEAN</option>
-            <option value="AIR">AIR</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Voyage */}
-      <div className="border-t border-gray-800 pt-4">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Voyage Details</p>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'ETD', key: 'etd', type: 'date' },
-            { label: 'ETA Los Angeles', key: 'eta_los_angeles', type: 'date' },
-            { label: 'Vessel Name', key: 'vessel_name', type: 'text' },
-            { label: 'Booking #', key: 'booking_number', type: 'text' },
-            { label: 'BL Number', key: 'bl_number', type: 'text' },
-            { label: 'HBL Number', key: 'hbl_number', type: 'text' },
-            { label: 'Container #', key: 'container_number', type: 'text' },
-            { label: 'Shipper', key: 'shipper', type: 'text' },
-          ].map(f => (
-            <div key={f.key}>
-              <label className="text-xs text-gray-400 block mb-1">{f.label}</label>
+        {FIELDS.map(f => (
+          <div key={f.key}>
+            <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">
+              {f.label}
+            </label>
+            {f.type === 'textarea' ? (
+              <textarea
+                value={form[f.key] ?? ''}
+                onChange={e => set(f.key, e.target.value)}
+                rows={2}
+                className={cls + ' resize-none'}
+              />
+            ) : f.type === 'select' ? (
+              <select
+                value={form[f.key] ?? ''}
+                onChange={e => set(f.key, e.target.value)}
+                className={cls}
+              >
+                {f.options?.map(o => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            ) : (
               <input
                 type={f.type}
                 value={form[f.key] ?? ''}
-                onChange={e => onChange(f.key, e.target.value)}
-                className={INP}
+                onChange={e => set(f.key, e.target.value)}
+                className={cls}
               />
-            </div>
-          ))}
-          <div className="col-span-2">
-            <label className="text-xs text-gray-400 block mb-1">Broker</label>
-            <input
-              type="text"
-              value={form.broker ?? ''}
-              onChange={e => onChange('broker', e.target.value)}
-              className={INP}
-            />
+            )}
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Financials */}
-      <div className="border-t border-gray-800 pt-4">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Financial Details</p>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'EXW Price', key: 'exw_price' },
-            { label: 'Comm Inv Amt', key: 'comm_inv_amt' },
-            { label: 'China 25%', key: 'china_tariff_25pct' },
-            { label: 'Duty 10%', key: 'duty_10pct' },
-            { label: 'MPF', key: 'mpf' },
-            { label: 'HMF', key: 'hmf' },
-            { label: 'Total Duties', key: 'total_duties' },
-            { label: 'Broker Fee', key: 'broker_inv_amount' },
-            { label: 'Total Landed Cost', key: 'total_landed_cost' },
-          ].map(f => (
-            <div key={f.key}>
-              <label className="text-xs text-gray-400 block mb-1">{f.label}</label>
-              <input
-                type="number"
-                step="0.01"
-                value={form[f.key] ?? ''}
-                onChange={e => onChange(f.key, e.target.value)}
-                className={INP}
-              />
-            </div>
-          ))}
-        </div>
+      <div className="p-6 border-t border-[#2A2A35] flex gap-3 shrink-0">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
+        >
+          {saving ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Saving...
+            </>
+          ) : saveLabel}
+        </button>
+        <button
+          onClick={onClose}
+          className="px-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-xl"
+        >
+          Cancel
+        </button>
       </div>
-
-      {/* Broker invoice */}
-      <div className="border-t border-gray-800 pt-4">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Broker Invoice</p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">Invoice #</label>
-            <input
-              type="text"
-              value={form.broker_invoice_number ?? ''}
-              onChange={e => onChange('broker_invoice_number', e.target.value)}
-              className={INP}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">Invoice Date</label>
-            <input
-              type="date"
-              value={form.broker_inv_date ?? ''}
-              onChange={e => onChange('broker_inv_date', e.target.value)}
-              className={INP}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">Payment Ref</label>
-            <input
-              type="text"
-              value={form.payment_ref ?? ''}
-              onChange={e => onChange('payment_ref', e.target.value)}
-              className={INP}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Notes */}
-      <div className="border-t border-gray-800 pt-4">
-        <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Notes</label>
-        <textarea
-          value={form.notes ?? ''}
-          onChange={e => onChange('notes', e.target.value)}
-          rows={3}
-          className={INP + ' resize-none'}
-        />
-      </div>
-
     </div>
   )
-}
+})
+ShipmentForm.displayName = 'ShipmentForm'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getTrackingUrl(s: ImportShipment): string | null {
-  if (s.freight_method === 'AIR' && s.container_number) return 'https://www.flightradar24.com'
-  if (s.container_number) return 'https://www.track-trace.com/container?id=' + s.container_number
-  if (s.bl_number) return 'https://www.track-trace.com/bill-of-lading?id=' + s.bl_number
-  if (s.vessel_name) return 'https://www.marinetraffic.com/en/ais/index/search/all/keyword:' + encodeURIComponent(s.vessel_name)
-  return null
-}
-
-function getStatusStyle(status: string) {
-  switch (status) {
-    case 'Received': return 'bg-emerald-500/15 text-emerald-400'
-    case 'In Transit': return 'bg-blue-500/15 text-blue-400'
-    case 'Gated': return 'bg-blue-500/15 text-blue-400'
-    case 'At Port of Dispatch': return 'bg-amber-500/15 text-amber-400'
-    case 'Air Cargo Warehouse': return 'bg-cyan-500/15 text-cyan-400'
-    case 'Arriving Today': return 'bg-red-500/15 text-red-400 animate-pulse'
-    case 'Arriving Tomorrow': return 'bg-amber-500/15 text-amber-400 animate-pulse'
-    default: return 'bg-gray-500/15 text-gray-400'
+function statusColor(s: string) {
+  const m: Record<string, string> = {
+    'Received': 'bg-emerald-500/15 text-emerald-400',
+    'In Transit': 'bg-blue-500/15 text-blue-400',
+    'Gated': 'bg-blue-500/15 text-blue-400',
+    'At Port of Dispatch': 'bg-amber-500/15 text-amber-400',
+    'Air Cargo Warehouse': 'bg-cyan-500/15 text-cyan-400',
+    'Arriving Today': 'bg-red-500/15 text-red-400',
+    'Arriving Tomorrow': 'bg-amber-500/15 text-amber-400',
   }
+  return m[s] || 'bg-gray-500/15 text-gray-400'
 }
 
-function getEtaCountdown(eta: string | null) {
+function etaLabel(eta: string | null) {
   if (!eta) return null
-  const days = Math.ceil((new Date(eta).getTime() - Date.now()) / 86_400_000)
-  if (days === 0) return { label: 'Today', color: 'text-red-400 font-bold animate-pulse' }
-  if (days === 1) return { label: 'Tomorrow', color: 'text-amber-400' }
-  if (days > 0) return { label: `${days} days`, color: 'text-blue-400' }
-  return { label: `${Math.abs(days)}d late`, color: 'text-gray-500' }
+  const d = Math.ceil((new Date(eta).getTime() - Date.now()) / 86400000)
+  if (d === 0) return { text: 'Today', cls: 'text-red-400' }
+  if (d === 1) return { text: 'Tomorrow', cls: 'text-amber-400' }
+  if (d > 0) return { text: d + ' days', cls: 'text-blue-400' }
+  return { text: Math.abs(d) + 'd ago', cls: 'text-gray-500' }
 }
 
-function fmt(n: number | null) {
-  if (!n) return '—'
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function fmt(n: any) {
+  const v = parseFloat(n)
+  if (!n || isNaN(v)) return '—'
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const dt = new Date(d + 'T12:00:00')
+  if (isNaN(dt.getTime())) return '—'
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
-
-function fmtDateFull(d: string | null) {
-  if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
-}
-
-function parseNum(v: any): number | null {
-  const n = parseFloat(v)
-  return isNaN(n) ? null : n
-}
-
-function parseInt2(v: any): number | null {
-  const n = parseInt(v)
-  return isNaN(n) ? null : n
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ImportsPage() {
-  const supabase = createSupabaseBrowserClient()
-
-  const [shipments, setShipments] = useState<ImportShipment[]>([])
+  const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [fetchError, setFetchError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('all')
+  const [error, setError] = useState('')
+  const [tab, setTab] = useState('all')
   const [search, setSearch] = useState('')
+  const [editing, setEditing] = useState<any>(null)
+  const [adding, setAdding] = useState(false)
 
-  // Edit panel
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<Record<string, any>>({})
-  const [saving, setSaving] = useState(false)
-
-  // Add panel
-  const [addOpen, setAddOpen] = useState(false)
-  const [newForm, setNewForm] = useState<Record<string, any>>({ ...EMPTY_FORM })
-
-  // ── useCallback keeps references stable so FormFields never remounts ──
-  const updateEdit = useCallback((key: string, val: any) => {
-    setEditForm(prev => ({ ...prev, [key]: val }))
-  }, [])
-
-  const updateNew = useCallback((key: string, val: any) => {
-    setNewForm(prev => ({ ...prev, [key]: val }))
-  }, [])
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchShipments() }, [])
-
-  async function fetchShipments() {
+  async function load() {
     setLoading(true)
-    setFetchError(null)
-    const { data, error } = await supabase
+    setError('')
+    const { data, error: err } = await supabase
       .from('import_shipments')
       .select('*')
       .order('eta_los_angeles', { ascending: true })
-    if (error) {
-      console.error('[imports] fetch error:', error)
-      setFetchError(error.message)
+    if (err) {
+      setError(err.message)
     } else {
-      setShipments(data || [])
+      setRows(data || [])
     }
     setLoading(false)
   }
 
-  function openEdit(item: ImportShipment) {
-    setEditingId(item.id)
-    // Convert numeric DB values to strings so inputs work cleanly
-    const f: Record<string, any> = { ...item }
-    const numKeys = ['exw_price','comm_inv_amt','china_tariff_25pct','duty_10pct','mpf','hmf','total_duties','broker_inv_amount','total_landed_cost']
-    numKeys.forEach(k => { f[k] = item[k as keyof ImportShipment] != null ? String(item[k as keyof ImportShipment]) : '' })
-    f.case_qty = item.case_qty != null ? String(item.case_qty) : ''
-    setEditForm(f)
-    setPanelOpen(true)
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [])
 
-  async function handleSave() {
-    setSaving(true)
-    const payload = {
-      bg_po_number:        editForm.bg_po_number        || null,
-      description:         editForm.description         || '',
-      case_qty:            parseInt2(editForm.case_qty),
-      status:              editForm.status,
-      etd:                 editForm.etd                 || null,
-      eta_los_angeles:     editForm.eta_los_angeles     || null,
-      vessel_name:         editForm.vessel_name         || null,
-      booking_number:      editForm.booking_number      || null,
-      bl_number:           editForm.bl_number           || null,
-      hbl_number:          editForm.hbl_number          || null,
-      container_number:    editForm.container_number    || null,
-      shipper:             editForm.shipper             || null,
-      broker:              editForm.broker              || null,
-      exw_price:           parseNum(editForm.exw_price),
-      comm_inv_amt:        parseNum(editForm.comm_inv_amt),
-      china_tariff_25pct:  parseNum(editForm.china_tariff_25pct),
-      duty_10pct:          parseNum(editForm.duty_10pct),
-      mpf:                 parseNum(editForm.mpf),
-      hmf:                 parseNum(editForm.hmf),
-      total_duties:        parseNum(editForm.total_duties),
-      broker_inv_amount:   parseNum(editForm.broker_inv_amount),
-      total_landed_cost:   parseNum(editForm.total_landed_cost),
-      broker_invoice_number: editForm.broker_invoice_number || null,
-      broker_inv_date:     editForm.broker_inv_date     || null,
-      payment_ref:         editForm.payment_ref         || null,
-      notes:               editForm.notes               || null,
-    }
-
-    console.log('[imports] saving:', editingId, payload)
-    const { error } = await supabase
-      .from('import_shipments')
-      .update(payload)
-      .eq('id', editingId!)
-
-    setSaving(false)
-    if (error) {
-      console.error('[imports] save error:', error)
-      alert('Save failed: ' + error.message)
-      return
-    }
-    setPanelOpen(false)
-    setEditingId(null)
-    setEditForm({})
-    fetchShipments()
-  }
-
-  async function handleAddNew() {
-    if (!newForm.description?.trim()) {
-      alert('Description is required')
-      return
-    }
-    setSaving(true)
-    const payload = {
-      bg_po_number:        newForm.bg_po_number        || null,
-      description:         newForm.description,
-      case_qty:            parseInt2(newForm.case_qty),
-      freight_method:      newForm.freight_method      || 'OCEAN',
-      status:              newForm.status              || 'Pending',
-      etd:                 newForm.etd                 || null,
-      eta_los_angeles:     newForm.eta_los_angeles     || null,
-      vessel_name:         newForm.vessel_name         || null,
-      vessel_number:       newForm.vessel_number       || null,
-      booking_number:      newForm.booking_number      || null,
-      bl_number:           newForm.bl_number           || null,
-      hbl_number:          newForm.hbl_number          || null,
-      container_number:    newForm.container_number    || null,
-      shipper:             newForm.shipper             || null,
-      broker:              newForm.broker              || null,
-      exw_price:           parseNum(newForm.exw_price),
-      comm_inv_amt:        parseNum(newForm.comm_inv_amt),
-      china_tariff_25pct:  parseNum(newForm.china_tariff_25pct),
-      duty_10pct:          parseNum(newForm.duty_10pct),
-      mpf:                 parseNum(newForm.mpf),
-      hmf:                 parseNum(newForm.hmf),
-      total_duties:        parseNum(newForm.total_duties),
-      broker_inv_amount:   parseNum(newForm.broker_inv_amount),
-      total_landed_cost:   parseNum(newForm.total_landed_cost),
-      broker_invoice_number: newForm.broker_invoice_number || null,
-      broker_inv_date:     newForm.broker_inv_date     || null,
-      payment_ref:         newForm.payment_ref         || null,
-      notes:               newForm.notes               || null,
-    }
-
-    const { error } = await supabase.from('import_shipments').insert(payload)
-    setSaving(false)
-    if (error) {
-      console.error('[imports] insert error:', error)
-      alert('Failed to add shipment: ' + error.message)
-      return
-    }
-    setAddOpen(false)
-    setNewForm({ ...EMPTY_FORM })
-    fetchShipments()
-  }
-
-  // ── Derived ───────────────────────────────────────────────────────────────
-
-  const filtered = shipments.filter(s => {
+  const filtered = rows.filter(r => {
     const q = search.toLowerCase()
-    const matchSearch = !q ||
-      (s.description || '').toLowerCase().includes(q) ||
-      (s.bg_po_number || '').toLowerCase().includes(q) ||
-      (s.vessel_name || '').toLowerCase().includes(q) ||
-      (s.booking_number || '').toLowerCase().includes(q) ||
-      (s.bl_number || '').toLowerCase().includes(q) ||
-      (s.status || '').toLowerCase().includes(q)
-    const matchTab =
-      activeTab === 'all'        ? true :
-      activeTab === 'ocean'      ? s.freight_method === 'OCEAN' :
-      activeTab === 'air'        ? s.freight_method === 'AIR' :
-      activeTab === 'received'   ? s.status === 'Received' :
-      activeTab === 'active'     ? s.status !== 'Received' :
-      activeTab === 'financials' ? (s.comm_inv_amt || 0) > 0 : true
-    return matchSearch && matchTab
+    const ms = !q ||
+      (r.description || '').toLowerCase().includes(q) ||
+      (r.bg_po_number || '').toLowerCase().includes(q) ||
+      (r.vessel_name || '').toLowerCase().includes(q) ||
+      (r.booking_number || '').toLowerCase().includes(q) ||
+      (r.status || '').toLowerCase().includes(q)
+    const mt =
+      tab === 'all'      ? true :
+      tab === 'ocean'    ? r.freight_method === 'OCEAN' :
+      tab === 'air'      ? r.freight_method === 'AIR' :
+      tab === 'received' ? r.status === 'Received' :
+      tab === 'active'   ? r.status !== 'Received' :
+      tab === 'fin'      ? (r.comm_inv_amt || 0) > 0 : true
+    return ms && mt
   })
 
-  const grouped = filtered.reduce((acc, s) => {
-    const key = s.booking_number || s.id
-    if (!acc[key]) acc[key] = []
-    acc[key].push(s)
-    return acc
-  }, {} as Record<string, ImportShipment[]>)
+  const groups: Record<string, any[]> = {}
+  filtered.forEach(r => {
+    const k = r.booking_number || r.id
+    if (!groups[k]) groups[k] = []
+    groups[k].push(r)
+  })
 
-  const totalCommInv  = shipments.reduce((s, r) => s + (r.comm_inv_amt || 0), 0)
-  const totalLanded   = shipments.reduce((s, r) => s + (r.total_landed_cost || 0), 0)
-  const activeCount   = shipments.filter(s => s.status !== 'Received').length
-  const receivedCount = shipments.filter(s => s.status === 'Received').length
+  const activeCount   = rows.filter(r => r.status !== 'Received').length
+  const receivedCount = rows.filter(r => r.status === 'Received').length
+  const totalInv      = rows.reduce((s, r) => s + (r.comm_inv_amt || 0), 0)
+  const totalLanded   = rows.reduce((s, r) => s + (r.total_landed_cost || 0), 0)
 
-  const tabs = [
-    { id: 'all',        label: `All (${shipments.length})` },
-    { id: 'active',     label: `Active (${activeCount})` },
-    { id: 'ocean',      label: '🚢 Ocean' },
-    { id: 'air',        label: '✈ Air' },
-    { id: 'received',   label: `✅ Received (${receivedCount})` },
-    { id: 'financials', label: '💰 Financials' },
-  ]
+  async function handleSave(form: Record<string, any>) {
+    const clean: Record<string, any> = {}
+    FIELDS.forEach(f => {
+      const v = form[f.key]
+      if (f.type === 'number') {
+        clean[f.key] = v !== '' && v !== null && v !== undefined ? parseFloat(v) : null
+      } else if (f.type === 'date') {
+        clean[f.key] = v || null
+      } else {
+        clean[f.key] = v || null
+      }
+    })
 
-  // ── Slide panel shell ─────────────────────────────────────────────────────
-
-  function Panel({ open, onClose, title, children }: {
-    open: boolean
-    onClose: () => void
-    title: string
-    children: React.ReactNode
-  }) {
-    return (
-      <>
-        <div
-          className={`fixed inset-0 bg-black/60 z-40 transition-opacity ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-          onClick={onClose}
-        />
-        <div
-          onClick={e => e.stopPropagation()}
-          className={`fixed top-0 right-0 h-full w-full max-w-xl bg-[#0A0A0B] border-l border-[#2A2A35] z-50 flex flex-col shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}
-        >
-          <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A35] shrink-0">
-            <h2 className="text-lg font-semibold text-white">{title}</h2>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-lg bg-gray-800 hover:bg-gray-700 flex items-center justify-center text-gray-400"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6">{children}</div>
-        </div>
-      </>
-    )
+    if (form.id) {
+      const { error: e } = await supabase
+        .from('import_shipments')
+        .update(clean)
+        .eq('id', form.id)
+      if (e) throw new Error(e.message)
+    } else {
+      const { error: e } = await supabase
+        .from('import_shipments')
+        .insert(clean)
+      if (e) throw new Error(e.message)
+    }
+    setEditing(null)
+    setAdding(false)
+    load()
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this shipment?')) return
+    await supabase.from('import_shipments').delete().eq('id', id)
+    load()
+  }
+
+  const COLS = [
+    'PO#','Description','Cases','Method','ETD','ETA',
+    'Status','BL#','HBL#','Container',
+    'EXW','Comm Inv','China 25%','Duty 10%',
+    'MPF','HMF','Duties','Broker Fee','Landed',
+    'Broker Inv#','Inv Date','Actions'
+  ]
 
   return (
-    <div className="min-h-screen p-6 bg-[#0C0C0E]">
+    <div className="min-h-screen p-4 md:p-6">
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">🚢 Import Tracker</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            {shipments.length} shipments · {Object.keys(grouped).length} bookings
+          <p className="text-gray-500 text-sm mt-0.5">
+            {rows.length} shipments · {Object.keys(groups).length} bookings
           </p>
         </div>
         <button
-          onClick={() => setAddOpen(true)}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors"
+          onClick={() => setAdding(true)}
+          className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -585,113 +327,122 @@ export default function ImportsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Total Shipments',   value: shipments.length.toString(), color: 'text-white' },
-          { label: 'Active',            value: activeCount.toString(),       color: 'text-blue-400' },
-          { label: 'Total Comm Inv',    value: totalCommInv > 0 ? '$' + (totalCommInv / 1000).toFixed(1) + 'K' : '—', color: 'text-amber-400' },
-          { label: 'Total Landed Cost', value: totalLanded  > 0 ? '$' + (totalLanded  / 1000).toFixed(1) + 'K' : '—', color: 'text-emerald-400' },
-        ].map(stat => (
-          <div key={stat.label} className="bg-[#111113] border border-[#2A2A35] rounded-xl p-4">
-            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-            <p className="text-gray-500 text-xs mt-1">{stat.label}</p>
+          { label: 'Total',              value: rows.length,                                                    cls: 'text-white' },
+          { label: 'Active',             value: activeCount,                                                    cls: 'text-blue-400' },
+          { label: 'Comm Inv Total',     value: totalInv    > 0 ? '$' + (totalInv    / 1000).toFixed(1) + 'K' : '—', cls: 'text-amber-400' },
+          { label: 'Landed Cost Total',  value: totalLanded > 0 ? '$' + (totalLanded / 1000).toFixed(1) + 'K' : '—', cls: 'text-emerald-400' },
+        ].map(s => (
+          <div key={s.label} className="bg-[#111113] border border-[#2A2A35] rounded-xl p-4">
+            <p className={`text-2xl font-bold ${s.cls}`}>{s.value}</p>
+            <p className="text-gray-500 text-xs mt-1">{s.label}</p>
           </div>
         ))}
       </div>
 
       {/* Search */}
       <div className="relative mb-4">
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search by PO#, description, vessel, BL#, status…"
+          placeholder="Search PO#, description, vessel, status..."
           className="w-full bg-[#111113] border border-[#2A2A35] rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500"
         />
       </div>
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-        {tabs.map(tab => (
+        {[
+          { id: 'all',      label: `All (${rows.length})` },
+          { id: 'active',   label: `Active (${activeCount})` },
+          { id: 'ocean',    label: '🚢 Ocean' },
+          { id: 'air',      label: '✈ Air' },
+          { id: 'received', label: `✅ Received (${receivedCount})` },
+          { id: 'fin',      label: '💰 Financials' },
+        ].map(t => (
           <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            key={t.id}
+            onClick={() => setTab(t.id)}
             className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors ${
-              activeTab === tab.id
+              tab === t.id
                 ? 'bg-emerald-600 text-white'
                 : 'bg-[#111113] border border-[#2A2A35] text-gray-400 hover:text-white'
             }`}
           >
-            {tab.label}
+            {t.label}
           </button>
         ))}
       </div>
 
-      {/* Fetch error */}
-      {fetchError && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4">
-          <p className="text-red-400 text-sm font-medium mb-1">Failed to load shipments</p>
-          <p className="text-red-300 text-xs font-mono">{fetchError}</p>
-          <button onClick={fetchShipments} className="text-red-400 text-xs underline mt-2">Retry</button>
+      {/* Error */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center justify-between">
+          <p className="text-red-400 text-sm">Error: {error}</p>
+          <button onClick={load} className="text-red-400 text-xs underline">Retry</button>
         </div>
       )}
 
       {/* Loading */}
       {loading && (
         <div className="space-y-3">
-          {[...Array(5)].map((_, i) => <div key={i} className="h-16 bg-[#111113] rounded-xl animate-pulse" />)}
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-16 bg-[#111113] rounded-xl animate-pulse border border-[#2A2A35]" />
+          ))}
         </div>
       )}
 
       {/* Empty */}
-      {!loading && !fetchError && filtered.length === 0 && (
+      {!loading && !error && filtered.length === 0 && (
         <div className="text-center py-20">
-          <p className="text-4xl mb-4">🚢</p>
-          <p className="text-gray-400 font-medium">No shipments found</p>
-          <p className="text-gray-600 text-sm mt-1">
-            {search ? 'Try a different search term' : 'No import shipments in the database yet'}
+          <p className="text-5xl mb-4">🚢</p>
+          <p className="text-gray-400 font-medium text-lg">No shipments found</p>
+          <p className="text-gray-600 text-sm mt-2">
+            {search ? 'Try a different search term' : 'Click "Add Shipment" to get started'}
           </p>
         </div>
       )}
 
-      {/* Grouped shipments */}
-      {!loading && !fetchError && filtered.length > 0 && (
+      {/* Data */}
+      {!loading && !error && filtered.length > 0 && (
         <div className="space-y-4">
-          {Object.entries(grouped).map(([bookingKey, items]) => {
+          {Object.entries(groups).map(([key, items]) => {
             const first = items[0]
-            const eta = getEtaCountdown(first.eta_los_angeles)
-            const totalInv = items.reduce((s, i) => s + (i.comm_inv_amt || 0), 0)
-            return (
-              <div key={bookingKey} className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden">
+            const eta = etaLabel(first.eta_los_angeles)
+            const groupInv = items.reduce((s, i) => s + (i.comm_inv_amt || 0), 0)
 
-                {/* Booking header */}
-                <div className="flex items-center gap-3 px-5 py-4 bg-[#18181C] border-b border-[#2A2A35]">
-                  <span className="text-xl">{first.freight_method === 'AIR' ? '✈' : '🚢'}</span>
+            return (
+              <div key={key} className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden">
+
+                {/* Group header */}
+                <div className="flex items-center gap-3 px-5 py-3.5 bg-[#18181C] border-b border-[#2A2A35]">
+                  <span className="text-lg">{first.freight_method === 'AIR' ? '✈' : '🚢'}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-white font-semibold text-sm">
-                        {first.vessel_name || first.flight_number || 'Unknown Vessel'}
+                        {first.vessel_name || first.flight_number || 'Unknown'}
                       </span>
                       {first.booking_number && (
-                        <span className="text-gray-500 text-xs">Booking: {first.booking_number}</span>
+                        <span className="text-gray-500 text-xs">Bkg: {first.booking_number}</span>
                       )}
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusStyle(first.status)}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(first.status)}`}>
                         {first.status}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 flex-wrap">
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
                       <span>{items.length} item{items.length !== 1 ? 's' : ''}</span>
-                      {first.etd && <span>ETD: {fmtDate(first.etd)}</span>}
-                      {first.eta_los_angeles && <span>ETA: {fmtDate(first.eta_los_angeles)}</span>}
-                      {eta && <span className={eta.color}>{eta.label}</span>}
-                      {totalInv > 0 && <span className="text-amber-400">Comm Inv: {fmt(totalInv)}</span>}
+                      {first.etd && <span>ETD {fmtDate(first.etd)}</span>}
+                      {first.eta_los_angeles && <span>ETA {fmtDate(first.eta_los_angeles)}</span>}
+                      {eta && <span className={eta.cls}>{eta.text}</span>}
+                      {groupInv > 0 && <span className="text-amber-400">Inv: {fmt(groupInv)}</span>}
                     </div>
                   </div>
-                  <div className="text-right text-xs text-gray-500 shrink-0">
-                    <div>{first.shipper?.split(' ').slice(0, 3).join(' ')}</div>
+                  <div className="text-xs text-gray-500 text-right shrink-0 hidden md:block">
+                    <div>{first.shipper?.split(',')[0]}</div>
                     <div>{first.broker}</div>
                   </div>
                 </div>
@@ -701,81 +452,89 @@ export default function ImportsPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-[#2A2A35]">
-                        {['PO#','Description','Cases','ETD','ETA','Status','BL#','HBL#','Container','EXW','Comm Inv','China 25%','Duty 10%','MPF','HMF','Total Duties','Broker Fee','Landed Cost','Broker Inv#','Inv Date','Actions'].map(col => (
-                          <th key={col} className="text-left text-gray-500 uppercase tracking-wider py-2.5 px-3 whitespace-nowrap font-medium">{col}</th>
+                        {COLS.map(c => (
+                          <th key={c} className="text-left text-gray-500 uppercase tracking-wider py-2.5 px-3 whitespace-nowrap font-medium">
+                            {c}
+                          </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map(item => {
-                        const trackUrl = getTrackingUrl(item)
-                        return (
-                          <tr key={item.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C] transition-colors">
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.bg_po_number || '—'}</td>
-                            <td className="py-3 px-3 text-white max-w-xs">
-                              <div className="truncate max-w-[200px]" title={item.description}>{item.description}</div>
-                            </td>
-                            <td className="py-3 px-3 text-gray-300 text-center">{item.case_qty ?? '—'}</td>
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDate(item.etd)}</td>
-                            <td className="py-3 px-3 whitespace-nowrap text-gray-400">{fmtDate(item.eta_los_angeles)}</td>
-                            <td className="py-3 px-3">
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusStyle(item.status)}`}>
-                                {item.status}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.bl_number || '—'}</td>
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.hbl_number || '—'}</td>
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.container_number || '—'}</td>
-                            <td className="py-3 px-3 text-right text-gray-300">{fmt(item.exw_price)}</td>
-                            <td className="py-3 px-3 text-right text-amber-400 font-medium">{fmt(item.comm_inv_amt)}</td>
-                            <td className="py-3 px-3 text-right text-red-400">{fmt(item.china_tariff_25pct)}</td>
-                            <td className="py-3 px-3 text-right text-red-400">{fmt(item.duty_10pct)}</td>
-                            <td className="py-3 px-3 text-right text-gray-400">{fmt(item.mpf)}</td>
-                            <td className="py-3 px-3 text-right text-gray-400">{fmt(item.hmf)}</td>
-                            <td className="py-3 px-3 text-right text-red-400 font-medium">{fmt(item.total_duties)}</td>
-                            <td className="py-3 px-3 text-right text-gray-400">{fmt(item.broker_inv_amount)}</td>
-                            <td className="py-3 px-3 text-right text-emerald-400 font-bold">{fmt(item.total_landed_cost)}</td>
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.broker_invoice_number || '—'}</td>
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDateFull(item.broker_inv_date)}</td>
-                            <td className="py-3 px-3">
-                              <div className="flex items-center gap-1">
-                                {trackUrl && (
-                                  <a
-                                    href={trackUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-1.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium whitespace-nowrap transition-colors"
-                                  >
-                                    Track ↗
-                                  </a>
-                                )}
-                                <button
-                                  onClick={() => openEdit(item)}
-                                  title="Edit"
-                                  className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-500 hover:text-white transition-colors"
+                      {items.map(row => (
+                        <tr key={row.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C] transition-colors">
+                          <td className="py-3 px-3 text-gray-400">{row.bg_po_number || '—'}</td>
+                          <td className="py-3 px-3 text-white">
+                            <div className="max-w-[180px] truncate" title={row.description}>{row.description}</div>
+                          </td>
+                          <td className="py-3 px-3 text-gray-300 text-center">{row.case_qty || '—'}</td>
+                          <td className="py-3 px-3">
+                            <span className={`px-1.5 py-0.5 rounded text-xs ${row.freight_method === 'AIR' ? 'bg-cyan-500/15 text-cyan-400' : 'bg-blue-500/15 text-blue-400'}`}>
+                              {row.freight_method}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDate(row.etd)}</td>
+                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDate(row.eta_los_angeles)}</td>
+                          <td className="py-3 px-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${statusColor(row.status)}`}>
+                              {row.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-gray-400 font-mono">{row.bl_number || '—'}</td>
+                          <td className="py-3 px-3 text-gray-400 font-mono">{row.hbl_number || '—'}</td>
+                          <td className="py-3 px-3 text-gray-400 font-mono">{row.container_number || '—'}</td>
+                          <td className="py-3 px-3 text-right text-gray-300">{fmt(row.exw_price)}</td>
+                          <td className="py-3 px-3 text-right text-amber-400 font-medium">{fmt(row.comm_inv_amt)}</td>
+                          <td className="py-3 px-3 text-right text-red-400">{fmt(row.china_tariff_25pct)}</td>
+                          <td className="py-3 px-3 text-right text-red-400">{fmt(row.duty_10pct)}</td>
+                          <td className="py-3 px-3 text-right text-gray-400">{fmt(row.mpf)}</td>
+                          <td className="py-3 px-3 text-right text-gray-400">{fmt(row.hmf)}</td>
+                          <td className="py-3 px-3 text-right text-red-400 font-medium">{fmt(row.total_duties)}</td>
+                          <td className="py-3 px-3 text-right text-gray-400">{fmt(row.broker_inv_amount)}</td>
+                          <td className="py-3 px-3 text-right text-emerald-400 font-bold">{fmt(row.total_landed_cost)}</td>
+                          <td className="py-3 px-3 text-gray-400 font-mono whitespace-nowrap">{row.broker_invoice_number || '—'}</td>
+                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDate(row.broker_inv_date)}</td>
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-1">
+                              {(row.container_number || row.bl_number || row.vessel_name) && (
+                                <a
+                                  href={
+                                    row.container_number
+                                      ? `https://www.track-trace.com/container?id=${row.container_number}`
+                                      : `https://www.marinetraffic.com/en/ais/index/search/all/keyword:${encodeURIComponent(row.vessel_name || '')}`
+                                  }
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 rounded-lg hover:bg-blue-500/20 text-gray-500 hover:text-blue-400 transition-colors"
+                                  title="Track"
                                 >
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                                   </svg>
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    if (!confirm('Delete this shipment record?')) return
-                                    await supabase.from('import_shipments').delete().eq('id', item.id)
-                                    fetchShipments()
-                                  }}
-                                  title="Delete"
-                                  className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
+                                </a>
+                              )}
+                              <button
+                                onClick={() => setEditing(row)}
+                                className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-500 hover:text-white transition-colors"
+                                title="Edit"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => handleDelete(row.id)}
+                                className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
+                                title="Delete"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -793,46 +552,37 @@ export default function ImportsPage() {
         <a href="https://www.vesselfinder.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">VesselFinder.com</a>
       </div>
 
-      {/* ── EDIT PANEL ── */}
-      <Panel open={panelOpen} onClose={() => setPanelOpen(false)} title="Edit Shipment">
-        <FormFields form={editForm} onChange={updateEdit} />
-        <div className="flex gap-3 pt-6">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-sm py-2.5 rounded-xl transition-colors"
-          >
-            {saving ? 'Saving…' : 'Save Changes'}
-          </button>
-          <button
-            onClick={() => setPanelOpen(false)}
-            className="px-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-xl transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </Panel>
+      {/* Overlay */}
+      {(editing || adding) && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40"
+          onClick={() => { setEditing(null); setAdding(false) }}
+        />
+      )}
 
-      {/* ── ADD PANEL ── */}
-      <Panel open={addOpen} onClose={() => setAddOpen(false)} title="Add New Shipment">
-        <FormFields form={newForm} onChange={updateNew} />
-        <div className="flex gap-3 pt-6">
-          <button
-            onClick={handleAddNew}
-            disabled={saving}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-sm py-2.5 rounded-xl transition-colors"
-          >
-            {saving ? 'Saving…' : 'Add Shipment'}
-          </button>
-          <button
-            onClick={() => setAddOpen(false)}
-            className="px-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-xl transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </Panel>
+      {/* Edit panel */}
+      {editing && (
+        <ShipmentForm
+          key={editing.id}
+          initial={editing}
+          title="Edit Shipment"
+          saveLabel="Save Changes"
+          onSave={handleSave}
+          onClose={() => setEditing(null)}
+        />
+      )}
 
+      {/* Add panel */}
+      {adding && (
+        <ShipmentForm
+          key="new"
+          initial={{ freight_method: 'OCEAN', status: 'Pending', broker: 'OEC LOGISTICS INC.' }}
+          title="Add New Shipment"
+          saveLabel="Add Shipment"
+          onSave={handleSave}
+          onClose={() => setAdding(false)}
+        />
+      )}
     </div>
   )
 }
