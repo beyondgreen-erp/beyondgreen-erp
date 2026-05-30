@@ -575,6 +575,15 @@ export default function ImportsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => downloadCSV(filtered, ALL_COLS)}
+            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm px-4 py-2.5 rounded-xl flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export CSV
+          </button>
+          <button
             onClick={() => setShowDownload(true)}
             className="bg-[#111113] border border-[#2A2A35] hover:border-gray-500 text-gray-300 text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors"
           >
