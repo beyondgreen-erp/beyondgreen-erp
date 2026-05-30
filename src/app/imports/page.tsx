@@ -37,7 +37,55 @@ interface ImportShipment {
   broker_inv_date: string | null
   payment_ref: string | null
   payment_date: string | null
+  notes: string | null
   created_at: string
+}
+
+const EMPTY_NEW_FORM = {
+  bg_po_number: '',
+  description: '',
+  case_qty: '',
+  freight_method: 'OCEAN',
+  etd: '',
+  eta_los_angeles: '',
+  vessel_name: '',
+  vessel_number: '',
+  booking_number: '',
+  bl_number: '',
+  hbl_number: '',
+  container_number: '',
+  shipper: '',
+  broker: 'OEC LOGISTICS INC.',
+  status: 'Pending',
+  exw_price: '',
+  comm_inv_amt: '',
+  china_tariff_25pct: '',
+  duty_10pct: '',
+  mpf: '',
+  hmf: '',
+  total_duties: '',
+  broker_inv_amount: '',
+  total_landed_cost: '',
+  broker_invoice_number: '',
+  broker_inv_date: '',
+  notes: '',
+}
+
+function getTrackingUrl(s: ImportShipment): string | null {
+  if (s.freight_method === 'AIR' && s.container_number) {
+    return 'https://www.flightradar24.com'
+  }
+  if (s.container_number) {
+    return 'https://www.track-trace.com/container?id=' + s.container_number
+  }
+  if (s.bl_number) {
+    return 'https://www.track-trace.com/bill-of-lading?id=' + s.bl_number
+  }
+  if (s.vessel_name) {
+    return 'https://www.marinetraffic.com/en/ais/index/search/all/keyword:' +
+      encodeURIComponent(s.vessel_name)
+  }
+  return null
 }
 
 export default function ImportsPage() {
@@ -47,8 +95,16 @@ export default function ImportsPage() {
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('all')
   const [search, setSearch] = useState('')
+
+  // Edit panel
   const [panelOpen, setPanelOpen] = useState(false)
   const [editing, setEditing] = useState<ImportShipment | null>(null)
+  const [editForm, setEditForm] = useState<any>({})
+  const [saving, setSaving] = useState(false)
+
+  // Add new panel
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newForm, setNewForm] = useState<any>({ ...EMPTY_NEW_FORM })
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchShipments() }, [])
@@ -56,24 +112,122 @@ export default function ImportsPage() {
   async function fetchShipments() {
     setLoading(true)
     setError(null)
-
     const { data, error } = await supabase
       .from('import_shipments')
       .select('*')
       .order('eta_los_angeles', { ascending: true })
-
     if (error) {
       console.error('Import tracker error:', error)
       setError(error.message)
       setLoading(false)
       return
     }
-
     setShipments(data || [])
     setLoading(false)
   }
 
-  // Filter by tab
+  function openEdit(item: ImportShipment) {
+    setEditing(item)
+    setEditForm({ ...item })
+    setPanelOpen(true)
+  }
+
+  function handleEditChange(key: string, value: any) {
+    setEditForm((prev: any) => ({ ...prev, [key]: value }))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    const updateData = {
+      bg_po_number: editForm.bg_po_number,
+      description: editForm.description,
+      case_qty: editForm.case_qty ? parseInt(editForm.case_qty) : null,
+      status: editForm.status,
+      etd: editForm.etd || null,
+      eta_los_angeles: editForm.eta_los_angeles || null,
+      vessel_name: editForm.vessel_name,
+      booking_number: editForm.booking_number,
+      bl_number: editForm.bl_number,
+      hbl_number: editForm.hbl_number,
+      container_number: editForm.container_number,
+      shipper: editForm.shipper,
+      broker: editForm.broker,
+      exw_price: editForm.exw_price ? parseFloat(editForm.exw_price) : null,
+      comm_inv_amt: editForm.comm_inv_amt ? parseFloat(editForm.comm_inv_amt) : null,
+      china_tariff_25pct: editForm.china_tariff_25pct ? parseFloat(editForm.china_tariff_25pct) : null,
+      duty_10pct: editForm.duty_10pct ? parseFloat(editForm.duty_10pct) : null,
+      mpf: editForm.mpf ? parseFloat(editForm.mpf) : null,
+      hmf: editForm.hmf ? parseFloat(editForm.hmf) : null,
+      total_duties: editForm.total_duties ? parseFloat(editForm.total_duties) : null,
+      broker_inv_amount: editForm.broker_inv_amount ? parseFloat(editForm.broker_inv_amount) : null,
+      total_landed_cost: editForm.total_landed_cost ? parseFloat(editForm.total_landed_cost) : null,
+      broker_invoice_number: editForm.broker_invoice_number,
+      broker_inv_date: editForm.broker_inv_date || null,
+      payment_ref: editForm.payment_ref,
+      notes: editForm.notes,
+    }
+    const { error } = await supabase
+      .from('import_shipments')
+      .update(updateData)
+      .eq('id', editForm.id)
+    setSaving(false)
+    if (error) {
+      console.error('Save error:', error)
+      alert('Save failed: ' + error.message)
+      return
+    }
+    setPanelOpen(false)
+    setEditForm({})
+    setEditing(null)
+    fetchShipments()
+  }
+
+  async function handleAddNew() {
+    if (!newForm.description.trim()) {
+      alert('Description is required')
+      return
+    }
+    setSaving(true)
+    const insertData = {
+      bg_po_number: newForm.bg_po_number || null,
+      description: newForm.description,
+      case_qty: newForm.case_qty ? parseInt(newForm.case_qty) : null,
+      freight_method: newForm.freight_method,
+      etd: newForm.etd || null,
+      eta_los_angeles: newForm.eta_los_angeles || null,
+      vessel_name: newForm.vessel_name || null,
+      vessel_number: newForm.vessel_number || null,
+      booking_number: newForm.booking_number || null,
+      bl_number: newForm.bl_number || null,
+      hbl_number: newForm.hbl_number || null,
+      container_number: newForm.container_number || null,
+      shipper: newForm.shipper || null,
+      broker: newForm.broker || null,
+      status: newForm.status,
+      exw_price: newForm.exw_price ? parseFloat(newForm.exw_price) : null,
+      comm_inv_amt: newForm.comm_inv_amt ? parseFloat(newForm.comm_inv_amt) : null,
+      china_tariff_25pct: newForm.china_tariff_25pct ? parseFloat(newForm.china_tariff_25pct) : null,
+      duty_10pct: newForm.duty_10pct ? parseFloat(newForm.duty_10pct) : null,
+      mpf: newForm.mpf ? parseFloat(newForm.mpf) : null,
+      hmf: newForm.hmf ? parseFloat(newForm.hmf) : null,
+      total_duties: newForm.total_duties ? parseFloat(newForm.total_duties) : null,
+      broker_inv_amount: newForm.broker_inv_amount ? parseFloat(newForm.broker_inv_amount) : null,
+      total_landed_cost: newForm.total_landed_cost ? parseFloat(newForm.total_landed_cost) : null,
+      broker_invoice_number: newForm.broker_invoice_number || null,
+      broker_inv_date: newForm.broker_inv_date || null,
+      notes: newForm.notes || null,
+    }
+    const { error } = await supabase.from('import_shipments').insert(insertData)
+    setSaving(false)
+    if (error) {
+      alert('Failed to add: ' + error.message)
+      return
+    }
+    setShowAddForm(false)
+    setNewForm({ ...EMPTY_NEW_FORM })
+    fetchShipments()
+  }
+
   const filtered = shipments.filter(s => {
     const q = search.toLowerCase()
     const matchSearch = !q ||
@@ -83,7 +237,6 @@ export default function ImportsPage() {
       (s.booking_number || '').toLowerCase().includes(q) ||
       (s.bl_number || '').toLowerCase().includes(q) ||
       (s.status || '').toLowerCase().includes(q)
-
     const matchTab =
       activeTab === 'all' ? true :
       activeTab === 'ocean' ? s.freight_method === 'OCEAN' :
@@ -91,11 +244,9 @@ export default function ImportsPage() {
       activeTab === 'received' ? s.status === 'Received' :
       activeTab === 'active' ? s.status !== 'Received' :
       activeTab === 'financials' ? (s.comm_inv_amt || 0) > 0 : true
-
     return matchSearch && matchTab
   })
 
-  // Group by booking number
   const grouped = filtered.reduce((acc, s) => {
     const key = s.booking_number || s.id
     if (!acc[key]) acc[key] = []
@@ -158,6 +309,140 @@ export default function ImportsPage() {
 
   const inp = 'w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500'
 
+  const statusOptions = ['Pending', 'Gated', 'In Transit', 'At Port of Dispatch', 'Air Cargo Warehouse', 'Arriving Tomorrow', 'Arriving Today', 'Received', 'Cleared', 'Delivered']
+
+  // Shared form section renderer for edit and add panels
+  function FormFields({ form, onChange }: { form: any; onChange: (k: string, v: any) => void }) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">BG PO#</label>
+            <input type="text" value={form.bg_po_number || ''} onChange={e => onChange('bg_po_number', e.target.value)} className={inp} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Status</label>
+            <select value={form.status || 'Pending'} onChange={e => onChange('status', e.target.value)} className={inp}>
+              {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Description *</label>
+          <textarea value={form.description || ''} onChange={e => onChange('description', e.target.value)} rows={2} className={inp + ' resize-none'} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Cases</label>
+            <input type="number" value={form.case_qty || ''} onChange={e => onChange('case_qty', e.target.value)} className={inp} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Freight Method</label>
+            <select value={form.freight_method || 'OCEAN'} onChange={e => onChange('freight_method', e.target.value)} className={inp}>
+              <option value="OCEAN">OCEAN</option>
+              <option value="AIR">AIR</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-800 pt-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Voyage Details</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">ETD</label>
+              <input type="date" value={form.etd || ''} onChange={e => onChange('etd', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">ETA Los Angeles</label>
+              <input type="date" value={form.eta_los_angeles || ''} onChange={e => onChange('eta_los_angeles', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Vessel Name</label>
+              <input type="text" value={form.vessel_name || ''} onChange={e => onChange('vessel_name', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Booking #</label>
+              <input type="text" value={form.booking_number || ''} onChange={e => onChange('booking_number', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">BL Number</label>
+              <input type="text" value={form.bl_number || ''} onChange={e => onChange('bl_number', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">HBL Number</label>
+              <input type="text" value={form.hbl_number || ''} onChange={e => onChange('hbl_number', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Container #</label>
+              <input type="text" value={form.container_number || ''} onChange={e => onChange('container_number', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Shipper</label>
+              <input type="text" value={form.shipper || ''} onChange={e => onChange('shipper', e.target.value)} className={inp} />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-gray-400 block mb-1">Broker</label>
+              <input type="text" value={form.broker || ''} onChange={e => onChange('broker', e.target.value)} className={inp} />
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-800 pt-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Financial Details</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'EXW Price', key: 'exw_price' },
+              { label: 'Comm Inv Amt', key: 'comm_inv_amt' },
+              { label: 'China 25%', key: 'china_tariff_25pct' },
+              { label: 'Duty 10%', key: 'duty_10pct' },
+              { label: 'MPF', key: 'mpf' },
+              { label: 'HMF', key: 'hmf' },
+              { label: 'Total Duties', key: 'total_duties' },
+              { label: 'Broker Fee', key: 'broker_inv_amount' },
+              { label: 'Total Landed Cost', key: 'total_landed_cost' },
+            ].map(field => (
+              <div key={field.key}>
+                <label className="text-xs text-gray-400 block mb-1">{field.label}</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form[field.key] ?? ''}
+                  onChange={e => onChange(field.key, e.target.value)}
+                  className={inp}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t border-gray-800 pt-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Broker Invoice</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Invoice #</label>
+              <input type="text" value={form.broker_invoice_number || ''} onChange={e => onChange('broker_invoice_number', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Invoice Date</label>
+              <input type="date" value={form.broker_inv_date || ''} onChange={e => onChange('broker_inv_date', e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Payment Ref</label>
+              <input type="text" value={form.payment_ref || ''} onChange={e => onChange('payment_ref', e.target.value)} className={inp} />
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-800 pt-4">
+          <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Notes</label>
+          <textarea value={form.notes || ''} onChange={e => onChange('notes', e.target.value)} rows={3} className={inp + ' resize-none'} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen p-6 bg-[#0C0C0E]">
 
@@ -171,6 +456,13 @@ export default function ImportsPage() {
             {shipments.length} shipments across {Object.keys(grouped).length} bookings
           </p>
         </div>
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+          Add Shipment
+        </button>
       </div>
 
       {/* Stats row */}
@@ -299,56 +591,70 @@ export default function ImportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map(item => (
-                        <tr key={item.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C] transition-colors">
-                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.bg_po_number || '—'}</td>
-                          <td className="py-3 px-3 text-white max-w-xs">
-                            <div className="truncate max-w-[200px]" title={item.description}>{item.description}</div>
-                          </td>
-                          <td className="py-3 px-3 text-gray-300 text-center">{item.case_qty ?? '—'}</td>
-                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDate(item.etd)}</td>
-                          <td className="py-3 px-3 whitespace-nowrap text-gray-400">{fmtDate(item.eta_los_angeles)}</td>
-                          <td className="py-3 px-3">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusStyle(item.status)}`}>{item.status}</span>
-                          </td>
-                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.bl_number || '—'}</td>
-                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.hbl_number || '—'}</td>
-                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.container_number || '—'}</td>
-                          <td className="py-3 px-3 text-right text-gray-300">{fmt(item.exw_price)}</td>
-                          <td className="py-3 px-3 text-right text-amber-400 font-medium">{fmt(item.comm_inv_amt)}</td>
-                          <td className="py-3 px-3 text-right text-red-400">{fmt(item.china_tariff_25pct)}</td>
-                          <td className="py-3 px-3 text-right text-red-400">{fmt(item.duty_10pct)}</td>
-                          <td className="py-3 px-3 text-right text-gray-400">{fmt(item.mpf)}</td>
-                          <td className="py-3 px-3 text-right text-gray-400">{fmt(item.hmf)}</td>
-                          <td className="py-3 px-3 text-right text-red-400 font-medium">{fmt(item.total_duties)}</td>
-                          <td className="py-3 px-3 text-right text-gray-400">{fmt(item.broker_inv_amount)}</td>
-                          <td className="py-3 px-3 text-right text-emerald-400 font-bold">{fmt(item.total_landed_cost)}</td>
-                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.broker_invoice_number || '—'}</td>
-                          <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDateFull(item.broker_inv_date)}</td>
-                          <td className="py-3 px-3">
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => { setEditing(item); setPanelOpen(true) }}
-                                title="Edit"
-                                className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-500 hover:text-white transition-colors"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  if (!confirm('Delete this shipment record?')) return
-                                  await supabase.from('import_shipments').delete().eq('id', item.id)
-                                  fetchShipments()
-                                }}
-                                title="Delete"
-                                className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {items.map(item => {
+                        const trackUrl = getTrackingUrl(item)
+                        return (
+                          <tr key={item.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C] transition-colors">
+                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.bg_po_number || '—'}</td>
+                            <td className="py-3 px-3 text-white max-w-xs">
+                              <div className="truncate max-w-[200px]" title={item.description}>{item.description}</div>
+                            </td>
+                            <td className="py-3 px-3 text-gray-300 text-center">{item.case_qty ?? '—'}</td>
+                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDate(item.etd)}</td>
+                            <td className="py-3 px-3 whitespace-nowrap text-gray-400">{fmtDate(item.eta_los_angeles)}</td>
+                            <td className="py-3 px-3">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusStyle(item.status)}`}>{item.status}</span>
+                            </td>
+                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.bl_number || '—'}</td>
+                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.hbl_number || '—'}</td>
+                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.container_number || '—'}</td>
+                            <td className="py-3 px-3 text-right text-gray-300">{fmt(item.exw_price)}</td>
+                            <td className="py-3 px-3 text-right text-amber-400 font-medium">{fmt(item.comm_inv_amt)}</td>
+                            <td className="py-3 px-3 text-right text-red-400">{fmt(item.china_tariff_25pct)}</td>
+                            <td className="py-3 px-3 text-right text-red-400">{fmt(item.duty_10pct)}</td>
+                            <td className="py-3 px-3 text-right text-gray-400">{fmt(item.mpf)}</td>
+                            <td className="py-3 px-3 text-right text-gray-400">{fmt(item.hmf)}</td>
+                            <td className="py-3 px-3 text-right text-red-400 font-medium">{fmt(item.total_duties)}</td>
+                            <td className="py-3 px-3 text-right text-gray-400">{fmt(item.broker_inv_amount)}</td>
+                            <td className="py-3 px-3 text-right text-emerald-400 font-bold">{fmt(item.total_landed_cost)}</td>
+                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap font-mono">{item.broker_invoice_number || '—'}</td>
+                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{fmtDateFull(item.broker_inv_date)}</td>
+                            <td className="py-3 px-3">
+                              <div className="flex items-center gap-1">
+                                {trackUrl && (
+                                  <a
+                                    href={trackUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Track shipment"
+                                    className="px-1.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium whitespace-nowrap transition-colors"
+                                  >
+                                    Track ↗
+                                  </a>
+                                )}
+                                <button
+                                  onClick={() => openEdit(item)}
+                                  title="Edit"
+                                  className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-500 hover:text-white transition-colors"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm('Delete this shipment record?')) return
+                                    await supabase.from('import_shipments').delete().eq('id', item.id)
+                                    fetchShipments()
+                                  }}
+                                  title="Delete"
+                                  className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -358,13 +664,19 @@ export default function ImportsPage() {
         </div>
       )}
 
-      {/* Edit Panel Overlay */}
+      {/* Tracking note */}
+      <div className="mt-6 p-4 bg-[#111113] border border-[#2A2A35] rounded-xl text-xs text-gray-500">
+        📍 Positions are estimated based on ETD/ETA. For live tracking visit{' '}
+        <a href="https://www.marinetraffic.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">MarineTraffic.com</a>
+        {' '}or{' '}
+        <a href="https://www.vesselfinder.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">VesselFinder.com</a>
+      </div>
+
+      {/* ── EDIT PANEL ── */}
       <div
         className={`fixed inset-0 bg-black/60 z-40 transition-opacity ${panelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setPanelOpen(false)}
       />
-
-      {/* Edit Panel */}
       <div
         onClick={e => e.stopPropagation()}
         className={`fixed top-0 right-0 h-full w-full max-w-xl bg-[#0A0A0B] border-l border-[#2A2A35] z-50 flex flex-col shadow-2xl transition-transform duration-300 ${panelOpen ? 'translate-x-0' : 'translate-x-full'}`}
@@ -380,111 +692,16 @@ export default function ImportsPage() {
         </div>
 
         {editing && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            <div className="text-xs text-gray-500 truncate mb-1">{editing.description}</div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">BG PO#</label>
-                <input type="text" value={editing.bg_po_number || ''} onChange={e => setEditing({ ...editing, bg_po_number: e.target.value })} className={inp} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Status</label>
-                <select value={editing.status} onChange={e => setEditing({ ...editing, status: e.target.value })} className={inp}>
-                  {['Pending', 'Gated', 'In Transit', 'At Port of Dispatch', 'Air Cargo Warehouse', 'Arriving Tomorrow', 'Arriving Today', 'Received', 'Cleared', 'Delivered'].map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Description</label>
-              <textarea value={editing.description} onChange={e => setEditing({ ...editing, description: e.target.value })} rows={2} className={inp + ' resize-none'} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">ETA Los Angeles</label>
-                <input type="date" value={editing.eta_los_angeles || ''} onChange={e => setEditing({ ...editing, eta_los_angeles: e.target.value })} className={inp} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">BL Number</label>
-                <input type="text" value={editing.bl_number || ''} onChange={e => setEditing({ ...editing, bl_number: e.target.value })} className={inp} />
-              </div>
-            </div>
-
-            <div className="border-t border-gray-800 pt-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Financial Details</p>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Comm Inv Amt', key: 'comm_inv_amt' },
-                  { label: 'China 25%', key: 'china_tariff_25pct' },
-                  { label: 'Duty 10%', key: 'duty_10pct' },
-                  { label: 'MPF', key: 'mpf' },
-                  { label: 'HMF', key: 'hmf' },
-                  { label: 'Total Duties', key: 'total_duties' },
-                  { label: 'Broker Fee', key: 'broker_inv_amount' },
-                  { label: 'Total Landed Cost', key: 'total_landed_cost' },
-                ].map(field => (
-                  <div key={field.key}>
-                    <label className="text-xs text-gray-400 block mb-1">{field.label}</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={(editing as any)[field.key] ?? ''}
-                      onChange={e => setEditing({ ...editing, [field.key]: parseFloat(e.target.value) || 0 } as ImportShipment)}
-                      className={inp}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Broker Invoice #</label>
-                <input type="text" value={editing.broker_invoice_number || ''} onChange={e => setEditing({ ...editing, broker_invoice_number: e.target.value })} className={inp} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Invoice Date</label>
-                <input type="date" value={editing.broker_inv_date || ''} onChange={e => setEditing({ ...editing, broker_inv_date: e.target.value })} className={inp} />
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-4">
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="text-xs text-gray-500 truncate mb-4">{editing.description}</div>
+            <FormFields form={editForm} onChange={handleEditChange} />
+            <div className="flex gap-3 pt-6">
               <button
-                onClick={async () => {
-                  const { error } = await supabase
-                    .from('import_shipments')
-                    .update({
-                      bg_po_number: editing.bg_po_number,
-                      description: editing.description,
-                      status: editing.status,
-                      eta_los_angeles: editing.eta_los_angeles || null,
-                      bl_number: editing.bl_number,
-                      comm_inv_amt: editing.comm_inv_amt,
-                      china_tariff_25pct: editing.china_tariff_25pct,
-                      duty_10pct: editing.duty_10pct,
-                      mpf: editing.mpf,
-                      hmf: editing.hmf,
-                      total_duties: editing.total_duties,
-                      broker_inv_amount: editing.broker_inv_amount,
-                      total_landed_cost: editing.total_landed_cost,
-                      broker_invoice_number: editing.broker_invoice_number,
-                      broker_inv_date: editing.broker_inv_date || null,
-                    })
-                    .eq('id', editing.id)
-                  if (!error) {
-                    setPanelOpen(false)
-                    fetchShipments()
-                  } else {
-                    alert('Error saving: ' + error.message)
-                  }
-                }}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm py-2.5 rounded-xl transition-colors"
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-sm py-2.5 rounded-xl transition-colors"
               >
-                Save Changes
+                {saving ? 'Saving…' : 'Save Changes'}
               </button>
               <button
                 onClick={() => setPanelOpen(false)}
@@ -496,6 +713,45 @@ export default function ImportsPage() {
           </div>
         )}
       </div>
+
+      {/* ── ADD NEW PANEL ── */}
+      <div
+        className={`fixed inset-0 bg-black/60 z-40 transition-opacity ${showAddForm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={() => setShowAddForm(false)}
+      />
+      <div
+        onClick={e => e.stopPropagation()}
+        className={`fixed top-0 right-0 h-full w-full max-w-xl bg-[#0A0A0B] border-l border-[#2A2A35] z-50 flex flex-col shadow-2xl transition-transform duration-300 ${showAddForm ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A35] shrink-0">
+          <h2 className="text-lg font-semibold text-white">Add New Shipment</h2>
+          <button
+            onClick={() => setShowAddForm(false)}
+            className="w-8 h-8 rounded-lg bg-gray-800 hover:bg-gray-700 flex items-center justify-center text-gray-400"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">
+          <FormFields form={newForm} onChange={(k, v) => setNewForm((prev: any) => ({ ...prev, [k]: v }))} />
+          <div className="flex gap-3 pt-6">
+            <button
+              onClick={handleAddNew}
+              disabled={saving}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-sm py-2.5 rounded-xl transition-colors"
+            >
+              {saving ? 'Saving…' : 'Add Shipment'}
+            </button>
+            <button
+              onClick={() => setShowAddForm(false)}
+              className="px-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-xl transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   )
 }
