@@ -205,6 +205,14 @@ export default function InventoryPage() {
     setBusy(false); close(); load()
   }
 
+  async function handleDelete() {
+    if (!editing) return
+    if (!confirm('Permanently delete this product? This cannot be undone.')) return
+    const { error } = await sb.from('products').delete().eq('id', editing.id)
+    if (error) { alert('Delete failed: ' + error.message); return }
+    close(); load()
+  }
+
   async function markReviewed(id: string) {
     await sb.from('products').update({ duplicate_reviewed: true, updated_at: new Date().toISOString() }).eq('id', id)
     load()
@@ -563,6 +571,11 @@ export default function InventoryPage() {
             </div>
           )}
           <div className="flex gap-3">
+            {editing && (
+              <button onClick={handleDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            )}
             {editing && (
               <button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">
                 {editing.is_active ? 'Archive' : 'Restore'}
