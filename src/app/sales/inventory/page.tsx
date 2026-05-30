@@ -447,6 +447,16 @@ export default function InventoryPage() {
         </button>
       </div>
 
+      {/* Stats bar — updates with active tab */}
+      {!loading && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <StatCard label="Total SKUs" value={String(tabPool.length)} sub={tabFilter !== 'All' ? tabFilter : 'all categories'}/>
+          <StatCard label="Inventory Value" value={fmtV(stats.totalValue)} accent="text-emerald-400" sub="on-hand × unit cost"/>
+          <StatCard label="Finished Goods" value={String(stats.finishedGoods)} sub="category = Finished Goods"/>
+          <StatCard label="Out of Stock" value={String(stats.outOfStock)} accent={stats.outOfStock > 0 ? 'text-red-400' : 'text-white'} sub="qty = 0"/>
+        </div>
+      )}
+
       {/* Tab filters */}
       <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 overflow-x-auto mb-4">
         {PRODUCT_TABS.map(t => (
@@ -456,16 +466,6 @@ export default function InventoryPage() {
           </button>
         ))}
       </div>
-
-      {/* Stats bar */}
-      {!loading && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <StatCard label="Total SKUs" value={String(tabPool.length)} sub={tabFilter !== 'All' ? tabFilter : 'all categories'}/>
-          <StatCard label="Inventory Value" value={fmtV(stats.totalValue)} accent="text-emerald-400" sub="on-hand × unit cost"/>
-          <StatCard label="Finished Goods" value={String(stats.finishedGoods)} sub="category = Finished Goods"/>
-          <StatCard label="Out of Stock" value={String(stats.outOfStock)} accent={stats.outOfStock > 0 ? 'text-red-400' : 'text-white'} sub="qty = 0"/>
-        </div>
-      )}
 
       {/* Search */}
       <div className="relative mb-4 max-w-md">
