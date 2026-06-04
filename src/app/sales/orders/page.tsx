@@ -6,6 +6,8 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import WorkflowMover, { WorkflowProgressBar } from '@/components/WorkflowMover'
+import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
+import UndoToast from '@/components/UndoToast'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -521,6 +523,7 @@ export default function OrdersPage() {
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [flowToast, setFlowToast] = useState<{message:string; undoData?:any} | null>(null)
   const ms = useMultiSelect<SalesOrder>()
   const [search, setSearch] = useState('')
   const [sectionTab, setSectionTab] = useState('All')
@@ -731,7 +734,25 @@ export default function OrdersPage() {
       }
     }
 
-    setSaving(false); setEditOpen(false); setEditingOrder(null); load()
+    setSaving(false); setEditOpen(false)
+
+    // Auto-flow: detect status change and trigger side-effects
+    if (editingOrder && orderId && form.status !== editingOrder.status) {
+      const result = await onStatusChange(
+        orderId,
+        form.status as OrderStatus,
+        editingOrder.status as OrderStatus
+      )
+      setFlowToast({ message: result.message, undoData: result.undoData })
+    }
+
+    setEditingOrder(null); load()
+  }
+
+  async function handleUndoFlow(undoData: any) {
+    const result = await undoFlow(undoData)
+    setFlowToast({ message: result.message })
+    load()
   }
 
   async function handleDelete(id: string) {
@@ -910,6 +931,14 @@ export default function OrdersPage() {
       </div>
 
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+
+      {flowToast && (
+        <UndoToast
+          message={flowToast.message}
+          onUndo={flowToast.undoData ? () => handleUndoFlow(flowToast.undoData) : undefined}
+          onDismiss={() => setFlowToast(null)}
+        />
+      )}
 
       <EditPanel
         open={editOpen}

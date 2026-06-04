@@ -1,144 +1,518 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import ImportExportBar from '@/components/ImportExportBar'
+import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
+import UndoToast from '@/components/UndoToast'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
 
-interface SalesOrder { id: string; order_number: string; customer_id: string | null }
-interface Customer { id: string; company_name: string }
-interface ShipQItem { id: string; sales_order_id: string | null; carrier: string | null; tracking_number: string | null; scheduled_ship_date: string | null; actual_ship_date: string | null; status: string; notes: string | null; is_active: boolean }
-const STATUSES = ['Pending','Packed','Picked Up','In Transit']
-const SC: Record<string,string> = { Pending:'bg-gray-700/40 text-gray-400 border-gray-700', Packed:'bg-blue-500/15 text-blue-400 border-blue-500/20', 'Picked Up':'bg-amber-500/15 text-amber-400 border-amber-500/20', 'In Transit':'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' }
-const empty = { sales_order_id:'', carrier:'', tracking_number:'', scheduled_ship_date:'', actual_ship_date:'', status:'Pending', notes:'' }
-type F = typeof empty
-const fmtD=(d:string|null)=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
-function dbErr(e:{code?:string;message:string;hint?:string}){console.error(e);return[e.message,e.code&&`(${e.code})`,e.hint&&`Hint: ${e.hint}`].filter(Boolean).join(' — ')}
+interface ShipQItem {
+  id: string
+  sales_order_id: string | null
+  carrier: string | null
+  tracking_number: string | null
+  scheduled_ship_date: string | null
+  actual_ship_date: string | null
+  status: string
+  notes: string | null
+  is_active: boolean
+}
+interface SalesOrder {
+  id: string
+  order_number: string
+  customer_id: string | null
+  status: string
+  total_amount: number | null
+  notes: string | null
+  customers?: { company_name: string } | null
+}
+
+const CARRIERS = ['UPS', 'FedEx', 'USPS', 'LTL / Freight', 'Will Call', 'DHL', 'Other']
+const STATUS_COLORS: Record<string, string> = {
+  Pending: 'bg-gray-700/40 text-gray-400 border-gray-700',
+  Packed: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  'Picked Up': 'bg-amber-500/15 text-amber-400 border-amber-500/20',
+  'In Transit': 'bg-teal-500/15 text-teal-400 border-teal-500/20',
+}
+const fmtD = (d: string | null) =>
+  d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+const fmt$ = (n: number | null | undefined) =>
+  n ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n) : '—'
 
 export default function ShippingQueuePage() {
-  const sb=useMemo(()=>createSupabaseBrowserClient(),[])
-  const [rows,setRows]=useState<ShipQItem[]>([])
-  const [orders,setOrders]=useState<SalesOrder[]>([])
-  const [customers,setCustomers]=useState<Customer[]>([])
-  const [loading,setLoading]=useState(true)
-  const [search,setSearch]=useState('')
-  const [archived,setArchived]=useState(false)
-  const [open,setOpen]=useState(false)
-  const [editing,setEditing]=useState<ShipQItem|null>(null)
-  const [form,setForm]=useState<F>(empty)
-  const [saving,setSaving]=useState(false)
-  const [busy,setBusy]=useState(false)
-  const [err,setErr]=useState('')
-  const ref=useRef<HTMLDivElement>(null)
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [rows, setRows] = useState<ShipQItem[]>([])
+  const [orderMap, setOrderMap] = useState<Record<string, SalesOrder>>({})
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [toast, setToast] = useState<{ message: string; undoData?: any } | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
-  async function load(){
+  // Ship Now modal
+  const [shipModal, setShipModal] = useState<ShipQItem | null>(null)
+  const [shipForm, setShipForm] = useState({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '' })
+  const [shipping, setShipping] = useState(false)
+
+  // Edit panel
+  const [editItem, setEditItem] = useState<ShipQItem | null>(null)
+  const [editForm, setEditForm] = useState({ carrier: '', tracking_number: '', scheduled_ship_date: '', notes: '' })
+  const [saving, setSaving] = useState(false)
+
+  const ms = useMultiSelect<ShipQItem>()
+
+  async function load() {
     setLoading(true)
-    const [{data:sq},{data:o},{data:c}]=await Promise.all([
-      sb.from('shipping_queue').select('*').order('created_at',{ascending:false}),
-      sb.from('sales_orders').select('id,order_number,customer_id').not('status','in','("Closed","Cancelled")').order('order_number'),
-      sb.from('customers').select('id,company_name').eq('is_active',true),
-    ])
-    if(sq) setRows(sq as ShipQItem[])
-    if(o) setOrders(o as SalesOrder[])
-    if(c) setCustomers(c as Customer[])
+    const { data: q } = await sb
+      .from('shipping_queue')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+    if (!q) { setLoading(false); return }
+    setRows(q as ShipQItem[])
+
+    // Load linked orders
+    const orderIds = Array.from(new Set(q.map((r: ShipQItem) => r.sales_order_id).filter(Boolean))) as string[]
+    if (orderIds.length > 0) {
+      const { data: orders } = await sb
+        .from('sales_orders')
+        .select('id, order_number, customer_id, status, total_amount, notes, customers(company_name)')
+        .in('id', orderIds)
+      if (orders) {
+        const map: Record<string, SalesOrder> = {}
+        for (const o of orders as any[]) map[o.id] = o
+        setOrderMap(map)
+      }
+    }
     setLoading(false)
   }
-  useEffect(()=>{load()},[]) // eslint-disable-line
 
-  const omap=Object.fromEntries(orders.map(o=>[o.id,o]))
-  const cmap=Object.fromEntries(customers.map(c=>[c.id,c.company_name]))
-  const filtered=rows.filter(r=>{
-    if(!archived&&!r.is_active) return false
-    if(archived&&r.is_active) return false
-    if(!search) return true
-    const q=search.toLowerCase()
-    const o=r.sales_order_id?omap[r.sales_order_id]:null
-    return (o?.order_number||'').toLowerCase().includes(q)||(r.carrier||'').toLowerCase().includes(q)||(r.tracking_number||'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
+  useEffect(() => { load() }, []) // eslint-disable-line
+
+  const filtered = rows.filter(r => {
+    const order = r.sales_order_id ? orderMap[r.sales_order_id] : null
+    const custName = (order?.customers as any)?.company_name ?? (order?.notes ?? '').split('|')[0]
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (
+      (order?.order_number ?? '').toLowerCase().includes(q) ||
+      custName.toLowerCase().includes(q) ||
+      (r.carrier ?? '').toLowerCase().includes(q) ||
+      (r.tracking_number ?? '').toLowerCase().includes(q)
+    )
   })
 
-  function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
-  function openEdit(r:ShipQItem){setEditing(r);setForm({sales_order_id:r.sales_order_id??'',carrier:r.carrier??'',tracking_number:r.tracking_number??'',scheduled_ship_date:r.scheduled_ship_date??'',actual_ship_date:r.actual_ship_date??'',status:r.status,notes:r.notes??''});setErr('');setOpen(true)}
-  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
-
-  async function save(){
-    setErr('');setSaving(true)
-    const p={sales_order_id:form.sales_order_id||null,carrier:form.carrier.trim()||null,tracking_number:form.tracking_number.trim()||null,scheduled_ship_date:form.scheduled_ship_date||null,actual_ship_date:form.actual_ship_date||null,status:form.status,notes:form.notes.trim()||null}
-    const{error}=editing?await sb.from('shipping_queue').update({...p,updated_at:new Date().toISOString()}).eq('id',editing.id):await sb.from('shipping_queue').insert({...p,is_active:true})
-    if(error){setErr(dbErr(error));setSaving(false);return}
-    setSaving(false);close();load()
+  const stats = {
+    total: rows.length,
+    pending: rows.filter(r => r.status === 'Pending').length,
+    packed: rows.filter(r => r.status === 'Packed').length,
+    transit: rows.filter(r => r.status === 'In Transit' || r.status === 'Picked Up').length,
   }
-  async function toggleArchive(){if(!editing)return;setBusy(true);await sb.from('shipping_queue').update({is_active:!editing.is_active,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
-  async function handleDelete(){if(!editing)return;if(!confirm('Permanently delete this item? This cannot be undone.'))return;const{error}=await sb.from('shipping_queue').delete().eq('id',editing.id);if(error){alert('Delete failed: '+error.message);return}close();load()}
 
-  const inp='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
+  async function openShipModal(item: ShipQItem) {
+    setShipModal(item)
+    setShipForm({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '' })
+  }
+
+  async function confirmShip() {
+    if (!shipModal?.sales_order_id) return
+    setShipping(true)
+    const orderId = shipModal.sales_order_id
+
+    // Get current order status for undo
+    const { data: order } = await sb.from('sales_orders').select('status').eq('id', orderId).single()
+    const prevStatus = (order?.status ?? 'Ready to Ship') as OrderStatus
+
+    // Update order status to Shipped
+    await sb.from('sales_orders')
+      .update({ status: 'Shipped', updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+
+    // Update shipping queue item
+    await sb.from('shipping_queue').update({
+      carrier: shipForm.carrier || null,
+      tracking_number: shipForm.tracking || null,
+      actual_ship_date: shipForm.shipDate,
+      status: 'In Transit',
+      notes: shipForm.notes || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', shipModal.id)
+
+    // Run auto-flow (creates shipment + invoice + deducts inventory)
+    const result = await onStatusChange(orderId, 'Shipped', prevStatus, {
+      carrier: shipForm.carrier,
+      trackingNumber: shipForm.tracking,
+      shipDate: shipForm.shipDate,
+    })
+
+    setShipping(false)
+    setShipModal(null)
+    setToast({ message: result.message, undoData: result.undoData })
+    load()
+  }
+
+  async function removeFromQueue(item: ShipQItem) {
+    if (!confirm('Remove this order from the shipping queue?')) return
+    await sb.from('shipping_queue').update({ is_active: false }).eq('id', item.id)
+    load()
+  }
+
+  async function saveEdit() {
+    if (!editItem) return
+    setSaving(true)
+    await sb.from('shipping_queue').update({
+      carrier: editForm.carrier || null,
+      tracking_number: editForm.tracking_number || null,
+      scheduled_ship_date: editForm.scheduled_ship_date || null,
+      notes: editForm.notes || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', editItem.id)
+    setSaving(false)
+    setEditItem(null)
+    load()
+  }
+
+  async function bulkDelete() {
+    if (!confirm(`Remove ${ms.count} items from the shipping queue?`)) return
+    setDeleting(true)
+    await sb.from('shipping_queue').update({ is_active: false }).in('id', Array.from(ms.selected))
+    ms.clear(); setDeleting(false); load()
+  }
+
+  async function handleUndo(undoData: any) {
+    const result = await undoFlow(undoData)
+    setToast({ message: result.message })
+    load()
+  }
+
+  const inp = 'w-full bg-[#0A0A0B] border border-[#2A2A35] focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none transition-colors'
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+    <div className="p-6 min-h-screen">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">Shipping Queue</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} item${filtered.length!==1?'s':''}`}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ImportExportBar table="shipping_queue" filename="shipping_queue" columns={[
-            { header: 'Order Number', dbKey: 'order_number', example: 'SO-2024-001', lookup: { fromTable: 'sales_orders', matchField: 'order_number', storeAs: 'sales_order_id' } },
-            { header: 'Carrier', dbKey: 'carrier', example: 'FedEx' },
-            { header: 'Tracking Number', dbKey: 'tracking_number', example: '1Z999AA10123456784' },
-            { header: 'Scheduled Ship Date', dbKey: 'scheduled_ship_date', example: '2024-02-05' },
-            { header: 'Actual Ship Date', dbKey: 'actual_ship_date', example: '' },
-            { header: 'Status', dbKey: 'status', example: 'Pending' },
-            { header: 'Notes', dbKey: 'notes', example: '' },
-          ]} onImportDone={load} />
-          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add to Queue</button>
-        </div>
-      </div>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search queue…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/></div>
-        <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-blue-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Show Archived</span></label>
-      </div>
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
-        {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
-        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived items.':'Queue is empty.'}</p></div>
-        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-gray-800">{['Sales Order','Customer','Carrier','Tracking #','Sched. Ship','Actual Ship','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
-        <tbody>{filtered.map((r,i)=>{
-          const o=r.sales_order_id?omap[r.sales_order_id]:null
-          const custName=o?.customer_id?cmap[o.customer_id]||'—':'—'
-          return <tr key={r.id} onClick={()=>openEdit(r)} className={`border-b border-gray-800/60 last:border-0 cursor-pointer hover:bg-gray-800/40 transition-colors ${i%2===0?'':'bg-gray-800/10'}`}>
-            <td className="px-4 py-3.5 text-white font-mono text-xs">{o?.order_number||'—'}</td>
-            <td className="px-4 py-3.5 text-gray-400">{custName}</td>
-            <td className="px-4 py-3.5 text-gray-400">{r.carrier||'—'}</td>
-            <td className="px-4 py-3.5 text-gray-400 font-mono text-xs">{r.tracking_number||'—'}</td>
-            <td className="px-4 py-3.5 text-gray-400">{fmtD(r.scheduled_ship_date)}</td>
-            <td className="px-4 py-3.5 text-gray-400">{fmtD(r.actual_ship_date)}</td>
-            <td className="px-4 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Pending}`}>{r.status}</span></td>
-          </tr>
-        })}</tbody></table>}
-      </div>
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit Queue Item':'Add to Queue'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          <div><label className="block text-xs text-gray-400 mb-1.5">Sales Order</label><select value={form.sales_order_id} onChange={e=>setForm(p=>({...p,sales_order_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_number}{o.customer_id&&cmap[o.customer_id]?' — '+cmap[o.customer_id]:''}</option>)}</select></div>
-          {form.sales_order_id&&omap[form.sales_order_id]?.customer_id&&<div className="bg-gray-800/50 rounded-lg px-3 py-2.5"><p className="text-xs text-gray-500">Customer</p><p className="text-sm text-white mt-0.5">{cmap[omap[form.sales_order_id]!.customer_id!]||'—'}</p></div>}
-          <div><label className="block text-xs text-gray-400 mb-1.5">Carrier</label><input value={form.carrier} onChange={e=>setForm(p=>({...p,carrier:e.target.value}))} className={inp}/></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Tracking Number</label><input value={form.tracking_number} onChange={e=>setForm(p=>({...p,tracking_number:e.target.value}))} className={inp}/></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs text-gray-400 mb-1.5">Scheduled Ship Date</label><input type="date" value={form.scheduled_ship_date} onChange={e=>setForm(p=>({...p,scheduled_ship_date:e.target.value}))} className={inp}/></div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Actual Ship Date</label><input type="date" value={form.actual_ship_date} onChange={e=>setForm(p=>({...p,actual_ship_date:e.target.value}))} className={inp}/></div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-400 border border-teal-500/20">SALES</span>
           </div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>{STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={3} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
+          <h1 className="text-2xl font-bold text-white">Shipping Queue</h1>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {loading ? 'Loading…' : `${filtered.length} order${filtered.length !== 1 ? 's' : ''} ready to ship`}
+          </p>
         </div>
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
-          {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
-          <div className="flex gap-3">
-            {editing&&<button onClick={handleDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>}
-            {editing&&<button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">{editing.is_active?'Archive':'Restore'}</button>}
-            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save'}</button>
+        <button
+          onClick={() => load()}
+          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white border border-[#2A2A35] hover:border-[#3A3A45] bg-[#111113] px-4 py-2.5 rounded-xl transition-colors self-start"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Refresh
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {[
+          { label: 'In Queue', value: stats.total, color: 'text-white' },
+          { label: 'Pending', value: stats.pending, color: 'text-gray-400' },
+          { label: 'Packed', value: stats.packed, color: 'text-blue-400' },
+          { label: 'In Transit', value: stats.transit, color: 'text-teal-400' },
+        ].map(s => (
+          <div key={s.label} className="bg-[#111113] border border-[#1E1E24] rounded-2xl px-4 py-3.5">
+            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+            <p className="text-gray-500 text-xs mt-0.5">{s.label}</p>
           </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <input
+            placeholder="Search by order, customer, carrier…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full bg-[#111113] border border-[#1E1E24] text-white placeholder-gray-600 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#2A2A35] transition-colors"
+          />
+        </div>
+        <div className="flex items-center gap-1 bg-[#111113] border border-[#1E1E24] rounded-xl p-1">
+          {['all', 'Pending', 'Packed', 'In Transit'].map(s => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${statusFilter === s ? 'bg-[#1E1E24] text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              {s === 'all' ? 'All' : s}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* Table */}
+      <div className="bg-[#111113] border border-[#1E1E24] rounded-2xl overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <svg className="w-12 h-12 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"/>
+            </svg>
+            <p className="text-gray-500 text-sm">{search ? 'No matches.' : 'Queue is empty — orders marked "Ready to Ship" appear here.'}</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#1E1E24]">
+                  <th className="w-10 px-4 py-3">
+                    <input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={() => ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
+                  </th>
+                  {['Order #', 'Customer', 'Value', 'Sched. Ship', 'Carrier / Tracking', 'Status', 'Actions'].map(h => (
+                    <th key={h} className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row, i) => {
+                  const order = row.sales_order_id ? orderMap[row.sales_order_id] : null
+                  const custName = (order?.customers as any)?.company_name ?? (order?.notes ?? '').split('|')[0].trim() ?? '—'
+                  return (
+                    <tr key={row.id}
+                      className={`border-b border-[#1E1E24]/50 last:border-0 transition-colors ${ms.isSelected(row.id) ? 'bg-blue-500/5' : i % 2 === 0 ? 'hover:bg-[#141416]' : 'bg-[#0D0D0F] hover:bg-[#141416]'}`}>
+                      <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={ms.isSelected(row.id)} onChange={() => ms.toggle(row.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-white font-mono font-semibold text-xs">{order?.order_number ?? '—'}</span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-gray-200 font-medium">{custName}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-gray-400 text-xs">{fmt$(order?.total_amount)}</td>
+                      <td className="px-4 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtD(row.scheduled_ship_date)}</td>
+                      <td className="px-4 py-3.5">
+                        {row.carrier ? (
+                          <div>
+                            <p className="text-gray-300 text-xs">{row.carrier}</p>
+                            {row.tracking_number && (
+                              <p className="text-gray-500 text-xs font-mono mt-0.5 truncate max-w-[120px]">{row.tracking_number}</p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-600 text-xs">Not assigned</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_COLORS[row.status] ?? STATUS_COLORS.Pending}`}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => openShipModal(row)}
+                            className="flex items-center gap-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Ship
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditItem(row)
+                              setEditForm({ carrier: row.carrier ?? '', tracking_number: row.tracking_number ?? '', scheduled_ship_date: row.scheduled_ship_date ?? '', notes: row.notes ?? '' })
+                            }}
+                            className="text-xs border border-[#2A2A35] hover:border-[#3A3A45] text-gray-400 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => removeFromQueue(row)}
+                            className="text-xs text-gray-600 hover:text-red-400 px-2 py-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <BulkActionBar
+        count={ms.count}
+        onDelete={bulkDelete}
+        onClear={ms.clear}
+        deleting={deleting}
+        extraActions={
+          <span className="text-gray-500 text-xs">Remove from queue</span>
+        }
+      />
+
+      {/* ── SHIP NOW MODAL ── */}
+      {shipModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => !shipping && setShipModal(null)}>
+          <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#1E1E24]">
+              <div>
+                <h2 className="text-white font-semibold">Confirm Shipment</h2>
+                {shipModal.sales_order_id && orderMap[shipModal.sales_order_id] && (
+                  <p className="text-gray-500 text-xs mt-0.5">
+                    {orderMap[shipModal.sales_order_id].order_number} · {(orderMap[shipModal.sales_order_id].customers as any)?.company_name ?? (orderMap[shipModal.sales_order_id].notes ?? '').split('|')[0].trim()}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setShipModal(null)} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-[#1A1A1F] transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+                <p className="text-amber-400 text-xs font-medium">This will automatically:</p>
+                <ul className="text-amber-300/80 text-xs mt-1.5 space-y-0.5 list-disc list-inside">
+                  <li>Mark the order as Shipped</li>
+                  <li>Create a shipment record</li>
+                  <li>Deduct inventory for all line items</li>
+                  <li>Generate an invoice (Net 30)</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5 font-medium">Carrier</label>
+                <select value={shipForm.carrier} onChange={e => setShipForm(p => ({ ...p, carrier: e.target.value }))} className={inp + ' cursor-pointer'}>
+                  {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5 font-medium">Tracking Number</label>
+                <input
+                  value={shipForm.tracking}
+                  onChange={e => setShipForm(p => ({ ...p, tracking: e.target.value }))}
+                  placeholder="Optional"
+                  className={inp}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5 font-medium">Ship Date</label>
+                <input
+                  type="date"
+                  value={shipForm.shipDate}
+                  onChange={e => setShipForm(p => ({ ...p, shipDate: e.target.value }))}
+                  className={inp}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5 font-medium">Notes</label>
+                <textarea
+                  rows={2}
+                  value={shipForm.notes}
+                  onChange={e => setShipForm(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Optional"
+                  className={inp + ' resize-none'}
+                />
+              </div>
+            </div>
+
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => setShipModal(null)}
+                className="flex-1 text-sm border border-[#2A2A35] text-gray-400 hover:text-white py-2.5 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmShip}
+                disabled={shipping}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+              >
+                {shipping ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Shipping…
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                    Confirm Shipment
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT PANEL ── */}
+      {editItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => setEditItem(null)}>
+          <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#1E1E24]">
+              <h2 className="text-white font-semibold">Edit Queue Item</h2>
+              <button onClick={() => setEditItem(null)} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-[#1A1A1F] transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Carrier</label>
+                <select value={editForm.carrier} onChange={e => setEditForm(p => ({ ...p, carrier: e.target.value }))} className={inp + ' cursor-pointer'}>
+                  <option value="">— None —</option>
+                  {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Tracking Number</label>
+                <input value={editForm.tracking_number} onChange={e => setEditForm(p => ({ ...p, tracking_number: e.target.value }))} className={inp}/>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Scheduled Ship Date</label>
+                <input type="date" value={editForm.scheduled_ship_date} onChange={e => setEditForm(p => ({ ...p, scheduled_ship_date: e.target.value }))} className={inp}/>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Notes</label>
+                <textarea rows={2} value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} className={inp + ' resize-none'}/>
+              </div>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button onClick={() => setEditItem(null)} className="flex-1 text-sm border border-[#2A2A35] text-gray-400 hover:text-white py-2.5 rounded-xl transition-colors">Cancel</button>
+              <button onClick={saveEdit} disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl transition-colors">
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <UndoToast
+          message={toast.message}
+          onUndo={toast.undoData ? () => handleUndo(toast.undoData) : undefined}
+          onDismiss={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

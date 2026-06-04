@@ -150,12 +150,12 @@ export default function DashboardPage() {
   const kpiCards: KpiCardProps[] = [
     { label: 'Open Orders', value: kpi.openOrders, href: '/sales/orders', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z', iconColor: 'text-blue-400', iconBg: 'bg-blue-500/15' },
     { label: 'Revenue MTD', value: fmt$(kpi.revenueMTD), href: '/sales/invoices', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 8v1m0-9V5m0 12v2m6-2a9 9 0 11-18 0 9 9 0 0118 0z', iconColor: 'text-[#00C896]', iconBg: 'bg-[#00C89615]' },
-    { label: 'Shipments MTD', value: kpi.shipmentsMTD, href: '/sales/shipments', icon: 'M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0', iconColor: 'text-teal-400', iconBg: 'bg-teal-500/15' },
+    { label: 'Shipping Queue', value: pipelineCounts['Ready to Ship'] ?? 0, href: '/sales/shipping-queue', icon: 'M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0', iconColor: 'text-teal-400', iconBg: 'bg-teal-500/15', alert: (pipelineCounts['Ready to Ship'] ?? 0) > 0 },
+    { label: 'Overdue Invoices', value: kpi.overdueInvoices, href: '/sales/invoices', icon: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z', iconColor: kpi.overdueInvoices > 0 ? 'text-red-400' : 'text-[#5A5A6A]', iconBg: kpi.overdueInvoices > 0 ? 'bg-red-500/15' : 'bg-[#1E1E24]', alert: kpi.overdueInvoices > 0 },
     { label: 'Invoices Due', value: kpi.invoicesDue, href: '/sales/invoices', icon: 'M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z', iconColor: 'text-amber-400', iconBg: 'bg-amber-500/15' },
     { label: 'Open Tasks', value: kpi.openTasks, href: '/bizdev/tasks', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', iconColor: 'text-violet-400', iconBg: 'bg-violet-500/15' },
     { label: 'Low Stock Items', value: kpi.lowStock, href: '/sales/inventory', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', iconColor: kpi.lowStock > 0 ? 'text-orange-400' : 'text-[#5A5A6A]', iconBg: kpi.lowStock > 0 ? 'bg-orange-500/15' : 'bg-[#1E1E24]', alert: kpi.lowStock > 0 },
     { label: 'Active Work Orders', value: kpi.openWorkOrders, href: '/production', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z', iconColor: 'text-sky-400', iconBg: 'bg-sky-500/15' },
-    { label: 'Overdue Invoices', value: kpi.overdueInvoices, href: '/sales/invoices', icon: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z', iconColor: kpi.overdueInvoices > 0 ? 'text-red-400' : 'text-[#5A5A6A]', iconBg: kpi.overdueInvoices > 0 ? 'bg-red-500/15' : 'bg-[#1E1E24]', alert: kpi.overdueInvoices > 0 },
   ]
 
   return (
@@ -171,6 +171,33 @@ export default function DashboardPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         </button>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="flex flex-wrap gap-2">
+        <Link href="/sales/orders" className="flex items-center gap-1.5 bg-[#00C896] hover:bg-[#00B085] text-black font-semibold text-xs px-3.5 py-2 rounded-xl transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/></svg>
+          New Order
+        </Link>
+        <Link href="/sales/quotations" className="flex items-center gap-1.5 bg-[#111113] border border-[#2A2A35] hover:border-[#3A3A45] text-gray-300 hover:text-white text-xs px-3.5 py-2 rounded-xl transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+          New Quote
+        </Link>
+        <Link href="/sales/shipping-queue" className="flex items-center gap-1.5 bg-[#111113] border border-[#2A2A35] hover:border-[#3A3A45] text-gray-300 hover:text-white text-xs px-3.5 py-2 rounded-xl transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1"/></svg>
+          Shipping Queue
+          {(pipelineCounts['Ready to Ship'] ?? 0) > 0 && (
+            <span className="bg-teal-500/20 text-teal-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pipelineCounts['Ready to Ship']}</span>
+          )}
+        </Link>
+        <Link href="/sales/inventory" className="flex items-center gap-1.5 bg-[#111113] border border-[#2A2A35] hover:border-[#3A3A45] text-gray-300 hover:text-white text-xs px-3.5 py-2 rounded-xl transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          Inventory
+        </Link>
+        <Link href="/production" className="flex items-center gap-1.5 bg-[#111113] border border-[#2A2A35] hover:border-[#3A3A45] text-gray-300 hover:text-white text-xs px-3.5 py-2 rounded-xl transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Production
+        </Link>
       </div>
 
       {/* Alert banner */}
