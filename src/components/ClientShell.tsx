@@ -10,6 +10,7 @@ import MobileNav from './MobileNav'
 import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import AuthWatcher from './AuthWatcher'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -84,12 +85,13 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     })
   }, [pathname])
 
-  if (pathname === '/login') return <>{children}</>
+  if (pathname === '/login') return <>{children}<AuthWatcher /></>
 
   const pageTitle = getPageTitle(pathname)
 
   return (
     <ToastProvider>
+      <AuthWatcher />
       <InstallPrompt />
       <div className="flex min-h-screen bg-[#0A0A0B]">
         {/* Sidebar */}

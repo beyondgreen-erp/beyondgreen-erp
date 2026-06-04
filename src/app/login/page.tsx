@@ -1,8 +1,8 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const ALLOWED_DOMAINS = ['beyondgreenbiotech.com', 'byndgrn.com']
@@ -14,12 +14,19 @@ function validateDomain(email: string) {
 
 export default function LoginPage() {
   const router = useRouter()
+  const params = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState<'login' | 'reset'>('login')
   const [resetSent, setResetSent] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
+
+  useEffect(() => {
+    if (params.get('expired') === '1') setSessionExpired(true)
+    if (params.get('error') === 'unauthorized') setError('Your email domain is not authorized to access this system.')
+  }, [params])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -84,6 +91,12 @@ export default function LoginPage() {
           {mode === 'login' ? (
             <>
               <h1 className="text-white font-semibold text-lg mb-6">Sign in</h1>
+
+              {sessionExpired && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4">
+                  <p className="text-amber-400 text-sm font-medium">Session expired — please sign in again.</p>
+                </div>
+              )}
 
               {resetSent && (
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-4">
