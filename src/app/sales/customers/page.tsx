@@ -8,6 +8,7 @@ import CommentSection from '@/components/CommentSection'
 import RichTextEditor from '@/components/RichTextEditor'
 import LinkedTasks from '@/components/LinkedTasks'
 import ConversationLog from '@/components/ConversationLog'
+import BulkActionBar from '@/components/BulkActionBar'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -410,6 +411,13 @@ export default function CustomersPage() {
     const { data } = await supabase.from('customer_ship_locations').select('*').eq('customer_id', editing.id).order('is_default', { ascending: false })
     setShipLocs((data as ShipLocation[]) ?? [])
     setSavingLoc(false); setAddingLoc(false); setEditingLoc(null); setLocForm(emptyLoc)
+  }
+
+  async function bulkDelete() {
+    if (!confirm(`Delete ${selectedArr.length} customers? This cannot be undone.`)) return
+    await supabase.from('customers').delete().in('id', selectedArr)
+    setSelectedIds(new Set())
+    fetchCustomers()
   }
 
   async function deleteLoc(id: string) {
@@ -1213,6 +1221,14 @@ export default function CustomersPage() {
           </div>
         )}
       </div>
+
+      <BulkActionBar count={selectedArr.length} onDelete={bulkDelete} onClear={()=>setSelectedIds(new Set())}
+        extraActions={selectedArr.length >= 2 ? (
+          <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 font-medium transition-colors">
+            Merge {selectedArr.length}
+          </button>
+        ) : undefined}
+      />
 
       {/* ── MERGE MODAL ── */}
       {mergeModal&&(

@@ -5,6 +5,8 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
 
 interface Vendor { id: string; company_name: string }
 interface Product { id: string; name: string; sku: string }
@@ -31,8 +33,10 @@ export default function PurchaseOrdersPage() {
   const [saving,setSaving]=useState(false)
   const [busy,setBusy]=useState(false)
   const [err,setErr]=useState('')
+  const [deleting,setDeleting]=useState(false)
   const [userEmail,setUserEmail]=useState('')
   const ref=useRef<HTMLDivElement>(null)
+  const ms=useMultiSelect<PO>()
 
   async function load(){
     setLoading(true)
@@ -77,6 +81,7 @@ export default function PurchaseOrdersPage() {
   }
   async function toggleArchive(){if(!editing)return;setBusy(true);await sb.from('purchase_orders').update({is_active:!editing.is_active,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
   async function handleDelete(){if(!editing)return;if(!confirm('Permanently delete this PO? This cannot be undone.'))return;const{error}=await sb.from('purchase_orders').delete().eq('id',editing.id);if(error){alert('Delete failed: '+error.message);return}close();load()}
+  async function bulkDelete(){if(!confirm(`Delete ${ms.count} purchase orders? This cannot be undone.`))return;setDeleting(true);await sb.from('purchase_orders').delete().in('id',Array.from(ms.selected));ms.clear();setDeleting(false);load()}
 
   const inp='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
   const totalCost=(parseFloat(form.qty_ordered)||0)*(parseFloat(form.unit_cost)||0)
@@ -111,19 +116,21 @@ export default function PurchaseOrdersPage() {
       <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
         {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
         :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived POs.':'No purchase orders yet.'}</p></div>
-        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-gray-800">{['PO #','Vendor','Product','Qty','Unit Cost','Total Cost','Order Date','Exp. Receipt','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
-        <tbody>{filtered.map((r,i)=><tr key={r.id} onClick={()=>openEdit(r)} className={`border-b border-gray-800/60 last:border-0 cursor-pointer hover:bg-gray-800/40 transition-colors ${i%2===0?'':'bg-gray-800/10'}`}>
-          <td className="px-4 py-3.5 text-white font-mono text-xs">{r.po_number}</td>
-          <td className="px-4 py-3.5 text-gray-400">{r.vendor_id?vmap[r.vendor_id]||'—':'—'}</td>
-          <td className="px-4 py-3.5 text-gray-400">{r.product_id?pmap[r.product_id]||'—':'—'}</td>
-          <td className="px-4 py-3.5 text-gray-400">{r.qty_ordered}</td>
-          <td className="px-4 py-3.5 text-gray-400">{fmt$(r.unit_cost)}</td>
-          <td className="px-4 py-3.5 text-gray-300 font-medium">{fmt$(r.qty_ordered*r.unit_cost)}</td>
-          <td className="px-4 py-3.5 text-gray-400">{fmtD(r.order_date)}</td>
-          <td className="px-4 py-3.5 text-gray-400">{fmtD(r.expected_receipt_date)}</td>
-          <td className="px-4 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Draft}`}>{r.status}</span></td>
+        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-gray-800"><th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>{['PO #','Vendor','Product','Qty','Unit Cost','Total Cost','Order Date','Exp. Receipt','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
+        <tbody>{filtered.map((r,i)=><tr key={r.id} className={`border-b border-gray-800/60 last:border-0 hover:bg-gray-800/40 transition-colors ${ms.isSelected(r.id)?'bg-blue-500/5':i%2===0?'':'bg-gray-800/10'}`}>
+          <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
+          <td className="px-4 py-3.5 text-white font-mono text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.po_number}</td>
+          <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.vendor_id?vmap[r.vendor_id]||'—':'—'}</td>
+          <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.product_id?pmap[r.product_id]||'—':'—'}</td>
+          <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.qty_ordered}</td>
+          <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmt$(r.unit_cost)}</td>
+          <td className="px-4 py-3.5 text-gray-300 font-medium cursor-pointer" onClick={()=>openEdit(r)}>{fmt$(r.qty_ordered*r.unit_cost)}</td>
+          <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.order_date)}</td>
+          <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.expected_receipt_date)}</td>
+          <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Draft}`}>{r.status}</span></td>
         </tr>)}</tbody></table>}
       </div>
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
       <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit PO':'Add PO'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>

@@ -4,6 +4,8 @@
 import { useState, useEffect, useCallback, memo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import dynamic from 'next/dynamic'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
 
 const ImportMap = dynamic(
   () => import('@/components/ImportMap'),
@@ -599,6 +601,8 @@ export default function ImportsPage() {
   const [trackingResult, setTrackingResult] = useState<{ tracked: number; estimated: number; total: number; timestamp: string } | null>(null)
   const [editingVessel, setEditingVessel] = useState<any>(null)
   const [vesselPanelOpen, setVesselPanelOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const ms = useMultiSelect<{id:string}>()
 
   async function load() {
     setLoading(true)
@@ -672,9 +676,16 @@ export default function ImportsPage() {
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
+  async function bulkDelete() {
+    if (!confirm(`Delete ${ms.count} shipments? This cannot be undone.`)) return
+    setDeleting(true)
+    await supabase.from('import_shipments').delete().in('id', Array.from(ms.selected))
+    ms.clear(); setDeleting(false); load()
+  }
+
   const filtered = rows.filter(r => {
     const q = search.toLowerCase()
-    const ms = !q ||
+    const matchSearch = !q ||
       (r.description || '').toLowerCase().includes(q) ||
       (r.bg_po_number || '').toLowerCase().includes(q) ||
       (r.vessel_name || '').toLowerCase().includes(q) ||
@@ -688,7 +699,7 @@ export default function ImportsPage() {
       tab === 'active'   ? r.status !== 'Received' :
       tab === 'fin'      ? (r.comm_inv_amt || 0) > 0 :
       tab === 'map'      ? true : true
-    return ms && mt
+    return matchSearch && mt
   })
 
   const groups: Record<string, any[]> = {}
@@ -959,6 +970,7 @@ export default function ImportsPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-[#2A2A35]">
+                        <th className="w-8 py-2.5 px-3"><input type="checkbox" checked={items.length>0&&items.every((r:any)=>ms.isSelected(r.id))} onChange={()=>{if(items.every((r:any)=>ms.isSelected(r.id))){items.forEach((r:any)=>{if(ms.isSelected(r.id))ms.toggle(r.id)})}else{items.forEach((r:any)=>{if(!ms.isSelected(r.id))ms.toggle(r.id)})}}} className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer"/></th>
                         {COLS.map(c => (
                           <th key={c} className="text-left text-gray-500 uppercase tracking-wider py-2.5 px-3 whitespace-nowrap font-medium">
                             {c}
@@ -968,7 +980,8 @@ export default function ImportsPage() {
                     </thead>
                     <tbody>
                       {items.map(row => (
-                        <tr key={row.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C] transition-colors">
+                        <tr key={row.id} className={`border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C] transition-colors ${ms.isSelected(row.id)?'bg-blue-500/5':''}`}>
+                          <td className="py-3 px-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(row.id)} onChange={()=>ms.toggle(row.id)} className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer"/></td>
                           <td className="py-3 px-3 text-gray-400 font-mono whitespace-nowrap">{row.bg_po_number || '—'}</td>
                           <td className="py-3 px-3 text-white">
                             <div className="max-w-[180px] truncate" title={row.description}>{row.description}</div>
@@ -1087,6 +1100,8 @@ export default function ImportsPage() {
           onClose={() => setShowDownload(false)}
         />
       )}
+
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
       {vesselPanelOpen && editingVessel && (
         <>

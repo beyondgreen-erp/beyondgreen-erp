@@ -3,6 +3,9 @@ export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
+import WorkflowMover, { WorkflowProgressBar } from '@/components/WorkflowMover'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -308,6 +311,13 @@ function EditPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {/* Workflow Progress */}
+          {editing && (
+            <div className="bg-gray-800/40 rounded-xl px-4 py-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Workflow</p>
+              <WorkflowProgressBar status={editing.status}/>
+            </div>
+          )}
           {/* Order Info */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Order Info</p>
@@ -510,6 +520,8 @@ export default function OrdersPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState(false)
+  const ms = useMultiSelect<SalesOrder>()
   const [search, setSearch] = useState('')
   const [sectionTab, setSectionTab] = useState('All')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
@@ -729,6 +741,15 @@ export default function OrdersPage() {
     setEditOpen(false); load()
   }
 
+  async function bulkDelete() {
+    if (!confirm(`Delete ${ms.count} orders and all their line items? This cannot be undone.`)) return
+    setDeleting(true)
+    const ids = Array.from(ms.selected)
+    await sb.from('sales_order_lines').delete().in('sales_order_id', ids)
+    await sb.from('sales_orders').delete().in('id', ids)
+    ms.clear(); setDeleting(false); load()
+  }
+
   return (
     <div className="p-4 md:p-8 min-h-screen">
       {loadError && (
@@ -794,6 +815,7 @@ export default function OrdersPage() {
           <table className="w-full min-w-[1200px] text-sm">
             <thead>
               <tr className="border-b border-gray-800">
+                <th className="w-10 px-3 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                 <th className="w-8 px-3 py-3"/>
                 {['Customer / Order','Section','PO #','Status','Facility','Order Date','Est. Complete','Ship Date','Value','Lines','⚠','Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-3 whitespace-nowrap">{h}</th>
@@ -809,14 +831,17 @@ export default function OrdersPage() {
                 return (
                   <>
                     <tr key={order.id}
-                      className={`border-b border-gray-800/60 transition-colors cursor-pointer ${expanded ? 'bg-gray-800/30' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/30' : 'hover:bg-gray-800/30'}`}
-                      onClick={() => toggleExpand(order.id)}>
+                      className={`border-b border-gray-800/60 transition-colors ${ms.isSelected(order.id) ? 'bg-blue-500/5' : expanded ? 'bg-gray-800/30' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/30' : 'hover:bg-gray-800/30'}`}>
+                      {/* Checkbox */}
+                      <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
+                        <input type="checkbox" checked={ms.isSelected(order.id)} onChange={()=>ms.toggle(order.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
+                      </td>
                       {/* Expand toggle */}
-                      <td className="px-3 py-3.5">
+                      <td className="px-3 py-3.5 cursor-pointer" onClick={() => toggleExpand(order.id)}>
                         <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
                       </td>
                       {/* Customer / Order Name */}
-                      <td className="px-3 py-3.5 max-w-[200px]">
+                      <td className="px-3 py-3.5 max-w-[200px] cursor-pointer" onClick={() => toggleExpand(order.id)}>
                         <p className="text-white font-semibold text-sm truncate">{custName}</p>
                         {ref && <p className="text-gray-500 text-xs truncate mt-0.5">{ref}</p>}
                       </td>
@@ -844,6 +869,7 @@ export default function OrdersPage() {
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEdit(order)}
                             className="text-xs px-2 py-1 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-300 transition-colors">Edit</button>
+                          <WorkflowMover recordId={order.id} recordType="sales_order" currentStatus={order.status} orderNumber={order.order_number} customerId={order.customer_id} onMoved={load}/>
                           <button onClick={() => handleDelete(order.id)}
                             className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-900/70 text-red-400 transition-colors">Del</button>
                         </div>
@@ -854,7 +880,7 @@ export default function OrdersPage() {
                     {expanded && (
                       <>
                         <tr className="border-b border-gray-800/40 bg-gray-950/40">
-                          <td colSpan={13} className="px-0 py-0">
+                          <td colSpan={14} className="px-0 py-0">
                             <div className="ml-8 mr-2 my-1">
                               <table className="w-full text-xs">
                                 <thead>
@@ -882,6 +908,8 @@ export default function OrdersPage() {
           </table>
         )}
       </div>
+
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
       <EditPanel
         open={editOpen}

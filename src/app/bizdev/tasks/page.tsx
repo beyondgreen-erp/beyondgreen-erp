@@ -6,6 +6,8 @@ import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
 
 interface Customer { id: string; company_name: string }
 interface TeamMember { id: string; email: string; full_name: string; avatar_color: string; avatar_initials: string | null }
@@ -69,6 +71,8 @@ export default function TasksPage() {
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const ms = useMultiSelect<Task>()
   const [assigneeOpen, setAssigneeOpen] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['Completed']))
   const [userEmail, setUserEmail] = useState('')
@@ -161,6 +165,13 @@ export default function TasksPage() {
     setBusy(true)
     await sb.from('tasks').update({ is_active: !editing.is_active, updated_at: new Date().toISOString() }).eq('id', editing.id)
     setBusy(false); close(); load()
+  }
+
+  async function bulkDelete() {
+    if (!confirm(`Delete ${ms.count} tasks? This cannot be undone.`)) return
+    setDeleting(true)
+    await sb.from('tasks').delete().in('id', Array.from(ms.selected))
+    ms.clear(); setDeleting(false); load()
   }
 
   const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition'
@@ -335,6 +346,7 @@ export default function TasksPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-800/40">
+                          <th className="w-10 px-5 py-2.5"><input type="checkbox" checked={tasks.length>0&&tasks.every(t=>ms.isSelected(t.id))} onChange={()=>{if(tasks.every(t=>ms.isSelected(t.id))){tasks.forEach(t=>{if(ms.isSelected(t.id))ms.toggle(t.id)})}else{tasks.forEach(t=>{if(!ms.isSelected(t.id))ms.toggle(t.id)})}}} className="accent-violet-500 w-4 h-4 cursor-pointer"/></th>
                           <th className="text-left text-xs font-semibold text-gray-600 px-5 py-2.5 w-[38%]">Task</th>
                           <th className="text-left text-xs font-semibold text-gray-600 px-4 py-2.5">Assigned To</th>
                           <th className="text-left text-xs font-semibold text-gray-600 px-4 py-2.5">Status</th>
@@ -349,14 +361,14 @@ export default function TasksPage() {
                           return (
                             <tr
                               key={r.id}
-                              onClick={() => openEdit(r)}
-                              className="border-b border-gray-800/30 last:border-0 cursor-pointer hover:bg-gray-800/50 transition-colors group"
+                              className={`border-b border-gray-800/30 last:border-0 cursor-pointer hover:bg-gray-800/50 transition-colors group ${ms.isSelected(r.id)?'bg-blue-500/5':''}`}
                             >
-                              <td className="px-5 py-3.5">
+                              <td className="px-5 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-violet-500 w-4 h-4 cursor-pointer"/></td>
+                              <td className="px-5 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
                                 <p className="text-white text-sm font-medium group-hover:text-violet-300 transition-colors line-clamp-1">{r.task_name}</p>
                                 {r.description && <p className="text-gray-600 text-xs mt-0.5 line-clamp-1">{r.description}</p>}
                               </td>
-                              <td className="px-4 py-3.5">
+                              <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
                                 {member ? (
                                   <div className="flex items-center gap-2">
                                     <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: member.avatar_color }}>
@@ -393,6 +405,8 @@ export default function TasksPage() {
       )}
 
       {/* ── Backdrop ── */}
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+
       <div onClick={close} className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
 
       {/* ── Slide-out drawer ── */}

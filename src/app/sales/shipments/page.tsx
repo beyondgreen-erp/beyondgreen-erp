@@ -5,6 +5,8 @@ import nextDynamic from 'next/dynamic'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -75,6 +77,8 @@ export default function ShipmentsPage() {
   const [userEmail, setUserEmail] = useState('')
   const [drillMonth, setDrillMonth] = useState<string | null>(null)
   const [drillWeek, setDrillWeek] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const ms = useMultiSelect<Shipment>()
 
   useEffect(() => {
     sb.from('shipments').select('*').order('ship_date', { ascending: false })
@@ -134,6 +138,15 @@ export default function ShipmentsPage() {
     setSaving(false)
     setRows(prev => prev.map(r => r.id === editing.id ? { ...r, ...form } as Shipment : r))
     setOpen(false)
+  }
+
+  async function bulkDelete() {
+    if (!confirm(`Delete ${ms.count} shipments? This cannot be undone.`)) return
+    setDeleting(true)
+    await sb.from('shipments').delete().in('id', Array.from(ms.selected))
+    setRows(prev => prev.filter(r => !ms.selected.has(r.id)))
+    ms.clear()
+    setDeleting(false)
   }
 
   function toggleSort(col: typeof sortCol) {
@@ -270,6 +283,7 @@ export default function ShipmentsPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-gray-800">
+                    <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                     {[['customer_name','Customer'],['ship_date','Ship Date'],['ship_cost','Cost']].map(([col,label]) => (
                       <th key={col} onClick={() => toggleSort(col as any)}
                         className="px-4 py-3 text-left text-gray-500 font-medium cursor-pointer hover:text-gray-300 select-none whitespace-nowrap">
@@ -287,19 +301,20 @@ export default function ShipmentsPage() {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={10} className="px-4 py-10 text-center text-gray-600">Loading…</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-10 text-center text-gray-600">Loading…</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={10} className="px-4 py-10 text-center text-gray-600 italic">No shipments found.</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-10 text-center text-gray-600 italic">No shipments found.</td></tr>
                   ) : filtered.map(s => {
                     const tUrl = trackingUrl(s.carrier, s.tracking_number)
                     return (
-                      <tr key={s.id} onClick={() => openEdit(s)}
-                        className="border-t border-gray-800/60 hover:bg-gray-800/40 cursor-pointer transition-colors">
-                        <td className="px-4 py-3 text-white font-medium max-w-[160px] truncate">{s.customer_name || '—'}</td>
-                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap">{fmtD(s.ship_date)}</td>
-                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap">{fmtC(s.ship_cost)}</td>
-                        <td className="px-4 py-3 text-gray-400">{s.po_number || '—'}</td>
-                        <td className="px-4 py-3 text-gray-400">{s.carrier || '—'}</td>
+                      <tr key={s.id}
+                        className={`border-t border-gray-800/60 hover:bg-gray-800/40 transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
+                        <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={()=>ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
+                        <td className="px-4 py-3 text-white font-medium max-w-[160px] truncate cursor-pointer" onClick={()=>openEdit(s)}>{s.customer_name || '—'}</td>
+                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtD(s.ship_date)}</td>
+                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtC(s.ship_cost)}</td>
+                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={()=>openEdit(s)}>{s.po_number || '—'}</td>
+                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={()=>openEdit(s)}>{s.carrier || '—'}</td>
                         <td className="px-4 py-3" onClick={e => { if (tUrl) e.stopPropagation() }}>
                           {s.tracking_number ? (
                             tUrl ? (
@@ -458,6 +473,8 @@ export default function ShipmentsPage() {
           </div>
         </div>
       )}
+
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
       {/* ── SLIDE-OUT PANEL ── */}
       {open && (

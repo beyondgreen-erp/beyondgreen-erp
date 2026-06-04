@@ -6,6 +6,9 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import CommentSection from '@/components/CommentSection'
 import { generateInvoicePDF } from '@/lib/generateInvoice'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
+import WorkflowMover from '@/components/WorkflowMover'
 
 interface LineItem { id: string; sku: string | null; description: string; quantity: number; unit_price: number; uom: string | null; line_total: number }
 interface Invoice {
@@ -83,6 +86,8 @@ export default function InvoicesPage() {
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const ms = useMultiSelect<Invoice>()
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<string | null>(null)
 
@@ -128,6 +133,17 @@ export default function InvoicesPage() {
     load()
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, []) // eslint-disable-line
+
+  async function bulkDelete() {
+    if (!confirm(`Delete ${ms.count} invoices? This cannot be undone.`)) return
+    setDeleting(true)
+    const ids = Array.from(ms.selected)
+    await sb.from('invoice_line_items').delete().in('invoice_id', ids)
+    await sb.from('invoices').delete().in('id', ids)
+    ms.clear()
+    setDeleting(false)
+    load()
+  }
 
   async function openPanel(inv: Invoice) {
     setSel(inv)
@@ -400,6 +416,7 @@ export default function InvoicesPage() {
           <table className="w-full min-w-[1000px] text-sm">
             <thead>
               <tr className="border-b border-gray-800">
+                <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                 {['Invoice #','Customer','PO #','Invoice Date','Due Date','Amount','Status','Days Overdue','Source','Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>
                 ))}
@@ -413,8 +430,9 @@ export default function InvoicesPage() {
                 const days = isOverdue ? daysOverdue(r.due_date) : 0
                 return (
                   <tr key={r.id}
-                    className={`border-b border-gray-800/60 last:border-0 cursor-pointer hover:bg-gray-800/40 transition-colors ${isOverdue ? 'bg-red-950/10' : status === 'pending' ? 'bg-red-950/5' : i % 2 === 1 ? 'bg-gray-800/10' : ''}`}>
-                    <td className="px-4 py-3.5 text-white font-mono text-xs font-medium" onClick={() => openPanel(r)}>{displayNum(r)}</td>
+                    className={`border-b border-gray-800/60 last:border-0 hover:bg-gray-800/40 transition-colors ${ms.isSelected(r.id) ? 'bg-blue-500/5' : isOverdue ? 'bg-red-950/10' : status === 'pending' ? 'bg-red-950/5' : i % 2 === 1 ? 'bg-gray-800/10' : ''}`}>
+                    <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
+                    <td className="px-4 py-3.5 text-white font-mono text-xs font-medium cursor-pointer" onClick={() => openPanel(r)}>{displayNum(r)}</td>
                     <td className="px-4 py-3.5 text-gray-300" onClick={() => openPanel(r)}>{getCustomerName(r)}</td>
                     <td className="px-4 py-3.5 text-gray-400 font-mono text-xs" onClick={() => openPanel(r)}>{r.po_number ?? '—'}</td>
                     <td className="px-4 py-3.5 text-gray-400 whitespace-nowrap" onClick={() => openPanel(r)}>{fmtD(r.invoice_date)}</td>
@@ -431,7 +449,7 @@ export default function InvoicesPage() {
                         {getSource(r)}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
                         {status !== 'paid' && status !== 'void' && (
                           <button onClick={e => { e.stopPropagation(); openPanel(r); setTimeout(() => setShowPayFull(true), 200) }}
@@ -439,6 +457,7 @@ export default function InvoicesPage() {
                             Mark Paid
                           </button>
                         )}
+                        <WorkflowMover recordId={r.id} recordType="invoice" currentStatus={r.status} onMoved={load}/>
                         <button onClick={e => { e.stopPropagation(); openPanel(r) }}
                           className="text-xs px-2 py-1 rounded bg-gray-700/50 hover:bg-gray-700 text-gray-300 transition-colors">
                           View
@@ -452,6 +471,8 @@ export default function InvoicesPage() {
           </table>
         )}
       </div>
+
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
       {/* Backdrop */}
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={close}/>

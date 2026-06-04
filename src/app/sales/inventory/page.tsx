@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState, memo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import BomEditor from './BomEditor'
 import CaseLabel from './CaseLabel'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import BulkActionBar from '@/components/BulkActionBar'
 
 interface Product {
   id: string
@@ -294,6 +296,8 @@ export default function InventoryPage() {
   const [loadError, setLoadError] = useState('')
   const [bomProduct, setBomProduct] = useState<Product | null>(null)
   const [labelProduct, setLabelProduct] = useState<Product | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -417,6 +421,15 @@ export default function InventoryPage() {
     load()
   }
 
+  async function bulkDelete() {
+    if (!confirm(`Delete ${ms.count} products? This cannot be undone.`)) return
+    setDeleting(true)
+    await sb.from('products').delete().in('id', Array.from(ms.selected))
+    ms.clear()
+    setDeleting(false)
+    load()
+  }
+
   async function toggleActive() {
     if (!editing) return
     setBusy(true)
@@ -487,6 +500,7 @@ export default function InventoryPage() {
           <table className="w-full min-w-[1100px] text-sm">
             <thead>
               <tr className="border-b border-gray-800">
+                <th className="w-10 px-3 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                 {['SKU','Product Name','Tab','Type','UOM','On Hand','Inv. Value','Unit Cost','BOM','UPC','Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-3">{h}</th>
                 ))}
@@ -507,7 +521,10 @@ export default function InventoryPage() {
                     style={isOut ? { borderLeft: '3px solid rgb(239 68 68)' } : isLow ? { borderLeft: '3px solid rgb(245 158 11)' } : {}}
                     className={`border-b border-gray-800/60 last:border-0 transition-colors
                       ${isDisc ? 'opacity-50' : ''}
-                      ${isOut ? 'bg-red-950/20 hover:bg-red-950/30' : isLow ? 'bg-amber-950/20 hover:bg-amber-950/30' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/40' : 'hover:bg-gray-800/40'}`}>
+                      ${ms.isSelected(p.id) ? 'bg-blue-500/5' : isOut ? 'bg-red-950/20 hover:bg-red-950/30' : isLow ? 'bg-amber-950/20 hover:bg-amber-950/30' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/40' : 'hover:bg-gray-800/40'}`}>
+                    <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
+                      <input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
+                    </td>
                     <td className="px-3 py-3.5">
                       <span className="text-emerald-400 font-mono font-bold text-xs">{p.sku}</span>
                     </td>
@@ -569,6 +586,7 @@ export default function InventoryPage() {
             {/* Totals footer */}
             <tfoot>
               <tr className="border-t border-gray-700 bg-gray-800/40">
+                <td className="px-3 py-3"/>
                 <td colSpan={5} className="px-3 py-3 text-xs text-gray-500 font-medium">
                   {filtered.length} products shown
                 </td>
@@ -584,6 +602,8 @@ export default function InventoryPage() {
           </table>
         )}
       </div>
+
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
       <EditPanel
         open={open} editing={editing} form={form} setForm={setForm}
