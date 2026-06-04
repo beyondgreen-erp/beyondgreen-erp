@@ -74,10 +74,10 @@ type F = typeof emptyForm
 // ── Stat card ────────────────────────────────────────────────
 function StatCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex flex-col gap-0.5">
-      <span className="text-xs text-gray-500 font-medium">{label}</span>
-      <span className={`text-xl font-bold ${accent ?? 'text-white'}`}>{value}</span>
-      {sub && <span className="text-xs text-gray-600">{sub}</span>}
+    <div className="bg-white border rounded-xl px-4 py-3 flex flex-col gap-0.5" style={{borderColor:"#E4E6EE"}}>
+      <span className="text-xs font-medium" style={{color:'#9CA3AF'}}>{label}</span>
+      <span className={`text-xl font-bold ${accent ?? ''}`} style={!accent ? {color:'#1A1D2E'} : {}}>{value}</span>
+      {sub && <span className="text-xs" style={{color:'#9CA3AF'}}>{sub}</span>}
     </div>
   )
 }
@@ -104,11 +104,11 @@ const EditPanel = memo(function EditPanel({
   return (
     <>
       <div onClick={onClose}
-        className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
+        className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
       <div onClick={e => e.stopPropagation()}
         className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[560px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
 
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <div>
             <h2 className="text-white font-semibold">{editing ? 'Edit Product' : 'Add Product'}</h2>
             {editing && <p className="text-xs text-gray-500 mt-0.5">SKU: {editing.sku}</p>}
@@ -166,7 +166,7 @@ const EditPanel = memo(function EditPanel({
           </div>
 
           {/* On Hand + Reorder + Cost */}
-          <div className="bg-gray-800/40 rounded-xl border border-gray-700 p-4 space-y-3">
+          <div className="bg-[#F5F6FA] rounded-xl border border-gray-700 p-4 space-y-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Stock & Cost</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -206,7 +206,7 @@ const EditPanel = memo(function EditPanel({
           </div>
 
           {/* Pricing */}
-          <div className="border-t border-gray-800 pt-4">
+          <div className="border-t border-[#E4E6EE] pt-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Pricing</p>
             <div className="grid grid-cols-2 gap-3">
               {([
@@ -237,7 +237,7 @@ const EditPanel = memo(function EditPanel({
               ['is_active', 'Active', 'bg-emerald-600'],
               ['is_discontinued', 'Discontinued', 'bg-red-600'],
             ] as const).map(([key, label, onColor]) => (
-              <label key={key} className="flex items-center gap-3 cursor-pointer select-none p-3 bg-gray-800/40 rounded-lg border border-gray-700"
+              <label key={key} className="flex items-center gap-3 cursor-pointer select-none p-3 bg-[#F5F6FA] rounded-lg border border-gray-700"
                 onClick={() => setForm(p => ({ ...p, [key]: !p[key] }))}>
                 <div className={`w-9 h-5 rounded-full transition-colors relative ${(form as any)[key] ? onColor : 'bg-gray-700'}`}>
                   <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(form as any)[key] ? 'translate-x-4' : 'translate-x-0.5'}`}/>
@@ -248,7 +248,7 @@ const EditPanel = memo(function EditPanel({
           </div>
         </div>
 
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
+        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
           {err && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
               <p className="text-red-400 text-xs">{err}</p>
@@ -438,7 +438,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
+    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
       {loadError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center gap-3">
           <span className="text-red-400 text-sm flex-1">{loadError}</span>
@@ -489,7 +489,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
+      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
@@ -499,7 +499,7 @@ export default function InventoryPage() {
         ) : (
           <table className="w-full min-w-[1100px] text-sm">
             <thead>
-              <tr className="border-b border-gray-800">
+              <tr className="border-b border-[#E4E6EE]">
                 <th className="w-10 px-3 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                 {['SKU','Product Name','Tab','Type','UOM','On Hand','Inv. Value','Unit Cost','BOM','UPC','Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-3">{h}</th>
@@ -519,9 +519,9 @@ export default function InventoryPage() {
                 return (
                   <tr key={p.id}
                     style={isOut ? { borderLeft: '3px solid rgb(239 68 68)' } : isLow ? { borderLeft: '3px solid rgb(245 158 11)' } : {}}
-                    className={`border-b border-gray-800/60 last:border-0 transition-colors
+                    className={`border-b border-[#F3F4F6] last:border-0 transition-colors
                       ${isDisc ? 'opacity-50' : ''}
-                      ${ms.isSelected(p.id) ? 'bg-blue-500/5' : isOut ? 'bg-red-950/20 hover:bg-red-950/30' : isLow ? 'bg-amber-950/20 hover:bg-amber-950/30' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/40' : 'hover:bg-gray-800/40'}`}>
+                      ${ms.isSelected(p.id) ? 'bg-blue-500/5' : isOut ? 'bg-red-950/20 hover:bg-red-950/30' : isLow ? 'bg-amber-950/20 hover:bg-amber-950/30' : i % 2 === 1 ? 'bg-[#FAFAFA] hover:bg-[#F9FAFB]' : 'hover:bg-[#F9FAFB]'}`}>
                     <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
                       <input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
                     </td>
@@ -585,7 +585,7 @@ export default function InventoryPage() {
             </tbody>
             {/* Totals footer */}
             <tfoot>
-              <tr className="border-t border-gray-700 bg-gray-800/40">
+              <tr className="border-t border-gray-700 bg-[#F5F6FA]">
                 <td className="px-3 py-3"/>
                 <td colSpan={5} className="px-3 py-3 text-xs text-gray-500 font-medium">
                   {filtered.length} products shown

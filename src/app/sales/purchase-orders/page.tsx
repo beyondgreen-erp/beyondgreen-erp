@@ -87,7 +87,7 @@ export default function PurchaseOrdersPage() {
   const totalCost=(parseFloat(form.qty_ordered)||0)*(parseFloat(form.unit_cost)||0)
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
+    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
@@ -113,11 +113,11 @@ export default function PurchaseOrdersPage() {
         <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search purchase orders…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/></div>
         <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-blue-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Show Archived</span></label>
       </div>
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
+      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
         {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
         :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived POs.':'No purchase orders yet.'}</p></div>
-        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-gray-800"><th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>{['PO #','Vendor','Product','Qty','Unit Cost','Total Cost','Order Date','Exp. Receipt','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
-        <tbody>{filtered.map((r,i)=><tr key={r.id} className={`border-b border-gray-800/60 last:border-0 hover:bg-gray-800/40 transition-colors ${ms.isSelected(r.id)?'bg-blue-500/5':i%2===0?'':'bg-gray-800/10'}`}>
+        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-[#E4E6EE]"><th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>{['PO #','Vendor','Product','Qty','Unit Cost','Total Cost','Order Date','Exp. Receipt','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
+        <tbody>{filtered.map((r,i)=><tr key={r.id} className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id)?'bg-blue-500/5':i%2===0?'':'bg-[#FAFAFA]'}`}>
           <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
           <td className="px-4 py-3.5 text-white font-mono text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.po_number}</td>
           <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.vendor_id?vmap[r.vendor_id]||'—':'—'}</td>
@@ -131,9 +131,9 @@ export default function PurchaseOrdersPage() {
         </tr>)}</tbody></table>}
       </div>
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit PO':'Add PO'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+      <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
+      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-white font-semibold">{editing?'Edit PO':'Add PO'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">PO Number <span className="text-red-400">*</span></label><input value={form.po_number} onChange={e=>setForm(p=>({...p,po_number:e.target.value}))} className={inp}/></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Vendor</label><select value={form.vendor_id} onChange={e=>setForm(p=>({...p,vendor_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.company_name}</option>)}</select></div>
@@ -142,7 +142,7 @@ export default function PurchaseOrdersPage() {
             <div><label className="block text-xs text-gray-400 mb-1.5">Qty Ordered</label><input type="number" value={form.qty_ordered} onChange={e=>setForm(p=>({...p,qty_ordered:e.target.value}))} className={inp}/></div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Unit Cost ($)</label><input type="number" value={form.unit_cost} onChange={e=>setForm(p=>({...p,unit_cost:e.target.value}))} className={inp}/></div>
           </div>
-          {totalCost>0&&<div className="bg-gray-800/50 rounded-lg px-3 py-2.5 flex justify-between"><span className="text-xs text-gray-500">Total Cost</span><span className="text-sm font-medium text-white">{fmt$(totalCost)}</span></div>}
+          {totalCost>0&&<div className="rounded-lg bg-[#F9FAFB] px-3 py-2.5 flex justify-between"><span className="text-xs text-gray-500">Total Cost</span><span className="text-sm font-medium text-white">{fmt$(totalCost)}</span></div>}
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-xs text-gray-400 mb-1.5">Order Date</label><input type="date" value={form.order_date} onChange={e=>setForm(p=>({...p,order_date:e.target.value}))} className={inp}/></div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Expected Receipt</label><input type="date" value={form.expected_receipt_date} onChange={e=>setForm(p=>({...p,expected_receipt_date:e.target.value}))} className={inp}/></div>
@@ -150,11 +150,11 @@ export default function PurchaseOrdersPage() {
           <div><label className="block text-xs text-gray-400 mb-1.5">Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>{STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={3} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
           {editing&&(<>
-            <div className="border-t border-gray-800 pt-4"><FileUpload supabase={sb} recordType="purchase_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-gray-800 pt-4"><CommentSection recordType="purchase_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="purchase_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><CommentSection recordType="purchase_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
           </>)}
         </div>
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
+        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
           {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
           <div className="flex gap-3">
             {editing&&<button onClick={handleDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>}

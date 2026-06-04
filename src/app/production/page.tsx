@@ -16,6 +16,7 @@ interface Product { id: string; name: string }
 interface Machine { id: string; name: string }
 interface WO { id: string; wo_number: string; sales_order_id: string | null; product_id: string | null; machine_id: string | null; qty_ordered: number; qty_produced: number; start_date: string | null; due_date: string | null; status: string; notes: string | null; is_active: boolean }
 const STATUSES = ['Queued','In Progress','QC','Complete','On Hold']
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const SC: Record<string,string> = { Queued:'bg-gray-700/40 text-gray-400 border-gray-700', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', QC:'bg-violet-500/15 text-violet-400 border-violet-500/20', Complete:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
 const empty = { wo_number:'', sales_order_id:'', product_id:'', machine_id:'', qty_ordered:'1', qty_produced:'0', start_date:'', due_date:'', status:'Queued', notes:'' }
 type F = typeof empty
@@ -95,90 +96,192 @@ export default function ProductionPage() {
   async function handleDelete(){if(!editing)return;if(!confirm('Permanently delete this work order? This cannot be undone.'))return;const{error}=await sb.from('work_orders').delete().eq('id',editing.id);if(error){alert('Delete failed: '+error.message);return}close();load()}
   async function bulkDelete(){if(!confirm(`Delete ${ms.count} work orders? This cannot be undone.`))return;setDeleting(true);await sb.from('work_orders').delete().in('id',Array.from(ms.selected));ms.clear();setDeleting(false);load()}
 
-  const inp='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
+  const inp = 'w-full px-3 py-2.5 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#3B6FE0] transition'
+  const inpStyle = { borderColor: '#E4E6EE', color: '#1A1D2E' }
+
+  const SC2: Record<string,string> = {
+    Queued:'bg-[#F3F4F6] text-[#6B7280]',
+    'In Progress':'bg-[#EFF6FF] text-[#2563EB]',
+    QC:'bg-[#F5F3FF] text-[#7C3AED]',
+    Complete:'bg-[#ECFDF5] text-[#059669]',
+    'On Hold':'bg-[#FFFBEB] text-[#D97706]',
+  }
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">PRODUCTION</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">Work Orders</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} work order${filtered.length!==1?'s':''}`}</p>
+    <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
+      {/* Page header */}
+      <div className="bg-white border-b px-8 py-5" style={{ borderColor: '#E4E6EE' }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-semibold" style={{ color: '#1A1D2E' }}>Work Orders</h1>
+            <p className="text-sm mt-0.5" style={{ color: '#9CA3AF' }}>{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} work order${filtered.length!==1?'s':''}`}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <ImportExportBar table="work_orders" filename="work_orders" columns={[
+              { header: 'WO Number', dbKey: 'wo_number', example: 'WO-2024-001', required: true },
+              { header: 'Order Number', dbKey: 'order_number', example: 'SO-2024-001', lookup: { fromTable: 'sales_orders', matchField: 'order_number', storeAs: 'sales_order_id' } },
+              { header: 'Product SKU', dbKey: 'product_sku', example: 'BG-001', lookup: { fromTable: 'products', matchField: 'sku', storeAs: 'product_id' } },
+              { header: 'Machine Name', dbKey: 'machine_name', example: 'Injection Molder 1', lookup: { fromTable: 'machines', matchField: 'name', storeAs: 'machine_id' } },
+              { header: 'Qty Ordered', dbKey: 'qty_ordered', example: '500' },
+              { header: 'Qty Produced', dbKey: 'qty_produced', example: '0' },
+              { header: 'Start Date', dbKey: 'start_date', example: '2024-02-01' },
+              { header: 'Due Date', dbKey: 'due_date', example: '2024-02-15' },
+              { header: 'Status', dbKey: 'status', example: 'Queued' },
+              { header: 'Notes', dbKey: 'notes', example: '' },
+            ]} onImportDone={load} />
+            <button onClick={openAdd} className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors" style={{ background: '#3B6FE0' }} onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#2D5EC7'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#3B6FE0'}}>
+              <i className="ti ti-plus text-sm"/>Add Work Order
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <ImportExportBar table="work_orders" filename="work_orders" columns={[
-            { header: 'WO Number', dbKey: 'wo_number', example: 'WO-2024-001', required: true },
-            { header: 'Order Number', dbKey: 'order_number', example: 'SO-2024-001', lookup: { fromTable: 'sales_orders', matchField: 'order_number', storeAs: 'sales_order_id' } },
-            { header: 'Product SKU', dbKey: 'product_sku', example: 'BG-001', lookup: { fromTable: 'products', matchField: 'sku', storeAs: 'product_id' } },
-            { header: 'Machine Name', dbKey: 'machine_name', example: 'Injection Molder 1', lookup: { fromTable: 'machines', matchField: 'name', storeAs: 'machine_id' } },
-            { header: 'Qty Ordered', dbKey: 'qty_ordered', example: '500' },
-            { header: 'Qty Produced', dbKey: 'qty_produced', example: '0' },
-            { header: 'Start Date', dbKey: 'start_date', example: '2024-02-01' },
-            { header: 'Due Date', dbKey: 'due_date', example: '2024-02-15' },
-            { header: 'Status', dbKey: 'status', example: 'Queued' },
-            { header: 'Notes', dbKey: 'notes', example: '' },
-          ]} onImportDone={load} />
-          <button onClick={openAdd} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add WO</button>
+      </div>
+
+      <div className="px-8 py-6">
+        {/* Filters */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="relative flex-1 max-w-sm">
+            <i className="ti ti-search absolute left-3 top-2.5 text-sm" style={{ color: '#9CA3AF' }}/>
+            <input placeholder="Search work orders…" value={search} onChange={e=>setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm bg-white focus:outline-none"
+              style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }}/>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none text-sm" style={{ color: '#6B7280' }}>
+            <div onClick={()=>setArchived(v=>!v)} className={`w-8 h-4 rounded-full relative transition-colors ${archived?'bg-[#3B6FE0]':'bg-gray-300'}`}>
+              <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/>
+            </div>
+            Archived
+          </label>
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#E4E6EE' }}>
+          {loading ? (
+            <div className="flex items-center justify-center py-16"><div className="w-5 h-5 rounded-full border-2 border-[#3B6FE0] border-t-transparent animate-spin"/></div>
+          ) : filtered.length === 0 ? (
+            <div className="flex items-center justify-center py-16"><p className="text-sm" style={{ color: '#9CA3AF' }}>{search?'No matches.':archived?'No archived work orders.':'No work orders yet.'}</p></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px]">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #E4E6EE', background: '#F9FAFB' }}>
+                    <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="w-4 h-4 cursor-pointer accent-[#3B6FE0]"/></th>
+                    {['WO #','Customer','Product','Machine','Qty Ord.','Qty Prod.','Start','Due','Status',''].map(h=>(
+                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(r=>{
+                    const o=r.sales_order_id?omap[r.sales_order_id]:null
+                    const overdue=r.due_date&&new Date(r.due_date+'T00:00:00')<now&&r.status!=='Complete'
+                    return (
+                      <tr key={r.id} className="transition-colors" style={{ borderBottom: '1px solid #F3F4F6', background: ms.isSelected(r.id)?'#EEF2FF':overdue?'#FEF2F2':'transparent' }}
+                        onMouseEnter={e=>{if(!ms.isSelected(r.id))(e.currentTarget as HTMLElement).style.background=overdue?'#FEE2E2':'#F9FAFB'}}
+                        onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background=ms.isSelected(r.id)?'#EEF2FF':overdue?'#FEF2F2':'transparent'}}>
+                        <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="w-4 h-4 cursor-pointer accent-[#3B6FE0]"/></td>
+                        <td className="px-4 py-3.5 font-mono text-xs font-semibold cursor-pointer" style={{ color: '#1A1D2E' }} onClick={()=>openEdit(r)}>{r.wo_number}</td>
+                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{o?.customer_id?cmap[o.customer_id]||'—':'—'}</td>
+                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{r.product_id?pmap[r.product_id]||'—':'—'}</td>
+                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{r.machine_id?mmap[r.machine_id]||'—':'—'}</td>
+                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#374151' }} onClick={()=>openEdit(r)}>{r.qty_ordered}</td>
+                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#374151' }} onClick={()=>openEdit(r)}>{r.qty_produced}</td>
+                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{fmtD(r.start_date)}</td>
+                        <td className="px-4 py-3.5 text-sm cursor-pointer font-medium" style={{ color: overdue?'#DC2626':'#6B7280' }} onClick={()=>openEdit(r)}>{fmtD(r.due_date)}</td>
+                        <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${SC2[r.status]||SC2.Queued}`}>{r.status}</span>
+                        </td>
+                        <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}>
+                          <WorkflowMover recordId={r.id} recordType="production" currentStatus={r.status} onMoved={load}/>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search work orders…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"/></div>
-        <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-emerald-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Show Archived</span></label>
-      </div>
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
-        {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
-        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived WOs.':'No work orders yet.'}</p></div>
-        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-gray-800"><th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>{['WO #','Customer','Product','Machine','Qty Ord.','Qty Prod.','Start','Due','Status',''].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
-        <tbody>{filtered.map((r,i)=>{
-          const o=r.sales_order_id?omap[r.sales_order_id]:null
-          const overdue=r.due_date&&new Date(r.due_date+'T00:00:00')<now&&r.status!=='Complete'
-          return <tr key={r.id} className={`border-b border-gray-800/60 last:border-0 transition-colors ${ms.isSelected(r.id)?'bg-blue-500/5':overdue?'bg-red-500/5 hover:bg-red-500/10':i%2===0?'hover:bg-gray-800/40':'bg-gray-800/10 hover:bg-gray-800/40'}`}>
-            <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
-            <td className="px-4 py-3.5 text-white font-mono text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.wo_number}</td>
-            <td className="px-4 py-3.5 text-gray-400 text-xs cursor-pointer" onClick={()=>openEdit(r)}>{o?.customer_id?cmap[o.customer_id]||'—':'—'}</td>
-            <td className="px-4 py-3.5 text-gray-400 text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.product_id?pmap[r.product_id]||'—':'—'}</td>
-            <td className="px-4 py-3.5 text-gray-400 text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.machine_id?mmap[r.machine_id]||'—':'—'}</td>
-            <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.qty_ordered}</td>
-            <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.qty_produced}</td>
-            <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.start_date)}</td>
-            <td className={`px-4 py-3.5 cursor-pointer ${overdue?'text-red-400 font-medium':'text-gray-400'}`} onClick={()=>openEdit(r)}>{fmtD(r.due_date)}</td>
-            <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Queued}`}>{r.status}</span></td>
-            <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><WorkflowMover recordId={r.id} recordType="production" currentStatus={r.status} onMoved={load}/></td>
-          </tr>
-        })}</tbody></table>}
-      </div>
+
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0"><h2 className="text-white font-semibold">{editing?'Edit Work Order':'Add Work Order'}</h2><button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          <div><label className="block text-xs text-gray-400 mb-1.5">WO Number <span className="text-red-400">*</span></label><input value={form.wo_number} onChange={e=>setForm(p=>({...p,wo_number:e.target.value}))} className={inp}/></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Sales Order</label><select value={form.sales_order_id} onChange={e=>setForm(p=>({...p,sales_order_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_number}{o.customer_id&&cmap[o.customer_id]?' — '+cmap[o.customer_id]:''}</option>)}</select></div>
-          {form.sales_order_id&&omap[form.sales_order_id]?.customer_id&&<div className="bg-gray-800/50 rounded-lg px-3 py-2.5"><p className="text-xs text-gray-500">Customer</p><p className="text-sm text-white mt-0.5">{cmap[omap[form.sales_order_id]!.customer_id!]||'—'}</p></div>}
-          <div><label className="block text-xs text-gray-400 mb-1.5">Product</label><select value={form.product_id} onChange={e=>setForm(p=>({...p,product_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Machine</label><select value={form.machine_id} onChange={e=>setForm(p=>({...p,machine_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs text-gray-400 mb-1.5">Qty Ordered</label><input type="number" value={form.qty_ordered} onChange={e=>setForm(p=>({...p,qty_ordered:e.target.value}))} className={inp}/></div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Qty Produced</label><input type="number" value={form.qty_produced} onChange={e=>setForm(p=>({...p,qty_produced:e.target.value}))} className={inp}/></div>
+
+      {/* Backdrop */}
+      <div className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-200 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
+
+      {/* Slide-out panel */}
+      <div ref={ref} onClick={e=>e.stopPropagation()}
+        className={`fixed top-0 right-0 h-full z-50 flex flex-col shadow-xl transition-transform duration-300 ${open?'translate-x-0':'translate-x-full'}`}
+        style={{ width: 480, background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
+        <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: '1px solid #E4E6EE' }}>
+          <div>
+            <h2 className="font-semibold text-base" style={{ color: '#1A1D2E' }}>{editing?'Edit Work Order':'New Work Order'}</h2>
+            {editing && <p className="text-xs mt-0.5" style={{ color: '#9CA3AF' }}>WO #{editing.wo_number}</p>}
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs text-gray-400 mb-1.5">Start Date</label><input type="date" value={form.start_date} onChange={e=>setForm(p=>({...p,start_date:e.target.value}))} className={inp}/></div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Due Date</label><input type="date" value={form.due_date} onChange={e=>setForm(p=>({...p,due_date:e.target.value}))} className={inp}/></div>
-          </div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>{STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Work Orders" className={inp+' resize-none'}/>
-          {editing&&(<>
-            <div className="border-t border-gray-800 pt-4"><FileUpload supabase={sb} recordType="work_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-gray-800 pt-4"><CommentSection recordType="work_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
-          </>)}
+          <button onClick={close} className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: '#F5F6FA', color: '#6B7280' }}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#E4E6EE'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#F5F6FA'}}>
+            <i className="ti ti-x text-sm"/>
+          </button>
         </div>
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
-          {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>WO Number <span style={{ color: '#DC2626' }}>*</span></label>
+            <input value={form.wo_number} onChange={e=>setForm(p=>({...p,wo_number:e.target.value}))} className={inp} style={inpStyle}/>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Sales Order</label>
+            <select value={form.sales_order_id} onChange={e=>setForm(p=>({...p,sales_order_id:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
+              <option value="">— None —</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_number}{o.customer_id&&cmap[o.customer_id]?' — '+cmap[o.customer_id]:''}</option>)}
+            </select>
+          </div>
+          {form.sales_order_id&&omap[form.sales_order_id]?.customer_id&&(
+            <div className="rounded-lg px-3 py-2.5" style={{ background: '#F5F6FA' }}>
+              <p className="text-xs font-medium" style={{ color: '#9CA3AF' }}>Customer</p>
+              <p className="text-sm mt-0.5" style={{ color: '#1A1D2E' }}>{cmap[omap[form.sales_order_id]!.customer_id!]||'—'}</p>
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Product</label>
+            <select value={form.product_id} onChange={e=>setForm(p=>({...p,product_id:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
+              <option value="">— None —</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Machine</label>
+            <select value={form.machine_id} onChange={e=>setForm(p=>({...p,machine_id:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
+              <option value="">— None —</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Qty Ordered</label><input type="number" value={form.qty_ordered} onChange={e=>setForm(p=>({...p,qty_ordered:e.target.value}))} className={inp} style={inpStyle}/></div>
+            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Qty Produced</label><input type="number" value={form.qty_produced} onChange={e=>setForm(p=>({...p,qty_produced:e.target.value}))} className={inp} style={inpStyle}/></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Start Date</label><input type="date" value={form.start_date} onChange={e=>setForm(p=>({...p,start_date:e.target.value}))} className={inp} style={inpStyle}/></div>
+            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Due Date</label><input type="date" value={form.due_date} onChange={e=>setForm(p=>({...p,due_date:e.target.value}))} className={inp} style={inpStyle}/></div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Status</label>
+            <select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
+              {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Work Orders" className={inp+' resize-none'}/>
+          {editing&&(
+            <>
+              <div className="pt-2" style={{ borderTop: '1px solid #E4E6EE' }}><FileUpload supabase={sb} recordType="work_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
+              <div className="pt-2" style={{ borderTop: '1px solid #E4E6EE' }}><CommentSection recordType="work_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            </>
+          )}
+        </div>
+
+        <div className="shrink-0 px-6 py-4 flex flex-col gap-3" style={{ borderTop: '1px solid #E4E6EE', background: '#F9FAFB' }}>
+          {err&&<div className="flex gap-2 rounded-lg px-3 py-2.5 text-xs" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}>{err}</div>}
           <div className="flex gap-3">
-            {editing&&<button onClick={handleDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>}
-            {editing&&<button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">{editing.is_active?'Archive':'Restore'}</button>}
-            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save'}</button>
+            {editing&&<button onClick={handleDelete} className="px-3 py-2 rounded-lg border text-sm font-medium transition-colors" style={{ borderColor: '#FECACA', background: '#FEF2F2', color: '#DC2626' }}>Delete</button>}
+            {editing&&<button onClick={toggleArchive} disabled={busy} className="px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>{editing.is_active?'Archive':'Restore'}</button>}
+            <button onClick={close} className="flex-1 px-4 py-2 rounded-lg border text-sm font-medium transition-colors" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>Cancel</button>
+            <button onClick={save} disabled={saving} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50" style={{ background: '#3B6FE0' }}>{saving?'Saving…':'Save'}</button>
           </div>
         </div>
       </div>

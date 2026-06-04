@@ -47,7 +47,7 @@ const LEAD_SOURCES = ['Referral','Trade Show','Website','Cold Outreach','Social 
 const PAYMENT_TERMS = ['Net 15','Net 30','Net 45','COD']
 
 const STAGE_COLORS: Record<string,string> = {
-  Lead:'border-gray-600 bg-gray-800/40', Contacted:'border-blue-600/40 bg-blue-900/20',
+  Lead:'border-gray-600 bg-[#F5F6FA]', Contacted:'border-blue-600/40 bg-blue-900/20',
   Qualified:'border-violet-600/40 bg-violet-900/20', 'Proposal Sent':'border-amber-600/40 bg-amber-900/20',
   Negotiating:'border-orange-600/40 bg-orange-900/20', 'Closed Won':'border-emerald-600/40 bg-emerald-900/20',
   'Closed Lost':'border-red-600/40 bg-red-900/20',
@@ -641,7 +641,7 @@ export default function CustomersPage() {
   const displaySpend = editing ? (editing.manual_spend_override && editing.manual_lifetime_spend != null ? editing.manual_lifetime_spend : editing.lifetime_spend) : null
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
+    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
       {/* Page header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
@@ -711,11 +711,11 @@ export default function CustomersPage() {
 
       {/* ── TABLE VIEW ── */}
       {viewMode==='table'&&(
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
+        <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
           {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
           :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':showArchived?'No archived customers.':'No customers yet.'}</p></div>
           :<table className="w-full min-w-[1080px] text-sm">
-            <thead><tr className="border-b border-gray-800">
+            <thead><tr className="border-b border-[#E4E6EE]">
               <th className="w-8 px-3 py-3"><span className="sr-only">Select</span></th>
               {['Company','Primary Contact','Email','Status','Total Spent','Shipments','Last Ship'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}
             </tr></thead>
@@ -730,7 +730,7 @@ export default function CustomersPage() {
               const combinedSpend=isParent ? (c.lifetime_spend??0)+children.reduce((s,ch)=>s+(ch.lifetime_spend??0),0) : (c.lifetime_spend??null)
               const combinedShips=isParent ? (c.total_shipments??0)+children.reduce((s,ch)=>s+(ch.total_shipments??0),0) : (c.total_shipments??null)
               return [
-                <tr key={c.id} className={`border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors ${isParent?'bg-teal-950/10':isChild?'bg-gray-800/5':i%2?'bg-gray-800/10':''} ${isSelected?'bg-blue-900/10':''}`}>
+                <tr key={c.id} className={`border-b border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${isParent?'bg-teal-950/10':isChild?'bg-gray-800/5':i%2?'bg-[#FAFAFA]':''} ${isSelected?'bg-blue-900/10':''}`}>
                   <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
                     <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(c.id)} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 cursor-pointer"/>
                   </td>
@@ -766,7 +766,7 @@ export default function CustomersPage() {
                 // Expanded children rows
                 ...(isParent&&isExpanded ? children.map(ch=>{
                   const chPc=primaryContacts[ch.id]
-                  return <tr key={`child-${ch.id}`} className="border-b border-gray-800/40 bg-teal-950/5 hover:bg-teal-950/20 transition-colors cursor-pointer" onClick={()=>openEdit(ch)}>
+                  return <tr key={`child-${ch.id}`} className="border-b border-[#E4E6EE]/40 bg-teal-950/5 hover:bg-teal-950/20 transition-colors cursor-pointer" onClick={()=>openEdit(ch)}>
                     <td className="px-3 py-2.5"/>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2 pl-10">
@@ -831,12 +831,12 @@ export default function CustomersPage() {
       )}
 
       {/* ── OVERLAY ── */}
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${panelOpen?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={closePanel}/>
+      <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${panelOpen?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={closePanel}/>
 
       {/* ── PANEL ── */}
       <div ref={panelRef} onClick={e=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[640px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${panelOpen?'translate-x-0':'translate-x-full'}`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
           <div className="flex items-center gap-3">
             {editing&&<div className={`w-8 h-8 rounded-full ${avatarColor(editing.company_name)} flex items-center justify-center`}><span className="text-white font-bold text-xs">{initials(editing.company_name)}</span></div>}
             <div>
@@ -854,7 +854,7 @@ export default function CustomersPage() {
 
         {/* Spend summary card */}
         {editing&&(
-          <div className="border-b border-gray-800 shrink-0">
+          <div className="border-b border-[#E4E6EE] shrink-0">
             {!spendEdit ? (
               <div className="grid grid-cols-4 gap-px bg-gray-800">
                 <div className="bg-gray-900 px-4 py-2.5">
@@ -917,7 +917,7 @@ export default function CustomersPage() {
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-800 shrink-0 px-2 overflow-x-auto">
+        <div className="flex border-b border-[#E4E6EE] shrink-0 px-2 overflow-x-auto">
           {tabs.map(t=>(
             <button key={t.key} onClick={()=>setActiveTab(t.key)} className={`px-4 py-3 text-xs font-medium transition-colors relative whitespace-nowrap ${activeTab===t.key?'text-white after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-500':'text-gray-500 hover:text-gray-300'}`}>{t.label}</button>
           ))}
@@ -965,7 +965,7 @@ export default function CustomersPage() {
 
               {/* ── Ship Locations ── */}
               {editing&&(
-                <div className="border-t border-gray-800 pt-4 space-y-3">
+                <div className="border-t border-[#E4E6EE] pt-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-gray-500 tracking-widest uppercase">Ship-To Locations{shipLocs.length?` (${shipLocs.length})`:''}</p>
                     {!addingLoc&&!editingLoc&&(
@@ -1001,7 +1001,7 @@ export default function CustomersPage() {
 
                   {shipLocs.length===0&&!addingLoc?<p className="text-xs text-gray-600 italic">No ship-to locations.</p>:null}
                   {shipLocs.map(loc=>(
-                    <div key={loc.id} className="bg-gray-800/40 border border-gray-700 rounded-xl p-3">
+                    <div key={loc.id} className="bg-[#F5F6FA] border border-gray-700 rounded-xl p-3">
                       <div className="flex items-start gap-2">
                         <svg className="w-3.5 h-3.5 text-gray-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                         <div className="flex-1 min-w-0">
@@ -1159,7 +1159,7 @@ export default function CustomersPage() {
                     const sourceLinks: Record<string,string> = {shipments:'/sales/shipments',sales_orders:'/sales/orders',quotations:'/sales/quotations',tasks:'/bizdev/tasks'}
                     const s=typeStyles[e.activity_type]||typeStyles.note
                     return (
-                      <div key={e.id} className={`border-l-2 ${s.border} pl-4 py-3 border-b border-gray-800/40 last:border-b-0`}>
+                      <div key={e.id} className={`border-l-2 ${s.border} pl-4 py-3 border-b border-[#E4E6EE]/40 last:border-b-0`}>
                         <div className="flex items-start gap-2">
                           <span className="text-gray-500 mt-0.5 shrink-0">{s.icon}</span>
                           <div className="flex-1 min-w-0">
@@ -1202,8 +1202,8 @@ export default function CustomersPage() {
           {activeTab==='files'&&editing&&(
             <div className="px-6 py-5 space-y-5">
               <LinkedTasks recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/>
-              <div className="border-t border-gray-800 pt-4"><FileUpload supabase={supabase} recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
-              <div className="border-t border-gray-800 pt-4"><CommentSection recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
+              <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={supabase} recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
+              <div className="border-t border-[#E4E6EE] pt-4"><CommentSection recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
             </div>
           )}
           {activeTab==='files'&&!editing&&<div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first to attach files and comments.</p></div>}
@@ -1211,7 +1211,7 @@ export default function CustomersPage() {
 
         {/* Footer */}
         {activeTab==='info'&&(
-          <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
+          <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
             {formError&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{formError}</p></div>}
             <div className="flex gap-3">
               {editing&&<button onClick={handleArchive} disabled={archiving} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">{archiving?'…':editing.is_active?'Archive':'Restore'}</button>}
@@ -1234,7 +1234,7 @@ export default function CustomersPage() {
       {mergeModal&&(
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between">
               <h3 className="text-white font-semibold">Merge Customer Accounts</h3>
               <button onClick={()=>setMergeModal(false)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
@@ -1275,7 +1275,7 @@ export default function CustomersPage() {
               </div>
               {mergeErr&&<p className="text-red-400 text-xs">{mergeErr}</p>}
             </div>
-            <div className="px-6 py-4 border-t border-gray-800 flex gap-3">
+            <div className="px-6 py-4 border-t border-[#E4E6EE] flex gap-3">
               <button onClick={()=>setMergeModal(false)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
               <button onClick={performMerge} disabled={merging} className="flex-1 text-sm px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-semibold transition-colors">{merging?'Merging…':'Confirm Merge'}</button>
             </div>
@@ -1287,7 +1287,7 @@ export default function CustomersPage() {
       {groupModal&&(
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+            <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-white font-semibold">Group Customer Locations</h3>
                 <p className="text-xs text-gray-500 mt-0.5">Step {groupStep} of 3</p>
@@ -1407,7 +1407,7 @@ export default function CustomersPage() {
       {dupesModal&&(
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+            <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
               <h3 className="text-white font-semibold">Potential Duplicate Accounts</h3>
               <button onClick={()=>setDupesModal(false)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
@@ -1423,7 +1423,7 @@ export default function CustomersPage() {
                     <button onClick={()=>preMergeGroup(g.customers)} className="text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors">Merge Group →</button>
                   </div>
                   {g.customers.map((c:any)=>(
-                    <div key={c.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/60 last:border-b-0">
+                    <div key={c.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-[#F3F4F6] last:border-b-0">
                       <div className={`w-6 h-6 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}>
                         <span className="text-white font-semibold text-xs">{initials(c.company_name)}</span>
                       </div>
@@ -1436,7 +1436,7 @@ export default function CustomersPage() {
                 </div>
               ))}
             </div>
-            <div className="px-6 py-4 border-t border-gray-800 shrink-0">
+            <div className="px-6 py-4 border-t border-[#E4E6EE] shrink-0">
               <button onClick={()=>setDupesModal(false)} className="w-full text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Close</button>
             </div>
           </div>

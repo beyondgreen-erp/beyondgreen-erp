@@ -108,10 +108,10 @@ function StatusBadge({ status }: { status: string }) {
 
 function Stat({ label, value, accent, sub }: { label: string; value: string; accent?: string; sub?: string }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
-      <p className="text-xs text-gray-500 font-medium">{label}</p>
-      <p className={`text-xl font-bold mt-0.5 ${accent ?? 'text-white'}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-600 mt-0.5">{sub}</p>}
+    <div className="bg-white border rounded-xl px-4 py-3" style={{borderColor:"#E4E6EE"}}>
+      <p className="text-xs font-medium" style={{color:'#9CA3AF'}}>{label}</p>
+      <p className={`text-xl font-bold mt-0.5 ${accent ?? ''}`} style={!accent ? {color:'#1A1D2E'} : {}}>{value}</p>
+      {sub && <p className="text-xs mt-0.5" style={{color:'#9CA3AF'}}>{sub}</p>}
     </div>
   )
 }
@@ -191,7 +191,7 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
         const done = line.completed_qty ?? line.quantity_shipped ?? 0
         const pct = qty > 0 ? Math.min(100, Math.round((done / qty) * 100)) : 0
         return (
-          <tr key={line.id} className="bg-gray-950/60 border-b border-gray-800/40 last:border-0">
+          <tr key={line.id} className="bg-gray-950/60 border-b border-[#E4E6EE]/40 last:border-0">
             <td className="pl-12 pr-2 py-2.5 w-8">
               {line.sku_flagged
                 ? <span className="text-amber-400 text-xs" title="Needs SKU assignment">⚠</span>
@@ -299,10 +299,10 @@ function EditPanel({
 
   return (
     <>
-      <div onClick={onClose} className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
+      <div onClick={onClose} className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
       <div onClick={e => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[600px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0">
+        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[600px] z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <div>
             <h2 className="text-white font-semibold">{editing ? 'Edit Order' : 'New Order'}</h2>
             {editing && <p className="text-xs text-gray-500 mt-0.5">{editing.order_number}</p>}
@@ -315,14 +315,14 @@ function EditPanel({
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {/* Workflow Progress */}
           {editing && (
-            <div className="bg-gray-800/40 rounded-xl px-4 py-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Workflow</p>
+            <div className="bg-[#F5F6FA] rounded-xl px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3">Workflow</p>
               <WorkflowProgressBar status={editing.status}/>
             </div>
           )}
           {/* Order Info */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Order Info</p>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-3">Order Info</p>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Order Name / Customer <span className="text-red-400">*</span></label>
@@ -364,7 +364,7 @@ function EditPanel({
 
           {/* Dates */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Dates</p>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-3">Dates</p>
             <div className="grid grid-cols-2 gap-3">
               {([['order_date','Order Date'],['production_start','Production Start'],['estimated_completion','Est. Completion'],['ship_date','Ship Date']] as const).map(([key, label]) => (
                 <div key={key}>
@@ -377,7 +377,7 @@ function EditPanel({
 
           {/* Customer */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Customer Info</p>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-3">Customer Info</p>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Link to Customer</label>
@@ -405,7 +405,7 @@ function EditPanel({
 
           {/* Financial */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Financial</p>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-3">Financial</p>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Total Value ($)</label>
@@ -437,7 +437,7 @@ function EditPanel({
           {/* Line Items */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Line Items</p>
+              <p className="text-xs font-semibold uppercase tracking-wider">Line Items</p>
               <button onClick={addLine} className="text-xs px-2.5 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors">+ Add Line</button>
             </div>
             <div className="space-y-2">
@@ -494,7 +494,7 @@ function EditPanel({
           </div>
         </div>
 
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
+        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
           {err && <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"><p className="text-red-400 text-xs">{err}</p></div>}
           <div className="flex gap-3">
             {editing && (
@@ -772,7 +772,7 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
+    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
       {loadError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center gap-3">
           <span className="text-red-400 text-sm flex-1">{loadError}</span>
@@ -825,7 +825,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Orders table */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
+      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
@@ -835,7 +835,7 @@ export default function OrdersPage() {
         ) : (
           <table className="w-full min-w-[1200px] text-sm">
             <thead>
-              <tr className="border-b border-gray-800">
+              <tr className="border-b border-[#E4E6EE]">
                 <th className="w-10 px-3 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                 <th className="w-8 px-3 py-3"/>
                 {['Customer / Order','Section','PO #','Status','Facility','Order Date','Est. Complete','Ship Date','Value','Lines','⚠','Actions'].map(h => (
@@ -852,7 +852,7 @@ export default function OrdersPage() {
                 return (
                   <>
                     <tr key={order.id}
-                      className={`border-b border-gray-800/60 transition-colors ${ms.isSelected(order.id) ? 'bg-blue-500/5' : expanded ? 'bg-gray-800/30' : i % 2 === 1 ? 'bg-gray-800/10 hover:bg-gray-800/30' : 'hover:bg-gray-800/30'}`}>
+                      className={`border-b border-[#F3F4F6] transition-colors ${ms.isSelected(order.id) ? 'bg-blue-500/5' : expanded ? 'bg-gray-800/30' : i % 2 === 1 ? 'bg-[#FAFAFA] hover:bg-[#F9FAFB]' : 'hover:bg-[#F9FAFB]'}`}>
                       {/* Checkbox */}
                       <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
                         <input type="checkbox" checked={ms.isSelected(order.id)} onChange={()=>ms.toggle(order.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
@@ -900,12 +900,12 @@ export default function OrdersPage() {
                     {/* Expanded line items */}
                     {expanded && (
                       <>
-                        <tr className="border-b border-gray-800/40 bg-gray-950/40">
+                        <tr className="border-b border-[#E4E6EE]/40 bg-gray-950/40">
                           <td colSpan={14} className="px-0 py-0">
                             <div className="ml-8 mr-2 my-1">
                               <table className="w-full text-xs">
                                 <thead>
-                                  <tr className="bg-gray-800/40">
+                                  <tr className="bg-[#F5F6FA]">
                                     {['⚠','#','SKU','Product / Description','Qty','Done','UOM','Packaging','Prod. Status','Details','Progress'].map(h => (
                                       <th key={h} className="text-left text-gray-600 px-2 py-2 font-medium first:pl-12">{h}</th>
                                     ))}

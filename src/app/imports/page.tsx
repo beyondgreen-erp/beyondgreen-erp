@@ -12,7 +12,7 @@ const ImportMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[520px] bg-[#0a1628] rounded-2xl border border-[#2A2A35] flex items-center justify-center">
+      <div className="h-[520px] bg-[#0a1628] rounded-2xl border border-[#E4E6EE] flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-gray-500 text-sm">Loading map...</p>
@@ -180,11 +180,11 @@ const DownloadModal = memo(({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-[#111113] border border-[#2A2A35] rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl"
+        className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A35] shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
           <h2 className="text-white font-semibold">Download Shipments Data</h2>
           <button onClick={onClose} className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -199,7 +199,7 @@ const DownloadModal = memo(({
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Format</p>
             <div className="flex gap-2">
               <button className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-xl font-medium">CSV</button>
-              <button className="px-4 py-2 bg-[#18181C] border border-[#2A2A35] text-gray-500 text-sm rounded-xl cursor-not-allowed" disabled>Excel (coming soon)</button>
+              <button className="px-4 py-2 bg-[#F9FAFB] border border-[#E4E6EE] text-gray-500 text-sm rounded-xl cursor-not-allowed" disabled>Excel (coming soon)</button>
             </div>
           </div>
 
@@ -218,7 +218,7 @@ const DownloadModal = memo(({
                   key={f.id}
                   onClick={() => setFilter(f.id as any)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
-                    filter === f.id ? 'bg-emerald-600 text-white' : 'bg-[#18181C] border border-[#2A2A35] text-gray-400 hover:text-white'
+                    filter === f.id ? 'bg-emerald-600 text-white' : 'bg-[#F9FAFB] border border-[#E4E6EE] text-gray-400 hover:text-white'
                   }`}
                 >
                   {f.label}
@@ -260,7 +260,7 @@ const DownloadModal = memo(({
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-colors ${
                             selected.has(k)
                               ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-[#18181C] text-gray-500 border border-[#2A2A35] hover:text-gray-300'
+                              : 'bg-[#F9FAFB] text-gray-500 border border-[#E4E6EE] hover:text-gray-300'
                           }`}
                         >
                           {COLUMN_LABELS[k]}
@@ -275,7 +275,7 @@ const DownloadModal = memo(({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[#2A2A35] shrink-0 flex gap-3">
+        <div className="p-4 border-t border-[#E4E6EE] shrink-0 flex gap-3">
           <button
             onClick={handleDownload}
             className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
@@ -334,14 +334,14 @@ const ShipmentForm = memo(({
     }
   }
 
-  const cls = 'w-full bg-[#18181C] border border-[#2A2A35] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500'
+  const cls = 'w-full bg-[#F9FAFB] border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500'
 
   return (
     <div
-      className="fixed top-0 right-0 h-full w-full max-w-lg bg-[#0A0A0B] border-l border-[#2A2A35] z-50 flex flex-col shadow-2xl"
+      className="fixed top-0 right-0 h-full w-full max-w-lg bg-[#F5F6FA] border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl"
       onClick={e => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A35] shrink-0">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
         <h2 className="text-lg font-semibold text-white">{title}</h2>
         <button
           onClick={onClose}
@@ -391,7 +391,7 @@ const ShipmentForm = memo(({
         ))}
       </div>
 
-      <div className="p-6 border-t border-[#2A2A35] flex gap-3 shrink-0">
+      <div className="p-6 border-t border-[#E4E6EE] flex gap-3 shrink-0">
         <button
           onClick={handleSave}
           disabled={saving}
@@ -507,7 +507,7 @@ const VesselEditPanel = memo(({
     }
   }
 
-  const cls = 'w-full bg-[#18181C] border border-[#2A2A35] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500'
+  const cls = 'w-full bg-[#F9FAFB] border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500'
 
   const fields = [
     { key: 'vessel_name',      label: 'Vessel / Flight Name',  type: 'text' },
@@ -526,10 +526,10 @@ const VesselEditPanel = memo(({
 
   return (
     <div
-      className="fixed top-0 right-0 h-full w-full max-w-lg bg-[#0A0A0B] border-l border-[#2A2A35] z-50 flex flex-col shadow-2xl"
+      className="fixed top-0 right-0 h-full w-full max-w-lg bg-[#F5F6FA] border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl"
       onClick={e => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A35] shrink-0">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
         <div>
           <h2 className="text-lg font-semibold text-white">Edit Vessel Details</h2>
           <p className="text-xs text-gray-500 mt-0.5">
@@ -570,7 +570,7 @@ const VesselEditPanel = memo(({
         ))}
       </div>
 
-      <div className="p-6 border-t border-[#2A2A35] flex gap-3 shrink-0">
+      <div className="p-6 border-t border-[#E4E6EE] flex gap-3 shrink-0">
         <button
           onClick={handleSave}
           disabled={saving}
@@ -725,7 +725,7 @@ export default function ImportsPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
+    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -747,7 +747,7 @@ export default function ImportsPage() {
           </button>
           <button
             onClick={() => setShowDownload(true)}
-            className="bg-[#111113] border border-[#2A2A35] hover:border-gray-500 text-gray-300 text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors"
+            className="bg-white border border-[#E4E6EE] hover:border-gray-500 text-gray-300 text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -774,7 +774,7 @@ export default function ImportsPage() {
           { label: 'Comm Inv Total',    value: totalInv    > 0 ? '$' + (totalInv    / 1000).toFixed(1) + 'K' : '—', cls: 'text-amber-400' },
           { label: 'Landed Cost Total', value: totalLanded > 0 ? '$' + (totalLanded / 1000).toFixed(1) + 'K' : '—', cls: 'text-emerald-400' },
         ].map(s => (
-          <div key={s.label} className="bg-[#111113] border border-[#2A2A35] rounded-xl p-4">
+          <div key={s.label} className="bg-white border border-[#E4E6EE] rounded-xl p-4">
             <p className={`text-2xl font-bold ${s.cls}`}>{s.value}</p>
             <p className="text-gray-500 text-xs mt-1">{s.label}</p>
           </div>
@@ -791,7 +791,7 @@ export default function ImportsPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search PO#, description, vessel, status..."
-          className="w-full bg-[#111113] border border-[#2A2A35] rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500"
+          className="w-full bg-white border border-[#E4E6EE] rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500"
         />
       </div>
 
@@ -812,7 +812,7 @@ export default function ImportsPage() {
             className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors ${
               tab === t.id
                 ? 'bg-emerald-600 text-white'
-                : 'bg-[#111113] border border-[#2A2A35] text-gray-400 hover:text-white'
+                : 'bg-white border border-[#E4E6EE] text-gray-400 hover:text-white'
             }`}
           >
             {t.label}
@@ -832,7 +832,7 @@ export default function ImportsPage() {
       {loading && (
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-16 bg-[#111113] rounded-xl animate-pulse border border-[#2A2A35]" />
+            <div key={i} className="h-16 bg-white rounded-xl animate-pulse border border-[#E4E6EE]" />
           ))}
         </div>
       )}
@@ -879,7 +879,7 @@ export default function ImportsPage() {
             )}
           </div>
 
-          <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden p-3">
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden p-3">
             <ImportMap shipments={rows} />
           </div>
         </div>
@@ -905,10 +905,10 @@ export default function ImportsPage() {
             const groupInv = items.reduce((s, i) => s + (i.comm_inv_amt || 0), 0)
 
             return (
-              <div key={key} className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden">
+              <div key={key} className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
 
                 {/* Group header */}
-                <div className="flex items-center gap-3 px-5 py-3.5 bg-[#18181C] border-b border-[#2A2A35]">
+                <div className="flex items-center gap-3 px-5 py-3.5 bg-[#F9FAFB] border-b border-[#E4E6EE]">
                   <span className="text-lg">{first.freight_method === 'AIR' ? '✈' : '🚢'}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -969,7 +969,7 @@ export default function ImportsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-[#2A2A35]">
+                      <tr className="border-b border-[#E4E6EE]">
                         <th className="w-8 py-2.5 px-3"><input type="checkbox" checked={items.length>0&&items.every((r:any)=>ms.isSelected(r.id))} onChange={()=>{if(items.every((r:any)=>ms.isSelected(r.id))){items.forEach((r:any)=>{if(ms.isSelected(r.id))ms.toggle(r.id)})}else{items.forEach((r:any)=>{if(!ms.isSelected(r.id))ms.toggle(r.id)})}}} className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer"/></th>
                         {COLS.map(c => (
                           <th key={c} className="text-left text-gray-500 uppercase tracking-wider py-2.5 px-3 whitespace-nowrap font-medium">
@@ -980,7 +980,7 @@ export default function ImportsPage() {
                     </thead>
                     <tbody>
                       {items.map(row => (
-                        <tr key={row.id} className={`border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C] transition-colors ${ms.isSelected(row.id)?'bg-blue-500/5':''}`}>
+                        <tr key={row.id} className={`border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(row.id)?'bg-blue-500/5':''}`}>
                           <td className="py-3 px-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(row.id)} onChange={()=>ms.toggle(row.id)} className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer"/></td>
                           <td className="py-3 px-3 text-gray-400 font-mono whitespace-nowrap">{row.bg_po_number || '—'}</td>
                           <td className="py-3 px-3 text-white">
@@ -1067,7 +1067,7 @@ export default function ImportsPage() {
       {/* ── Overlays ── */}
       {(editing || adding) && (
         <div
-          className="fixed inset-0 bg-black/60 z-40"
+          className="fixed inset-0 bg-black/30 z-40"
           onClick={() => { setEditing(null); setAdding(false) }}
         />
       )}
@@ -1106,7 +1106,7 @@ export default function ImportsPage() {
       {vesselPanelOpen && editingVessel && (
         <>
           <div
-            className="fixed inset-0 bg-black/60 z-40"
+            className="fixed inset-0 bg-black/30 z-40"
             onClick={() => { setVesselPanelOpen(false); setEditingVessel(null) }}
           />
           <VesselEditPanel

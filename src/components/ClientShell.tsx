@@ -21,7 +21,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/sales/purchase-orders': 'Purchase Orders',
   '/sales/invoices': 'Invoices',
   '/sales/vendors': 'Vendors',
-  '/sales/inventory': 'Inventory',
+  '/sales/inventory': 'Products',
   '/sales/shipments': 'Shipments',
   '/sales/shipping-queue': 'Shipping Queue',
   '/production': 'Work Orders',
@@ -60,7 +60,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const router = useRouter()
   const [userInitials, setUserInitials] = useState('?')
   const [userName, setUserName] = useState('')
-  const [avatarColor, setAvatarColor] = useState('#00C896')
+  const [avatarColor, setAvatarColor] = useState('#3B6FE0')
 
   useEffect(() => {
     if (pathname === '/login') return
@@ -70,10 +70,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
       if (!email) return
       setUserInitials(email[0].toUpperCase())
       setUserName(email.split('@')[0])
-      sb.from('user_profiles')
-        .select('full_name, avatar_color, avatar_initials')
-        .eq('email', email)
-        .single()
+      sb.from('user_profiles').select('full_name,avatar_color,avatar_initials').eq('email', email).single()
         .then(({ data: p }) => {
           if (p) {
             if (p.avatar_initials) setUserInitials(p.avatar_initials)
@@ -93,61 +90,47 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     <ToastProvider>
       <AuthWatcher />
       <InstallPrompt />
-      <div className="flex min-h-screen bg-[#0A0A0B]">
-        {/* Sidebar */}
-        <div className="hidden md:flex shrink-0">
-          <Sidebar />
-        </div>
+      <div className="flex min-h-screen" style={{ background: '#F5F6FA' }}>
+        {/* Sidebar renders itself as fixed + spacer */}
+        <Sidebar />
 
-        {/* Main */}
+        {/* Main area */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Top bar */}
           <header
-            className="shrink-0 bg-[#0A0A0B]/90 backdrop-blur-xl border-b border-[#1E1E24] sticky top-0 z-30"
-            style={{ paddingTop: 'env(safe-area-inset-top)' }}
+            className="shrink-0 sticky top-0 z-30"
+            style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}
           >
-            <div className="h-14 flex items-center justify-between px-6 gap-4">
-              {/* Page title */}
-              <div className="flex items-center gap-2 min-w-0">
-                <h1 className="text-white font-semibold text-sm truncate">{pageTitle}</h1>
-              </div>
-
-              {/* Right controls */}
+            <div className="flex items-center justify-between px-6 gap-4" style={{ height: 52 }}>
+              <h1 className="font-semibold text-sm truncate" style={{ color: '#1A1D2E' }}>{pageTitle}</h1>
               <div className="flex items-center gap-2 shrink-0">
                 <NotificationBell />
-
                 <button
                   onClick={() => router.push('/settings')}
-                  className="w-9 h-9 rounded-xl bg-[#111113] border border-[#1E1E24] flex items-center justify-center text-gray-500 hover:text-white hover:border-[#2A2A35] transition-colors"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ background: '#F5F6FA', color: '#9CA3AF', border: '1px solid #E4E6EE' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE'; (e.currentTarget as HTMLElement).style.color = '#6B7280' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA'; (e.currentTarget as HTMLElement).style.color = '#9CA3AF' }}
                   title="Settings"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                  </svg>
+                  <i className="ti ti-settings text-sm"/>
                 </button>
-
-                {/* User pill */}
                 <button
                   onClick={() => router.push('/settings/profile')}
-                  className="flex items-center gap-2 bg-[#111113] border border-[#1E1E24] hover:border-[#2A2A35] rounded-xl px-3 py-1.5 transition-colors"
+                  className="flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+                  style={{ background: '#F5F6FA', border: '1px solid #E4E6EE' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA' }}
                 >
-                  <div
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
-                    style={{ backgroundColor: avatarColor }}
-                  >
-                    {userInitials}
-                  </div>
-                  {userName && (
-                    <span className="text-gray-300 text-xs font-medium hidden sm:block">{userName}</span>
-                  )}
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: avatarColor }}>{userInitials}</div>
+                  {userName && <span className="text-xs font-medium hidden sm:block" style={{ color: '#374151' }}>{userName}</span>}
                 </button>
               </div>
             </div>
           </header>
 
           {/* Content */}
-          <main className="flex-1 overflow-auto bg-[#0A0A0B] pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0">
+          <main className="flex-1 overflow-auto pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
             {children}
           </main>
         </div>

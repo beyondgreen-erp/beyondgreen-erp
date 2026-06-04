@@ -237,7 +237,7 @@ export default function ShipmentsPage() {
   }, [rows, filtered, filterMonth, filterCarrier, filterState, search])
 
   return (
-    <div className="p-4 md:p-6 max-w-screen-2xl mx-auto">
+    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -282,7 +282,7 @@ export default function ShipmentsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-gray-800">
+                  <tr className="border-b border-[#E4E6EE]">
                     <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                     {[['customer_name','Customer'],['ship_date','Ship Date'],['ship_cost','Cost']].map(([col,label]) => (
                       <th key={col} onClick={() => toggleSort(col as any)}
@@ -308,7 +308,7 @@ export default function ShipmentsPage() {
                     const tUrl = trackingUrl(s.carrier, s.tracking_number)
                     return (
                       <tr key={s.id}
-                        className={`border-t border-gray-800/60 hover:bg-gray-800/40 transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
+                        className={`border-t border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
                         <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={()=>ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
                         <td className="px-4 py-3 text-white font-medium max-w-[160px] truncate cursor-pointer" onClick={()=>openEdit(s)}>{s.customer_name || '—'}</td>
                         <td className="px-4 py-3 text-gray-300 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtD(s.ship_date)}</td>
@@ -482,7 +482,7 @@ export default function ShipmentsPage() {
           <div className="fixed inset-0 bg-black/50" />
           <div className="relative w-full max-w-lg bg-gray-950 border-l border-gray-800 h-full overflow-y-auto flex flex-col"
             onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE] shrink-0">
               <div>
                 <h2 className="text-base font-semibold text-white truncate max-w-xs">{editing?.customer_name || 'Shipment'}</h2>
                 <p className="text-xs text-gray-500 mt-0.5">{editing?.month_group}</p>
@@ -550,10 +550,10 @@ export default function ShipmentsPage() {
               {editing && (
                 <>
                   {/* Invoice info */}
-                  <div className="border-t border-gray-800 pt-4">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Invoice</p>
+                  <div className="border-t border-[#E4E6EE] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-2">Invoice</p>
                     {editing.invoice_number ? (
-                      <div className="bg-gray-800/50 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                      <div className="rounded-lg bg-[#F9FAFB] px-3 py-2.5 flex items-center justify-between">
                         <span className="text-xs text-gray-400">Invoice #</span>
                         <span className="font-mono text-xs text-blue-400 font-medium">{editing.invoice_number}</span>
                       </div>
@@ -561,10 +561,10 @@ export default function ShipmentsPage() {
                       <p className="text-xs text-gray-600 italic">No invoice linked to this shipment.</p>
                     )}
                   </div>
-                  <div className="border-t border-gray-800 pt-4">
+                  <div className="border-t border-[#E4E6EE] pt-4">
                     <FileUpload supabase={sb} recordType="shipments" recordId={editing.id} currentUserEmail={userEmail} />
                   </div>
-                  <div className="border-t border-gray-800 pt-4">
+                  <div className="border-t border-[#E4E6EE] pt-4">
                     <CommentSection recordType="shipments" recordId={editing.id} currentUserEmail={userEmail} />
                   </div>
                 </>

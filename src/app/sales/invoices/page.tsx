@@ -333,7 +333,7 @@ export default function InvoicesPage() {
   const selSm = inpSm + ' cursor-pointer'
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
+    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
       {/* Amber warning banner */}
       <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-6">
         <p className="text-amber-400 font-medium text-sm">
@@ -403,7 +403,7 @@ export default function InvoicesPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
+      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
@@ -415,7 +415,7 @@ export default function InvoicesPage() {
         ) : (
           <table className="w-full min-w-[1000px] text-sm">
             <thead>
-              <tr className="border-b border-gray-800">
+              <tr className="border-b border-[#E4E6EE]">
                 <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                 {['Invoice #','Customer','PO #','Invoice Date','Due Date','Amount','Status','Days Overdue','Source','Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>
@@ -430,7 +430,7 @@ export default function InvoicesPage() {
                 const days = isOverdue ? daysOverdue(r.due_date) : 0
                 return (
                   <tr key={r.id}
-                    className={`border-b border-gray-800/60 last:border-0 hover:bg-gray-800/40 transition-colors ${ms.isSelected(r.id) ? 'bg-blue-500/5' : isOverdue ? 'bg-red-950/10' : status === 'pending' ? 'bg-red-950/5' : i % 2 === 1 ? 'bg-gray-800/10' : ''}`}>
+                    className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id) ? 'bg-blue-500/5' : isOverdue ? 'bg-red-950/10' : status === 'pending' ? 'bg-red-950/5' : i % 2 === 1 ? 'bg-[#FAFAFA]' : ''}`}>
                     <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
                     <td className="px-4 py-3.5 text-white font-mono text-xs font-medium cursor-pointer" onClick={() => openPanel(r)}>{displayNum(r)}</td>
                     <td className="px-4 py-3.5 text-gray-300" onClick={() => openPanel(r)}>{getCustomerName(r)}</td>
@@ -475,15 +475,15 @@ export default function InvoicesPage() {
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
       {/* Backdrop */}
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={close}/>
+      <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={close}/>
 
       {/* Slide-out panel */}
       <div ref={panelRef} onClick={e => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[680px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[680px] z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {sel && (
           <>
             {/* Panel header */}
-            <div className="flex items-start justify-between px-6 py-5 border-b border-gray-800 shrink-0">
+            <div className="flex items-start justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-xs px-1.5 py-0.5 rounded font-medium border ${sel.invoice_type === 'proforma' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
@@ -516,7 +516,7 @@ export default function InvoicesPage() {
 
                 {/* Customer & Shipment */}
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Customer & Reference</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-3">Customer & Reference</p>
                   <div className="grid grid-cols-2 gap-3">
                     {[
                       ['Customer', getCustomerName(sel)],
@@ -526,7 +526,7 @@ export default function InvoicesPage() {
                       ['Payment Terms', sel.payment_terms ?? '—'],
                       ['Source', getSource(sel)],
                     ].map(([label, value]) => (
-                      <div key={label} className="bg-gray-800/50 rounded-lg px-3 py-2.5">
+                      <div key={label} className="rounded-lg bg-[#F9FAFB] px-3 py-2.5">
                         <p className="text-xs text-gray-500">{label}</p>
                         <p className="text-sm text-white mt-0.5">{value}</p>
                       </div>
@@ -536,7 +536,7 @@ export default function InvoicesPage() {
 
                 {/* Financials */}
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Financials</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-3">Financials</p>
                   <div className="bg-gray-800/30 rounded-xl overflow-hidden">
                     {[
                       ['Invoice Amount', fmt$(sel.total_amount ?? sel.amount ?? 0), true],
@@ -553,7 +553,7 @@ export default function InvoicesPage() {
 
                 {/* Actions */}
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Actions</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-3">Actions</p>
                   <div className="flex flex-wrap gap-2">
                     {sel.status !== 'paid' && sel.status !== 'void' && (
                       <button onClick={() => { setShowPayFull(v => !v); setShowPartial(false); setShowUpdateAmt(false) }}
@@ -701,7 +701,7 @@ export default function InvoicesPage() {
                 {/* Line items */}
                 {lineItems.length > 0 && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Line Items</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-3">Line Items</p>
                     <div className="rounded-xl border border-gray-700 overflow-hidden">
                       <table className="w-full text-xs">
                         <thead>
@@ -729,7 +729,7 @@ export default function InvoicesPage() {
 
                 {/* Notes */}
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Internal Notes</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-3">Internal Notes</p>
                   <textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add internal notes…" className={inp + ' resize-none'}/>
                   <button onClick={saveNotes} disabled={savingNotes} className="mt-2 text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-50">
                     {savingNotes ? 'Saved ✓' : 'Save Notes'}
@@ -737,12 +737,12 @@ export default function InvoicesPage() {
                 </div>
 
                 {/* Files */}
-                <div className="border-t border-gray-800 pt-5">
+                <div className="border-t border-[#E4E6EE] pt-5">
                   <FileUpload supabase={sb} recordType="invoices" recordId={sel.id} currentUserEmail={userEmail}/>
                 </div>
 
                 {/* Comments */}
-                <div className="border-t border-gray-800 pt-5 pb-6">
+                <div className="border-t border-[#E4E6EE] pt-5 pb-6">
                   <CommentSection recordType="invoices" recordId={sel.id} currentUserEmail={userEmail}/>
                 </div>
               </div>

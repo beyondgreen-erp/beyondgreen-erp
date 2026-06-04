@@ -47,7 +47,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-950`}>
+      <head>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.21.0/dist/tabler-icons.min.css"/>
+      </head>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} style={{ background: '#F5F6FA' }}>
         <ClientShell>{children}</ClientShell>
       </body>
     </html>
