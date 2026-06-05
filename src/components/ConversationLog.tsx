@@ -53,7 +53,7 @@ function timeAgo(ts: string): string {
   return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-const inputCls = 'w-full bg-[#18181C] border border-[#2A2A35] rounded-xl px-3 py-2.5 text-sm text-white placeholder-[#5A5A6A] focus:outline-none focus:border-[#00C896] transition-all'
+const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none focus:border-[#3B6FE0] transition-all'
 
 interface Props {
   customerId: string
@@ -192,7 +192,7 @@ export default function ConversationLog({ customerId, customerName, currentUserE
       {!showForm && (
         <button
           onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 border border-dashed border-[#2A2A35] hover:border-[#00C896] text-[#5A5A6A] hover:text-[#00C896] rounded-xl py-3 text-sm font-medium transition-all"
+          className="w-full flex items-center justify-center gap-2 border border-dashed border-[#E4E6EE] hover:border-[#00C896] text-[#9CA3AF] hover:text-[#00C896] rounded-xl py-3 text-sm font-medium transition-all"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Log Conversation
@@ -201,8 +201,8 @@ export default function ConversationLog({ customerId, customerName, currentUserE
 
       {/* Form */}
       {showForm && (
-        <div className="bg-[#18181C] border border-[#2A2A35] rounded-2xl p-4 space-y-3">
-          <p className="text-white text-sm font-semibold">{editing ? 'Edit Entry' : 'Log Conversation'}</p>
+        <div className="bg-[#F5F6FA] border border-[#E4E6EE] rounded-2xl p-4 space-y-3">
+          <p className="text-[#1A1D2E] text-sm font-semibold">{editing ? 'Edit Entry' : 'Log Conversation'}</p>
 
           <div className="grid grid-cols-2 gap-2">
             <div className="col-span-2">
@@ -212,7 +212,7 @@ export default function ConversationLog({ customerId, customerName, currentUserE
                   <button
                     key={t.value}
                     onClick={() => setForm(f => ({ ...f, conversation_type: t.value }))}
-                    className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${form.conversation_type === t.value ? 'bg-[#00C89620] text-[#00C896] border-[#00C89640]' : 'bg-[#111113] text-[#9898A8] border-[#2A2A35] hover:text-white'}`}
+                    className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${form.conversation_type === t.value ? 'bg-[#00C89620] text-[#00C896] border-[#00C89640]' : 'bg-[#F5F6FA] text-[#6B7280] border-[#E4E6EE] hover:text-[#1A1D2E]'}`}
                   >
                     {t.label}
                   </button>
@@ -282,7 +282,7 @@ export default function ConversationLog({ customerId, customerName, currentUserE
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${filter === f ? 'bg-[#2A2A35] text-white border-[#3A3A45]' : 'text-[#5A5A6A] border-[#2A2A35] hover:text-[#9898A8]'}`}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${filter === f ? 'bg-[#F0F1F5] text-[#1A1D2E] border-[#D0D3E0]' : 'text-[#9CA3AF] border-[#E4E6EE] hover:text-[#6B7280]'}`}
               >
                 {f === 'all' ? 'All' : cfg?.label ?? f}
               </button>
@@ -295,7 +295,7 @@ export default function ConversationLog({ customerId, customerName, currentUserE
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search conversations…"
-            className="w-full bg-[#18181C] border border-[#2A2A35] text-white placeholder-[#5A5A6A] rounded-xl pl-8 pr-4 py-2 text-xs focus:outline-none focus:border-[#00C896] transition-all"
+            className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl pl-8 pr-4 py-2 text-xs focus:outline-none focus:border-[#3B6FE0] transition-all"
           />
         </div>
       </div>
@@ -317,7 +317,7 @@ export default function ConversationLog({ customerId, customerName, currentUserE
             const isOwn = c.logged_by === currentUserEmail
 
             return (
-              <div key={c.id} className={`bg-[#18181C] border rounded-2xl p-4 transition-all ${c.is_pinned ? 'border-amber-500/30' : 'border-[#2A2A35]'}`}>
+              <div key={c.id} className={`bg-white border rounded-2xl p-4 transition-all ${c.is_pinned ? 'border-amber-500/30' : 'border-[#E4E6EE]'}`}>
                 <div className="flex items-start gap-3">
                   <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${cfg.bg}`}>
                     <svg className={`w-3.5 h-3.5 ${cfg.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -327,15 +327,15 @@ export default function ConversationLog({ customerId, customerName, currentUserE
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className={`text-xs font-semibold ${cfg.color}`}>{cfg.label}</span>
-                      {c.contact_name && <span className="text-xs text-[#9898A8]">with {c.contact_name}</span>}
-                      <span className="text-xs text-[#3A3A45]">·</span>
-                      <span className="text-xs text-[#5A5A6A]">{timeAgo(c.created_at)}</span>
-                      <span className="text-xs text-[#3A3A45]">·</span>
-                      <span className="text-xs text-[#5A5A6A]">{c.logged_by.split('@')[0]}</span>
+                      {c.contact_name && <span className="text-xs text-[#6B7280]">with {c.contact_name}</span>}
+                      <span className="text-xs text-[#D0D3E0]">·</span>
+                      <span className="text-xs text-[#9CA3AF]">{timeAgo(c.created_at)}</span>
+                      <span className="text-xs text-[#D0D3E0]">·</span>
+                      <span className="text-xs text-[#9CA3AF]">{c.logged_by.split('@')[0]}</span>
                       {c.is_pinned && <span className="text-xs text-amber-400">📌 Pinned</span>}
                     </div>
-                    {c.subject && <p className="text-white text-xs font-semibold mb-1">{c.subject}</p>}
-                    <p className="text-[#9898A8] text-xs leading-relaxed whitespace-pre-wrap">{displayContent}</p>
+                    {c.subject && <p className="text-[#1A1D2E] text-xs font-semibold mb-1">{c.subject}</p>}
+                    <p className="text-[#6B7280] text-xs leading-relaxed whitespace-pre-wrap">{displayContent}</p>
                     {isLong && (
                       <button
                         onClick={() => setExpanded(prev => { const n = new Set(prev); if (isExpanded) { n.delete(c.id) } else { n.add(c.id) } return n })}
@@ -344,25 +344,25 @@ export default function ConversationLog({ customerId, customerName, currentUserE
                         {isExpanded ? 'Show less' : 'Show more'}
                       </button>
                     )}
-                    {c.outcome && <p className="text-xs text-[#5A5A6A] mt-1.5"><span className="text-[#9898A8]">Outcome:</span> {c.outcome}</p>}
+                    {c.outcome && <p className="text-xs text-[#9CA3AF] mt-1.5"><span className="text-[#6B7280]">Outcome:</span> {c.outcome}</p>}
                     {c.follow_up_date && (
                       <div className="mt-2 inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1">
                         <svg className="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         <span className="text-xs text-amber-400">Follow up: {new Date(c.follow_up_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                        {c.follow_up_notes && <span className="text-xs text-[#9898A8]">— {c.follow_up_notes}</span>}
+                        {c.follow_up_notes && <span className="text-xs text-[#6B7280]">— {c.follow_up_notes}</span>}
                       </div>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => togglePin(c)} className={`p-1.5 rounded-lg transition-colors ${c.is_pinned ? 'text-amber-400 hover:text-amber-300' : 'text-[#3A3A45] hover:text-[#9898A8]'}`} title="Pin">
+                    <button onClick={() => togglePin(c)} className={`p-1.5 rounded-lg transition-colors ${c.is_pinned ? 'text-amber-400 hover:text-amber-300' : 'text-[#D0D3E0] hover:text-[#6B7280]'}`} title="Pin">
                       <svg className="w-3.5 h-3.5" fill={c.is_pinned ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
                     </button>
                     {isOwn && (
                       <>
-                        <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg text-[#3A3A45] hover:text-[#9898A8] transition-colors" title="Edit">
+                        <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg text-[#D0D3E0] hover:text-[#6B7280] transition-colors" title="Edit">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                         </button>
-                        <button onClick={() => deleteConvo(c.id)} className="p-1.5 rounded-lg text-[#3A3A45] hover:text-red-400 transition-colors" title="Delete">
+                        <button onClick={() => deleteConvo(c.id)} className="p-1.5 rounded-lg text-[#D0D3E0] hover:text-red-400 transition-colors" title="Delete">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
                       </>

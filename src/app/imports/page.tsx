@@ -12,7 +12,7 @@ const ImportMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[520px] bg-[#0a1628] rounded-2xl border border-[#E4E6EE] flex items-center justify-center">
+      <div className="h-[520px] bg-[#EFF3FA] rounded-2xl border border-[#E4E6EE] flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-gray-500 text-sm">Loading map...</p>
@@ -185,8 +185,8 @@ const DownloadModal = memo(({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
-          <h2 className="text-white font-semibold">Download Shipments Data</h2>
-          <button onClick={onClose} className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400">
+          <h2 className="text-[#1A1D2E] font-semibold">Download Shipments Data</h2>
+          <button onClick={onClose} className="w-8 h-8 bg-[#F9FAFB] hover:bg-[#F5F6FA] rounded-lg flex items-center justify-center text-gray-400">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -198,7 +198,7 @@ const DownloadModal = memo(({
           <div>
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Format</p>
             <div className="flex gap-2">
-              <button className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-xl font-medium">CSV</button>
+              <button className="px-4 py-2 bg-emerald-600 text-[#1A1D2E] text-sm rounded-xl font-medium">CSV</button>
               <button className="px-4 py-2 bg-[#F9FAFB] border border-[#E4E6EE] text-gray-500 text-sm rounded-xl cursor-not-allowed" disabled>Excel (coming soon)</button>
             </div>
           </div>
@@ -245,10 +245,10 @@ const DownloadModal = memo(({
                   <div key={group.label}>
                     <button
                       onClick={() => toggleGroup(group.keys)}
-                      className="flex items-center gap-2 mb-1.5 text-xs text-gray-400 hover:text-white font-medium"
+                      className="flex items-center gap-2 mb-1.5 text-xs text-gray-400 hover:text-[#1A1D2E] font-medium"
                     >
                       <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${allOn ? 'bg-emerald-600 border-emerald-600' : 'border-gray-600'}`}>
-                        {allOn && <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                        {allOn && <svg className="w-2.5 h-2.5 text-[#1A1D2E]" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
                       </div>
                       {group.label}
                     </button>
@@ -278,14 +278,14 @@ const DownloadModal = memo(({
         <div className="p-4 border-t border-[#E4E6EE] shrink-0 flex gap-3">
           <button
             onClick={handleDownload}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
+            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             Download CSV ({filteredRows.length} rows, {selected.size} cols)
           </button>
-          <button onClick={onClose} className="px-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-xl">Cancel</button>
+          <button onClick={onClose} className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-300 text-sm rounded-xl">Cancel</button>
         </div>
       </div>
     </div>
@@ -334,7 +334,7 @@ const ShipmentForm = memo(({
     }
   }
 
-  const cls = 'w-full bg-[#F9FAFB] border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500'
+  const cls = 'w-full bg-[#F9FAFB] border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none focus:border-emerald-500'
 
   return (
     <div
@@ -342,10 +342,10 @@ const ShipmentForm = memo(({
       onClick={e => e.stopPropagation()}
     >
       <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <h2 className="text-lg font-semibold text-[#1A1D2E]">{title}</h2>
         <button
           onClick={onClose}
-          className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400"
+          className="w-8 h-8 bg-[#F9FAFB] hover:bg-[#F5F6FA] rounded-lg flex items-center justify-center text-gray-400"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -395,7 +395,7 @@ const ShipmentForm = memo(({
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
+          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
         >
           {saving ? (
             <>
@@ -406,7 +406,7 @@ const ShipmentForm = memo(({
         </button>
         <button
           onClick={onClose}
-          className="px-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-xl"
+          className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-300 text-sm rounded-xl"
         >
           Cancel
         </button>
@@ -507,7 +507,7 @@ const VesselEditPanel = memo(({
     }
   }
 
-  const cls = 'w-full bg-[#F9FAFB] border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500'
+  const cls = 'w-full bg-[#F9FAFB] border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none focus:border-emerald-500'
 
   const fields = [
     { key: 'vessel_name',      label: 'Vessel / Flight Name',  type: 'text' },
@@ -531,12 +531,12 @@ const VesselEditPanel = memo(({
     >
       <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
         <div>
-          <h2 className="text-lg font-semibold text-white">Edit Vessel Details</h2>
+          <h2 className="text-lg font-semibold text-[#1A1D2E]">Edit Vessel Details</h2>
           <p className="text-xs text-gray-500 mt-0.5">
             Updates all {vessel.item_ids?.length} items in this shipment group
           </p>
         </div>
-        <button onClick={onClose} className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400">
+        <button onClick={onClose} className="w-8 h-8 bg-[#F9FAFB] hover:bg-[#F5F6FA] rounded-lg flex items-center justify-center text-gray-400">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -574,12 +574,12 @@ const VesselEditPanel = memo(({
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
+          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] font-medium text-sm py-2.5 rounded-xl flex items-center justify-center gap-2"
         >
           {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
           {saving ? 'Updating all items…' : 'Update All Items in Group'}
         </button>
-        <button onClick={onClose} className="px-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-xl">Cancel</button>
+        <button onClick={onClose} className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-300 text-sm rounded-xl">Cancel</button>
       </div>
     </div>
   )
@@ -730,7 +730,7 @@ export default function ImportsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">🚢 Import Tracker</h1>
+          <h1 className="text-2xl font-bold text-[#1A1D2E]">🚢 Import Tracker</h1>
           <p className="text-gray-500 text-sm mt-0.5">
             {rows.length} shipments · {Object.keys(groups).length} bookings
           </p>
@@ -738,7 +738,7 @@ export default function ImportsPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => downloadCSV(filtered, ALL_COLS)}
-            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm px-4 py-2.5 rounded-xl flex items-center gap-2"
+            className="bg-[#F9FAFB] hover:bg-[#F5F6FA] border border-[#E4E6EE] text-gray-300 text-sm px-4 py-2.5 rounded-xl flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -756,7 +756,7 @@ export default function ImportsPage() {
           </button>
           <button
             onClick={() => setAdding(true)}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors"
+            className="bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -791,7 +791,7 @@ export default function ImportsPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search PO#, description, vessel, status..."
-          className="w-full bg-white border border-[#E4E6EE] rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500"
+          className="w-full bg-white border border-[#E4E6EE] rounded-xl pl-9 pr-4 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none focus:border-emerald-500"
         />
       </div>
 
@@ -854,7 +854,7 @@ export default function ImportsPage() {
                 setRefreshing(false)
               }}
               disabled={refreshing}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] text-sm font-medium px-4 py-2 rounded-xl transition-colors"
             >
               {refreshing ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -912,7 +912,7 @@ export default function ImportsPage() {
                   <span className="text-lg">{first.freight_method === 'AIR' ? '✈' : '🚢'}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-white font-semibold text-sm">
+                      <span className="text-[#1A1D2E] font-semibold text-sm">
                         {first.vessel_name || first.flight_number || 'Unknown'}
                       </span>
                       {first.booking_number && (
@@ -983,7 +983,7 @@ export default function ImportsPage() {
                         <tr key={row.id} className={`border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(row.id)?'bg-blue-500/5':''}`}>
                           <td className="py-3 px-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(row.id)} onChange={()=>ms.toggle(row.id)} className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer"/></td>
                           <td className="py-3 px-3 text-gray-400 font-mono whitespace-nowrap">{row.bg_po_number || '—'}</td>
-                          <td className="py-3 px-3 text-white">
+                          <td className="py-3 px-3 text-[#1A1D2E]">
                             <div className="max-w-[180px] truncate" title={row.description}>{row.description}</div>
                           </td>
                           <td className="py-3 px-3 text-gray-300 text-center">{row.case_qty ?? '—'}</td>
@@ -1035,7 +1035,7 @@ export default function ImportsPage() {
                               )}
                               <button
                                 onClick={() => setEditing(row)}
-                                className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-500 hover:text-white transition-colors"
+                                className="p-1.5 rounded-lg hover:bg-[#F5F6FA] text-gray-500 hover:text-white transition-colors"
                                 title="Edit"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

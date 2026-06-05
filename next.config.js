@@ -8,7 +8,7 @@ const withPWA = require('next-pwa')({
       urlPattern: /^https?.*/,
       handler: 'NetworkFirst',
       options: {
-        cacheName: 'beyondgreen-cache',
+        cacheName: 'beyondgreen-cache-v2',
         expiration: { maxEntries: 200, maxAgeSeconds: 86400 },
         networkTimeoutSeconds: 10,
       },

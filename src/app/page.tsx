@@ -63,7 +63,7 @@ const SO_STATUS: Record<string,string> = {
   'Ready to Ship':'bg-orange-500/15 text-orange-400 border-orange-500/25',
   Shipped:'bg-teal-500/15 text-teal-400 border-teal-500/25',
   Invoiced:'bg-[#00C89615] text-[#00C896] border-[#00C89630]',
-  Closed:'bg-gray-700/30 text-gray-500 border-gray-700',
+  Closed:'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]',
 }
 
 export default function DashboardPage() {
@@ -166,7 +166,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold tracking-tight" style={{color:"#1A1D2E"}}>{greeting()}, {userName} 👋</h1>
           <p className="text-[#9CA3AF] text-sm mt-0.5">{today}</p>
         </div>
-        <button onClick={loadData} className="p-2 rounded-xl bg-[#18181C] border border-[#E4E6EE] text-[#9CA3AF] hover:text-white hover:bg-[#22222A] transition-all" title="Refresh">
+        <button onClick={loadData} className="p-2 rounded-xl bg-white border border-[#E4E6EE] text-[#9CA3AF] hover:text-[#1A1D2E] hover:bg-[#F5F6FA] transition-all" title="Refresh">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
@@ -225,7 +225,7 @@ export default function DashboardPage() {
         {/* Order Pipeline */}
         <div className="lg:col-span-3 bg-white border border-[#E4E6EE] rounded-2xl p-5">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-white font-semibold">Order Pipeline</h2>
+            <h2 className="text-[#1A1D2E] font-semibold">Order Pipeline</h2>
             <Link href="/sales/orders" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
           </div>
           <div className="flex gap-2 items-end" style={{height:'120px'}}>
@@ -235,7 +235,7 @@ export default function DashboardPage() {
               const pct = count > 0 ? Math.max(8, Math.round((count / max) * 100)) : 4
               return (
                 <Link key={stage.label} href={stage.href} className="flex-1 flex flex-col items-center gap-1.5 group cursor-pointer h-full">
-                  <span className="text-white font-bold text-base group-hover:scale-110 transition-transform">{count}</span>
+                  <span className="text-[#1A1D2E] font-bold text-base group-hover:scale-110 transition-transform">{count}</span>
                   <div className="w-full flex-1 bg-[#F5F6FA] rounded-lg overflow-hidden flex items-end">
                     <div className="w-full rounded-lg transition-all duration-700 group-hover:brightness-110" style={{ height: `${pct}%`, background: stage.color, opacity: 0.85 }} />
                   </div>
@@ -249,7 +249,7 @@ export default function DashboardPage() {
         {/* Recent Orders */}
         <div className="lg:col-span-2 bg-white border border-[#E4E6EE] rounded-2xl">
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
-            <h2 className="text-white font-semibold">Recent Orders</h2>
+            <h2 className="text-[#1A1D2E] font-semibold">Recent Orders</h2>
             <Link href="/sales/orders" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
           </div>
           <div>
@@ -258,9 +258,9 @@ export default function DashboardPage() {
               : recentOrders.length === 0
                 ? <p className="text-[#9CA3AF] text-sm py-8 text-center">No orders yet</p>
                 : recentOrders.map(o => (
-                  <Link key={o.id} href="/sales/orders" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#18181C] transition-colors">
+                  <Link key={o.id} href="/sales/orders" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#F5F6FA] transition-colors">
                     <div className="flex-1 min-w-0">
-                      <p className="text-white text-xs font-mono font-medium">{o.order_number}</p>
+                      <p className="text-[#1A1D2E] text-xs font-mono font-medium">{o.order_number}</p>
                       <p className="text-[#9CA3AF] text-[11px] truncate">{(o.customers as any)?.company_name ?? '—'}</p>
                     </div>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${SO_STATUS[o.status] ?? 'bg-[#1E1E24] text-[#6B7280] border-[#E4E6EE]'}`}>{o.status}</span>
@@ -279,7 +279,7 @@ export default function DashboardPage() {
         {/* Tasks */}
         <div className="bg-white border border-[#E4E6EE] rounded-2xl">
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
-            <h2 className="text-white font-semibold text-sm">Open Tasks</h2>
+            <h2 className="text-[#1A1D2E] font-semibold text-sm">Open Tasks</h2>
             <Link href="/bizdev/tasks" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
           </div>
           {loading
@@ -287,9 +287,9 @@ export default function DashboardPage() {
             : recentTasks.length === 0
               ? <p className="text-[#9CA3AF] text-sm py-8 text-center">No open tasks</p>
               : recentTasks.map(t => (
-                <Link key={t.id} href="/bizdev/tasks" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#18181C] transition-colors">
+                <Link key={t.id} href="/bizdev/tasks" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#F5F6FA] transition-colors">
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-xs truncate">{t.title}</p>
+                    <p className="text-[#1A1D2E] text-xs truncate">{t.title}</p>
                     <p className="text-[#9CA3AF] text-[11px]">{t.assigned_to ? t.assigned_to.split('@')[0] : '—'}{t.due_date ? ` · ${fmtD(t.due_date)}` : ''}</p>
                   </div>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${t.status === 'Done' ? 'bg-[#00C89615] text-[#00C896] border-[#00C89630]' : 'bg-[#1E1E24] text-[#6B7280] border-[#E4E6EE]'}`}>{t.status}</span>
@@ -301,7 +301,7 @@ export default function DashboardPage() {
         {/* Overdue Invoices */}
         <div className="bg-white border border-[#E4E6EE] rounded-2xl">
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
-            <h2 className="text-white font-semibold text-sm">Overdue Invoices</h2>
+            <h2 className="text-[#1A1D2E] font-semibold text-sm">Overdue Invoices</h2>
             <Link href="/sales/invoices" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
           </div>
           {loading
@@ -309,9 +309,9 @@ export default function DashboardPage() {
             : overdueInvoiceList.length === 0
               ? <p className="text-[#9CA3AF] text-sm py-8 text-center">None overdue ✓</p>
               : overdueInvoiceList.map(inv => (
-                <Link key={inv.id} href="/sales/invoices" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#18181C] transition-colors">
+                <Link key={inv.id} href="/sales/invoices" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#F5F6FA] transition-colors">
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-xs font-mono">{inv.invoice_number_display ?? inv.id?.slice(0,8)}</p>
+                    <p className="text-[#1A1D2E] text-xs font-mono">{inv.invoice_number_display ?? inv.id?.slice(0,8)}</p>
                     <p className="text-[#9CA3AF] text-[11px] truncate">{(inv.customers as any)?.company_name ?? '—'}</p>
                   </div>
                   <div className="text-right shrink-0">
@@ -325,7 +325,7 @@ export default function DashboardPage() {
 
         {/* Quick Actions */}
         <div className="bg-white border border-[#E4E6EE] rounded-2xl p-5">
-          <h2 className="text-white font-semibold text-sm mb-4">Quick Actions</h2>
+          <h2 className="text-[#1A1D2E] font-semibold text-sm mb-4">Quick Actions</h2>
           <div className="grid grid-cols-2 gap-2">
             {[
               { label: 'Quotations', href: '/sales/quotations', color: 'text-violet-400', bg: 'bg-violet-500/10 hover:bg-violet-500/15' },

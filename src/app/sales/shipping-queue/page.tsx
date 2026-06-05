@@ -31,7 +31,7 @@ interface SalesOrder {
 
 const CARRIERS = ['UPS', 'FedEx', 'USPS', 'LTL / Freight', 'Will Call', 'DHL', 'Other']
 const STATUS_COLORS: Record<string, string> = {
-  Pending: 'bg-gray-700/40 text-gray-400 border-gray-700',
+  Pending: 'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
   Packed: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
   'Picked Up': 'bg-amber-500/15 text-amber-400 border-amber-500/20',
   'In Transit': 'bg-teal-500/15 text-teal-400 border-teal-500/20',
@@ -188,7 +188,7 @@ export default function ShippingQueuePage() {
     load()
   }
 
-  const inp = 'w-full bg-[#0A0A0B] border border-[#2A2A35] focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none transition-colors'
+  const inp = 'w-full bg-white border border-[#E4E6EE] focus:border-[#3B6FE0] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none transition-colors'
 
   return (
     <div className="p-6 min-h-screen">
@@ -198,14 +198,14 @@ export default function ShippingQueuePage() {
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-400 border border-teal-500/20">SALES</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Shipping Queue</h1>
+          <h1 className="text-2xl font-bold text-[#1A1D2E]">Shipping Queue</h1>
           <p className="text-gray-500 text-sm mt-0.5">
             {loading ? 'Loading…' : `${filtered.length} order${filtered.length !== 1 ? 's' : ''} ready to ship`}
           </p>
         </div>
         <button
           onClick={() => load()}
-          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white border border-[#2A2A35] hover:border-[#3A3A45] bg-[#111113] px-4 py-2.5 rounded-xl transition-colors self-start"
+          className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-4 py-2.5 rounded-xl transition-colors self-start"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -217,12 +217,12 @@ export default function ShippingQueuePage() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'In Queue', value: stats.total, color: 'text-white' },
+          { label: 'In Queue', value: stats.total, color: 'text-[#1A1D2E]' },
           { label: 'Pending', value: stats.pending, color: 'text-gray-400' },
           { label: 'Packed', value: stats.packed, color: 'text-blue-400' },
           { label: 'In Transit', value: stats.transit, color: 'text-teal-400' },
         ].map(s => (
-          <div key={s.label} className="bg-[#111113] border border-[#1E1E24] rounded-2xl px-4 py-3.5">
+          <div key={s.label} className="bg-white border border-[#E4E6EE] rounded-2xl px-4 py-3.5">
             <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
             <p className="text-gray-500 text-xs mt-0.5">{s.label}</p>
           </div>
@@ -239,15 +239,15 @@ export default function ShippingQueuePage() {
             placeholder="Search by order, customer, carrier…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full bg-[#111113] border border-[#1E1E24] text-white placeholder-gray-600 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#2A2A35] transition-colors"
+            className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#3B6FE0] transition-colors"
           />
         </div>
-        <div className="flex items-center gap-1 bg-[#111113] border border-[#1E1E24] rounded-xl p-1">
+        <div className="flex items-center gap-1 bg-white border border-[#E4E6EE] rounded-xl p-1">
           {['all', 'Pending', 'Packed', 'In Transit'].map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${statusFilter === s ? 'bg-[#1E1E24] text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${statusFilter === s ? 'bg-[#F0F1F5] text-[#1A1D2E]' : 'text-gray-500 hover:text-[#1A1D2E]'}`}
             >
               {s === 'all' ? 'All' : s}
             </button>
@@ -256,7 +256,7 @@ export default function ShippingQueuePage() {
       </div>
 
       {/* Table */}
-      <div className="bg-[#111113] border border-[#1E1E24] rounded-2xl overflow-hidden">
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24">
@@ -275,7 +275,7 @@ export default function ShippingQueuePage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#1E1E24]">
+                <tr className="border-b border-[#E4E6EE]">
                   <th className="w-10 px-4 py-3">
                     <input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={() => ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
                   </th>
@@ -290,28 +290,28 @@ export default function ShippingQueuePage() {
                   const custName = (order?.customers as any)?.company_name ?? (order?.notes ?? '').split('|')[0].trim() ?? '—'
                   return (
                     <tr key={row.id}
-                      className={`border-b border-[#1E1E24]/50 last:border-0 transition-colors ${ms.isSelected(row.id) ? 'bg-blue-500/5' : i % 2 === 0 ? 'hover:bg-[#141416]' : 'bg-[#0D0D0F] hover:bg-[#141416]'}`}>
+                      className={`border-b border-[#E4E6EE]/50 last:border-0 transition-colors ${ms.isSelected(row.id) ? 'bg-blue-500/5' : i % 2 === 0 ? 'hover:bg-[#F5F6FA]' : 'bg-[#FAFAFA] hover:bg-[#F5F6FA]'}`}>
                       <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={ms.isSelected(row.id)} onChange={() => ms.toggle(row.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="text-white font-mono font-semibold text-xs">{order?.order_number ?? '—'}</span>
+                        <span className="text-[#1A1D2E] font-mono font-semibold text-xs">{order?.order_number ?? '—'}</span>
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="text-gray-200 font-medium">{custName}</span>
+                        <span className="text-[#1A1D2E] font-medium">{custName}</span>
                       </td>
                       <td className="px-4 py-3.5 text-gray-400 text-xs">{fmt$(order?.total_amount)}</td>
                       <td className="px-4 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtD(row.scheduled_ship_date)}</td>
                       <td className="px-4 py-3.5">
                         {row.carrier ? (
                           <div>
-                            <p className="text-gray-300 text-xs">{row.carrier}</p>
+                            <p className="text-[#374151] text-xs">{row.carrier}</p>
                             {row.tracking_number && (
-                              <p className="text-gray-500 text-xs font-mono mt-0.5 truncate max-w-[120px]">{row.tracking_number}</p>
+                              <p className="text-[#6B7280] text-xs font-mono mt-0.5 truncate max-w-[120px]">{row.tracking_number}</p>
                             )}
                           </div>
                         ) : (
-                          <span className="text-gray-600 text-xs">Not assigned</span>
+                          <span className="text-[#9CA3AF] text-xs">Not assigned</span>
                         )}
                       </td>
                       <td className="px-4 py-3.5">
@@ -323,7 +323,7 @@ export default function ShippingQueuePage() {
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => openShipModal(row)}
-                            className="flex items-center gap-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                            className="flex items-center gap-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
@@ -335,7 +335,7 @@ export default function ShippingQueuePage() {
                               setEditItem(row)
                               setEditForm({ carrier: row.carrier ?? '', tracking_number: row.tracking_number ?? '', scheduled_ship_date: row.scheduled_ship_date ?? '', notes: row.notes ?? '' })
                             }}
-                            className="text-xs border border-[#2A2A35] hover:border-[#3A3A45] text-gray-400 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors"
+                            className="text-xs border border-[#E4E6EE] hover:border-[#D0D3E0] text-[#6B7280] hover:text-[#1A1D2E] px-2.5 py-1.5 rounded-lg transition-colors"
                           >
                             Edit
                           </button>
@@ -371,17 +371,17 @@ export default function ShippingQueuePage() {
       {/* ── SHIP NOW MODAL ── */}
       {shipModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => !shipping && setShipModal(null)}>
-          <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-5 border-b border-[#1E1E24]">
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE]">
               <div>
-                <h2 className="text-white font-semibold">Confirm Shipment</h2>
+                <h2 className="text-[#1A1D2E] font-semibold">Confirm Shipment</h2>
                 {shipModal.sales_order_id && orderMap[shipModal.sales_order_id] && (
                   <p className="text-gray-500 text-xs mt-0.5">
                     {orderMap[shipModal.sales_order_id].order_number} · {(orderMap[shipModal.sales_order_id].customers as any)?.company_name ?? (orderMap[shipModal.sales_order_id].notes ?? '').split('|')[0].trim()}
                   </p>
                 )}
               </div>
-              <button onClick={() => setShipModal(null)} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-[#1A1A1F] transition-colors">
+              <button onClick={() => setShipModal(null)} className="text-[#6B7280] hover:text-[#1A1D2E] p-1.5 rounded-lg hover:bg-[#F5F6FA] transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
@@ -439,14 +439,14 @@ export default function ShippingQueuePage() {
             <div className="px-6 pb-5 flex gap-3">
               <button
                 onClick={() => setShipModal(null)}
-                className="flex-1 text-sm border border-[#2A2A35] text-gray-400 hover:text-white py-2.5 rounded-xl transition-colors"
+                className="flex-1 text-sm border border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E] py-2.5 rounded-xl transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmShip}
                 disabled={shipping}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
               >
                 {shipping ? (
                   <>
@@ -468,10 +468,10 @@ export default function ShippingQueuePage() {
       {/* ── EDIT PANEL ── */}
       {editItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => setEditItem(null)}>
-          <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-5 border-b border-[#1E1E24]">
-              <h2 className="text-white font-semibold">Edit Queue Item</h2>
-              <button onClick={() => setEditItem(null)} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-[#1A1A1F] transition-colors">
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-sm shadow-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE]">
+              <h2 className="text-[#1A1D2E] font-semibold">Edit Queue Item</h2>
+              <button onClick={() => setEditItem(null)} className="text-[#6B7280] hover:text-[#1A1D2E] p-1.5 rounded-lg hover:bg-[#F5F6FA] transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
@@ -497,8 +497,8 @@ export default function ShippingQueuePage() {
               </div>
             </div>
             <div className="px-6 pb-5 flex gap-3">
-              <button onClick={() => setEditItem(null)} className="flex-1 text-sm border border-[#2A2A35] text-gray-400 hover:text-white py-2.5 rounded-xl transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl transition-colors">
+              <button onClick={() => setEditItem(null)} className="flex-1 text-sm border border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E] py-2.5 rounded-xl transition-colors">Cancel</button>
+              <button onClick={saveEdit} disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] text-sm font-medium py-2.5 rounded-xl transition-colors">
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>

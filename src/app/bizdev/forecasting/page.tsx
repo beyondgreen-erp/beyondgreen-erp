@@ -178,9 +178,9 @@ export default function ForecastingPage() {
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload?.length) {
       return (
-        <div className="bg-[#1A1A20] border border-[#2A2A35] rounded-xl px-4 py-3 text-sm">
+        <div className="bg-[#1A1A20] border border-[#E4E6EE] rounded-xl px-4 py-3 text-sm">
           <p className="text-[#9898A8] text-xs mb-1">{label}</p>
-          <p className="text-white font-semibold">{fmtMoneyFull(payload[0].value)}</p>
+          <p className="text-[#1A1D2E] font-semibold">{fmtMoneyFull(payload[0].value)}</p>
           {payload[0].payload.projected && <p className="text-[#5A5A6A] text-xs mt-0.5">Projected</p>}
         </div>
       )
@@ -194,10 +194,10 @@ export default function ForecastingPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">BUSINESS</span>
-          <h1 className="text-2xl font-bold text-white mt-1.5 tracking-tight">Revenue Forecasting</h1>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5 tracking-tight">Revenue Forecasting</h1>
           <p className="text-[#5A5A6A] text-sm mt-0.5">Historical trends and forward projections</p>
         </div>
-        <button onClick={load} className="flex items-center gap-2 bg-[#18181C] border border-[#2A2A35] text-[#9898A8] hover:text-white text-sm px-4 py-2.5 rounded-xl transition-all self-start">
+        <button onClick={load} className="flex items-center gap-2 bg-white border border-[#E4E6EE] text-[#9898A8] hover:text-[#1A1D2E] text-sm px-4 py-2.5 rounded-xl transition-all self-start">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           Refresh
         </button>
@@ -208,18 +208,18 @@ export default function ForecastingPage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {summaryCards.map(s => (
-          <div key={s.label} className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-4">
+          <div key={s.label} className="bg-white border border-[#E4E6EE] rounded-2xl p-4">
             <p className={`text-2xl font-bold ${s.color}`}>{loading ? '—' : s.value}</p>
-            <p className="text-white text-xs font-medium mt-1">{s.label}</p>
+            <p className="text-[#1A1D2E] text-xs font-medium mt-1">{s.label}</p>
             <p className="text-[#5A5A6A] text-[11px] mt-0.5">{s.sub}</p>
           </div>
         ))}
       </div>
 
       {/* Revenue Chart */}
-      <section className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-6">
+      <section className="bg-white border border-[#E4E6EE] rounded-2xl p-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-white font-semibold">Revenue — Historical & Projected</h2>
+          <h2 className="text-[#1A1D2E] font-semibold">Revenue — Historical & Projected</h2>
           <div className="flex items-center gap-4 text-xs text-[#9898A8]">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#00C896] inline-block" /> Actual</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-[#00C896]/40 inline-block" /> Projected</span>
@@ -247,8 +247,8 @@ export default function ForecastingPage() {
 
       {/* Customer Forecasts */}
       <section>
-        <h2 className="text-white font-semibold mb-3">Customer Forecasts</h2>
-        <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
+        <h2 className="text-[#1A1D2E] font-semibold mb-3">Customer Forecasts</h2>
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-x-auto">
           {loading ? (
             <div className="flex items-center justify-center py-16"><svg className="w-5 h-5 animate-spin text-[#3A3A45]" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
           ) : customerForecasts.length === 0 ? (
@@ -256,7 +256,7 @@ export default function ForecastingPage() {
           ) : (
             <table className="w-full min-w-[900px] text-sm">
               <thead>
-                <tr className="border-b border-[#2A2A35]">
+                <tr className="border-b border-[#E4E6EE]">
                   {['Customer','Orders','Avg Order Value','Avg Days Between','Last Order','Next Predicted','Annual Forecast','Confidence'].map(h => (
                     <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                   ))}
@@ -267,10 +267,10 @@ export default function ForecastingPage() {
                   const confCls = c.confidence >= 60 ? 'text-[#00C896]' : c.confidence >= 30 ? 'text-amber-400' : 'text-[#5A5A6A]'
                   const nextPast = c.next_order_date && c.next_order_date < new Date().toISOString().slice(0, 10)
                   return (
-                    <tr key={c.customer_id} className={`border-b border-[#2A2A35]/60 last:border-0 ${i % 2 === 1 ? 'bg-[#18181C]/30' : ''}`}>
-                      <td className="px-4 py-3 text-white text-xs font-medium max-w-[160px] truncate">{c.customer_name}</td>
+                    <tr key={c.customer_id} className={`border-b border-[#E4E6EE]/60 last:border-0 ${i % 2 === 1 ? 'bg-white/30' : ''}`}>
+                      <td className="px-4 py-3 text-[#1A1D2E] text-xs font-medium max-w-[160px] truncate">{c.customer_name}</td>
                       <td className="px-4 py-3 text-[#9898A8] text-xs">{c.order_count}</td>
-                      <td className="px-4 py-3 text-white text-xs">{fmtMoneyFull(c.avg_order_value)}</td>
+                      <td className="px-4 py-3 text-[#1A1D2E] text-xs">{fmtMoneyFull(c.avg_order_value)}</td>
                       <td className="px-4 py-3 text-[#9898A8] text-xs">{c.avg_days_between != null ? `${Math.round(c.avg_days_between)}d` : '—'}</td>
                       <td className="px-4 py-3 text-[#9898A8] text-xs">{c.last_order_date ? new Date(c.last_order_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'}</td>
                       <td className={`px-4 py-3 text-xs ${nextPast ? 'text-amber-400' : 'text-[#9898A8]'}`}>
@@ -297,12 +297,12 @@ export default function ForecastingPage() {
 
       {/* Pipeline */}
       {quotations.length > 0 && (
-        <section className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-6">
-          <h2 className="text-white font-semibold mb-4">Open Pipeline ({quotations.length} quotes)</h2>
+        <section className="bg-white border border-[#E4E6EE] rounded-2xl p-6">
+          <h2 className="text-[#1A1D2E] font-semibold mb-4">Open Pipeline ({quotations.length} quotes)</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div>
               <p className="text-[#5A5A6A] text-xs mb-1">Total Quote Value</p>
-              <p className="text-white font-semibold">{fmtMoneyFull(quotations.reduce((s, q) => s + (q.total_value ?? 0), 0))}</p>
+              <p className="text-[#1A1D2E] font-semibold">{fmtMoneyFull(quotations.reduce((s, q) => s + (q.total_value ?? 0), 0))}</p>
             </div>
             <div>
               <p className="text-[#5A5A6A] text-xs mb-1">Pipeline Value (70%)</p>
@@ -310,7 +310,7 @@ export default function ForecastingPage() {
             </div>
             <div>
               <p className="text-[#5A5A6A] text-xs mb-1">Avg Quote Size</p>
-              <p className="text-white font-semibold">{fmtMoneyFull(quotations.reduce((s, q) => s + (q.total_value ?? 0), 0) / quotations.length)}</p>
+              <p className="text-[#1A1D2E] font-semibold">{fmtMoneyFull(quotations.reduce((s, q) => s + (q.total_value ?? 0), 0) / quotations.length)}</p>
             </div>
           </div>
         </section>

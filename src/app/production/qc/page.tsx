@@ -287,15 +287,15 @@ export default function QCPage() {
       <div className="p-8 max-w-2xl">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">OPERATIONS</span>
         <h1 className="text-2xl font-bold text-white mt-2 mb-6">Quality Control</h1>
-        <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-8 text-center">
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-8 text-center">
           <div className="w-14 h-14 bg-amber-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <svg className="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <h2 className="text-white font-semibold text-lg mb-2">QC Tables Not Found</h2>
+          <h2 className="text-[#1A1D2E] font-semibold text-lg mb-2">QC Tables Not Found</h2>
           <p className="text-[#9898A8] text-sm mb-6 max-w-md mx-auto">The Quality Control database tables need to be created. Run the QC schema SQL in your Supabase SQL editor to enable this module.</p>
-          <div className="bg-[#0A0A0B] border border-[#2A2A35] rounded-xl p-4 text-left text-xs font-mono text-[#00C896] overflow-x-auto">
+          <div className="bg-[#F5F6FA] border border-[#E4E6EE] rounded-xl p-4 text-left text-xs font-mono text-[#00C896] overflow-x-auto">
             {`CREATE TABLE IF NOT EXISTS qc_inspections (\n  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,\n  work_order_id uuid REFERENCES work_orders(id),\n  product_id uuid REFERENCES products(id),\n  inspector_email text,\n  sku text, product_name text, batch_number text,\n  qty_inspected numeric DEFAULT 0,\n  qty_passed numeric DEFAULT 0,\n  qty_failed numeric DEFAULT 0,\n  qty_rework numeric DEFAULT 0,\n  overall_result text DEFAULT 'Pending',\n  inspection_date date DEFAULT CURRENT_DATE,\n  inspection_type text DEFAULT 'Final',\n  notes text, failure_notes text, corrective_action text,\n  created_at timestamptz DEFAULT now(),\n  updated_at timestamptz DEFAULT now(),\n  completed_at timestamptz\n);\n-- See full schema in CLAUDE.md`}
           </div>
         </div>
@@ -309,7 +309,7 @@ export default function QCPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">OPERATIONS</span>
-          <h1 className="text-2xl font-bold text-white mt-1.5 tracking-tight">Quality Control</h1>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5 tracking-tight">Quality Control</h1>
           <p className="text-[#5A5A6A] text-sm mt-0.5">{loading ? 'Loading…' : `${filtered.length} inspection${filtered.length !== 1 ? 's' : ''}`}</p>
         </div>
         <button onClick={openAdd} className="bg-[#00C896] hover:bg-[#00B085] text-black font-semibold text-sm px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 self-start">
@@ -321,12 +321,12 @@ export default function QCPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Inspections Today', value: fmt(stats.today), color: 'text-white', bg: 'bg-[#18181C]' },
-          { label: 'Pass Rate', value: `${stats.passRate}%`, color: stats.passRate >= 90 ? 'text-[#00C896]' : stats.passRate >= 70 ? 'text-amber-400' : 'text-red-400', bg: 'bg-[#18181C]' },
-          { label: 'Pending Review', value: fmt(stats.pending), color: stats.pending > 0 ? 'text-amber-400' : 'text-white', bg: 'bg-[#18181C]' },
-          { label: 'Failed This Week', value: fmt(stats.failed), color: stats.failed > 0 ? 'text-red-400' : 'text-white', bg: 'bg-[#18181C]' },
+          { label: 'Inspections Today', value: fmt(stats.today), color: 'text-[#1A1D2E]', bg: 'bg-white' },
+          { label: 'Pass Rate', value: `${stats.passRate}%`, color: stats.passRate >= 90 ? 'text-[#00C896]' : stats.passRate >= 70 ? 'text-amber-400' : 'text-red-400', bg: 'bg-white' },
+          { label: 'Pending Review', value: fmt(stats.pending), color: stats.pending > 0 ? 'text-amber-400' : 'text-[#1A1D2E]', bg: 'bg-white' },
+          { label: 'Failed This Week', value: fmt(stats.failed), color: stats.failed > 0 ? 'text-red-400' : 'text-[#1A1D2E]', bg: 'bg-white' },
         ].map(s => (
-          <div key={s.label} className={`${s.bg} border border-[#2A2A35] rounded-2xl p-4`}>
+          <div key={s.label} className={`${s.bg} border border-[#E4E6EE] rounded-2xl p-4`}>
             <p className={`text-2xl font-bold ${s.color}`}>{loading ? '—' : s.value}</p>
             <p className="text-[#5A5A6A] text-xs mt-1">{s.label}</p>
           </div>
@@ -334,7 +334,7 @@ export default function QCPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-4 bg-[#111113] border border-[#2A2A35] rounded-xl p-1 w-fit">
+      <div className="flex gap-1 mb-4 bg-white border border-[#E4E6EE] rounded-xl p-1 w-fit">
         {tabs.map(t => (
           <button
             key={t}
@@ -357,12 +357,12 @@ export default function QCPage() {
           placeholder="Search by SKU, product, batch…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full bg-[#111113] border border-[#2A2A35] text-white placeholder-[#5A5A6A] rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#00C896] transition-all"
+          className="w-full bg-white border border-[#E4E6EE] text-white placeholder-[#5A5A6A] rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#00C896] transition-all"
         />
       </div>
 
       {/* Table */}
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-x-auto">
         {loading
           ? <div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-[#3A3A45]" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
           : filtered.length === 0
@@ -371,14 +371,14 @@ export default function QCPage() {
                 <div className="w-14 h-14 bg-[#1E1E24] rounded-2xl flex items-center justify-center mb-4">
                   <svg className="w-7 h-7 text-[#3A3A4A]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
                 </div>
-                <p className="text-white font-medium mb-1">No inspections</p>
+                <p className="text-[#1A1D2E] font-medium mb-1">No inspections</p>
                 <p className="text-[#5A5A6A] text-sm">Create a new QC inspection to get started</p>
               </div>
             )
             : (
               <table className="w-full min-w-[800px] text-sm">
                 <thead>
-                  <tr className="border-b border-[#2A2A35]">
+                  <tr className="border-b border-[#E4E6EE]">
                     {['Work Order','SKU / Product','Batch','Inspector','Date','Type','Qty','Result','Actions'].map(h => (
                       <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                     ))}
@@ -390,10 +390,10 @@ export default function QCPage() {
                     return (
                       <tr
                         key={r.id}
-                        className={`border-b border-[#2A2A35]/60 last:border-0 hover:bg-[#18181C] transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-[#18181C]/30' : ''}`}
+                        className={`border-b border-[#E4E6EE]/60 last:border-0 hover:bg-[#F5F6FA] transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-[#F5F6FA]/30' : ''}`}
                         onClick={() => openEdit(r)}
                       >
-                        <td className="px-4 py-3.5 text-white font-mono text-xs">{wo?.wo_number ?? '—'}</td>
+                        <td className="px-4 py-3.5 text-[#1A1D2E] font-mono text-xs">{wo?.wo_number ?? '—'}</td>
                         <td className="px-4 py-3.5">
                           <p className="text-[#00C896] font-mono text-xs">{r.sku ?? '—'}</p>
                           <p className="text-[#9898A8] text-xs mt-0.5 truncate max-w-[140px]">{r.product_name ?? '—'}</p>
@@ -403,7 +403,7 @@ export default function QCPage() {
                         <td className="px-4 py-3.5 text-[#9898A8] text-xs">{r.inspection_date ? new Date(r.inspection_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}</td>
                         <td className="px-4 py-3.5 text-[#9898A8] text-xs">{r.inspection_type}</td>
                         <td className="px-4 py-3.5">
-                          <p className="text-white text-xs">{r.qty_inspected} insp.</p>
+                          <p className="text-[#1A1D2E] text-xs">{r.qty_inspected} insp.</p>
                           <p className="text-[#5A5A6A] text-[10px]">{r.qty_passed} pass / {r.qty_failed} fail</p>
                         </td>
                         <td className="px-4 py-3.5"><ResultBadge result={r.overall_result} /></td>
@@ -428,14 +428,14 @@ export default function QCPage() {
       <div className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={close} />
 
       {/* Slide-out panel */}
-      <div ref={panelRef} onClick={e => e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[720px] bg-[#111113] border-l border-[#2A2A35] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div ref={panelRef} onClick={e => e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[720px] bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {/* Panel header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A35] shrink-0">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <div>
-            <h2 className="text-white font-semibold">{editing ? 'QC Inspection' : 'New QC Inspection'}</h2>
+            <h2 className="text-[#1A1D2E] font-semibold">{editing ? 'QC Inspection' : 'New QC Inspection'}</h2>
             {editing && <p className="text-[#5A5A6A] text-xs mt-0.5">{editing.sku} — {editing.product_name}</p>}
           </div>
-          <button onClick={close} className="p-2 rounded-xl text-[#5A5A6A] hover:text-white hover:bg-[#18181C] transition-colors">
+          <button onClick={close} className="p-2 rounded-xl text-[#6B7280] hover:text-[#1A1D2E] hover:bg-[#F5F6FA] transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -450,36 +450,36 @@ export default function QCPage() {
                 <select value={form.work_order_id} onChange={e => {
                   const wo = woMap[e.target.value]
                   setForm(p => ({ ...p, work_order_id: e.target.value, product_id: wo?.product_id ?? p.product_id }))
-                }} className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white w-full focus:outline-none focus:border-[#00C896] transition-all">
+                }} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all">
                   <option value="">— None —</option>
                   {workOrders.map(w => <option key={w.id} value={w.id}>{w.wo_number} ({w.status})</option>)}
                 </select>
               </div>
               <div className="col-span-2">
                 <label className="block text-xs text-[#9898A8] mb-1.5">Product</label>
-                <select value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))} className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white w-full focus:outline-none focus:border-[#00C896] transition-all">
+                <select value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all">
                   <option value="">— None —</option>
                   {products.map(p => <option key={p.id} value={p.id}>{p.sku ? `[${p.sku}] ` : ''}{p.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-[#9898A8] mb-1.5">Inspector</label>
-                <select value={form.inspector_email} onChange={e => setForm(p => ({ ...p, inspector_email: e.target.value }))} className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white w-full focus:outline-none focus:border-[#00C896] transition-all">
+                <select value={form.inspector_email} onChange={e => setForm(p => ({ ...p, inspector_email: e.target.value }))} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all">
                   <option value="">— Select —</option>
                   {users.map(u => <option key={u.email} value={u.email}>{u.full_name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-[#9898A8] mb-1.5">Batch Number</label>
-                <input value={form.batch_number} onChange={e => setForm(p => ({ ...p, batch_number: e.target.value }))} className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white w-full focus:outline-none focus:border-[#00C896] transition-all" />
+                <input value={form.batch_number} onChange={e => setForm(p => ({ ...p, batch_number: e.target.value }))} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all" />
               </div>
               <div>
                 <label className="block text-xs text-[#9898A8] mb-1.5">Inspection Date</label>
-                <input type="date" value={form.inspection_date} onChange={e => setForm(p => ({ ...p, inspection_date: e.target.value }))} className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white w-full focus:outline-none focus:border-[#00C896] transition-all" />
+                <input type="date" value={form.inspection_date} onChange={e => setForm(p => ({ ...p, inspection_date: e.target.value }))} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all" />
               </div>
               <div>
                 <label className="block text-xs text-[#9898A8] mb-1.5">Type</label>
-                <select value={form.inspection_type} onChange={e => setForm(p => ({ ...p, inspection_type: e.target.value }))} className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white w-full focus:outline-none focus:border-[#00C896] transition-all">
+                <select value={form.inspection_type} onChange={e => setForm(p => ({ ...p, inspection_type: e.target.value }))} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all">
                   {INS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
@@ -502,7 +502,7 @@ export default function QCPage() {
                     type="number"
                     value={form[key as keyof typeof form]}
                     onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
-                    className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-3 py-2.5 text-sm text-white w-full focus:outline-none focus:border-[#00C896] transition-all text-center font-mono"
+                    className="bg-white border border-[#E4E6EE] rounded-xl px-3 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all text-center font-mono"
                   />
                 </div>
               ))}
@@ -558,7 +558,7 @@ export default function QCPage() {
                 <button
                   key={key}
                   onClick={() => setForm(p => ({ ...p, overall_result: key }))}
-                  className={`px-3 py-2.5 rounded-xl border text-xs font-medium transition-all ${form.overall_result === key ? cfg.cls + ' ring-2 ring-offset-1 ring-offset-[#111113] ring-current' : 'bg-[#18181C] border-[#2A2A35] text-[#5A5A6A] hover:text-[#9898A8]'}`}
+                  className={`px-3 py-2.5 rounded-xl border text-xs font-medium transition-all ${form.overall_result === key ? cfg.cls + ' ring-2 ring-offset-1 ring-offset-white ring-current' : 'bg-[#F5F6FA] border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E]'}`}
                 >
                   {cfg.label}
                 </button>
@@ -574,7 +574,7 @@ export default function QCPage() {
               onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
               placeholder="General inspection notes…"
               rows={2}
-              className="bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white placeholder-[#5A5A6A] w-full focus:outline-none focus:border-[#00C896] transition-all resize-none"
+              className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] w-full focus:outline-none focus:border-[#3B6FE0] transition-all resize-none"
             />
             {(form.overall_result === 'Fail' || form.overall_result === 'Rework Required') && (
               <>
@@ -590,7 +590,7 @@ export default function QCPage() {
                   onChange={e => setForm(p => ({ ...p, corrective_action: e.target.value }))}
                   placeholder="Corrective action required…"
                   rows={2}
-                  className="mt-2 bg-[#18181C] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-sm text-white placeholder-[#5A5A6A] w-full focus:outline-none focus:border-[#00C896] transition-all resize-none"
+                  className="mt-2 bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] w-full focus:outline-none focus:border-[#3B6FE0] transition-all resize-none"
                 />
               </>
             )}
@@ -598,11 +598,11 @@ export default function QCPage() {
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 px-6 py-4 border-t border-[#2A2A35] flex gap-3">
-          <button onClick={close} className="flex-1 bg-[#18181C] hover:bg-[#22222A] border border-[#2A2A35] text-white text-sm px-4 py-2.5 rounded-xl transition-all">
+        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] flex gap-3">
+          <button onClick={close} className="flex-1 bg-white hover:bg-[#F5F6FA] border border-[#E4E6EE] text-[#1A1D2E] text-sm px-4 py-2.5 rounded-xl transition-all">
             Cancel
           </button>
-          <button onClick={() => save(false)} disabled={saving} className="px-5 py-2.5 rounded-xl border border-[#2A2A35] text-[#9898A8] hover:text-white text-sm transition-all disabled:opacity-50">
+          <button onClick={() => save(false)} disabled={saving} className="px-5 py-2.5 rounded-xl border border-[#E4E6EE] text-[#9898A8] hover:text-[#1A1D2E] text-sm transition-all disabled:opacity-50">
             {saving ? 'Saving…' : 'Save Draft'}
           </button>
           <button onClick={() => save(true)} disabled={saving} className="flex-1 bg-[#00C896] hover:bg-[#00B085] text-black font-semibold text-sm px-5 py-2.5 rounded-xl transition-all disabled:opacity-50">
@@ -618,11 +618,11 @@ interface ParamRowProps { param: QCParam; result?: QCResult; onChange: (r: strin
 function ParamRow({ param, result, onChange, onMeasure }: ParamRowProps) {
   const r = result?.result ?? 'Pending'
   return (
-    <div className={`bg-[#18181C] border rounded-xl p-3 transition-all ${r === 'Pass' ? 'border-[#00C89630]' : r === 'Fail' ? 'border-red-500/30' : r === 'N/A' ? 'border-[#3A3A45]' : 'border-[#2A2A35]'}`}>
+    <div className={`bg-[#F5F6FA] border rounded-xl p-3 transition-all ${r === 'Pass' ? 'border-[#00C89630]' : r === 'Fail' ? 'border-red-500/30' : r === 'N/A' ? 'border-[#3A3A45]' : 'border-[#E4E6EE]'}`}>
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-white text-xs font-medium">{param.parameter_name}</span>
+            <span className="text-[#1A1D2E] text-xs font-medium">{param.parameter_name}</span>
             {param.parameter_code && <span className="text-[#5A5A6A] font-mono text-[10px]">{param.parameter_code}</span>}
             {param.is_critical && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">CRITICAL</span>}
           </div>
@@ -634,7 +634,7 @@ function ParamRow({ param, result, onChange, onMeasure }: ParamRowProps) {
                 placeholder={`Measured value${param.unit ? ` (${param.unit})` : ''}`}
                 value={result?.measured_value ?? ''}
                 onChange={e => onMeasure(e.target.value)}
-                className="bg-[#111113] border border-[#2A2A35] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#5A5A6A] w-36 focus:outline-none focus:border-[#00C896] transition-all"
+                className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#5A5A6A] w-36 focus:outline-none focus:border-[#00C896] transition-all"
               />
               {param.unit && <span className="text-[#5A5A6A] text-xs">{param.unit}</span>}
               {(param.min_value != null || param.max_value != null) && (
@@ -653,7 +653,7 @@ function ParamRow({ param, result, onChange, onMeasure }: ParamRowProps) {
                   ? v === 'Pass' ? 'bg-[#00C89620] text-[#00C896] border-[#00C89640]'
                   : v === 'Fail' ? 'bg-red-500/20 text-red-400 border-red-500/30'
                   : 'bg-[#2A2A35] text-[#9898A8] border-[#3A3A45]'
-                  : 'bg-transparent text-[#5A5A6A] border-[#2A2A35] hover:text-white hover:border-[#3A3A45]'
+                  : 'bg-transparent text-[#5A5A6A] border-[#E4E6EE] hover:text-white hover:border-[#3A3A45]'
               }`}
             >
               {v}

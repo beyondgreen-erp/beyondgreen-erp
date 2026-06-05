@@ -210,7 +210,7 @@ export default function ImportMap({ shipments }: { shipments: Shipment[] }) {
     <div className="space-y-3">
       {/* Map */}
       <div
-        className="relative bg-[#0a1628] rounded-2xl overflow-hidden border border-[#2A2A35]"
+        className="relative bg-[#EFF3FA] rounded-2xl overflow-hidden border border-[#E4E6EE]"
         onMouseMove={e => {
           const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
           setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })

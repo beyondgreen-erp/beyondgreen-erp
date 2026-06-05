@@ -33,7 +33,7 @@ export default function ConfirmModal({ open, title, description, confirmLabel = 
       <div
         ref={ref}
         tabIndex={-1}
-        className="relative bg-[#18181C] border border-[#2A2A35] rounded-2xl shadow-2xl p-6 w-full max-w-sm fade-in"
+        className="relative bg-white border border-[#E4E6EE] rounded-2xl shadow-sm p-6 w-full max-w-sm fade-in"
       >
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${danger ? 'bg-red-500/15' : 'bg-[#00C89615]'}`}>
           <svg className={`w-5 h-5 ${danger ? 'text-red-400' : 'text-[#00C896]'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -43,12 +43,12 @@ export default function ConfirmModal({ open, title, description, confirmLabel = 
             }
           </svg>
         </div>
-        <h3 className="text-white font-semibold text-base mb-1">{title}</h3>
+        <h3 className="text-[#1A1D2E] font-semibold text-base mb-1">{title}</h3>
         {description && <p className="text-[#9898A8] text-sm mb-5">{description}</p>}
         <div className="flex gap-3 mt-5">
           <button
             onClick={onCancel}
-            className="flex-1 bg-[#111113] hover:bg-[#22222A] border border-[#2A2A35] text-white text-sm px-4 py-2.5 rounded-xl transition-all"
+            className="flex-1 bg-white hover:bg-[#F5F6FA] border border-[#E4E6EE] text-[#1A1D2E] text-sm px-4 py-2.5 rounded-xl transition-all"
           >
             Cancel
           </button>

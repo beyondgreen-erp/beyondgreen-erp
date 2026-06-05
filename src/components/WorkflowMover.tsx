@@ -48,7 +48,7 @@ export function WorkflowProgressBar({ status }: { status: string }) {
           <div key={stage} className="flex items-center">
             <div className={`flex flex-col items-center gap-1 min-w-[56px]`}>
               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all
-                ${done ? 'bg-emerald-500 text-white' : active ? 'bg-blue-500 text-white ring-2 ring-blue-400/30' : 'bg-gray-800 text-gray-600 border border-gray-700'}`}>
+                ${done ? 'bg-emerald-500 text-white' : active ? 'bg-blue-500 text-white ring-2 ring-blue-400/30' : 'bg-[#F5F6FA] text-gray-600 border border-[#E4E6EE]'}`}>
                 {done ? (
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
@@ -62,7 +62,7 @@ export function WorkflowProgressBar({ status }: { status: string }) {
               </span>
             </div>
             {i < WORKFLOW_STAGES.length - 1 && (
-              <div className={`w-4 h-px mb-4 ${i < current ? 'bg-emerald-500/50' : 'bg-gray-700'}`}/>
+              <div className={`w-4 h-px mb-4 ${i < current ? 'bg-emerald-500/50' : 'bg-[#F5F6FA]'}`}/>
             )}
           </div>
         )
@@ -262,7 +262,7 @@ export default function WorkflowMover({ recordId, recordType, orderNumber, onMov
     <div className="relative inline-block" ref={ref}>
       <button
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1 text-xs border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+        className="flex items-center gap-1 text-xs border border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E] hover:border-[#D0D3E0] px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
       >
         Send To
         <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -277,13 +277,13 @@ export default function WorkflowMover({ recordId, recordType, orderNumber, onMov
       )}
 
       {open && (
-        <div className="absolute top-full mt-1 left-0 z-50 bg-[#1A1A1F] border border-[#3A3A45] rounded-xl shadow-2xl py-1 min-w-[180px]">
+        <div className="absolute top-full mt-1 left-0 z-50 bg-white border border-[#E4E6EE] rounded-xl shadow-lg py-1 min-w-[180px]">
           {actions.map(action => (
             <button
               key={action.label}
               onClick={() => run(action.label, action.handler)}
               disabled={loading !== null}
-              className={`w-full text-left px-4 py-2.5 text-xs hover:bg-gray-800/60 transition-colors flex items-center justify-between gap-2 disabled:opacity-50 ${action.color ?? 'text-gray-300'}`}
+              className={`w-full text-left px-4 py-2.5 text-xs hover:bg-[#F5F6FA] transition-colors flex items-center justify-between gap-2 disabled:opacity-50 ${action.color ?? 'text-[#374151]'}`}
             >
               <span>{action.label}</span>
               {loading === action.label && (

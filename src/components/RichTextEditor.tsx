@@ -44,13 +44,13 @@ function MentionDropdown({ state, onSelect }: { state: MentionState; onSelect: (
   return createPortal(
     <div
       style={{ position: 'fixed', top: state.rect.bottom + 6, left: state.rect.left, zIndex: 99999 }}
-      className="bg-[#1E1E28] border border-[#3A3A45] rounded-xl shadow-2xl py-1.5 min-w-52 overflow-hidden"
+      className="bg-white border border-[#E4E6EE] rounded-xl shadow-lg py-1.5 min-w-52 overflow-hidden"
     >
       {state.items.map((p, i) => (
         <button
           key={p.email}
           onMouseDown={e => { e.preventDefault(); onSelect(p, i) }}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${i === state.selectedIndex ? 'bg-[#2A2A35]' : 'hover:bg-[#2A2A35]'}`}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${i === state.selectedIndex ? 'bg-[#F0F1F5]' : 'hover:bg-[#F5F6FA]'}`}
         >
           <div
             className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
@@ -70,7 +70,7 @@ function MentionDropdown({ state, onSelect }: { state: MentionState; onSelect: (
 }
 
 function Divider() {
-  return <span className="w-px h-4 bg-gray-700 mx-1 shrink-0" />
+  return <span className="w-px h-4 bg-[#F5F6FA] mx-1 shrink-0" />
 }
 
 function Btn({
@@ -93,7 +93,7 @@ function Btn({
       title={title}
       disabled={disabled}
       className={`p-1.5 rounded text-xs transition-colors shrink-0 ${
-        active ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+        active ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#F5F6FA]'
       } disabled:opacity-40`}
     >
       {children}
@@ -267,9 +267,9 @@ export default function RichTextEditor({ content, onChange, placeholder, readOnl
   }
 
   return (
-    <div className="border border-gray-700 rounded-lg overflow-hidden bg-gray-800">
+    <div className="border border-[#E4E6EE] rounded-lg overflow-hidden bg-[#F5F6FA]">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 bg-gray-900 border-b border-gray-700">
+      <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 bg-white border-b border-[#E4E6EE]">
         <Btn onClick={() => editor?.chain().focus().toggleBold().run()} active={editor?.isActive('bold')} title="Bold">
           <strong>B</strong>
         </Btn>

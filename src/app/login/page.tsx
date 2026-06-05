@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
@@ -12,7 +12,11 @@ function validateDomain(email: string) {
   return ALLOWED_DOMAINS.includes(domain ?? '')
 }
 
-export default function LoginPage() {
+export default function LoginPageWrapper() {
+  return <Suspense><LoginPage /></Suspense>
+}
+
+function LoginPage() {
   const router = useRouter()
   const params = useSearchParams()
   const [email, setEmail] = useState('')
@@ -74,7 +78,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0B] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#F5F6FA] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
 
         <div className="text-center mb-8">
@@ -82,15 +86,15 @@ export default function LoginPage() {
             <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
               <span className="text-white font-bold text-lg">bG</span>
             </div>
-            <span className="text-white font-bold text-xl">beyondGREEN ERP</span>
+            <span className="text-[#1A1D2E] font-bold text-xl">beyondGREEN ERP</span>
           </div>
-          <p className="text-gray-500 text-sm">Restricted access — authorized personnel only</p>
+          <p className="text-[#6B7280] text-sm">Restricted access — authorized personnel only</p>
         </div>
 
-        <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-8">
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-8 shadow-sm">
           {mode === 'login' ? (
             <>
-              <h1 className="text-white font-semibold text-lg mb-6">Sign in</h1>
+              <h1 className="text-[#1A1D2E] font-semibold text-lg mb-6">Sign in</h1>
 
               {sessionExpired && (
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4">
@@ -112,25 +116,25 @@ export default function LoginPage() {
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Email</label>
+                  <label className="text-xs text-[#6B7280] uppercase tracking-wider block mb-1.5">Email</label>
                   <input
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="you@beyondgreenbiotech.com"
                     required
-                    className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
+                    className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-3 text-[#1A1D2E] placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Password</label>
+                  <label className="text-xs text-[#6B7280] uppercase tracking-wider block mb-1.5">Password</label>
                   <input
                     type="password"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
+                    className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-3 text-[#1A1D2E] placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
                   />
                 </div>
                 <button
@@ -144,15 +148,15 @@ export default function LoginPage() {
 
               <button
                 onClick={() => { setMode('reset'); setError('') }}
-                className="w-full text-center text-gray-500 hover:text-gray-300 text-sm mt-4 transition-colors"
+                className="w-full text-center text-[#6B7280] hover:text-[#1A1D2E] text-sm mt-4 transition-colors"
               >
                 Forgot password?
               </button>
             </>
           ) : (
             <>
-              <h1 className="text-white font-semibold text-lg mb-2">Reset password</h1>
-              <p className="text-gray-500 text-sm mb-6">Enter your work email and we&apos;ll send a reset link.</p>
+              <h1 className="text-[#1A1D2E] font-semibold text-lg mb-2">Reset password</h1>
+              <p className="text-[#6B7280] text-sm mb-6">Enter your work email and we&apos;ll send a reset link.</p>
 
               {error && (
                 <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4">
@@ -172,7 +176,7 @@ export default function LoginPage() {
                     onChange={e => setEmail(e.target.value)}
                     placeholder="you@beyondgreenbiotech.com"
                     required
-                    className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
+                    className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-3 text-[#1A1D2E] placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
                   />
                   <button
                     type="submit"
@@ -186,7 +190,7 @@ export default function LoginPage() {
 
               <button
                 onClick={() => { setMode('login'); setError('') }}
-                className="w-full text-center text-gray-500 hover:text-gray-300 text-sm mt-4 transition-colors"
+                className="w-full text-center text-[#6B7280] hover:text-[#1A1D2E] text-sm mt-4 transition-colors"
               >
                 ← Back to sign in
               </button>
@@ -194,7 +198,7 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-gray-600 text-xs mt-6">
+        <p className="text-center text-[#9CA3AF] text-xs mt-6">
           beyondGREEN biotech, Inc. · Internal ERP System
         </p>
       </div>

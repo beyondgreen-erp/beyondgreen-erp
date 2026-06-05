@@ -147,7 +147,7 @@ function DashboardTab({ production, inventory, orders }: {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {kpis.map(k => (
-          <div key={k.label} className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-4">
+          <div key={k.label} className="bg-white border border-[#E4E6EE] rounded-2xl p-4">
             <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
             <p className="text-[#5A5A6A] text-xs mt-1">{k.label}</p>
           </div>
@@ -155,41 +155,41 @@ function DashboardTab({ production, inventory, orders }: {
       </div>
 
       {/* Production Chart */}
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-5">
-        <h3 className="text-white font-semibold mb-4">Daily SRP Production — Last 30 Days</h3>
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl p-5">
+        <h3 className="text-[#1A1D2E] font-semibold mb-4">Daily SRP Production — Last 30 Days</h3>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={rollingData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2A2A35" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#E4E6EE" />
             <XAxis dataKey="date" tick={{ fill: '#5A5A6A', fontSize: 11 }} interval={4} />
             <YAxis tick={{ fill: '#5A5A6A', fontSize: 11 }} />
             <Tooltip
-              contentStyle={{ backgroundColor: '#111113', border: '1px solid #2A2A35', borderRadius: 12 }}
-              labelStyle={{ color: '#F8F8FA' }}
+              contentStyle={{ backgroundColor: '#FFFFFF', border: '1px solid #E4E6EE', borderRadius: 12 }}
+              labelStyle={{ color: '#1A1D2E' }}
               itemStyle={{ color: '#9898A8' }}
             />
             <Bar dataKey="total" fill="#0071CE" radius={[3, 3, 0, 0]} name="Total SRPs" />
           </BarChart>
         </ResponsiveContainer>
-        <h3 className="text-white font-semibold mb-4 mt-6">7-Day Rolling Average</h3>
+        <h3 className="text-[#1A1D2E] font-semibold mb-4 mt-6">7-Day Rolling Average</h3>
         <ResponsiveContainer width="100%" height={140}>
           <LineChart data={rollingData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2A2A35" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#E4E6EE" />
             <XAxis dataKey="date" tick={{ fill: '#5A5A6A', fontSize: 11 }} interval={4} />
             <YAxis tick={{ fill: '#5A5A6A', fontSize: 11 }} />
-            <Tooltip contentStyle={{ backgroundColor: '#111113', border: '1px solid #2A2A35', borderRadius: 12 }} labelStyle={{ color: '#F8F8FA' }} />
+            <Tooltip contentStyle={{ backgroundColor: '#FFFFFF', border: '1px solid #E4E6EE', borderRadius: 12 }} labelStyle={{ color: '#1A1D2E' }} />
             <Line type="monotone" dataKey="rolling7" stroke="#00C896" strokeWidth={2} dot={false} name="7-day avg" />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
       {/* SKU Breakdown Table */}
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
-        <div className="px-5 py-3 border-b border-[#2A2A35]">
-          <h3 className="text-white font-semibold">Today&apos;s Production by SKU</h3>
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-x-auto">
+        <div className="px-5 py-3 border-b border-[#E4E6EE]">
+          <h3 className="text-[#1A1D2E] font-semibold">Today&apos;s Production by SKU</h3>
         </div>
         <table className="w-full text-sm min-w-[700px]">
           <thead>
-            <tr className="border-b border-[#2A2A35]">
+            <tr className="border-b border-[#E4E6EE]">
               {['SKU', 'Name', 'SRPs Today', 'Packs Today', 'Available SRPs', 'Available Packs', 'Safety Stock', 'Status'].map(h => (
                 <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
               ))}
@@ -201,12 +201,12 @@ function DashboardTab({ production, inventory, orders }: {
               const t = todayBySku[sku]
               const status = getStatus(inv?.srps_available ?? 0, inv?.safety_stock_srps ?? 0)
               return (
-                <tr key={sku} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
+                <tr key={sku} className="border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50">
                   <td className="px-4 py-3 font-mono text-xs text-[#0071CE]">{sku}</td>
-                  <td className="px-4 py-3 text-white text-xs">{name}</td>
-                  <td className="px-4 py-3 text-white text-xs font-semibold">{fmt(t?.srps)}</td>
+                  <td className="px-4 py-3 text-[#1A1D2E] text-xs">{name}</td>
+                  <td className="px-4 py-3 text-[#1A1D2E] text-xs font-semibold">{fmt(t?.srps)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(t?.packs)}</td>
-                  <td className="px-4 py-3 text-white text-xs">{fmt(inv?.srps_available)}</td>
+                  <td className="px-4 py-3 text-[#1A1D2E] text-xs">{fmt(inv?.srps_available)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(inv?.packs_available)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(inv?.safety_stock_srps)}</td>
                   <td className="px-4 py-3">
@@ -338,10 +338,10 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
 
   return (
     <div className="space-y-6">
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-6 space-y-6">
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl p-6 space-y-6">
         {/* Header */}
         <div>
-          <h2 className="text-xl font-bold text-white">Log Production Entry</h2>
+          <h2 className="text-xl font-bold text-[#1A1D2E]">Log Production Entry</h2>
           <p className="text-[#5A5A6A] text-sm mt-1">
             Select a date and shift below — you can log or update entries for past shifts.
           </p>
@@ -357,7 +357,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
               value={selectedDate}
               max={today()}
               onChange={e => setSelectedDate(e.target.value)}
-              className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]"
+              className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]"
             />
           </div>
 
@@ -372,7 +372,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
                   className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
                     shift === s.id
                       ? 'bg-[#0071CE] border-[#0071CE] text-white'
-                      : 'bg-[#18181C] border-[#2A2A35] text-[#9898A8] hover:text-white'
+                      : 'bg-white border-[#E4E6EE] text-[#9898A8] hover:text-white'
                   }`}
                 >
                   {s.icon} {s.id}
@@ -410,22 +410,22 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
               const inv = invMap[sku]
               const val = srps[sku] ?? 0
               return (
-                <div key={sku} className="bg-[#0A0A0B] border border-[#2A2A35] rounded-xl p-4">
+                <div key={sku} className="bg-white border border-[#E4E6EE] rounded-xl p-4">
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-mono text-xs text-[#0071CE] font-bold">{sku}</span>
                     <span className="text-[#5A5A6A] text-[10px]">Stock: {fmt(inv?.srps_available)} SRPs</span>
                   </div>
                   <p className="text-[#9898A8] text-xs mb-3">{name}</p>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => adjust(sku, -1)} className="w-9 h-9 rounded-xl bg-[#18181C] border border-[#2A2A35] text-white font-bold hover:bg-[#2A2A35] transition-colors flex items-center justify-center">−</button>
+                    <button onClick={() => adjust(sku, -1)} className="w-9 h-9 rounded-xl bg-white border border-[#E4E6EE] text-[#1A1D2E] font-bold hover:bg-[#2A2A35] transition-colors flex items-center justify-center">−</button>
                     <input
                       type="number"
                       min={0}
                       value={val}
                       onChange={e => setSrps(prev => ({ ...prev, [sku]: Math.max(0, parseInt(e.target.value) || 0) }))}
-                      className="flex-1 bg-[#18181C] border border-[#2A2A35] rounded-xl text-center text-white text-lg font-bold py-1.5 focus:outline-none focus:border-[#0071CE] min-w-0"
+                      className="flex-1 bg-white border border-[#E4E6EE] rounded-xl text-center text-[#1A1D2E] text-lg font-bold py-1.5 focus:outline-none focus:border-[#0071CE] min-w-0"
                     />
-                    <button onClick={() => adjust(sku, 1)} className="w-9 h-9 rounded-xl bg-[#0071CE] text-white font-bold hover:bg-[#0071CE]/80 transition-colors flex items-center justify-center">+</button>
+                    <button onClick={() => adjust(sku, 1)} className="w-9 h-9 rounded-xl bg-[#0071CE] text-[#1A1D2E] font-bold hover:bg-[#0071CE]/80 transition-colors flex items-center justify-center">+</button>
                   </div>
                   <p className="text-[#5A5A6A] text-xs mt-2 text-center">= {fmt(val * 6)} packs ({val} × 6)</p>
                 </div>
@@ -436,9 +436,9 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
 
         {/* Summary */}
         {totalSRPs > 0 && (
-          <div className="bg-[#0A0A0B] border border-[#0071CE]/30 rounded-xl p-4">
+          <div className="bg-[#F9FAFB] border border-[#0071CE]/30 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-white font-semibold">Entry Summary</span>
+              <span className="text-[#1A1D2E] font-semibold">Entry Summary</span>
               <div className="flex gap-6">
                 <div><span className="text-[#5A5A6A] text-xs">Total SRPs</span><p className="text-[#0071CE] font-bold text-lg">{fmt(totalSRPs)}</p></div>
                 <div><span className="text-[#5A5A6A] text-xs">Total Packs</span><p className="text-[#00C896] font-bold text-lg">{fmt(totalPacks)}</p></div>
@@ -450,7 +450,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
                 {WALMART_SKUS.filter(({ sku }) => (srps[sku] ?? 0) > 0).map(({ sku, name }) => (
                   <tr key={sku}>
                     <td className="text-[#9898A8] py-0.5">{sku} – {name}</td>
-                    <td className="text-white font-semibold">{fmt(srps[sku])}</td>
+                    <td className="text-[#1A1D2E] font-semibold">{fmt(srps[sku])}</td>
                     <td className="text-[#9898A8]">{fmt((srps[sku] ?? 0) * 6)}</td>
                   </tr>
                 ))}
@@ -465,7 +465,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
           onChange={e => setNotes(e.target.value)}
           placeholder="Optional notes for this production run..."
           rows={2}
-          className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-3 text-white text-sm placeholder-[#3A3A4A] focus:outline-none focus:border-[#0071CE] resize-none"
+          className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-3 text-[#1A1D2E] text-sm placeholder-[#3A3A4A] focus:outline-none focus:border-[#0071CE] resize-none"
         />
 
         {/* Submit */}
@@ -480,9 +480,9 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
       </div>
 
       {/* Recent Entries */}
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
-        <div className="px-5 py-3 border-b border-[#2A2A35] flex items-center justify-between">
-          <h3 className="text-white font-semibold">Recent Entries</h3>
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-x-auto">
+        <div className="px-5 py-3 border-b border-[#E4E6EE] flex items-center justify-between">
+          <h3 className="text-[#1A1D2E] font-semibold">Recent Entries</h3>
           <p className="text-[#5A5A6A] text-xs">Click a row to load it for editing</p>
         </div>
         {recentLoading ? (
@@ -492,7 +492,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
         ) : (
           <table className="w-full text-sm min-w-[700px]">
             <thead>
-              <tr className="border-b border-[#2A2A35]">
+              <tr className="border-b border-[#E4E6EE]">
                 {['Date', 'Shift', 'Total SRPs', 'Total Packs', 'Logged By', 'Notes', 'Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                 ))}
@@ -502,7 +502,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
               {recent.map(entry => (
                 <tr
                   key={entry.id}
-                  className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50 cursor-pointer"
+                  className="border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50 cursor-pointer"
                   onClick={() => {
                     setSelectedDate(entry.production_date)
                     setShift(entry.shift as ShiftId)
@@ -510,7 +510,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
                   }}
                 >
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmtDate(entry.production_date)}</td>
-                  <td className="px-4 py-3 text-white text-xs">{entry.shift}</td>
+                  <td className="px-4 py-3 text-[#1A1D2E] text-xs">{entry.shift}</td>
                   <td className="px-4 py-3 text-[#0071CE] font-semibold text-xs">{fmt(entry.total_srps)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(entry.total_packs)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs truncate max-w-[140px]">{entry.logged_by}</td>
@@ -632,13 +632,13 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
   return (
     <div className="space-y-6">
       {/* Inventory Table */}
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
-        <div className="px-5 py-3 border-b border-[#2A2A35]">
-          <h3 className="text-white font-semibold">Current Inventory</h3>
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-x-auto">
+        <div className="px-5 py-3 border-b border-[#E4E6EE]">
+          <h3 className="text-[#1A1D2E] font-semibold">Current Inventory</h3>
         </div>
         <table className="w-full text-sm min-w-[800px]">
           <thead>
-            <tr className="border-b border-[#2A2A35]">
+            <tr className="border-b border-[#E4E6EE]">
               {['SKU', 'Product', 'SRPs Available', 'Packs Available', 'Safety Stock', 'Status', 'Last Updated', 'Adjust'].map(h => (
                 <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
               ))}
@@ -649,10 +649,10 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
               const inv = invMap[sku]
               const status = getStatus(inv?.srps_available ?? 0, inv?.safety_stock_srps ?? 0)
               return (
-                <tr key={sku} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
+                <tr key={sku} className="border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50">
                   <td className="px-4 py-3 font-mono text-xs text-[#0071CE]">{sku}</td>
-                  <td className="px-4 py-3 text-white text-xs">{inv?.product_name ?? name}</td>
-                  <td className="px-4 py-3 text-white font-semibold text-xs">{fmt(inv?.srps_available)}</td>
+                  <td className="px-4 py-3 text-[#1A1D2E] text-xs">{inv?.product_name ?? name}</td>
+                  <td className="px-4 py-3 text-[#1A1D2E] font-semibold text-xs">{fmt(inv?.srps_available)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(inv?.packs_available)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(inv?.safety_stock_srps)}</td>
                   <td className="px-4 py-3"><span className={`text-xs font-medium ${status.cls}`}>{status.icon} {status.label}</span></td>
@@ -670,27 +670,27 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
       {/* Adjust Modal */}
       {adjustSku && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-white font-bold text-lg mb-4">Adjust Inventory — {adjustSku}</h3>
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-[#1A1D2E] font-bold text-lg mb-4">Adjust Inventory — {adjustSku}</h3>
             <div className="space-y-4">
               <div>
                 <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-2 block">Reason</label>
-                <select value={adjReason} onChange={e => setAdjReason(e.target.value)} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]">
+                <select value={adjReason} onChange={e => setAdjReason(e.target.value)} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]">
                   {['Correction', 'Damage', 'Lost', 'Count', 'Order', 'Other'].map(r => <option key={r}>{r}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-2 block">Adjustment (SRPs, + or -)</label>
-                <input type="number" value={adjAmt} onChange={e => setAdjAmt(parseInt(e.target.value) || 0)} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+                <input type="number" value={adjAmt} onChange={e => setAdjAmt(parseInt(e.target.value) || 0)} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
                 <p className="text-[#5A5A6A] text-xs mt-1">New total: {fmt(Math.max(0, (invMap[adjustSku]?.srps_available ?? 0) + adjAmt))} SRPs</p>
               </div>
               <div>
                 <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-2 block">Notes</label>
-                <input type="text" value={adjNotes} onChange={e => setAdjNotes(e.target.value)} placeholder="Optional notes..." className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+                <input type="text" value={adjNotes} onChange={e => setAdjNotes(e.target.value)} placeholder="Optional notes..." className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
               </div>
               <div className="flex gap-3 pt-2">
-                <button onClick={() => setAdjustSku(null)} className="flex-1 py-2.5 rounded-xl border border-[#2A2A35] text-[#9898A8] hover:text-white text-sm transition-colors">Cancel</button>
-                <button onClick={applyAdjustment} disabled={adjSubmitting || adjAmt === 0} className="flex-1 py-2.5 rounded-xl bg-[#0071CE] text-white font-semibold text-sm hover:bg-[#0071CE]/80 transition-colors disabled:opacity-40">
+                <button onClick={() => setAdjustSku(null)} className="flex-1 py-2.5 rounded-xl border border-[#E4E6EE] text-[#9898A8] hover:text-[#1A1D2E] text-sm transition-colors">Cancel</button>
+                <button onClick={applyAdjustment} disabled={adjSubmitting || adjAmt === 0} className="flex-1 py-2.5 rounded-xl bg-[#0071CE] text-[#1A1D2E] font-semibold text-sm hover:bg-[#0071CE]/80 transition-colors disabled:opacity-40">
                   {adjSubmitting ? 'Applying...' : 'Apply Adjustment'}
                 </button>
               </div>
@@ -700,12 +700,12 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
       )}
 
       {/* History Toggle */}
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-[#2A2A35] flex items-center justify-between">
-          <h3 className="text-white font-semibold">Production History</h3>
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-[#E4E6EE] flex items-center justify-between">
+          <h3 className="text-[#1A1D2E] font-semibold">Production History</h3>
           <div className="flex gap-1">
             {(['daily', 'weekly', 'monthly'] as const).map(v => (
-              <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${view === v ? 'bg-[#0071CE] text-white' : 'bg-[#18181C] text-[#9898A8] hover:text-white'}`}>
+              <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${view === v ? 'bg-[#0071CE] text-white' : 'bg-white text-[#9898A8] hover:text-white'}`}>
                 {v.charAt(0).toUpperCase() + v.slice(1)}
               </button>
             ))}
@@ -714,19 +714,19 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
         <div className="overflow-x-auto">
           {view === 'daily' && (
             <table className="w-full text-sm min-w-[700px]">
-              <thead><tr className="border-b border-[#2A2A35]">
+              <thead><tr className="border-b border-[#E4E6EE]">
                 {['Date', '1st Shift', '2nd Shift', '3rd Shift', 'Daily Total'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {dailyData.map(d => (
-                  <tr key={d.date} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
+                  <tr key={d.date} className="border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50">
                     <td className="px-4 py-2.5 text-[#9898A8] text-xs font-medium">{fmtDate(d.date)}</td>
                     {(['1st Shift', '2nd Shift', '3rd Shift'] as const).map(sh => (
                       <td key={sh} className="px-4 py-2.5 text-xs">
                         {d[sh] > 0
-                          ? <span className="text-white font-semibold">{fmt(d[sh])} SRPs</span>
+                          ? <span className="text-[#1A1D2E] font-semibold">{fmt(d[sh])} SRPs</span>
                           : <span className="text-[#3A3A45]">—</span>
                         }
                       </td>
@@ -739,20 +739,20 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
           )}
           {view === 'weekly' && (
             <table className="w-full text-sm min-w-[600px]">
-              <thead><tr className="border-b border-[#2A2A35]">
+              <thead><tr className="border-b border-[#E4E6EE]">
                 {['Week', 'Start', 'End', 'Total SRPs', 'Total Packs', 'Avg Daily'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {weeklyData.map((w, i) => (
-                  <tr key={w.week} className={`border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50 ${i === 0 ? 'bg-[#0071CE]/5' : ''}`}>
+                  <tr key={w.week} className={`border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50 ${i === 0 ? 'bg-[#0071CE]/5' : ''}`}>
                     <td className="px-4 py-2.5 text-[#9898A8] text-xs font-mono">Wk {i + 1}</td>
                     <td className="px-4 py-2.5 text-[#9898A8] text-xs">{fmtDate(w.start)}</td>
                     <td className="px-4 py-2.5 text-[#9898A8] text-xs">{fmtDate(w.end)}</td>
                     <td className="px-4 py-2.5 text-[#0071CE] font-semibold text-xs">{fmt(w.total_srps)}</td>
                     <td className="px-4 py-2.5 text-[#9898A8] text-xs">{fmt(w.total_packs)}</td>
-                    <td className="px-4 py-2.5 text-white text-xs">{fmt(w.avg_daily)}/day</td>
+                    <td className="px-4 py-2.5 text-[#1A1D2E] text-xs">{fmt(w.avg_daily)}/day</td>
                   </tr>
                 ))}
               </tbody>
@@ -760,19 +760,19 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
           )}
           {view === 'monthly' && (
             <table className="w-full text-sm min-w-[600px]">
-              <thead><tr className="border-b border-[#2A2A35]">
+              <thead><tr className="border-b border-[#E4E6EE]">
                 {['Month', 'Total SRPs', 'Total Packs', 'Best Day', 'Avg Daily'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {monthlyData.map((m, i) => (
-                  <tr key={m.month} className={`border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50 ${i === 0 ? 'bg-[#0071CE]/5' : ''}`}>
-                    <td className="px-4 py-2.5 text-white text-xs font-semibold">{m.label}</td>
+                  <tr key={m.month} className={`border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50 ${i === 0 ? 'bg-[#0071CE]/5' : ''}`}>
+                    <td className="px-4 py-2.5 text-[#1A1D2E] text-xs font-semibold">{m.label}</td>
                     <td className="px-4 py-2.5 text-[#0071CE] font-semibold text-xs">{fmt(m.total_srps)}</td>
                     <td className="px-4 py-2.5 text-[#9898A8] text-xs">{fmt(m.total_packs)}</td>
                     <td className="px-4 py-2.5 text-[#00C896] text-xs">{fmt(m.best_day)}</td>
-                    <td className="px-4 py-2.5 text-white text-xs">{fmt(m.avg_daily)}/day</td>
+                    <td className="px-4 py-2.5 text-[#1A1D2E] text-xs">{fmt(m.avg_daily)}/day</td>
                   </tr>
                 ))}
               </tbody>
@@ -867,59 +867,59 @@ function OrdersTab({ inventory, orders, onRefresh, showToast }: {
     <div className="space-y-6">
       {/* Add Order Button */}
       <div className="flex items-center justify-between">
-        <h3 className="text-white font-semibold">Walmart Orders</h3>
-        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0071CE] text-white text-sm font-semibold hover:bg-[#0071CE]/80 transition-colors">
+        <h3 className="text-[#1A1D2E] font-semibold">Walmart Orders</h3>
+        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0071CE] text-[#1A1D2E] text-sm font-semibold hover:bg-[#0071CE]/80 transition-colors">
           {showForm ? '✕ Close' : '+ Add Order'}
         </button>
       </div>
 
       {/* Add Order Form */}
       {showForm && (
-        <div className="bg-[#111113] border border-[#0071CE]/30 rounded-2xl p-6 space-y-4">
-          <h3 className="text-white font-semibold">New Walmart Order</h3>
+        <div className="bg-white border border-[#0071CE]/30 rounded-2xl p-6 space-y-4">
+          <h3 className="text-[#1A1D2E] font-semibold">New Walmart Order</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-1.5 block">PO Number</label>
-              <input value={form.po_number} onChange={e => setForm(f => ({ ...f, po_number: e.target.value }))} placeholder="WM-12345" className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+              <input value={form.po_number} onChange={e => setForm(f => ({ ...f, po_number: e.target.value }))} placeholder="WM-12345" className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
             </div>
             <div>
               <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-1.5 block">Order Date</label>
-              <input type="date" value={form.order_date} onChange={e => setForm(f => ({ ...f, order_date: e.target.value }))} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+              <input type="date" value={form.order_date} onChange={e => setForm(f => ({ ...f, order_date: e.target.value }))} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
             </div>
             <div>
               <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-1.5 block">Required Ship Date</label>
-              <input type="date" value={form.ship_date} onChange={e => setForm(f => ({ ...f, ship_date: e.target.value }))} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+              <input type="date" value={form.ship_date} onChange={e => setForm(f => ({ ...f, ship_date: e.target.value }))} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
             </div>
             <div>
               <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-1.5 block">SKU</label>
-              <select value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]">
+              <select value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]">
                 {WALMART_SKUS.map(s => <option key={s.sku} value={s.sku}>{s.sku} — {s.name}</option>)}
               </select>
             </div>
             <div>
               <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-1.5 block">SRPs Ordered</label>
-              <input type="number" min={0} value={form.srps_ordered} onChange={e => setForm(f => ({ ...f, srps_ordered: parseInt(e.target.value) || 0 }))} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+              <input type="number" min={0} value={form.srps_ordered} onChange={e => setForm(f => ({ ...f, srps_ordered: parseInt(e.target.value) || 0 }))} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
               <p className="text-[#5A5A6A] text-xs mt-1">= {fmt(form.srps_ordered * 6)} packs · Available: {fmt(invMap[form.sku]?.srps_available)} SRPs</p>
             </div>
             <div>
               <label className="text-[#9898A8] text-xs uppercase tracking-wider mb-1.5 block">Notes</label>
-              <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional..." className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+              <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional..." className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
             </div>
           </div>
-          <button onClick={handleAddOrder} disabled={submitting} className="px-8 py-2.5 rounded-xl bg-[#0071CE] text-white font-semibold text-sm hover:bg-[#0071CE]/80 transition-colors disabled:opacity-40">
+          <button onClick={handleAddOrder} disabled={submitting} className="px-8 py-2.5 rounded-xl bg-[#0071CE] text-[#1A1D2E] font-semibold text-sm hover:bg-[#0071CE]/80 transition-colors disabled:opacity-40">
             {submitting ? 'Adding...' : '+ Add Order'}
           </button>
         </div>
       )}
 
       {/* Orders Table */}
-      <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
+      <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-x-auto">
         {orders.length === 0 ? (
           <div className="text-center py-16 text-[#5A5A6A] text-sm">No Walmart orders yet</div>
         ) : (
           <table className="w-full text-sm min-w-[900px]">
             <thead>
-              <tr className="border-b border-[#2A2A35]">
+              <tr className="border-b border-[#E4E6EE]">
                 {['PO Number', 'SKU', 'Product', 'SRPs', 'Packs', 'Order Date', 'Ship Date', 'Status', 'Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                 ))}
@@ -927,11 +927,11 @@ function OrdersTab({ inventory, orders, onRefresh, showToast }: {
             </thead>
             <tbody>
               {orders.map(order => (
-                <tr key={order.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
+                <tr key={order.id} className="border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50">
                   <td className="px-4 py-3 font-mono text-xs text-[#0071CE]">{order.po_number ?? '—'}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-white">{order.sku}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-[#1A1D2E]">{order.sku}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{order.product_name ?? '—'}</td>
-                  <td className="px-4 py-3 text-white font-semibold text-xs">{fmt(order.srps_ordered)}</td>
+                  <td className="px-4 py-3 text-[#1A1D2E] font-semibold text-xs">{fmt(order.srps_ordered)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{fmt(order.packs_ordered)}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{order.order_date ? fmtDate(order.order_date) : '—'}</td>
                   <td className="px-4 py-3 text-[#9898A8] text-xs">{order.ship_date ? fmtDate(order.ship_date) : '—'}</td>
@@ -1023,7 +1023,7 @@ function BomTab({ bom, onRefresh, showToast }: {
           <button
             key={sku}
             onClick={() => setSelectedSku(sku)}
-            className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${selectedSku === sku ? 'bg-[#0071CE]/15 border-[#0071CE]/40 text-white' : 'bg-[#111113] border-[#2A2A35] text-[#9898A8] hover:text-white hover:border-[#3A3A45]'}`}
+            className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${selectedSku === sku ? 'bg-[#0071CE]/15 border-[#0071CE]/40 text-white' : 'bg-white border-[#E4E6EE] text-[#9898A8] hover:text-white hover:border-[#3A3A45]'}`}
           >
             <p className="font-mono text-xs font-bold text-[#0071CE]">{sku}</p>
             <div className="flex items-center justify-between mt-0.5">
@@ -1036,40 +1036,40 @@ function BomTab({ bom, onRefresh, showToast }: {
 
       {/* Right: BOM Detail */}
       <div className="lg:col-span-2 space-y-5">
-        <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-[#2A2A35] flex items-center justify-between">
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-[#E4E6EE] flex items-center justify-between">
             <div>
-              <h3 className="text-white font-semibold">BOM for {selectedSku} — {WALMART_SKUS.find(s => s.sku === selectedSku)?.name}</h3>
+              <h3 className="text-[#1A1D2E] font-semibold">BOM for {selectedSku} — {WALMART_SKUS.find(s => s.sku === selectedSku)?.name}</h3>
               <p className="text-[#5A5A6A] text-xs mt-0.5">Components per SRP (6-pack)</p>
             </div>
-            <button onClick={() => setShowAddForm(!showAddForm)} className="text-xs px-3 py-1.5 rounded-lg bg-[#0071CE] text-white font-semibold hover:bg-[#0071CE]/80 transition-colors">
+            <button onClick={() => setShowAddForm(!showAddForm)} className="text-xs px-3 py-1.5 rounded-lg bg-[#0071CE] text-[#1A1D2E] font-semibold hover:bg-[#0071CE]/80 transition-colors">
               {showAddForm ? 'Cancel' : '+ Add Component'}
             </button>
           </div>
 
           {showAddForm && (
-            <div className="px-5 py-4 border-b border-[#2A2A35] bg-[#0071CE]/5 space-y-3">
+            <div className="px-5 py-4 border-b border-[#E4E6EE] bg-[#0071CE]/5 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[#9898A8] text-xs mb-1 block">Component SKU</label>
-                  <input value={newComp.component_sku} onChange={e => setNewComp(p => ({ ...p, component_sku: e.target.value }))} placeholder="e.g. 22GVF-P" className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+                  <input value={newComp.component_sku} onChange={e => setNewComp(p => ({ ...p, component_sku: e.target.value }))} placeholder="e.g. 22GVF-P" className="w-full bg-white border border-[#E4E6EE] rounded-xl px-3 py-2 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
                 </div>
                 <div>
                   <label className="text-[#9898A8] text-xs mb-1 block">Component Name</label>
-                  <input value={newComp.component_name} onChange={e => setNewComp(p => ({ ...p, component_name: e.target.value }))} placeholder="Display name..." className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+                  <input value={newComp.component_name} onChange={e => setNewComp(p => ({ ...p, component_name: e.target.value }))} placeholder="Display name..." className="w-full bg-white border border-[#E4E6EE] rounded-xl px-3 py-2 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
                 </div>
                 <div>
                   <label className="text-[#9898A8] text-xs mb-1 block">Type</label>
-                  <select value={newComp.component_type} onChange={e => setNewComp(p => ({ ...p, component_type: e.target.value }))} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#0071CE]">
+                  <select value={newComp.component_type} onChange={e => setNewComp(p => ({ ...p, component_type: e.target.value }))} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-3 py-2 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]">
                     {['packaging', 'raw_material', 'label', 'box', 'other'].map(t => <option key={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-[#9898A8] text-xs mb-1 block">Qty per SRP</label>
-                  <input type="number" step="0.0001" value={newComp.quantity_per_srp} onChange={e => setNewComp(p => ({ ...p, quantity_per_srp: parseFloat(e.target.value) || 0, quantity_per_pack: (parseFloat(e.target.value) || 0) / 6 }))} className="w-full bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#0071CE]" />
+                  <input type="number" step="0.0001" value={newComp.quantity_per_srp} onChange={e => setNewComp(p => ({ ...p, quantity_per_srp: parseFloat(e.target.value) || 0, quantity_per_pack: (parseFloat(e.target.value) || 0) / 6 }))} className="w-full bg-white border border-[#E4E6EE] rounded-xl px-3 py-2 text-[#1A1D2E] text-sm focus:outline-none focus:border-[#0071CE]" />
                 </div>
               </div>
-              <button onClick={handleAddComponent} disabled={addSubmitting} className="px-5 py-2 rounded-xl bg-[#0071CE] text-white text-sm font-semibold disabled:opacity-40 hover:bg-[#0071CE]/80 transition-colors">
+              <button onClick={handleAddComponent} disabled={addSubmitting} className="px-5 py-2 rounded-xl bg-[#0071CE] text-[#1A1D2E] text-sm font-semibold disabled:opacity-40 hover:bg-[#0071CE]/80 transition-colors">
                 {addSubmitting ? 'Adding...' : 'Add to BOM'}
               </button>
             </div>
@@ -1077,7 +1077,7 @@ function BomTab({ bom, onRefresh, showToast }: {
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
-              <thead><tr className="border-b border-[#2A2A35]">
+              <thead><tr className="border-b border-[#E4E6EE]">
                 {['Component SKU', 'Name', 'Type', 'Qty/SRP', 'Qty/Pack', 'Actions'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                 ))}
@@ -1086,11 +1086,11 @@ function BomTab({ bom, onRefresh, showToast }: {
                 {bomForSku.length === 0 ? (
                   <tr><td colSpan={6} className="text-center py-8 text-[#5A5A6A] text-sm">No BOM components for this SKU</td></tr>
                 ) : bomForSku.map(comp => (
-                  <tr key={comp.id} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
+                  <tr key={comp.id} className="border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50">
                     <td className="px-4 py-3 font-mono text-xs text-[#0071CE]">{comp.component_sku}</td>
-                    <td className="px-4 py-3 text-white text-xs">{comp.component_name ?? '—'}</td>
+                    <td className="px-4 py-3 text-[#1A1D2E] text-xs">{comp.component_name ?? '—'}</td>
                     <td className="px-4 py-3"><span className={typeBadge(comp.component_type)}>{comp.component_type ?? 'other'}</span></td>
-                    <td className="px-4 py-3 text-white text-xs font-semibold">{comp.quantity_per_srp}</td>
+                    <td className="px-4 py-3 text-[#1A1D2E] text-xs font-semibold">{comp.quantity_per_srp}</td>
                     <td className="px-4 py-3 text-[#9898A8] text-xs">{Number(comp.quantity_per_pack).toFixed(4)}</td>
                     <td className="px-4 py-3">
                       <button onClick={() => handleDeleteComp(comp.id)} className="text-xs text-red-400 px-2 py-1 rounded-lg hover:bg-red-500/10 transition-colors">Remove</button>
@@ -1103,8 +1103,8 @@ function BomTab({ bom, onRefresh, showToast }: {
         </div>
 
         {/* Usage Calculator */}
-        <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-5">
-          <h3 className="text-white font-semibold mb-3">Usage Calculator</h3>
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-5">
+          <h3 className="text-[#1A1D2E] font-semibold mb-3">Usage Calculator</h3>
           <div className="flex items-center gap-3 mb-4">
             <span className="text-[#9898A8] text-sm">If I produce</span>
             <input
@@ -1112,13 +1112,13 @@ function BomTab({ bom, onRefresh, showToast }: {
               min={0}
               value={calcQty}
               onChange={e => setCalcQty(parseInt(e.target.value) || 0)}
-              className="w-28 bg-[#0A0A0B] border border-[#2A2A35] rounded-xl px-3 py-2 text-white text-sm text-center focus:outline-none focus:border-[#0071CE]"
+              className="w-28 bg-white border border-[#E4E6EE] rounded-xl px-3 py-2 text-[#1A1D2E] text-sm text-center focus:outline-none focus:border-[#0071CE]"
             />
             <span className="text-[#9898A8] text-sm">SRPs of {selectedSku}, I need:</span>
           </div>
           {calcQty > 0 && (
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-[#2A2A35]">
+              <thead><tr className="border-b border-[#E4E6EE]">
                 {['Component', 'Type', 'Qty Needed'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider pb-2">{h}</th>
                 ))}
@@ -1127,13 +1127,13 @@ function BomTab({ bom, onRefresh, showToast }: {
                 {bomForSku.map(comp => {
                   const needed = Math.ceil(comp.quantity_per_srp * calcQty)
                   return (
-                    <tr key={comp.id} className="border-b border-[#2A2A35]/30 last:border-0">
+                    <tr key={comp.id} className="border-b border-[#E4E6EE]/30 last:border-0">
                       <td className="py-2">
-                        <p className="text-white text-xs font-semibold">{comp.component_sku}</p>
+                        <p className="text-[#1A1D2E] text-xs font-semibold">{comp.component_sku}</p>
                         <p className="text-[#5A5A6A] text-xs">{comp.component_name}</p>
                       </td>
                       <td className="py-2"><span className={typeBadge(comp.component_type)}>{comp.component_type}</span></td>
-                      <td className="py-2 text-white font-bold text-sm">{fmt(needed)}</td>
+                      <td className="py-2 text-[#1A1D2E] font-bold text-sm">{fmt(needed)}</td>
                     </tr>
                   )
                 })}
@@ -1190,28 +1190,28 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-white font-bold text-lg">AI Supply Chain Insights</h2>
+          <h2 className="text-[#1A1D2E] font-bold text-lg">AI Supply Chain Insights</h2>
           {generatedAt && <p className="text-[#5A5A6A] text-xs mt-0.5">Generated {new Date(generatedAt).toLocaleString()}</p>}
         </div>
         <button
           onClick={generateInsights}
           disabled={loading}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0071CE] text-white text-sm font-semibold hover:bg-[#0071CE]/80 transition-all disabled:opacity-60"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0071CE] text-[#1A1D2E] text-sm font-semibold hover:bg-[#0071CE]/80 transition-all disabled:opacity-60"
         >
           {loading ? <><Spinner /> Analyzing...</> : '🤖 Generate AI Insights'}
         </button>
       </div>
 
       {!data && !loading && (
-        <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-16 text-center">
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-16 text-center">
           <div className="text-4xl mb-4">🤖</div>
-          <h3 className="text-white font-semibold mb-2">AI Analysis Ready</h3>
+          <h3 className="text-[#1A1D2E] font-semibold mb-2">AI Analysis Ready</h3>
           <p className="text-[#5A5A6A] text-sm">Click &quot;Generate AI Insights&quot; to analyze your production data with Claude AI</p>
         </div>
       )}
 
       {loading && (
-        <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-16 text-center">
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-16 text-center">
           <div className="flex items-center justify-center mb-4"><Spinner /></div>
           <p className="text-[#9898A8] text-sm">Claude is analyzing your production data...</p>
         </div>
@@ -1222,22 +1222,22 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
           {/* Run Rate & Forecast */}
           {data.run_rate && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-4">
+              <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4">
                 <p className="text-[#5A5A6A] text-xs mb-1">Daily Avg SRPs</p>
                 <p className="text-[#0071CE] text-2xl font-bold">{fmt(data.run_rate.daily_avg_srps)}</p>
               </div>
-              <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-4">
+              <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4">
                 <p className="text-[#5A5A6A] text-xs mb-1">Weekly Avg SRPs</p>
                 <p className="text-[#00C896] text-2xl font-bold">{fmt(data.run_rate.weekly_avg_srps)}</p>
               </div>
-              <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-4">
+              <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4">
                 <p className="text-[#5A5A6A] text-xs mb-1">Trend</p>
                 <p className={`text-2xl font-bold ${trendColor(data.run_rate.trend)}`}>
                   {trendArrow(data.run_rate.trend)} {data.run_rate.trend_pct > 0 ? '+' : ''}{data.run_rate.trend_pct}%
                 </p>
                 <p className="text-[#5A5A6A] text-xs capitalize">{data.run_rate.trend}</p>
               </div>
-              <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-4">
+              <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4">
                 <p className="text-[#5A5A6A] text-xs mb-1">Confidence</p>
                 <p className={`text-2xl font-bold capitalize ${data.forecast?.confidence === 'high' ? 'text-[#00C896]' : data.forecast?.confidence === 'medium' ? 'text-amber-400' : 'text-red-400'}`}>
                   {data.forecast?.confidence ?? '—'}
@@ -1248,8 +1248,8 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
 
           {/* Forecast */}
           {data.forecast && (
-            <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-5">
-              <h3 className="text-white font-semibold mb-4">Production Forecast</h3>
+            <div className="bg-white border border-[#E4E6EE] rounded-2xl p-5">
+              <h3 className="text-[#1A1D2E] font-semibold mb-4">Production Forecast</h3>
               <div className="space-y-3">
                 {[{ label: 'Next 30 Days', val: data.forecast.next_30_days_srps, pct: 33 },
                   { label: 'Next 60 Days', val: data.forecast.next_60_days_srps, pct: 66 },
@@ -1257,9 +1257,9 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
                   <div key={label}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[#9898A8] text-xs">{label}</span>
-                      <span className="text-white text-xs font-semibold">{fmt(val)} SRPs</span>
+                      <span className="text-[#1A1D2E] text-xs font-semibold">{fmt(val)} SRPs</span>
                     </div>
-                    <div className="h-2 bg-[#18181C] rounded-full">
+                    <div className="h-2 bg-white rounded-full">
                       <div className="h-2 bg-[#0071CE] rounded-full transition-all" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
@@ -1270,23 +1270,23 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
 
           {/* SKU Analysis */}
           {data.sku_analysis && data.sku_analysis.length > 0 && (
-            <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-x-auto">
-              <div className="px-5 py-3 border-b border-[#2A2A35]">
-                <h3 className="text-white font-semibold">SKU Analysis</h3>
+            <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-x-auto">
+              <div className="px-5 py-3 border-b border-[#E4E6EE]">
+                <h3 className="text-[#1A1D2E] font-semibold">SKU Analysis</h3>
               </div>
               <table className="w-full text-sm min-w-[700px]">
-                <thead><tr className="border-b border-[#2A2A35]">
+                <thead><tr className="border-b border-[#E4E6EE]">
                   {['SKU', 'Weeks Coverage', 'Urgency', 'Weekly Target', 'AI Insight'].map(h => (
                     <th key={h} className="text-left text-xs font-medium text-[#5A5A6A] uppercase tracking-wider py-3 px-4">{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
                   {data.sku_analysis.map((row: any) => (
-                    <tr key={row.sku} className="border-b border-[#2A2A35]/50 last:border-0 hover:bg-[#18181C]/50">
+                    <tr key={row.sku} className="border-b border-[#E4E6EE]/50 last:border-0 hover:bg-[#F5F6FA]/50">
                       <td className="px-4 py-3 font-mono text-xs text-[#0071CE] font-bold">{row.sku}</td>
-                      <td className="px-4 py-3 text-white text-xs font-semibold">{row.weeks_coverage}w</td>
+                      <td className="px-4 py-3 text-[#1A1D2E] text-xs font-semibold">{row.weeks_coverage}w</td>
                       <td className="px-4 py-3"><span className={urgencyBadge(row.urgency)}>{row.urgency}</span></td>
-                      <td className="px-4 py-3 text-white text-xs">{fmt(row.recommended_weekly_target)} SRPs/wk</td>
+                      <td className="px-4 py-3 text-[#1A1D2E] text-xs">{fmt(row.recommended_weekly_target)} SRPs/wk</td>
                       <td className="px-4 py-3 text-[#9898A8] text-xs max-w-xs">{row.insight}</td>
                     </tr>
                   ))}
@@ -1298,7 +1298,7 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
           {/* Alerts */}
           {data.alerts && data.alerts.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-white font-semibold">Alerts</h3>
+              <h3 className="text-[#1A1D2E] font-semibold">Alerts</h3>
               {data.alerts.map((alert: string, i: number) => (
                 <div key={i} className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
                   <span className="text-red-400 mt-0.5">⚠</span>
@@ -1311,7 +1311,7 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
           {/* Recommendations */}
           {data.recommendations && data.recommendations.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-white font-semibold">Recommendations</h3>
+              <h3 className="text-[#1A1D2E] font-semibold">Recommendations</h3>
               {data.recommendations.map((rec: string, i: number) => (
                 <div key={i} className={`flex items-start gap-3 border rounded-xl px-4 py-3 transition-all ${actioned.has(i) ? 'bg-[#00C896]/5 border-[#00C896]/20 opacity-60' : 'bg-[#00C896]/10 border-[#00C896]/20'}`}>
                   <input
@@ -1328,16 +1328,16 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
 
           {/* Performance Summary */}
           {data.performance_summary && (
-            <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-5">
-              <h3 className="text-white font-semibold mb-3">Performance Summary</h3>
+            <div className="bg-white border border-[#E4E6EE] rounded-2xl p-5">
+              <h3 className="text-[#1A1D2E] font-semibold mb-3">Performance Summary</h3>
               <p className="text-[#9898A8] text-sm leading-relaxed">{data.performance_summary}</p>
             </div>
           )}
 
           {/* Packaging Analysis */}
           {data.packaging_analysis && (
-            <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl p-5">
-              <h3 className="text-white font-semibold mb-3">Packaging Analysis</h3>
+            <div className="bg-white border border-[#E4E6EE] rounded-2xl p-5">
+              <h3 className="text-[#1A1D2E] font-semibold mb-3">Packaging Analysis</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <p className="text-[#5A5A6A] text-xs mb-1">Tightest Component</p>
@@ -1351,7 +1351,7 @@ function AiInsightsTab({ showToast }: { showToast: (msg: string, type: 'success'
                 </div>
                 <div>
                   <p className="text-[#5A5A6A] text-xs mb-1">Burn Rate/Day</p>
-                  <p className="text-white text-sm font-bold">{fmt(data.packaging_analysis.burn_rate_per_day)}</p>
+                  <p className="text-[#1A1D2E] text-sm font-bold">{fmt(data.packaging_analysis.burn_rate_per_day)}</p>
                 </div>
               </div>
             </div>
@@ -1424,17 +1424,17 @@ export default function WalmartPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-[#0A0A0B] p-5 md:p-8">
+    <div className="min-h-screen bg-[#F9FAFB] p-5 md:p-8">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-[#0071CE]/20 text-[#0071CE] border-[#0071CE]/30">WALMART PORTAL</span>
-          <h1 className="text-2xl font-bold text-white mt-1.5 tracking-tight" style={{ color: '#0071CE' }}>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5 tracking-tight" style={{ color: '#0071CE' }}>
             Walmart Production Portal
           </h1>
           <p className="text-[#5A5A6A] text-sm mt-0.5">SRP tracking · BOM · Inventory · AI Analytics</p>
         </div>
-        <button onClick={load} disabled={loading} className="flex items-center gap-2 bg-[#18181C] border border-[#2A2A35] text-[#9898A8] hover:text-white text-sm px-4 py-2.5 rounded-xl transition-all self-start disabled:opacity-50">
+        <button onClick={load} disabled={loading} className="flex items-center gap-2 bg-white border border-[#E4E6EE] text-[#9898A8] hover:text-[#1A1D2E] text-sm px-4 py-2.5 rounded-xl transition-all self-start disabled:opacity-50">
           {loading ? <Spinner /> : (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           )}
@@ -1443,12 +1443,12 @@ export default function WalmartPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex flex-wrap gap-1 mb-6 bg-[#111113] border border-[#2A2A35] rounded-2xl p-1.5">
+      <div className="flex flex-wrap gap-1 mb-6 bg-white border border-[#E4E6EE] rounded-2xl p-1.5">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all relative ${tab === t.id ? 'bg-[#0071CE] text-white' : 'text-[#9898A8] hover:text-white hover:bg-[#18181C]'}`}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all relative ${tab === t.id ? 'bg-[#0071CE] text-white' : 'text-[#9898A8] hover:text-white hover:bg-[#F5F6FA]'}`}
           >
             <span>{t.icon}</span>
             <span className="hidden sm:inline">{t.label}</span>

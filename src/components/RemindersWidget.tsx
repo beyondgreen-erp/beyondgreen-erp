@@ -28,10 +28,10 @@ const PRIORITY_DOT: Record<string, string> = {
   urgent: 'bg-red-400',
   high: 'bg-orange-400',
   medium: 'bg-amber-400',
-  low: 'bg-[#5A5A6A]',
+  low: 'bg-[#D0D3E0]',
 }
 
-const inputCls = 'w-full bg-[#18181C] border border-[#2A2A35] rounded-xl px-3 py-2 text-sm text-white placeholder-[#5A5A6A] focus:outline-none focus:border-[#00C896] transition-all'
+const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-xl px-3 py-2 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none focus:border-[#3B6FE0] transition-all'
 
 export default function RemindersWidget() {
   const supabase = createSupabaseBrowserClient()
@@ -165,14 +165,14 @@ export default function RemindersWidget() {
   const upcoming = reminders.filter(r => !r.due_date || r.due_date > today)
 
   return (
-    <div className="bg-[#111113] border border-[#2A2A35] rounded-2xl overflow-hidden">
+    <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A35]">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
         <div className="flex items-center gap-2.5">
           <svg className="w-4 h-4 text-[#00C896]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
-          <h2 className="text-white font-semibold text-sm">My Reminders</h2>
+          <h2 className="text-[#1A1D2E] font-semibold text-sm">My Reminders</h2>
           {reminders.length > 0 && (
             <span className="bg-[#00C89620] text-[#00C896] text-xs px-2 py-0.5 rounded-full">{reminders.length}</span>
           )}
@@ -204,7 +204,7 @@ export default function RemindersWidget() {
 
       {/* Add form */}
       {showAdd && (
-        <div className="p-4 border-b border-[#2A2A35] bg-[#18181C] space-y-3">
+        <div className="p-4 border-b border-[#E4E6EE] bg-[#F5F6FA] space-y-3">
           <input
             type="text"
             value={form.title}
@@ -245,7 +245,7 @@ export default function RemindersWidget() {
             <button onClick={addReminder} className="flex-1 bg-[#00C896] hover:bg-[#00B085] text-black font-semibold text-sm py-2 rounded-xl transition-colors">
               Save Reminder
             </button>
-            <button onClick={() => setShowAdd(false)} className="px-4 bg-[#2A2A35] hover:bg-[#3A3A45] text-[#9898A8] text-sm rounded-xl transition-colors">
+            <button onClick={() => setShowAdd(false)} className="px-4 bg-[#F0F1F5] hover:bg-[#E4E6EE] text-[#6B7280] text-sm rounded-xl transition-colors">
               Cancel
             </button>
           </div>
@@ -253,18 +253,18 @@ export default function RemindersWidget() {
       )}
 
       {/* List */}
-      <div className="divide-y divide-[#2A2A35] max-h-80 overflow-y-auto">
+      <div className="divide-y divide-[#E4E6EE] max-h-80 overflow-y-auto">
         {loading && (
           <div className="p-8 text-center text-[#5A5A6A] text-sm">Loading reminders…</div>
         )}
         {!loading && reminders.length === 0 && (
           <div className="p-8 text-center">
-            <svg className="w-8 h-8 text-[#2A2A35] mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-8 h-8 text-[#E4E6EE] mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
-            <p className="text-[#5A5A6A] text-sm">No reminders</p>
-            <p className="text-[#3A3A45] text-xs mt-0.5">Only you can see your reminders</p>
-            <p className="text-[#2A2A35] text-xs mt-1">Logged in as: {userEmail || 'unknown'}</p>
+            <p className="text-[#9CA3AF] text-sm">No reminders</p>
+            <p className="text-[#D0D3E0] text-xs mt-0.5">Only you can see your reminders</p>
+            <p className="text-[#E4E6EE] text-xs mt-1">Logged in as: {userEmail || 'unknown'}</p>
           </div>
         )}
 
@@ -278,8 +278,8 @@ export default function RemindersWidget() {
         {dueToday.map(r => <ReminderRow key={r.id} reminder={r} isToday onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} />)}
 
         {upcoming.length > 0 && dueToday.length > 0 && (
-          <div className="px-4 py-1.5 bg-[#18181C]">
-            <p className="text-xs text-[#5A5A6A] font-medium uppercase tracking-wide">Upcoming</p>
+          <div className="px-4 py-1.5 bg-[#F5F6FA]">
+            <p className="text-xs text-[#9CA3AF] font-medium uppercase tracking-wide">Upcoming</p>
           </div>
         )}
         {upcoming.map(r => <ReminderRow key={r.id} reminder={r} onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} />)}
@@ -300,10 +300,10 @@ interface RowProps {
 
 function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, onComplete, onDelete }: RowProps) {
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 hover:bg-[#18181C] transition-colors group ${isOverdue ? 'bg-red-500/5' : isToday ? 'bg-amber-500/5' : ''}`}>
+    <div className={`flex items-start gap-3 px-4 py-3 hover:bg-[#F5F6FA] transition-colors group ${isOverdue ? 'bg-red-500/5' : isToday ? 'bg-amber-500/5' : ''}`}>
       <button
         onClick={() => onComplete(r.id)}
-        className="mt-0.5 w-4 h-4 rounded-full border-2 border-[#3A3A45] hover:border-[#00C896] flex-shrink-0 transition-colors"
+        className="mt-0.5 w-4 h-4 rounded-full border-2 border-[#D0D3E0] hover:border-[#00C896] flex-shrink-0 transition-colors"
         title="Mark complete"
       />
       <div className="flex-1 min-w-0">
@@ -311,9 +311,9 @@ function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, 
           <svg className="w-3 h-3 text-[#5A5A6A] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={typeIcons[r.reminder_type] ?? typeIcons.other} />
           </svg>
-          <p className={`text-sm font-medium truncate ${isOverdue ? 'text-red-300' : 'text-white'}`}>{r.title}</p>
+          <p className={`text-sm font-medium truncate ${isOverdue ? 'text-red-500' : 'text-[#1A1D2E]'}`}>{r.title}</p>
         </div>
-        {r.notes && <p className="text-xs text-[#5A5A6A] mt-0.5 truncate">{r.notes}</p>}
+        {r.notes && <p className="text-xs text-[#9CA3AF] mt-0.5 truncate">{r.notes}</p>}
         {r.due_date && (
           <p className={`text-xs mt-0.5 ${isOverdue ? 'text-red-400 font-medium' : isToday ? 'text-amber-400' : 'text-[#5A5A6A]'}`}>
             {isOverdue ? '⚠ Overdue · ' : ''}
@@ -322,7 +322,7 @@ function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, 
           </p>
         )}
       </div>
-      <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${priorityDot[r.priority] ?? 'bg-[#5A5A6A]'}`} />
+      <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${priorityDot[r.priority] ?? 'bg-[#D0D3E0]'}`} />
       <button
         onClick={() => onDelete(r.id)}
         className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-[#5A5A6A] hover:text-red-400 transition-all flex-shrink-0"
