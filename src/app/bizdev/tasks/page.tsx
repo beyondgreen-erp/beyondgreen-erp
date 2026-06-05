@@ -18,66 +18,75 @@ interface Task {
 }
 
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
-const STATUSES = ['Backlog', 'In Progress', 'Review', 'Done', 'Blocked', 'On Hold', 'Archived']
-const GROUPS = ['Current', 'Waiting Final Approval', 'On-Going', 'Completed']
-const GROUP_ORDER = ['Current', 'Waiting Final Approval', 'On-Going', 'Completed']
+const STATUSES   = ['Backlog', 'In Progress', 'Review', 'Done', 'Blocked', 'On Hold', 'Archived']
+const GROUPS     = ['Current', 'Waiting Final Approval', 'On-Going', 'Completed']
 
-const PC: Record<string, string> = {
-  Low: 'bg-gray-700/40 text-gray-400 border-gray-700',
-  Medium: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  High: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  Critical: 'bg-red-500/15 text-red-400 border-red-500/20',
+// Light-mode badge colours
+const PC: Record<string, { bg: string; text: string; dot: string }> = {
+  Low:      { bg: '#F3F4F6', text: '#6B7280', dot: '#9CA3AF' },
+  Medium:   { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
+  High:     { bg: '#FFF7ED', text: '#C2410C', dot: '#F97316' },
+  Critical: { bg: '#FEF2F2', text: '#B91C1C', dot: '#EF4444' },
 }
-const SC: Record<string, string> = {
-  Backlog: 'bg-gray-700/40 text-gray-400 border-gray-700',
-  'In Progress': 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  Review: 'bg-violet-500/15 text-violet-400 border-violet-500/20',
-  Done: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-  Blocked: 'bg-red-500/15 text-red-400 border-red-500/20',
-  'On Hold': 'bg-amber-500/15 text-amber-400 border-amber-500/20',
-  Archived: 'bg-gray-800/60 text-gray-600 border-gray-700/50',
+const SC: Record<string, { bg: string; text: string }> = {
+  Backlog:      { bg: '#F3F4F6', text: '#6B7280' },
+  'In Progress':{ bg: '#EFF6FF', text: '#1D4ED8' },
+  Review:       { bg: '#F5F3FF', text: '#6D28D9' },
+  Done:         { bg: '#ECFDF5', text: '#065F46' },
+  Blocked:      { bg: '#FEF2F2', text: '#B91C1C' },
+  'On Hold':    { bg: '#FFFBEB', text: '#92400E' },
+  Archived:     { bg: '#F9FAFB', text: '#9CA3AF' },
 }
-const STATUS_HEX: Record<string, string> = {
-  'In Progress': '#3b82f6', Done: '#10b981', Backlog: '#6b7280',
-  'On Hold': '#f59e0b', Review: '#8b5cf6', Blocked: '#ef4444', Archived: '#374151',
+// Left-border colour per priority
+const PRIORITY_BORDER: Record<string, string> = {
+  Critical: '#EF4444', High: '#F97316', Medium: '#3B82F6', Low: '#E4E6EE',
 }
 
 const empty = { task_name: '', assigned_to: '', due_date: '', priority: 'Medium', status: 'Backlog', customer_id: '', notes: '', group_name: 'Current' }
 type F = typeof empty
 
-function dbErr(e: { code?: string; message: string; hint?: string }) {
-  return [e.message, e.code && `(${e.code})`, e.hint && `Hint: ${e.hint}`].filter(Boolean).join(' — ')
-}
 function fmtDue(d: string | null) {
   if (!d) return null
   const date = new Date(d + 'T00:00:00')
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  return { str: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), overdue: date < today }
+  const today = new Date(); today.setHours(0,0,0,0)
+  const diff  = Math.ceil((date.getTime() - today.getTime()) / 86400000)
+  return {
+    str:     date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    overdue: diff < 0,
+    today:   diff === 0,
+    soon:    diff > 0 && diff <= 3,
+  }
+}
+
+// Section accent colours
+const GROUP_COLOR: Record<string, { accent: string; lightBg: string }> = {
+  'Current':                  { accent: '#3B6FE0', lightBg: '#EEF2FF' },
+  'Waiting Final Approval':   { accent: '#D97706', lightBg: '#FFFBEB' },
+  'On-Going':                 { accent: '#059669', lightBg: '#ECFDF5' },
+  'Completed':                { accent: '#6B7280', lightBg: '#F9FAFB' },
 }
 
 export default function TasksPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
-  const [rows, setRows] = useState<Task[]>([])
-  const [customers, setCustomers] = useState<Customer[]>([])
+  const [rows,        setRows]        = useState<Task[]>([])
+  const [customers,   setCustomers]   = useState<Customer[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
+  const [loading,     setLoading]     = useState(true)
+  const [search,      setSearch]      = useState('')
+  const [filterStatus,   setFilterStatus]   = useState('')
   const [filterAssignee, setFilterAssignee] = useState('')
-  const [filterGroup, setFilterGroup] = useState('')
-  const [open, setOpen] = useState(false)
+  const [open,    setOpen]    = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
-  const [form, setForm] = useState<F>(empty)
-  const [saving, setSaving] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [deleting, setDeleting] = useState(false)
-  const ms = useMultiSelect<Task>()
+  const [form,    setForm]    = useState<F>(empty)
+  const [saving,  setSaving]  = useState(false)
+  const [busy,    setBusy]    = useState(false)
+  const [err,     setErr]     = useState('')
+  const [deleting,setDeleting]= useState(false)
   const [assigneeOpen, setAssigneeOpen] = useState(false)
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['Completed']))
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set(['Completed']))
   const [userEmail, setUserEmail] = useState('')
+  const ms     = useMultiSelect<Task>()
   const tagRef = useRef<TagInputHandle>(null)
-  const drawerRef = useRef<HTMLDivElement>(null)
 
   async function load() {
     setLoading(true)
@@ -86,8 +95,8 @@ export default function TasksPage() {
       sb.from('customers').select('id,company_name').eq('is_active', true).order('company_name'),
       sb.from('user_profiles').select('id,email,full_name,avatar_color,avatar_initials').eq('is_active', true).order('full_name'),
     ])
-    if (t) setRows(t as Task[])
-    if (c) setCustomers(c as Customer[])
+    if (t)  setRows(t as Task[])
+    if (c)  setCustomers(c as Customer[])
     if (tm) setTeamMembers(tm as TeamMember[])
     setLoading(false)
   }
@@ -98,66 +107,52 @@ export default function TasksPage() {
 
   const memberMap = useMemo(() => Object.fromEntries(teamMembers.map(m => [m.email, m])), [teamMembers])
 
-  const personStats = useMemo(() => {
-    const stats: Record<string, { member: TeamMember; total: number; byStatus: Record<string, number> }> = {}
-    for (const r of rows) {
-      if (!r.assigned_to || !memberMap[r.assigned_to]) continue
-      if (!stats[r.assigned_to]) stats[r.assigned_to] = { member: memberMap[r.assigned_to], total: 0, byStatus: {} }
-      stats[r.assigned_to].total++
-      stats[r.assigned_to].byStatus[r.status] = (stats[r.assigned_to].byStatus[r.status] ?? 0) + 1
-    }
-    return Object.values(stats).sort((a, b) => b.total - a.total)
-  }, [rows, memberMap])
-
   const filtered = useMemo(() => rows.filter(r => {
-    if (filterStatus && r.status !== filterStatus) return false
-    if (filterAssignee && r.assigned_to !== filterAssignee) return false
-    if (filterGroup && (r.group_name ?? '') !== filterGroup) return false
+    if (filterStatus   && r.status       !== filterStatus)   return false
+    if (filterAssignee && r.assigned_to  !== filterAssignee) return false
     if (search) {
       const q = search.toLowerCase()
-      return r.task_name.toLowerCase().includes(q) || (r.assigned_to ?? '').toLowerCase().includes(q) || (r.description ?? '').toLowerCase().includes(q)
+      return r.task_name.toLowerCase().includes(q) ||
+             (r.assigned_to ?? '').toLowerCase().includes(q) ||
+             (r.description ?? '').toLowerCase().includes(q)
     }
     return true
-  }), [rows, filterStatus, filterAssignee, filterGroup, search])
+  }), [rows, filterStatus, filterAssignee, search])
 
   const grouped = useMemo(() => {
     const g: Record<string, Task[]> = {}
-    for (const name of GROUP_ORDER) g[name] = []
+    for (const n of GROUPS) g[n] = []
     for (const r of filtered) {
-      const key = r.group_name && GROUP_ORDER.includes(r.group_name) ? r.group_name : 'Other'
-      if (!g[key]) g[key] = []
+      const key = r.group_name && GROUPS.includes(r.group_name) ? r.group_name : 'Current'
       g[key].push(r)
     }
     return g
   }, [filtered])
 
-  const groupKeys = [...GROUP_ORDER, ...(grouped['Other']?.length ? ['Other'] : [])]
-
   function toggleGroup(g: string) {
-    setCollapsedGroups(prev => {
-      const n = new Set(prev)
-      if (n.has(g)) { n.delete(g) } else { n.add(g) }
-      return n
-    })
+    setCollapsed(prev => { const n = new Set(prev); if (n.has(g)) { n.delete(g) } else { n.add(g) } return n })
   }
-  function selectPerson(email: string) { setFilterAssignee(p => p === email ? '' : email) }
-  function openAdd() { setEditing(null); setForm(empty); setErr(''); setOpen(true) }
+  function openAdd()       { setEditing(null); setForm(empty); setErr(''); setOpen(true) }
   function openEdit(r: Task) {
     setEditing(r)
-    setForm({ task_name: r.task_name, assigned_to: r.assigned_to ?? '', due_date: r.due_date ?? '', priority: r.priority, status: r.status, customer_id: r.customer_id ?? '', notes: r.notes ?? '', group_name: r.group_name ?? 'Current' })
+    setForm({ task_name: r.task_name, assigned_to: r.assigned_to ?? '', due_date: r.due_date ?? '',
+              priority: r.priority, status: r.status, customer_id: r.customer_id ?? '',
+              notes: r.notes ?? '', group_name: r.group_name ?? 'Current' })
     setErr(''); setOpen(true)
   }
   function close() { setOpen(false); setAssigneeOpen(false); setTimeout(() => { setEditing(null); setForm(empty) }, 300) }
 
-
   async function save() {
-    if (!form.task_name.trim()) { setErr('Task Name is required.'); return }
+    if (!form.task_name.trim()) { setErr('Task name is required.'); return }
     setErr(''); setSaving(true)
-    const p = { task_name: form.task_name.trim(), assigned_to: form.assigned_to.trim() || null, due_date: form.due_date || null, priority: form.priority, status: form.status, customer_id: form.customer_id || null, notes: form.notes.trim() || null, group_name: form.group_name || null }
+    const p = { task_name: form.task_name.trim(), assigned_to: form.assigned_to || null,
+                due_date: form.due_date || null, priority: form.priority, status: form.status,
+                customer_id: form.customer_id || null, notes: form.notes.trim() || null,
+                group_name: form.group_name || null }
     const { error } = editing
       ? await sb.from('tasks').update({ ...p, updated_at: new Date().toISOString() }).eq('id', editing.id)
       : await sb.from('tasks').insert({ ...p, is_active: true })
-    if (error) { setErr(dbErr(error)); setSaving(false); return }
+    if (error) { setErr(error.message); setSaving(false); return }
     setSaving(false); await tagRef.current?.sendNotifications(); close(); load()
   }
   async function toggleArchive() {
@@ -166,7 +161,6 @@ export default function TasksPage() {
     await sb.from('tasks').update({ is_active: !editing.is_active, updated_at: new Date().toISOString() }).eq('id', editing.id)
     setBusy(false); close(); load()
   }
-
   async function bulkDelete() {
     if (!confirm(`Delete ${ms.count} tasks? This cannot be undone.`)) return
     setDeleting(true)
@@ -174,308 +168,395 @@ export default function TasksPage() {
     ms.clear(); setDeleting(false); load()
   }
 
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
   const sel = inp + ' cursor-pointer'
-  const hasFilters = !!(search || filterStatus || filterAssignee || filterGroup)
-  const selectedMember = filterAssignee ? memberMap[filterAssignee] : null
+  const hasFilters = !!(search || filterStatus || filterAssignee)
+  const totalActive = rows.filter(r => r.status !== 'Done' && r.status !== 'Archived').length
+  const totalDone   = rows.filter(r => r.status === 'Done').length
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
+    <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
+      <div className="max-w-5xl mx-auto px-6 py-8">
 
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-8">
-        <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">BUSINESS DEV</span>
-          <h1 className="text-2xl font-semibold text-white mt-2">Task Board</h1>
-          <p className="text-gray-500 text-sm mt-0.5">
-            {loading ? 'Loading…' : selectedMember
-              ? `${filtered.length} task${filtered.length !== 1 ? 's' : ''} assigned to ${selectedMember.full_name}`
-              : `${filtered.length} of ${rows.length} tasks`}
-          </p>
+        {/* ── Header ── */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-[#1A1D2E]">Task Board</h1>
+            <p className="text-[#6B7280] mt-1">
+              {loading ? 'Loading…' : `${totalActive} active · ${totalDone} done · ${rows.length} total`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <ImportExportBar table="tasks" filename="tasks" columns={[
+              { header: 'Task Name',   dbKey: 'task_name',   example: 'Follow up on proposal', required: true },
+              { header: 'Assigned To', dbKey: 'assigned_to', example: 'john@beyondgreen.com' },
+              { header: 'Due Date',    dbKey: 'due_date',    example: '2024-02-15' },
+              { header: 'Priority',    dbKey: 'priority',    example: 'Medium' },
+              { header: 'Status',      dbKey: 'status',      example: 'Backlog' },
+              { header: 'Group',       dbKey: 'group_name',  example: 'Current' },
+              { header: 'Notes',       dbKey: 'notes',       example: '' },
+            ]} onImportDone={load} />
+            <button
+              onClick={openAdd}
+              className="flex items-center gap-2 bg-[#3B6FE0] hover:bg-[#2D5EC7] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/>
+              </svg>
+              Add Task
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <ImportExportBar table="tasks" filename="tasks" columns={[
-            { header: 'Task Name', dbKey: 'task_name', example: 'Follow up on proposal', required: true },
-            { header: 'Assigned To', dbKey: 'assigned_to', example: 'john@beyondgreen.com' },
-            { header: 'Due Date', dbKey: 'due_date', example: '2024-02-15' },
-            { header: 'Priority', dbKey: 'priority', example: 'Medium' },
-            { header: 'Status', dbKey: 'status', example: 'Backlog' },
-            { header: 'Group', dbKey: 'group_name', example: 'Current' },
-            { header: 'Notes', dbKey: 'notes', example: '' },
-          ]} onImportDone={load} />
-          <button onClick={openAdd} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors whitespace-nowrap">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-            Add Task
-          </button>
-        </div>
-      </div>
 
-      {/* ── Team strip ── */}
-      {!loading && personStats.length > 0 && (
-        <div className="mb-6">
-          <p className="text-xs font-semibold text-gray-600 tracking-widest mb-3">TEAM</p>
-          <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
-            {/* All */}
+        {/* ── Summary cards ── */}
+        {!loading && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+            {[
+              { label: 'Active',   value: totalActive,                              color: '#3B6FE0', bg: '#EEF2FF' },
+              { label: 'Done',     value: totalDone,                                color: '#059669', bg: '#ECFDF5' },
+              { label: 'Blocked',  value: rows.filter(r=>r.status==='Blocked').length,  color: '#DC2626', bg: '#FEF2F2' },
+              { label: 'Overdue',  value: rows.filter(r=>{ if(!r.due_date||r.status==='Done')return false; return new Date(r.due_date+'T00:00:00')<new Date() }).length, color: '#D97706', bg: '#FFFBEB' },
+            ].map(s => (
+              <div key={s.label} className="bg-white rounded-2xl border border-[#E4E6EE] px-5 py-4">
+                <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-sm text-[#6B7280] mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Team avatars ── */}
+        {!loading && teamMembers.length > 0 && (
+          <div className="flex gap-2 items-center mb-6 overflow-x-auto pb-1">
+            <span className="text-sm text-[#9CA3AF] shrink-0 mr-1">Filter:</span>
             <button
               onClick={() => setFilterAssignee('')}
-              className={`flex-shrink-0 flex flex-col items-center gap-2 px-4 py-3 rounded-xl border transition-all ${!filterAssignee ? 'bg-gray-800 border-gray-600' : 'bg-gray-900 border-gray-800 hover:border-gray-700 hover:bg-gray-800/50'}`}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-medium transition-all shrink-0 ${!filterAssignee ? 'bg-[#1A1D2E] text-white border-[#1A1D2E]' : 'bg-white text-[#6B7280] border-[#E4E6EE] hover:border-[#D0D3E0]'}`}
             >
-              <div className="w-9 h-9 rounded-full bg-gray-700 flex items-center justify-center">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-                </svg>
-              </div>
-              <div className="text-center">
-                <p className={`text-xs font-semibold ${!filterAssignee ? 'text-white' : 'text-gray-500'}`}>All</p>
-                <p className="text-xs text-gray-600">{rows.length}</p>
-              </div>
+              All
             </button>
-
-            {personStats.map(({ member, total, byStatus }) => {
-              const isSelected = filterAssignee === member.email
-              const topStatuses = Object.entries(byStatus).sort((a, b) => b[1] - a[1]).slice(0, 4)
-              const inProgress = byStatus['In Progress'] ?? 0
-              const done = byStatus['Done'] ?? 0
+            {teamMembers.map(m => {
+              const active = filterAssignee === m.email
               return (
                 <button
-                  key={member.email}
-                  onClick={() => selectPerson(member.email)}
-                  className={`flex-shrink-0 flex flex-col items-center gap-2 px-4 py-3 rounded-xl border transition-all min-w-[96px] ${isSelected ? 'bg-gray-800 border-gray-500' : 'bg-gray-900 border-gray-800 hover:border-gray-700 hover:bg-gray-800/50'}`}
+                  key={m.email}
+                  onClick={() => setFilterAssignee(p => p === m.email ? '' : m.email)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-medium transition-all shrink-0 ${active ? 'bg-[#1A1D2E] text-white border-[#1A1D2E]' : 'bg-white text-[#6B7280] border-[#E4E6EE] hover:border-[#D0D3E0]'}`}
                 >
-                  <div className="relative">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: member.avatar_color }}>
-                      {member.avatar_initials || member.full_name[0]}
-                    </div>
-                    {isSelected && <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full border-2 border-gray-800"/>}
-                  </div>
-                  <div className="text-center">
-                    <p className={`text-xs font-semibold truncate max-w-[80px] ${isSelected ? 'text-white' : 'text-gray-400'}`}>{member.full_name.split(' ')[0]}</p>
-                    <p className="text-xs text-gray-600">{total} tasks</p>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-wrap justify-center">
-                    {inProgress > 0 && <span className="text-xs text-blue-400 font-medium">{inProgress} active</span>}
-                    {done > 0 && <span className="text-xs text-emerald-600">{done} done</span>}
-                  </div>
-                  {/* Mini status bar */}
-                  <div className="flex gap-0.5 w-full h-1 rounded-full overflow-hidden">
-                    {topStatuses.map(([status, count]) => (
-                      <div key={status} className="h-full rounded-full" style={{ backgroundColor: STATUS_HEX[status] ?? '#6b7280', flex: count }}/>
-                    ))}
-                  </div>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m.avatar_color }}>
+                    {m.avatar_initials || m.full_name[0]}
+                  </span>
+                  {m.full_name.split(' ')[0]}
                 </button>
               )
             })}
           </div>
-        </div>
-      )}
-
-      {/* ── Filter bar ── */}
-      <div className="flex flex-wrap items-center gap-2 mb-5">
-        <div className="relative flex-1 min-w-[160px] max-w-xs">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input placeholder="Search tasks…" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"/>
-        </div>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="bg-gray-900 border border-gray-800 text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer">
-          <option value="">All Statuses</option>
-          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="bg-gray-900 border border-gray-800 text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer">
-          <option value="">All Groups</option>
-          {GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
-        </select>
-        {hasFilters && (
-          <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee(''); setFilterGroup('') }} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-white transition-colors px-2 py-2 rounded-lg hover:bg-gray-800">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-            Clear
-          </button>
         )}
-      </div>
 
-      {/* ── Task sections ── */}
-      {loading ? (
-        <div className="flex items-center justify-center py-24">
-          <svg className="w-6 h-6 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-3">
-          <svg className="w-12 h-12 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-          </svg>
-          <p className="text-gray-500 text-sm">{hasFilters ? 'No tasks match your filters.' : 'No tasks yet.'}</p>
+        {/* ── Search + status filter ── */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          <div className="relative flex-1 min-w-[200px]">
+            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input
+              placeholder="Search tasks…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+            />
+          </div>
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            className="bg-white border border-[#E4E6EE] text-[#6B7280] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+          >
+            <option value="">All Statuses</option>
+            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
           {hasFilters && (
-            <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee(''); setFilterGroup('') }} className="text-violet-400 hover:text-violet-300 text-sm transition-colors">
-              Clear all filters
+            <button
+              onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee('') }}
+              className="flex items-center gap-1.5 text-sm text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] bg-white px-4 py-2.5 rounded-xl transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+              Clear
             </button>
           )}
         </div>
-      ) : (
-        <div className="space-y-3">
-          {groupKeys.map(groupName => {
-            const tasks = grouped[groupName]
-            if (!tasks || tasks.length === 0) return null
-            const collapsed = collapsedGroups.has(groupName)
-            const statusCounts: Record<string, number> = {}
-            for (const t of tasks) statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1
-            const topStatuses = Object.entries(statusCounts).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
-            return (
-              <div key={groupName} className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
-                <button onClick={() => toggleGroup(groupName)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-800/30 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <svg className={`w-4 h-4 text-gray-600 transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* ── Task groups ── */}
+        {loading ? (
+          <div className="flex justify-center py-24">
+            <svg className="w-6 h-6 animate-spin text-[#D0D3E0]" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-3">
+            <div className="w-16 h-16 rounded-2xl bg-[#F0F1F5] flex items-center justify-center">
+              <svg className="w-8 h-8 text-[#D0D3E0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+              </svg>
+            </div>
+            <p className="text-[#6B7280] font-medium">{hasFilters ? 'No tasks match your filters.' : 'No tasks yet — add one to get started.'}</p>
+            {hasFilters && (
+              <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee('') }} className="text-[#3B6FE0] hover:underline text-sm">
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {GROUPS.map(groupName => {
+              const tasks = grouped[groupName]
+              if (!tasks || tasks.length === 0) return null
+              const isCollapsed = collapsed.has(groupName)
+              const gc = GROUP_COLOR[groupName] ?? { accent: '#6B7280', lightBg: '#F9FAFB' }
+              const doneCount = tasks.filter(t => t.status === 'Done').length
+              const activeCount = tasks.length - doneCount
+
+              return (
+                <div key={groupName} className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
+
+                  {/* Section header */}
+                  <button
+                    onClick={() => toggleGroup(groupName)}
+                    className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#FAFAFA] transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: gc.accent }}/>
+                      <span className="text-[#1A1D2E] font-semibold text-base">{groupName}</span>
+                      <span
+                        className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                        style={{ background: gc.lightBg, color: gc.accent }}
+                      >
+                        {tasks.length}
+                      </span>
+                      {activeCount > 0 && doneCount > 0 && (
+                        <span className="text-xs text-[#9CA3AF] hidden sm:block">
+                          {activeCount} active · {doneCount} done
+                        </span>
+                      )}
+                    </div>
+                    <svg
+                      className="w-5 h-5 text-[#9CA3AF] transition-transform duration-200 shrink-0"
+                      style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
                     </svg>
-                    <span className="text-white font-semibold text-sm">{groupName}</span>
-                    <span className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">{tasks.length}</span>
-                  </div>
-                  <div className="hidden sm:flex items-center gap-4 pr-1">
-                    {topStatuses.map(([status, count]) => (
-                      <div key={status} className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATUS_HEX[status] ?? '#6b7280' }}/>
-                        <span className="text-xs text-gray-600">{count} {status}</span>
-                      </div>
-                    ))}
-                  </div>
-                </button>
+                  </button>
 
-                {!collapsed && (
-                  <div className="border-t border-gray-800/60 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-800/40">
-                          <th className="w-10 px-5 py-2.5"><input type="checkbox" checked={tasks.length>0&&tasks.every(t=>ms.isSelected(t.id))} onChange={()=>{if(tasks.every(t=>ms.isSelected(t.id))){tasks.forEach(t=>{if(ms.isSelected(t.id))ms.toggle(t.id)})}else{tasks.forEach(t=>{if(!ms.isSelected(t.id))ms.toggle(t.id)})}}} className="accent-violet-500 w-4 h-4 cursor-pointer"/></th>
-                          <th className="text-left text-xs font-semibold text-gray-600 px-5 py-2.5 w-[38%]">Task</th>
-                          <th className="text-left text-xs font-semibold text-gray-600 px-4 py-2.5">Assigned To</th>
-                          <th className="text-left text-xs font-semibold text-gray-600 px-4 py-2.5">Status</th>
-                          <th className="text-left text-xs font-semibold text-gray-600 px-4 py-2.5">Priority</th>
-                          <th className="text-left text-xs font-semibold text-gray-600 px-4 py-2.5">Due</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tasks.map(r => {
-                          const member = r.assigned_to ? memberMap[r.assigned_to] : null
-                          const due = fmtDue(r.due_date)
-                          return (
-                            <tr
-                              key={r.id}
-                              className={`border-b border-gray-800/30 last:border-0 cursor-pointer hover:bg-gray-800/50 transition-colors group ${ms.isSelected(r.id)?'bg-blue-500/5':''}`}
-                            >
-                              <td className="px-5 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-violet-500 w-4 h-4 cursor-pointer"/></td>
-                              <td className="px-5 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
-                                <p className="text-white text-sm font-medium group-hover:text-violet-300 transition-colors line-clamp-1">{r.task_name}</p>
-                                {r.description && <p className="text-gray-600 text-xs mt-0.5 line-clamp-1">{r.description}</p>}
-                              </td>
-                              <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
-                                {member ? (
-                                  <div className="flex items-center gap-2">
-                                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: member.avatar_color }}>
-                                      {member.avatar_initials || member.full_name[0]}
-                                    </span>
-                                    <span className="text-gray-400 text-sm truncate">{member.full_name.split(' ')[0]}</span>
-                                  </div>
-                                ) : <span className="text-gray-700">—</span>}
-                              </td>
-                              <td className="px-4 py-3.5">
-                                <span className={`inline-flex text-xs px-2 py-0.5 rounded-full font-medium border ${SC[r.status] ?? SC.Backlog}`}>{r.status}</span>
-                              </td>
-                              <td className="px-4 py-3.5">
-                                <span className={`inline-flex text-xs px-2 py-0.5 rounded-full font-medium border ${PC[r.priority] ?? PC.Medium}`}>{r.priority}</span>
-                              </td>
-                              <td className="px-4 py-3.5 whitespace-nowrap">
-                                {due ? (
-                                  <span className={`text-xs font-medium ${due.overdue && r.status !== 'Done' ? 'text-red-400' : 'text-gray-500'}`}>
-                                    {due.overdue && r.status !== 'Done' && '⚠ '}{due.str}
+                  {/* Task list */}
+                  {!isCollapsed && (
+                    <div className="border-t border-[#F0F1F5]">
+                      {tasks.map((task, idx) => {
+                        const member = task.assigned_to ? memberMap[task.assigned_to] : null
+                        const due    = fmtDue(task.due_date)
+                        const pc     = PC[task.priority] ?? PC.Medium
+                        const sc     = SC[task.status]   ?? SC.Backlog
+                        const isDone = task.status === 'Done'
+                        const borderColor = PRIORITY_BORDER[task.priority] ?? '#E4E6EE'
+
+                        return (
+                          <div
+                            key={task.id}
+                            onClick={() => openEdit(task)}
+                            className={`flex items-center gap-4 px-6 py-4 cursor-pointer transition-colors ${idx !== tasks.length - 1 ? 'border-b border-[#F0F1F5]' : ''} ${ms.isSelected(task.id) ? 'bg-blue-50' : 'hover:bg-[#FAFAFA]'}`}
+                            style={{ borderLeft: `3px solid ${borderColor}` }}
+                          >
+                            {/* Checkbox */}
+                            <div onClick={e => { e.stopPropagation(); ms.toggle(task.id) }}>
+                              <input
+                                type="checkbox"
+                                checked={ms.isSelected(task.id)}
+                                onChange={() => ms.toggle(task.id)}
+                                className="w-4 h-4 accent-blue-600 cursor-pointer shrink-0"
+                              />
+                            </div>
+
+                            {/* Task name + description */}
+                            <div className="flex-1 min-w-0">
+                              <p className={`font-medium text-sm leading-snug ${isDone ? 'line-through text-[#9CA3AF]' : 'text-[#1A1D2E]'}`}>
+                                {task.task_name}
+                              </p>
+                              {task.description && (
+                                <p className="text-xs text-[#9CA3AF] mt-0.5 truncate">{task.description}</p>
+                              )}
+                            </div>
+
+                            {/* Assignee */}
+                            <div className="hidden sm:flex items-center gap-2 shrink-0 w-32">
+                              {member ? (
+                                <>
+                                  <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: member.avatar_color }}>
+                                    {member.avatar_initials || member.full_name[0]}
                                   </span>
-                                ) : <span className="text-gray-700 text-xs">—</span>}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
+                                  <span className="text-sm text-[#6B7280] truncate">{member.full_name.split(' ')[0]}</span>
+                                </>
+                              ) : (
+                                <span className="text-sm text-[#D0D3E0]">—</span>
+                              )}
+                            </div>
 
-      {/* ── Backdrop ── */}
+                            {/* Status */}
+                            <div className="hidden md:block shrink-0">
+                              <span
+                                className="text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap"
+                                style={{ background: sc.bg, color: sc.text }}
+                              >
+                                {task.status}
+                              </span>
+                            </div>
+
+                            {/* Priority dot */}
+                            <div className="hidden lg:flex items-center gap-1.5 shrink-0 w-20">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pc.dot }}/>
+                              <span className="text-xs font-medium" style={{ color: pc.text }}>{task.priority}</span>
+                            </div>
+
+                            {/* Due date */}
+                            <div className="shrink-0 text-right w-20">
+                              {due ? (
+                                <span className={`text-xs font-medium ${due.overdue && !isDone ? 'text-red-500' : due.today && !isDone ? 'text-amber-500' : due.soon && !isDone ? 'text-orange-400' : 'text-[#9CA3AF]'}`}>
+                                  {due.overdue && !isDone ? '⚠ ' : ''}{due.str}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-[#D0D3E0]">No date</span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {/* Add task inline shortcut */}
+                      <button
+                        onClick={() => { setForm(p => ({ ...p, group_name: groupName })); openAdd() }}
+                        className="w-full flex items-center gap-2 px-6 py-3 text-sm text-[#9CA3AF] hover:text-[#3B6FE0] hover:bg-[#F5F7FF] transition-colors border-t border-[#F0F1F5]"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Add task to {groupName}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
-      <div onClick={close} className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
+      {/* Backdrop */}
+      <div
+        onClick={close}
+        className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      />
 
       {/* ── Slide-out drawer ── */}
       <div
-        ref={drawerRef}
-        onClick={(e) => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-gray-950 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
+        onClick={e => e.stopPropagation()}
+        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[440px] bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 shrink-0">
+        {/* Drawer header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <div>
-            <h2 className="text-white font-semibold text-lg">{editing ? 'Edit Task' : 'New Task'}</h2>
-            {editing && <p className="text-gray-600 text-xs mt-0.5 truncate max-w-[280px]">{editing.task_name}</p>}
+            <h2 className="text-[#1A1D2E] font-bold text-lg">{editing ? 'Edit Task' : 'New Task'}</h2>
+            {editing && <p className="text-[#9CA3AF] text-sm mt-0.5 truncate max-w-[300px]">{editing.task_name}</p>}
           </div>
-          <button onClick={close} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          <button onClick={close} className="w-9 h-9 flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-[#1A1D2E] hover:bg-[#F5F6FA] transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+            </svg>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        {/* Drawer body */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Task Name <span className="text-red-400">*</span></label>
-            <input value={form.task_name} onChange={e => setForm(p => ({ ...p, task_name: e.target.value }))} placeholder="What needs to be done?" className={inp}/>
+            <label className="block text-sm font-semibold text-[#374151] mb-2">Task Name <span className="text-red-500">*</span></label>
+            <input
+              value={form.task_name}
+              onChange={e => setForm(p => ({ ...p, task_name: e.target.value }))}
+              placeholder="What needs to be done?"
+              className={inp}
+              autoFocus
+            />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">Status</label>
+              <label className="block text-sm font-semibold text-[#374151] mb-2">Status</label>
               <select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))} className={sel}>
                 {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">Priority</label>
+              <label className="block text-sm font-semibold text-[#374151] mb-2">Priority</label>
               <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))} className={sel}>
                 {PRIORITIES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
 
+          {/* Preview badges */}
           <div className="flex gap-2">
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium border ${SC[form.status] ?? SC.Backlog}`}>{form.status}</span>
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium border ${PC[form.priority] ?? PC.Medium}`}>{form.priority}</span>
+            <span className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: (SC[form.status] ?? SC.Backlog).bg, color: (SC[form.status] ?? SC.Backlog).text }}>{form.status}</span>
+            <span className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: (PC[form.priority] ?? PC.Medium).bg, color: (PC[form.priority] ?? PC.Medium).text }}>{form.priority}</span>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Group</label>
+            <label className="block text-sm font-semibold text-[#374151] mb-2">Section / Group</label>
             <select value={form.group_name} onChange={e => setForm(p => ({ ...p, group_name: e.target.value }))} className={sel}>
               {GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
 
+          {/* Assignee */}
           <div className="relative">
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Assigned To</label>
-            <button type="button" onClick={() => setAssigneeOpen(v => !v)} className={inp + ' cursor-pointer flex items-center gap-2.5 text-left'}>
+            <label className="block text-sm font-semibold text-[#374151] mb-2">Assigned To</label>
+            <button
+              type="button"
+              onClick={() => setAssigneeOpen(v => !v)}
+              className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition flex items-center gap-2.5 text-left"
+            >
               {form.assigned_to ? (() => {
                 const m = teamMembers.find(m => m.email === form.assigned_to)
                 return m ? (
-                  <><span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m.avatar_color }}>{m.avatar_initials || m.full_name[0]}</span><span className="flex-1 text-white">{m.full_name}</span></>
-                ) : <span className="text-gray-500 flex-1">{form.assigned_to}</span>
-              })() : <span className="text-gray-500 flex-1">— Unassigned —</span>}
-              <svg className={`w-4 h-4 text-gray-500 shrink-0 transition-transform ${assigneeOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+                  <>
+                    <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m.avatar_color }}>
+                      {m.avatar_initials || m.full_name[0]}
+                    </span>
+                    <span className="flex-1 font-medium">{m.full_name}</span>
+                  </>
+                ) : <span className="text-[#9CA3AF] flex-1">{form.assigned_to}</span>
+              })() : <span className="text-[#9CA3AF] flex-1">Unassigned</span>}
+              <svg className={`w-4 h-4 text-[#9CA3AF] shrink-0 transition-transform ${assigneeOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
+              </svg>
             </button>
             {assigneeOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden z-10 shadow-xl max-h-52 overflow-y-auto">
-                <button type="button" onClick={() => { setForm(p => ({ ...p, assigned_to: '' })); setAssigneeOpen(false) }} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-700 transition-colors text-left">— Unassigned —</button>
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-xl overflow-hidden z-10 shadow-lg max-h-56 overflow-y-auto">
+                <button type="button" onClick={() => { setForm(p => ({ ...p, assigned_to: '' })); setAssigneeOpen(false) }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#9CA3AF] hover:bg-[#F5F6FA] transition-colors text-left">
+                  Unassigned
+                </button>
                 {teamMembers.map(m => (
-                  <button key={m.id} type="button" onClick={() => { setForm(p => ({ ...p, assigned_to: m.email })); setAssigneeOpen(false) }} className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm hover:bg-gray-700 transition-colors text-left ${form.assigned_to === m.email ? 'bg-violet-600/20 text-white' : 'text-gray-300'}`}>
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m.avatar_color }}>{m.avatar_initials || m.full_name[0]}</span>
-                    {m.full_name}
+                  <button key={m.id} type="button"
+                    onClick={() => { setForm(p => ({ ...p, assigned_to: m.email })); setAssigneeOpen(false) }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-[#F5F6FA] transition-colors text-left ${form.assigned_to === m.email ? 'bg-[#EEF2FF] text-[#3B6FE0]' : 'text-[#1A1D2E]'}`}
+                  >
+                    <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m.avatar_color }}>
+                      {m.avatar_initials || m.full_name[0]}
+                    </span>
+                    <span className="font-medium">{m.full_name}</span>
                   </button>
                 ))}
               </div>
@@ -483,12 +564,12 @@ export default function TasksPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Due Date</label>
+            <label className="block text-sm font-semibold text-[#374151] mb-2">Due Date</label>
             <input type="date" value={form.due_date} onChange={e => setForm(p => ({ ...p, due_date: e.target.value }))} className={inp}/>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Linked Customer</label>
+            <label className="block text-sm font-semibold text-[#374151] mb-2">Linked Customer</label>
             <select value={form.customer_id} onChange={e => setForm(p => ({ ...p, customer_id: e.target.value }))} className={sel}>
               <option value="">— None —</option>
               {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
@@ -496,40 +577,48 @@ export default function TasksPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Notes</label>
+            <label className="block text-sm font-semibold text-[#374151] mb-2">Notes</label>
             <TagInput ref={tagRef} value={form.notes} onChange={v => setForm(p => ({ ...p, notes: v }))} page="Tasks" className={inp + ' resize-none'}/>
           </div>
 
           {editing && (
             <>
-              <div className="border-t border-gray-800 pt-5">
-                <FileUpload supabase={sb} recordType="tasks" recordId={editing.id} currentUserEmail={userEmail} />
+              <div className="border-t border-[#E4E6EE] pt-5">
+                <FileUpload supabase={sb} recordType="tasks" recordId={editing.id} currentUserEmail={userEmail}/>
               </div>
-              <div className="border-t border-gray-800 pt-5">
-                <CommentSection recordType="tasks" recordId={editing.id} currentUserEmail={userEmail} />
+              <div className="border-t border-[#E4E6EE] pt-5">
+                <CommentSection recordType="tasks" recordId={editing.id} currentUserEmail={userEmail}/>
               </div>
             </>
           )}
         </div>
 
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 space-y-3">
+        {/* Drawer footer */}
+        <div className="shrink-0 px-6 py-5 border-t border-[#E4E6EE] space-y-3">
           {err && (
-            <div className="flex gap-2 items-start bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
-              <svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-              <p className="text-red-400 text-xs">{err}</p>
+            <div className="flex gap-2 items-start bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <svg className="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <p className="text-red-600 text-sm">{err}</p>
             </div>
           )}
           <div className="flex gap-3">
             {editing && (
-              <button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 transition-colors disabled:opacity-50 shrink-0">
+              <button onClick={toggleArchive} disabled={busy}
+                className="text-sm px-4 py-2.5 rounded-xl border border-[#E4E6EE] text-[#6B7280] hover:bg-[#F5F6FA] transition-colors disabled:opacity-50 shrink-0">
                 {editing.is_active ? 'Archive' : 'Restore'}
               </button>
             )}
-            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 transition-colors">
+            <button onClick={close}
+              className="flex-1 text-sm px-4 py-2.5 rounded-xl border border-[#E4E6EE] text-[#6B7280] hover:bg-[#F5F6FA] transition-colors">
               Cancel
             </button>
-            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-              {saving ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Saving…</> : editing ? 'Save Changes' : 'Create Task'}
+            <button onClick={save} disabled={saving}
+              className="flex-1 flex items-center justify-center gap-2 bg-[#3B6FE0] hover:bg-[#2D5EC7] disabled:opacity-60 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+              {saving
+                ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Saving…</>
+                : editing ? 'Save Changes' : 'Create Task'}
             </button>
           </div>
         </div>
