@@ -28,7 +28,7 @@
 }
 
 * { box-sizing: border-box; }
-html { font-size: 14px; }
+html { font-size: 16px; }
 
 body {
   background: var(--bg-base);
@@ -36,8 +36,17 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  line-height: 1.5;
+  line-height: 1.6;
+  font-size: 15px;
 }
+
+/* Better table defaults — readable row height and font across all pages */
+table { font-size: 14px; border-collapse: collapse; width: 100%; }
+th { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); padding: 10px 16px; text-align: left; }
+td { padding: 13px 16px; vertical-align: middle; color: var(--text-primary); }
+tr { border-bottom: 1px solid var(--border); }
+tr:last-child { border-bottom: none; }
+tr:hover { background: #F8F9FC; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

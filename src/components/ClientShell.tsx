@@ -101,29 +101,29 @@ export default function ClientShell({ children }: { children: React.ReactNode })
             className="shrink-0 sticky top-0 z-30"
             style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}
           >
-            <div className="flex items-center justify-between px-6 gap-4" style={{ height: 52 }}>
-              <h1 className="font-semibold text-sm truncate" style={{ color: '#1A1D2E' }}>{pageTitle}</h1>
+            <div className="flex items-center justify-between px-6 gap-4" style={{ height: 64 }}>
+              <h1 className="font-bold text-lg truncate" style={{ color: '#1A1D2E' }}>{pageTitle}</h1>
               <div className="flex items-center gap-2 shrink-0">
                 <NotificationBell />
                 <button
                   onClick={() => router.push('/settings')}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{ background: '#F5F6FA', color: '#9CA3AF', border: '1px solid #E4E6EE' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE'; (e.currentTarget as HTMLElement).style.color = '#6B7280' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA'; (e.currentTarget as HTMLElement).style.color = '#9CA3AF' }}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
+                  style={{ background: '#F5F6FA', color: '#6B7280', border: '1px solid #E4E6EE' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE'; (e.currentTarget as HTMLElement).style.color = '#1A1D2E' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA'; (e.currentTarget as HTMLElement).style.color = '#6B7280' }}
                   title="Settings"
                 >
-                  <i className="ti ti-settings text-sm"/>
+                  <i className="ti ti-settings text-base"/>
                 </button>
                 <button
                   onClick={() => router.push('/settings/profile')}
-                  className="flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+                  className="flex items-center gap-2.5 rounded-xl px-3 py-2 transition-colors"
                   style={{ background: '#F5F6FA', border: '1px solid #E4E6EE' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA' }}
                 >
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: avatarColor }}>{userInitials}</div>
-                  {userName && <span className="text-xs font-medium hidden sm:block" style={{ color: '#374151' }}>{userName}</span>}
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: avatarColor }}>{userInitials}</div>
+                  {userName && <span className="text-sm font-semibold hidden sm:block" style={{ color: '#374151' }}>{userName}</span>}
                 </button>
               </div>
             </div>
