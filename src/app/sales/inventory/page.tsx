@@ -239,7 +239,7 @@ const EditPanel = memo(function EditPanel({
             ] as const).map(([key, label, onColor]) => (
               <label key={key} className="flex items-center gap-3 cursor-pointer select-none p-3 bg-[#F5F6FA] rounded-lg border border-[#E4E6EE]"
                 onClick={() => setForm(p => ({ ...p, [key]: !p[key] }))}>
-                <div className={`w-9 h-5 rounded-full transition-colors relative ${(form as any)[key] ? onColor : 'bg-[#F5F6FA]'}`}>
+                <div className={`w-9 h-5 rounded-full transition-colors relative ${(form as any)[key] ? onColor : 'bg-gray-300'}`}>
                   <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(form as any)[key] ? 'translate-x-4' : 'translate-x-0.5'}`}/>
                 </div>
                 <span className="text-sm text-gray-500">{label}</span>
@@ -438,7 +438,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
+    <div className="p-4 md:p-6 min-h-screen" style={{background:"#F5F6FA"}}>
       {loadError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center gap-3">
           <span className="text-red-400 text-sm flex-1">{loadError}</span>
@@ -454,7 +454,7 @@ export default function InventoryPage() {
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} total products`}</p>
         </div>
         <button onClick={openAdd}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
           Add Product
         </button>

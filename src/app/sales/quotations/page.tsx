@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Quote {
@@ -68,9 +68,10 @@ const STATUSES = ['All', 'Draft', 'Sent', 'Accepted', 'Rejected', 'Converted']
 const PAYMENT_TERMS = ['Net 15', 'Net 30', 'Net 45', 'Net 60', 'COD', 'Upfront', '50/50']
 
 export default function QuotationsPage() {
-  const supabase = createSupabaseBrowserClient()
+  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [lineCounts, setLineCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -99,11 +100,16 @@ export default function QuotationsPage() {
 
   const fetchQuotes = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('quotations')
-      .select('*, customers(company_name), quotation_lines(*)')
-      .order('created_at', { ascending: false })
-    setQuotes((data ?? []) as Quote[])
+    const [{ data: qData }, { data: lData }] = await Promise.all([
+      supabase.from('quotations').select('*').order('created_at', { ascending: false }),
+      supabase.from('quotation_lines').select('quotation_id'),
+    ])
+    setQuotes((qData ?? []) as Quote[])
+    if (lData) {
+      const counts: Record<string, number> = {}
+      for (const l of lData as any[]) counts[l.quotation_id] = (counts[l.quotation_id] ?? 0) + 1
+      setLineCounts(counts)
+    }
     setLoading(false)
   }, [supabase])
 
@@ -120,11 +126,13 @@ export default function QuotationsPage() {
     fetchCustomers()
   }, [fetchQuotes, fetchCustomers])
 
+  const cmap = useMemo(() => Object.fromEntries(customers.map(c => [c.id, c.company_name])), [customers])
+
   const filtered = quotes.filter(q => {
     const q2 = search.toLowerCase()
     const matchSearch = !search ||
       (q.quote_number ?? '').toLowerCase().includes(q2) ||
-      (q.customers?.company_name ?? '').toLowerCase().includes(q2)
+      (cmap[q.customer_id ?? ''] ?? '').toLowerCase().includes(q2)
     const matchStatus = statusFilter === 'All' || q.status === statusFilter
     return matchSearch && matchStatus
   })
@@ -145,7 +153,7 @@ export default function QuotationsPage() {
     setPanelOpen(true)
   }
 
-  function openEdit(q: Quote) {
+  async function openEdit(q: Quote) {
     setEditing(q)
     setForm({
       customer_id: q.customer_id ?? '',
@@ -156,9 +164,15 @@ export default function QuotationsPage() {
       notes: q.notes ?? '',
       tax_rate: '0',
     })
-    setLines(q.quotation_lines ?? [])
+    setLines([])
     setPanelTab('overview')
     setPanelOpen(true)
+    const { data: lData } = await supabase
+      .from('quotation_lines')
+      .select('*')
+      .eq('quotation_id', q.id)
+      .order('id')
+    setLines((lData ?? []) as QuoteLine[])
   }
 
   function closePanel() {
@@ -286,6 +300,8 @@ export default function QuotationsPage() {
 
   async function convertToSO(quote: Quote) {
     if (!confirm(`Convert "${quote.quote_number}" to a Sales Order?`)) return
+    const { data: quoteLines } = await supabase
+      .from('quotation_lines').select('*').eq('quotation_id', quote.id)
     const { data: order } = await supabase.from('sales_orders').insert({
       customer_id: quote.customer_id,
       order_number: 'SO-' + Date.now().toString().slice(-6),
@@ -295,14 +311,14 @@ export default function QuotationsPage() {
     }).select('id').single()
 
     if (order) {
-      for (const line of (quote.quotation_lines ?? [])) {
+      for (const line of (quoteLines ?? [])) {
         await supabase.from('sales_order_lines').insert({
           order_id: (order as any).id,
-          product_id: line.product_id ?? null,
-          sku: line.sku ?? null,
-          product_name: line.product_name ?? line.description ?? '',
-          quantity: line.quantity ?? 1,
-          unit_price: line.unit_price ?? 0,
+          product_id: (line as any).product_id ?? null,
+          sku: (line as any).sku ?? null,
+          product_name: (line as any).product_name ?? (line as any).description ?? '',
+          quantity: (line as any).quantity ?? 1,
+          unit_price: (line as any).unit_price ?? 0,
         })
       }
       await supabase.from('quotations').update({ status: 'Converted' }).eq('id', quote.id)
@@ -468,7 +484,7 @@ export default function QuotationsPage() {
                         <span className="text-sm font-semibold" style={{ color: '#3B6FE0' }}>{quote.quote_number || '—'}</span>
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="text-sm font-medium" style={{ color: '#1A1D2E' }}>{quote.customers?.company_name || '—'}</span>
+                        <span className="text-sm font-medium" style={{ color: '#1A1D2E' }}>{cmap[quote.customer_id ?? ''] || '—'}</span>
                       </td>
                       <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
                         {quote.quote_date ? new Date(quote.quote_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
@@ -480,7 +496,7 @@ export default function QuotationsPage() {
                         <StatusBadge status={quote.status ?? 'Draft'} />
                       </td>
                       <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
-                        {quote.quotation_lines?.length ?? 0}
+                        {lineCounts[quote.id] ?? 0}
                       </td>
                       <td className="px-4 py-3.5">
                         <span className="text-sm font-semibold" style={{ color: '#1A1D2E' }}>{fmt$(quote.total_amount)}</span>
