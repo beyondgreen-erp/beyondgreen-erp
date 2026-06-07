@@ -180,14 +180,18 @@ export default function ProductionPage() {
                 </thead>
                 <tbody>
                   {filtered.map(r=>{
-                    const o=r.sales_order_id?omap[r.sales_order_id]:null
+                    const soId=r.notes?.startsWith('SOREF:')?r.notes.slice(6):null
+                    const o=soId?omap[soId]:null
                     const overdue=r.due_date&&new Date(r.due_date+'T00:00:00')<now&&r.status!=='Complete'
                     return (
                       <tr key={r.id} className="transition-colors" style={{ borderBottom: '1px solid #F3F4F6', background: ms.isSelected(r.id)?'#EEF2FF':overdue?'#FEF2F2':'transparent' }}
                         onMouseEnter={e=>{if(!ms.isSelected(r.id))(e.currentTarget as HTMLElement).style.background=overdue?'#FEE2E2':'#F9FAFB'}}
                         onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background=ms.isSelected(r.id)?'#EEF2FF':overdue?'#FEF2F2':'transparent'}}>
                         <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="w-4 h-4 cursor-pointer accent-[#3B6FE0]"/></td>
-                        <td className="px-4 py-3.5 font-mono text-xs font-semibold cursor-pointer" style={{ color: '#1A1D2E' }} onClick={()=>openEdit(r)}>{r.wo_number}</td>
+                        <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
+                          <div className="font-mono text-xs font-semibold" style={{ color: '#1A1D2E' }}>WO-{r.wo_number}</div>
+                          {o&&<div className="text-[11px] mt-0.5" style={{ color: '#9CA3AF' }}>{o.order_number}</div>}
+                        </td>
                         <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{o?.customer_id?cmap[o.customer_id]||'—':'—'}</td>
                         <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{r.product_id?pmap[r.product_id]||'—':'—'}</td>
                         <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{r.machine_id?mmap[r.machine_id]||'—':'—'}</td>
