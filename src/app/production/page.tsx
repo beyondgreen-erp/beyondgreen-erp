@@ -47,14 +47,15 @@ export default function ProductionPage() {
 
   async function load(){
     setLoading(true)
-    const [{data:w},{data:o},{data:c},{data:p},{data:m}]=await Promise.all([
+    const [{data:w,error:wErr},{data:o},{data:c},{data:p},{data:m}]=await Promise.all([
       sb.from('work_orders').select('*').order('created_at',{ascending:false}),
       sb.from('sales_orders').select('id,order_number,customer_id').not('status','in','("Closed","Cancelled")').order('order_number'),
       sb.from('customers').select('id,company_name').eq('is_active',true),
       sb.from('products').select('id,name').eq('is_active',true).order('name'),
       sb.from('machines').select('id,name').eq('is_active',true).order('name'),
     ])
-    if(w) setRows(w as WO[])
+    if(wErr) console.error('work_orders load error:',wErr)
+    setRows((w ?? []) as WO[])
     if(o) setOrders(o as SalesOrder[])
     if(c) setCustomers(c as Customer[])
     if(p) setProducts(p as Product[])
@@ -64,6 +65,9 @@ export default function ProductionPage() {
   useEffect(()=>{
     load()
     sb.auth.getUser().then(({data})=>{if(data.user?.email)setUserEmail(data.user.email)})
+    const onVisible=()=>{if(document.visibilityState==='visible')load()}
+    document.addEventListener('visibilitychange',onVisible)
+    return()=>document.removeEventListener('visibilitychange',onVisible)
   },[]) // eslint-disable-line
 
   const omap=Object.fromEntries(orders.map(o=>[o.id,o]))
@@ -118,6 +122,9 @@ export default function ProductionPage() {
             <p className="text-sm mt-0.5" style={{ color: '#9CA3AF' }}>{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} work order${filtered.length!==1?'s':''}`}</p>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={load} title="Refresh" className="w-9 h-9 rounded-lg border flex items-center justify-center transition-colors" style={{ borderColor: '#E4E6EE', color: '#6B7280', background: '#fff' }} onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#F5F6FA'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#fff'}}>
+              <i className={`ti ti-refresh text-sm${loading?' animate-spin':''}`}/>
+            </button>
             <ImportExportBar table="work_orders" filename="work_orders" columns={[
               { header: 'WO Number', dbKey: 'wo_number', example: 'WO-2024-001', required: true },
               { header: 'Order Number', dbKey: 'order_number', example: 'SO-2024-001', lookup: { fromTable: 'sales_orders', matchField: 'order_number', storeAs: 'sales_order_id' } },
