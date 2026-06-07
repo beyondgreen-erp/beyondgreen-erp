@@ -47,19 +47,20 @@ export default function ProductionPage() {
 
   async function load(){
     setLoading(true)
-    const [{data:w,error:wErr},{data:o},{data:c},{data:p},{data:m}]=await Promise.all([
+    const [wRes,oRes,cRes,pRes,mRes]=await Promise.all([
       sb.from('work_orders').select('*').order('created_at',{ascending:false}),
-      sb.from('sales_orders').select('id,order_number,customer_id').not('status','in','("Closed","Cancelled")').order('order_number'),
-      sb.from('customers').select('id,company_name').eq('is_active',true),
-      sb.from('products').select('id,name').eq('is_active',true).order('name'),
-      sb.from('machines').select('id,name').eq('is_active',true).order('name'),
+      sb.from('sales_orders').select('id,order_number,customer_id').order('order_number'),
+      sb.from('customers').select('id,company_name'),
+      sb.from('products').select('id,name').order('name'),
+      sb.from('machines').select('id,name').order('name'),
     ])
-    if(wErr) console.error('work_orders load error:',wErr)
-    setRows((w ?? []) as WO[])
-    if(o) setOrders(o as SalesOrder[])
-    if(c) setCustomers(c as Customer[])
-    if(p) setProducts(p as Product[])
-    if(m) setMachines(m as Machine[])
+    if(wRes.error) console.error('work_orders:',wRes.error)
+    if(cRes.error) console.error('customers:',cRes.error)
+    setRows((wRes.data??[]) as WO[])
+    setOrders((oRes.data??[]) as SalesOrder[])
+    setCustomers((cRes.data??[]) as Customer[])
+    setProducts((pRes.data??[]) as Product[])
+    setMachines((mRes.data??[]) as Machine[])
     setLoading(false)
   }
   useEffect(()=>{
@@ -181,6 +182,7 @@ export default function ProductionPage() {
                 <tbody>
                   {filtered.map(r=>{
                     const soId=r.notes?.startsWith('SOREF:')?r.notes.slice(6):null
+                    if(soId&&!omap[soId]) console.warn('WO',r.wo_number,'soId not in omap:',soId,'omap keys:',Object.keys(omap).slice(0,3))
                     const o=soId?omap[soId]:null
                     const overdue=r.due_date&&new Date(r.due_date+'T00:00:00')<now&&r.status!=='Complete'
                     return (
