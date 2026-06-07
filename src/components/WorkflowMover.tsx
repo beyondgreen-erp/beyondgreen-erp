@@ -160,12 +160,12 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
                 await addToShippingQueue(recordId)
                 return 'Inventory OK → Added to Shipping Queue'
               } else {
-                const { data: existingWo } = await sb.from('work_orders').select('wo_number').eq('sales_order_id', recordId).maybeSingle()
-                if (existingWo) {
-                  return `Work Order ${(existingWo as any).wo_number} already exists — awaiting production`
-                }
                 const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
-                const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued' })
+                const { data: existingWo } = await sb.from('work_orders').select('wo_number').eq('wo_number', woNum).maybeSingle()
+                if (existingWo) {
+                  return `Work Order ${woNum} already exists — awaiting production`
+                }
+                const { error: woErr } = await sb.from('work_orders').insert({ wo_number: woNum, status: 'Queued' })
                 if (woErr) { console.error('WO insert error:', woErr); throw new Error('Work order creation failed: ' + woErr.message) }
                 await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
                 const skus = shortages.map(s => `${s.sku} (need ${s.needed}, have ${s.available})`).join('; ')
@@ -178,13 +178,11 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
             description: 'Create a linked work order for this sales order',
             color: 'text-violet-400',
             handler: async () => {
-              // Idempotency check — don't create a duplicate
-              const { data: existing } = await sb.from('work_orders').select('wo_number').eq('sales_order_id', recordId).maybeSingle()
-              if (existing) return `Work Order ${(existing as any).wo_number} already exists for this order`
               const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
-              // If the order is already flagged In Production, create the WO as In Progress
+              const { data: existing } = await sb.from('work_orders').select('wo_number').eq('wo_number', woNum).maybeSingle()
+              if (existing) return `Work Order ${woNum} already exists for this order`
               const woStatus = currentStatus === 'In Production' ? 'In Progress' : 'Queued'
-              const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: woStatus })
+              const { error: woErr } = await sb.from('work_orders').insert({ wo_number: woNum, status: woStatus })
               if (woErr) { console.error('WO insert error:', woErr); throw new Error('Work order creation failed: ' + woErr.message) }
               // Only change SO status if it wasn't already in an active production state
               if (currentStatus !== 'In Production' && currentStatus !== 'Production Queue') {
@@ -231,9 +229,10 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
             color: 'text-blue-400',
             handler: async () => {
               await sb.from('work_orders').update({ status: 'In Progress', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const { data: wo } = await sb.from('work_orders').select('sales_order_id').eq('id', recordId).maybeSingle()
-              if ((wo as any)?.sales_order_id) {
-                await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', (wo as any).sales_order_id)
+              const { data: wo } = await sb.from('work_orders').select('wo_number').eq('id', recordId).maybeSingle()
+              if (wo?.wo_number) {
+                const { data: so } = await sb.from('sales_orders').select('id').eq('order_number', wo.wo_number.replace(/^WO-/, '')).maybeSingle()
+                if ((so as any)?.id) await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', (so as any).id)
               }
               return 'Production started → Order status: In Production'
             },
@@ -243,18 +242,17 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
             color: 'text-violet-400',
             handler: async () => {
               await sb.from('work_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', recordId)
-              // Add finished goods to inventory
-              const { data: wo } = await sb.from('work_orders').select('sales_order_id, product_id, qty_produced').eq('id', recordId).maybeSingle()
-              if (wo?.product_id && (wo.qty_produced ?? 0) > 0) {
-                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', wo.product_id).maybeSingle()
-                if (prod) {
-                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + wo.qty_produced }).eq('id', wo.product_id)
-                }
+              const { data: wo } = await sb.from('work_orders').select('wo_number, product_id, qty_produced').eq('id', recordId).maybeSingle()
+              if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
+                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
+                if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
               }
-              // Advance sales order to QC stage
-              if (wo?.sales_order_id) {
-                await sb.from('sales_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', wo.sales_order_id)
-                return 'Production complete → Order moved to QC'
+              if (wo?.wo_number) {
+                const { data: so } = await sb.from('sales_orders').select('id').eq('order_number', wo.wo_number.replace(/^WO-/, '')).maybeSingle()
+                if ((so as any)?.id) {
+                  await sb.from('sales_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', (so as any).id)
+                  return 'Production complete → Order moved to QC'
+                }
               }
               return 'Work order sent to QC'
             },
@@ -264,17 +262,18 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
             color: 'text-emerald-400',
             handler: async () => {
               await sb.from('work_orders').update({ status: 'Complete', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const { data: wo } = await sb.from('work_orders').select('sales_order_id, product_id, qty_produced').eq('id', recordId).maybeSingle()
-              if (wo?.product_id && (wo.qty_produced ?? 0) > 0) {
-                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', wo.product_id).maybeSingle()
-                if (prod) {
-                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + wo.qty_produced }).eq('id', wo.product_id)
-                }
+              const { data: wo } = await sb.from('work_orders').select('wo_number, product_id, qty_produced').eq('id', recordId).maybeSingle()
+              if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
+                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
+                if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
               }
-              if (wo?.sales_order_id) {
-                await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', wo.sales_order_id)
-                await addToShippingQueue(wo.sales_order_id)
-                return 'Work order complete → Order added to Shipping Queue'
+              if (wo?.wo_number) {
+                const { data: so } = await sb.from('sales_orders').select('id').eq('order_number', wo.wo_number.replace(/^WO-/, '')).maybeSingle()
+                if ((so as any)?.id) {
+                  await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', (so as any).id)
+                  await addToShippingQueue((so as any).id)
+                  return 'Work order complete → Order added to Shipping Queue'
+                }
               }
               return 'Work order marked complete'
             },
