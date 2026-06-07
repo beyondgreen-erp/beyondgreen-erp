@@ -215,8 +215,8 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
                 </button>
               )}
             </td>
-            <td className="px-2 py-2.5 text-gray-300 text-xs max-w-[180px] truncate">{line.description ?? line.added_details ?? '—'}</td>
-            <td className="px-2 py-2.5 text-gray-300 text-xs font-semibold">{qty}</td>
+            <td className="px-2 py-2.5 text-gray-500 text-xs max-w-[180px] truncate">{line.description ?? line.added_details ?? '—'}</td>
+            <td className="px-2 py-2.5 text-gray-500 text-xs font-semibold">{qty}</td>
             <td className={`px-2 py-2.5 text-xs font-medium ${pct === 100 ? 'text-emerald-400' : pct > 0 ? 'text-blue-400' : 'text-gray-600'}`}>{done}</td>
             <td className="px-2 py-2.5 text-gray-500 text-xs">{line.unit_of_measure ?? '—'}</td>
             <td className="px-2 py-2.5 text-gray-500 text-xs">{line.packaging ?? '—'}</td>
@@ -301,7 +301,8 @@ function EditPanel({
     <>
       <div onClick={onClose} className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
       <div onClick={e => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[600px] z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[600px] z-50 flex flex-col shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}
+        style={{ background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <div>
             <h2 className="text-[#1A1D2E] font-semibold">{editing ? 'Edit Order' : 'New Order'}</h2>
@@ -438,7 +439,7 @@ function EditPanel({
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-semibold uppercase tracking-wider">Line Items</p>
-              <button onClick={addLine} className="text-xs px-2.5 py-1 rounded bg-[#F5F6FA] hover:bg-gray-600 text-gray-300 transition-colors">+ Add Line</button>
+              <button onClick={addLine} className="text-xs px-2.5 py-1 rounded bg-[#F5F6FA] hover:bg-gray-600 text-gray-500 transition-colors">+ Add Line</button>
             </div>
             <div className="space-y-2">
               {editLines.map((line, i) => (
@@ -877,7 +878,7 @@ export default function OrdersPage() {
                       <td className="px-3 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.order_date)}</td>
                       <td className="px-3 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.estimated_completion)}</td>
                       <td className="px-3 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.ship_date ?? order.required_ship_date)}</td>
-                      <td className="px-3 py-3.5 text-gray-300 text-xs font-medium whitespace-nowrap">{fmt$(orderValue(order))}</td>
+                      <td className="px-3 py-3.5 text-gray-500 text-xs font-medium whitespace-nowrap">{fmt$(orderValue(order))}</td>
                       <td className="px-3 py-3.5 text-gray-600 text-xs">—</td>
                       <td className="px-3 py-3.5">
                         {flagged > 0 && (

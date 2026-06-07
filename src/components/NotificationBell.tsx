@@ -127,10 +127,10 @@ export default function NotificationBell() {
                     {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />}
                     <div className={`flex-1 min-w-0 ${n.is_read ? 'pl-3.5' : ''}`}>
                       <p className="text-xs text-gray-400 truncate">
-                        <span className="text-gray-300 font-medium">{n.sender_email.split('@')[0]}</span>
+                        <span className="text-gray-500 font-medium">{n.sender_email.split('@')[0]}</span>
                         {' tagged you in '}<span className="text-emerald-400">{n.page}</span>
                       </p>
-                      <p className="text-sm text-gray-300 mt-0.5 line-clamp-2 leading-snug">{n.message}</p>
+                      <p className="text-sm text-gray-500 mt-0.5 line-clamp-2 leading-snug">{n.message}</p>
                       <p className="text-xs text-gray-600 mt-1">{timeAgo(n.created_at)}</p>
                     </div>
                   </div>

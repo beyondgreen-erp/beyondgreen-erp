@@ -423,7 +423,7 @@ export default function BERG() {
             {/* top bar */}
             <div className="flex items-center justify-between px-4 pt-3 pb-0 shrink-0">
               <span className="text-xs text-emerald-500/50 font-mono tracking-widest">beyondGREEN ERP v1.0</span>
-              <button onClick={() => setOpen(false)} className="text-gray-600 hover:text-gray-300 p-1 rounded transition-colors">
+              <button onClick={() => setOpen(false)} className="text-gray-600 hover:text-gray-600 p-1 rounded transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>

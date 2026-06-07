@@ -6,7 +6,7 @@ type Channel = 'general' | 'sales' | 'production' | 'bizdev'
 interface Msg { id: string; channel: string; sender_email: string; sender_name: string; content: string; created_at: string }
 
 const CHANNELS: { id: Channel; label: string; color: string }[] = [
-  { id: 'general', label: 'General', color: 'text-gray-300' },
+  { id: 'general', label: 'General', color: 'text-gray-500' },
   { id: 'sales', label: 'Sales', color: 'text-blue-400' },
   { id: 'production', label: 'Production', color: 'text-emerald-400' },
   { id: 'bizdev', label: 'BizDev', color: 'text-violet-400' },
@@ -163,7 +163,7 @@ export default function Chat() {
           <div className="flex border-b border-[#E4E6EE] shrink-0">
             {CHANNELS.map(c => (
               <button key={c.id} onClick={() => setChannel(c.id)}
-                className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 ${channel === c.id ? `${c.color} border-current` : 'text-gray-500 border-transparent hover:text-gray-300'}`}>
+                className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 ${channel === c.id ? `${c.color} border-current` : 'text-gray-500 border-transparent hover:text-gray-600'}`}>
                 {c.label}
               </button>
             ))}
@@ -186,7 +186,7 @@ export default function Chat() {
                     <span className="text-[#1A1D2E] text-sm font-medium">{m.sender_name || m.sender_email.split('@')[0]}</span>
                     <span className="text-gray-600 text-xs">{timeAgo(m.created_at)}</span>
                   </div>
-                  <p className="text-gray-300 text-sm mt-0.5 leading-relaxed whitespace-pre-wrap break-words">{renderContent(m.content)}</p>
+                  <p className="text-gray-500 text-sm mt-0.5 leading-relaxed whitespace-pre-wrap break-words">{renderContent(m.content)}</p>
                 </div>
               </div>
             ))}
@@ -203,7 +203,7 @@ export default function Chat() {
                 <div className="absolute z-10 bottom-full mb-2 left-0 right-0 bg-white border border-[#E4E6EE] rounded-xl shadow-xl overflow-hidden">
                   {filteredUsers.slice(0, 6).map((u, i) => (
                     <button key={u} type="button" onMouseDown={() => selectMention(u)}
-                      className={`w-full text-left px-3 py-3 text-sm flex items-center gap-2 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-[#F5F6FA]'}`}>
+                      className={`w-full text-left px-3 py-3 text-sm flex items-center gap-2 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-500 hover:bg-[#F5F6FA]'}`}>
                       <div className={`w-7 h-7 rounded-full ${avatarColor(u)} flex items-center justify-center shrink-0`}>
                         <span className="text-xs font-bold text-white">{u[0].toUpperCase()}</span>
                       </div>

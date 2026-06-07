@@ -106,7 +106,7 @@ export default function ShippingPhotoCapture({ shipmentId, onPhotosChange, requi
                     <span className="text-xs text-gray-500">Optional</span>
                   )}
                 </div>
-                <label className="flex items-center gap-1.5 bg-[#F5F6FA] hover:bg-[#F5F6FA] border border-[#E4E6EE] text-gray-300 text-xs px-3 py-1.5 rounded-lg cursor-pointer transition-colors">
+                <label className="flex items-center gap-1.5 bg-[#F5F6FA] hover:bg-[#F5F6FA] border border-[#E4E6EE] text-gray-500 text-xs px-3 py-1.5 rounded-lg cursor-pointer transition-colors">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   {done ? 'Add Another' : 'Take Photo'}
                   <input

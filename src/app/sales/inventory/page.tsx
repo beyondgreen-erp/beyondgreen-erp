@@ -242,7 +242,7 @@ const EditPanel = memo(function EditPanel({
                 <div className={`w-9 h-5 rounded-full transition-colors relative ${(form as any)[key] ? onColor : 'bg-[#F5F6FA]'}`}>
                   <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(form as any)[key] ? 'translate-x-4' : 'translate-x-0.5'}`}/>
                 </div>
-                <span className="text-sm text-gray-300">{label}</span>
+                <span className="text-sm text-gray-500">{label}</span>
               </label>
             ))}
           </div>
@@ -568,7 +568,7 @@ export default function InventoryPage() {
                     <td className="px-3 py-3.5">
                       <div className="flex items-center gap-1">
                         <button onClick={() => openEdit(p)}
-                          className="text-xs px-2 py-1 rounded bg-[#F5F6FA]/50 hover:bg-[#F5F6FA] text-gray-300 transition-colors">Edit</button>
+                          className="text-xs px-2 py-1 rounded bg-[#F5F6FA]/50 hover:bg-[#F5F6FA] text-gray-500 transition-colors">Edit</button>
                         <button onClick={() => setBomProduct(p)}
                           className="text-xs px-2 py-1 rounded bg-violet-700/50 hover:bg-violet-700 text-violet-300 transition-colors">BOM</button>
                         {isFG && (
@@ -590,7 +590,7 @@ export default function InventoryPage() {
                 <td colSpan={5} className="px-3 py-3 text-xs text-gray-500 font-medium">
                   {filtered.length} products shown
                 </td>
-                <td className="px-3 py-3 text-xs font-semibold text-gray-300">
+                <td className="px-3 py-3 text-xs font-semibold text-gray-500">
                   {filtered.reduce((s, p) => s + (p.on_hand_qty ?? 0), 0).toLocaleString()}
                 </td>
                 <td className="px-3 py-3 text-xs font-bold text-emerald-400">

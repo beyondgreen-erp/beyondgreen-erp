@@ -636,7 +636,7 @@ export default function QuoteCostingPage() {
                   <td className="px-5 py-3.5 text-gray-400">{q.customer_name || '—'}</td>
                   <td className="px-5 py-3.5 text-gray-400">{q.quote_date ? new Date(q.quote_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
                   <td className="px-5 py-3.5 text-gray-400 tabular-nums">—</td>
-                  <td className="px-5 py-3.5 text-gray-300 tabular-nums">{fmt$(q.total_landed_cost)}</td>
+                  <td className="px-5 py-3.5 text-gray-500 tabular-nums">{fmt$(q.total_landed_cost)}</td>
                   <td className="px-5 py-3.5 text-[#1A1D2E] font-medium tabular-nums">{fmt$(q.total_selling_price)}</td>
                   <td className="px-5 py-3.5 text-emerald-400 tabular-nums">{fmt$(q.total_profit)}</td>
                   <td className="px-5 py-3.5">
@@ -823,7 +823,7 @@ export default function QuoteCostingPage() {
                           <td className="px-2 py-2 text-gray-400">{l.freight_method}</td>
                           <td className="px-2 py-2 text-gray-400 tabular-nums">{parseInt(l.order_qty).toLocaleString()}</td>
                           <td className="px-2 py-2 text-gray-400 tabular-nums">{parseInt(l.packing_per_case).toLocaleString()}</td>
-                          <td className="px-2 py-2 text-gray-300 tabular-nums">{fmt$(c.exw)}</td>
+                          <td className="px-2 py-2 text-gray-500 tabular-nums">{fmt$(c.exw)}</td>
                           <td className="px-2 py-2 text-gray-400 tabular-nums">{fmt$(c.totalDuties)}</td>
                           <td className="px-2 py-2 text-gray-200 font-medium tabular-nums">{fmt$(c.totalCost)}</td>
                           <td className="px-2 py-2 text-gray-400">{c.markup.toFixed(0)}%</td>
@@ -832,7 +832,7 @@ export default function QuoteCostingPage() {
                           <td className="px-2 py-2">
                             <span className={`font-semibold tabular-nums ${marginColor(c.margin)}`}>{fmtPct(c.margin)}</span>
                           </td>
-                          <td className="px-2 py-2 text-gray-300 tabular-nums">{fmt$(c.totalProfit)}</td>
+                          <td className="px-2 py-2 text-gray-500 tabular-nums">{fmt$(c.totalProfit)}</td>
                           <td className="px-2 py-2">
                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button onClick={() => openEditLine(i)} className="p-1 text-gray-500 hover:text-gray-700 rounded hover:bg-[#F5F6FA]"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
@@ -848,7 +848,7 @@ export default function QuoteCostingPage() {
                     <tfoot>
                       <tr className="border-t-2 border-[#E4E6EE] bg-[#F9FAFB]/40">
                         <td colSpan={4} className="pl-3 pr-2 py-2 text-xs font-bold text-gray-400">TOTALS</td>
-                        <td className="px-2 py-2 text-gray-300 font-semibold tabular-nums">{allCalcs.reduce((s, c) => s + c.orderQty, 0).toLocaleString()}</td>
+                        <td className="px-2 py-2 text-gray-500 font-semibold tabular-nums">{allCalcs.reduce((s, c) => s + c.orderQty, 0).toLocaleString()}</td>
                         <td></td>
                         <td className="px-2 py-2 text-gray-200 font-semibold tabular-nums">{fmt$(summaryExw)}</td>
                         <td></td>
@@ -887,7 +887,7 @@ export default function QuoteCostingPage() {
           <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Financial Summary</p>
           <div className="space-y-3">
             {[
-              { label: 'Total EXW Cost', val: summaryExw, color: 'text-gray-300' },
+              { label: 'Total EXW Cost', val: summaryExw, color: 'text-gray-500' },
               { label: 'Total Landed Cost', val: summaryLanded, color: 'text-[#1A1D2E] font-medium' },
               { label: 'Total Selling Price', val: summarySell, color: 'text-emerald-400 font-semibold' },
               { label: 'Total Profit', val: summaryProfit, color: 'text-emerald-300 font-semibold' },
@@ -1067,7 +1067,7 @@ export default function QuoteCostingPage() {
                     )}
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-gray-400">Duty 10% <span className="text-gray-600">(EXW × 10%)</span></span>
-                      <span className={`tabular-nums ${liveCalc.exw > 0 ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <span className={`tabular-nums ${liveCalc.exw > 0 ? 'text-gray-500' : 'text-gray-600'}`}>
                         {liveCalc.exw > 0 ? fmt$(liveCalc.duty10) : '—'}
                       </span>
                     </div>
@@ -1176,7 +1176,7 @@ export default function QuoteCostingPage() {
                     ].filter(Boolean).map((row, i) => (
                       <div key={i} className="flex justify-between items-center text-xs">
                         <span className="text-gray-400">{(row as any).label}</span>
-                        <span className="text-gray-300 tabular-nums">{fmt$((row as any).val)}/case</span>
+                        <span className="text-gray-500 tabular-nums">{fmt$((row as any).val)}/case</span>
                       </div>
                     ))}
                   </div>
@@ -1214,7 +1214,7 @@ export default function QuoteCostingPage() {
                     )}
                     <div className="flex justify-between text-xs">
                       <span className="text-gray-500">Profit/Case</span>
-                      <span className="text-gray-300 tabular-nums">{fmt$(liveCalc.profit)}</span>
+                      <span className="text-gray-500 tabular-nums">{fmt$(liveCalc.profit)}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-gray-500">Profit Margin</span>

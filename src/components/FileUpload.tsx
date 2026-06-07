@@ -205,7 +205,7 @@ export default function FileUpload({
           {uploads.map((u, i) => (
             <div key={i} className="bg-[#F5F6FA] rounded-lg px-3 py-2.5">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-gray-300 truncate max-w-[200px]">{u.file.name}</span>
+                <span className="text-xs text-gray-500 truncate max-w-[200px]">{u.file.name}</span>
                 {u.status === 'done' && (
                   <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

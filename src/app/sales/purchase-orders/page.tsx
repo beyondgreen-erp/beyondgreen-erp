@@ -124,7 +124,7 @@ export default function PurchaseOrdersPage() {
           <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.product_id?pmap[r.product_id]||'—':'—'}</td>
           <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.qty_ordered}</td>
           <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmt$(r.unit_cost)}</td>
-          <td className="px-4 py-3.5 text-gray-300 font-medium cursor-pointer" onClick={()=>openEdit(r)}>{fmt$(r.qty_ordered*r.unit_cost)}</td>
+          <td className="px-4 py-3.5 text-gray-500 font-medium cursor-pointer" onClick={()=>openEdit(r)}>{fmt$(r.qty_ordered*r.unit_cost)}</td>
           <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.order_date)}</td>
           <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.expected_receipt_date)}</td>
           <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Draft}`}>{r.status}</span></td>
@@ -132,7 +132,7 @@ export default function PurchaseOrdersPage() {
       </div>
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
       <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
+      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`} style={{ background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit PO':'Add PO'}</h2><button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">PO Number <span className="text-red-400">*</span></label><input value={form.po_number} onChange={e=>setForm(p=>({...p,po_number:e.target.value}))} className={inp}/></div>

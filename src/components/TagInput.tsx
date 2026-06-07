@@ -121,7 +121,7 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
                 key={u.email}
                 type="button"
                 onMouseDown={() => selectUser(u.email)}
-                className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-[#F5F6FA]'}`}
+                className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-500 hover:bg-[#F5F6FA]'}`}
               >
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold"

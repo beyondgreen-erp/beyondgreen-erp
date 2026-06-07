@@ -261,17 +261,17 @@ export default function ShipmentsPage() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customer, tracking, PO…"
               className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-64" />
             <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All Months</option>
               {months.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
             <select value={filterCarrier} onChange={e => setFilterCarrier(e.target.value)}
-              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All Carriers</option>
               {carriers.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={filterState} onChange={e => setFilterState(e.target.value)}
-              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All States</option>
               {states.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -286,7 +286,7 @@ export default function ShipmentsPage() {
                     <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                     {[['customer_name','Customer'],['ship_date','Ship Date'],['ship_cost','Cost']].map(([col,label]) => (
                       <th key={col} onClick={() => toggleSort(col as any)}
-                        className="px-4 py-3 text-left text-gray-500 font-medium cursor-pointer hover:text-gray-300 select-none whitespace-nowrap">
+                        className="px-4 py-3 text-left text-gray-500 font-medium cursor-pointer hover:text-gray-600 select-none whitespace-nowrap">
                         {label} {sortCol === col ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                       </th>
                     ))}
@@ -311,8 +311,8 @@ export default function ShipmentsPage() {
                         className={`border-t border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
                         <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={()=>ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
                         <td className="px-4 py-3 text-[#1A1D2E] font-medium max-w-[160px] truncate cursor-pointer" onClick={()=>openEdit(s)}>{s.customer_name || '—'}</td>
-                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtD(s.ship_date)}</td>
-                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtC(s.ship_cost)}</td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtD(s.ship_date)}</td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtC(s.ship_cost)}</td>
                         <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={()=>openEdit(s)}>{s.po_number || '—'}</td>
                         <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={()=>openEdit(s)}>{s.carrier || '—'}</td>
                         <td className="px-4 py-3" onClick={e => { if (tUrl) e.stopPropagation() }}>
@@ -363,7 +363,7 @@ export default function ShipmentsPage() {
         <div className="bg-white border border-[#E4E6EE] rounded-xl p-4" style={{ height: 580 }}>
           <div className="flex gap-3 mb-3">
             <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-1.5 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-1.5 text-xs cursor-pointer">
               <option value="all">All Months</option>
               {months.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
@@ -411,7 +411,7 @@ export default function ShipmentsPage() {
             <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-sm font-medium text-[#1A1D2E]">{drillMonth} — Weekly Breakdown</p>
-                <button onClick={() => { setDrillMonth(null); setDrillWeek(null) }} className="text-xs text-gray-500 hover:text-gray-300">✕ Clear</button>
+                <button onClick={() => { setDrillMonth(null); setDrillWeek(null) }} className="text-xs text-gray-500 hover:text-gray-600">✕ Clear</button>
               </div>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={weeklyData} onClick={(d: any) => { if (d?.activePayload) setDrillWeek(d.activePayload[0].payload.week) }}>
@@ -429,7 +429,7 @@ export default function ShipmentsPage() {
             <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-sm font-medium text-[#1A1D2E]">{drillMonth} {drillWeek} — Daily Breakdown</p>
-                <button onClick={() => setDrillWeek(null)} className="text-xs text-gray-500 hover:text-gray-300">✕ Clear</button>
+                <button onClick={() => setDrillWeek(null)} className="text-xs text-gray-500 hover:text-gray-600">✕ Clear</button>
               </div>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={dailyData}>

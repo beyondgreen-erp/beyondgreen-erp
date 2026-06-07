@@ -366,14 +366,14 @@ export default function VendorsPage() {
                   <td className="px-5 py-3.5 text-gray-400">{v.phone || <span className="text-gray-700">—</span>}</td>
                   <td className="px-5 py-3.5">
                     {v.lead_time_days !== null ? (
-                      <span className="text-xs px-2 py-1 rounded-md bg-[#F9FAFB] text-gray-300 border border-[#E4E6EE]">
+                      <span className="text-xs px-2 py-1 rounded-md bg-[#F9FAFB] text-gray-500 border border-[#E4E6EE]">
                         {v.lead_time_days} day{v.lead_time_days !== 1 ? 's' : ''}
                       </span>
                     ) : <span className="text-gray-700">—</span>}
                   </td>
                   <td className="px-5 py-3.5">
                     {v.payment_terms ? (
-                      <span className="text-xs px-2 py-1 rounded-md bg-[#F9FAFB] text-gray-300 border border-[#E4E6EE]">
+                      <span className="text-xs px-2 py-1 rounded-md bg-[#F9FAFB] text-gray-500 border border-[#E4E6EE]">
                         {v.payment_terms}
                       </span>
                     ) : <span className="text-gray-700">—</span>}

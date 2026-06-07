@@ -46,7 +46,7 @@ interface Invoice {
 interface Customer { id: string; company_name: string }
 
 const STATUS_CFG: Record<string,{label:string;cls:string;pulse?:boolean}> = {
-  proforma: { label:'PROFORMA', cls:'bg-[#F5F6FA]/50 text-gray-300 border-gray-600' },
+  proforma: { label:'PROFORMA', cls:'bg-[#F5F6FA]/50 text-gray-500 border-gray-600' },
   pending:  { label:'UNPAID',   cls:'bg-red-500/20 text-red-400 border-red-500/30' },
   partial:  { label:'PARTIAL',  cls:'bg-blue-500/15 text-blue-400 border-blue-500/20' },
   overdue:  { label:'OVERDUE',  cls:'bg-red-600/20 text-red-500 border-red-600/30', pulse: true },
@@ -350,7 +350,7 @@ export default function InvoicesPage() {
         </div>
         <div className="flex flex-col items-end gap-1">
           <button onClick={importShipments} disabled={importing}
-            className="flex items-center gap-2 bg-[#F9FAFB] hover:bg-[#F5F6FA] disabled:opacity-50 border border-[#E4E6EE] text-gray-300 hover:text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+            className="flex items-center gap-2 bg-[#F9FAFB] hover:bg-[#F5F6FA] disabled:opacity-50 border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
             {importing
               ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Importing…</>
               : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Import Shipments</>
@@ -433,11 +433,11 @@ export default function InvoicesPage() {
                     className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id) ? 'bg-blue-500/5' : isOverdue ? 'bg-red-950/10' : status === 'pending' ? 'bg-red-950/5' : i % 2 === 1 ? 'bg-[#FAFAFA]' : ''}`}>
                     <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
                     <td className="px-4 py-3.5 text-[#1A1D2E] font-mono text-xs font-medium cursor-pointer" onClick={() => openPanel(r)}>{displayNum(r)}</td>
-                    <td className="px-4 py-3.5 text-gray-300" onClick={() => openPanel(r)}>{getCustomerName(r)}</td>
+                    <td className="px-4 py-3.5 text-gray-500" onClick={() => openPanel(r)}>{getCustomerName(r)}</td>
                     <td className="px-4 py-3.5 text-gray-400 font-mono text-xs" onClick={() => openPanel(r)}>{r.po_number ?? '—'}</td>
                     <td className="px-4 py-3.5 text-gray-400 whitespace-nowrap" onClick={() => openPanel(r)}>{fmtD(r.invoice_date)}</td>
                     <td className={`px-4 py-3.5 whitespace-nowrap font-medium ${isOverdue ? 'text-red-400' : 'text-gray-400'}`} onClick={() => openPanel(r)}>{fmtD(r.due_date)}</td>
-                    <td className="px-4 py-3.5 text-gray-300 font-medium" onClick={() => openPanel(r)}>{fmt$(r.total_amount ?? r.amount ?? 0)}</td>
+                    <td className="px-4 py-3.5 text-gray-500 font-medium" onClick={() => openPanel(r)}>{fmt$(r.total_amount ?? r.amount ?? 0)}</td>
                     <td className="px-4 py-3.5" onClick={() => openPanel(r)}>
                       <span className={`text-xs px-2 py-1 rounded-full font-semibold border ${cfg.cls} ${cfg.pulse ? 'animate-pulse' : ''}`}>{cfg.label}</span>
                     </td>
@@ -459,7 +459,7 @@ export default function InvoicesPage() {
                         )}
                         <WorkflowMover recordId={r.id} recordType="invoice" currentStatus={r.status} onMoved={load}/>
                         <button onClick={e => { e.stopPropagation(); openPanel(r) }}
-                          className="text-xs px-2 py-1 rounded bg-[#F5F6FA]/50 hover:bg-[#F5F6FA] text-gray-300 transition-colors">
+                          className="text-xs px-2 py-1 rounded bg-[#F5F6FA]/50 hover:bg-[#F5F6FA] text-gray-500 transition-colors">
                           View
                         </button>
                       </div>
@@ -479,7 +479,8 @@ export default function InvoicesPage() {
 
       {/* Slide-out panel */}
       <div ref={panelRef} onClick={e => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[680px] z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[680px] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
+        style={{ background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
         {sel && (
           <>
             {/* Panel header */}
@@ -715,7 +716,7 @@ export default function InvoicesPage() {
                           {lineItems.map((l, i) => (
                             <tr key={l.id} className={`border-b border-[#E4E6EE]/50 last:border-0 ${i % 2 === 1 ? 'bg-[#F5F6FA]/20' : ''}`}>
                               <td className="px-3 py-2 text-gray-400 font-mono">{l.sku ?? '—'}</td>
-                              <td className="px-3 py-2 text-gray-300">{l.description}</td>
+                              <td className="px-3 py-2 text-gray-500">{l.description}</td>
                               <td className="px-3 py-2 text-gray-400 text-right">{l.quantity}</td>
                               <td className="px-3 py-2 text-gray-400 text-right">{fmt$(l.unit_price)}</td>
                               <td className="px-3 py-2 text-[#1A1D2E] font-medium text-right">{fmt$(l.line_total)}</td>

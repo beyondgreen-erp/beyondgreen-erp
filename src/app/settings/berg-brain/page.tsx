@@ -180,7 +180,7 @@ export default function BergBrainPage() {
                 {facts.map((f, i) => (
                   <tr key={f.id} className={`border-b border-[#E4E6EE]/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-[#F5F6FA]/10'}`}>
                     <td className="px-5 py-3 text-emerald-400 text-xs font-medium whitespace-nowrap">{f.category}</td>
-                    <td className="px-5 py-3 text-gray-300 max-w-md truncate">{f.fact}</td>
+                    <td className="px-5 py-3 text-gray-500 max-w-md truncate">{f.fact}</td>
                     <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">
                       {new Date(f.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>

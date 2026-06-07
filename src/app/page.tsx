@@ -50,7 +50,7 @@ function KpiCard({ label, value, icon, iconColor, iconBg, href, alert }: KpiCard
         </div>
         {alert && <span className="w-2 h-2 rounded-full bg-red-500 alert-pulse mt-1" />}
       </div>
-      <p className={`text-2xl font-bold tracking-tight" style={{color: alert ? "#DC2626" : "#1A1D2E"}} transition-colors`}>{value}</p>
+      <p className="text-2xl font-bold tracking-tight transition-colors" style={{ color: alert ? '#DC2626' : '#1A1D2E' }}>{value}</p>
       <p className="text-[#9CA3AF] text-xs mt-1">{label}</p>
     </Link>
   )

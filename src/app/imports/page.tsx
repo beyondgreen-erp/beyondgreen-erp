@@ -235,7 +235,7 @@ const DownloadModal = memo(({
               <div className="flex gap-2">
                 <button onClick={() => setSelected(new Set(ALL_COLS))} className="text-xs text-emerald-400 hover:text-emerald-300">Select All</button>
                 <span className="text-gray-700">·</span>
-                <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:text-gray-300">Deselect All</button>
+                <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:text-gray-600">Deselect All</button>
               </div>
             </div>
             <div className="space-y-4">
@@ -260,7 +260,7 @@ const DownloadModal = memo(({
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-colors ${
                             selected.has(k)
                               ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-[#F9FAFB] text-gray-500 border border-[#E4E6EE] hover:text-gray-300'
+                              : 'bg-[#F9FAFB] text-gray-500 border border-[#E4E6EE] hover:text-gray-600'
                           }`}
                         >
                           {COLUMN_LABELS[k]}
@@ -285,7 +285,7 @@ const DownloadModal = memo(({
             </svg>
             Download CSV ({filteredRows.length} rows, {selected.size} cols)
           </button>
-          <button onClick={onClose} className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-300 text-sm rounded-xl">Cancel</button>
+          <button onClick={onClose} className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-500 text-sm rounded-xl">Cancel</button>
         </div>
       </div>
     </div>
@@ -406,7 +406,7 @@ const ShipmentForm = memo(({
         </button>
         <button
           onClick={onClose}
-          className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-300 text-sm rounded-xl"
+          className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-500 text-sm rounded-xl"
         >
           Cancel
         </button>
@@ -579,7 +579,7 @@ const VesselEditPanel = memo(({
           {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
           {saving ? 'Updating all items…' : 'Update All Items in Group'}
         </button>
-        <button onClick={onClose} className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-300 text-sm rounded-xl">Cancel</button>
+        <button onClick={onClose} className="px-5 bg-[#F9FAFB] hover:bg-[#F5F6FA] text-gray-500 text-sm rounded-xl">Cancel</button>
       </div>
     </div>
   )
@@ -738,7 +738,7 @@ export default function ImportsPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => downloadCSV(filtered, ALL_COLS)}
-            className="bg-[#F9FAFB] hover:bg-[#F5F6FA] border border-[#E4E6EE] text-gray-300 text-sm px-4 py-2.5 rounded-xl flex items-center gap-2"
+            className="bg-[#F9FAFB] hover:bg-[#F5F6FA] border border-[#E4E6EE] text-gray-500 text-sm px-4 py-2.5 rounded-xl flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -747,7 +747,7 @@ export default function ImportsPage() {
           </button>
           <button
             onClick={() => setShowDownload(true)}
-            className="bg-white border border-[#E4E6EE] hover:border-gray-500 text-gray-300 text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors"
+            className="bg-white border border-[#E4E6EE] hover:border-gray-500 text-gray-500 text-sm font-medium px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -986,7 +986,7 @@ export default function ImportsPage() {
                           <td className="py-3 px-3 text-[#1A1D2E]">
                             <div className="max-w-[180px] truncate" title={row.description}>{row.description}</div>
                           </td>
-                          <td className="py-3 px-3 text-gray-300 text-center">{row.case_qty ?? '—'}</td>
+                          <td className="py-3 px-3 text-gray-500 text-center">{row.case_qty ?? '—'}</td>
                           <td className="py-3 px-3">
                             <span className={`px-1.5 py-0.5 rounded text-xs ${row.freight_method === 'AIR' ? 'bg-cyan-500/15 text-cyan-400' : 'bg-blue-500/15 text-blue-400'}`}>
                               {row.freight_method}
@@ -1002,7 +1002,7 @@ export default function ImportsPage() {
                           <td className="py-3 px-3 text-gray-400 font-mono whitespace-nowrap">{row.bl_number || '—'}</td>
                           <td className="py-3 px-3 text-gray-400 font-mono whitespace-nowrap">{row.hbl_number || '—'}</td>
                           <td className="py-3 px-3 text-gray-400 font-mono whitespace-nowrap">{row.container_number || '—'}</td>
-                          <td className="py-3 px-3 text-right text-gray-300">{fmt(row.exw_price)}</td>
+                          <td className="py-3 px-3 text-right text-gray-500">{fmt(row.exw_price)}</td>
                           <td className="py-3 px-3 text-right text-amber-400 font-medium">{fmt(row.comm_inv_amt)}</td>
                           <td className="py-3 px-3 text-right text-red-400">{fmt(row.china_tariff_25pct)}</td>
                           <td className="py-3 px-3 text-right text-red-400">{fmt(row.duty_10pct)}</td>

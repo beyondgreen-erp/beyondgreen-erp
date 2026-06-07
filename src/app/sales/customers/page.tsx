@@ -772,7 +772,7 @@ export default function CustomersPage() {
                       <div className="flex items-center gap-2 pl-10">
                         <span className="text-gray-600 text-xs">↳</span>
                         <div className={`w-5 h-5 rounded-full ${avatarColor(ch.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(ch.company_name)}</span></div>
-                        <span className="text-gray-300 text-xs">{ch.company_name}</span>
+                        <span className="text-gray-500 text-xs">{ch.company_name}</span>
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-gray-500 text-xs">{chPc?.full_name||'—'}</td>
@@ -870,14 +870,14 @@ export default function CustomersPage() {
                 </div>
                 <div className="bg-white px-4 py-2.5">
                   <p className="text-xs text-gray-500">First Ship</p>
-                  <p className="text-sm font-semibold text-gray-300 mt-0.5">{fmtD(editing.first_shipment_date)}</p>
+                  <p className="text-sm font-semibold text-gray-500 mt-0.5">{fmtD(editing.first_shipment_date)}</p>
                 </div>
                 <div className="bg-white px-4 py-2.5 flex items-start justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Last Ship</p>
-                    <p className="text-sm font-semibold text-gray-300 mt-0.5">{fmtD(editing.last_shipment_date)}</p>
+                    <p className="text-sm font-semibold text-gray-500 mt-0.5">{fmtD(editing.last_shipment_date)}</p>
                   </div>
-                  <button onClick={()=>setSpendEdit(true)} className="text-gray-600 hover:text-gray-300 transition-colors mt-0.5">
+                  <button onClick={()=>setSpendEdit(true)} className="text-gray-600 hover:text-gray-600 transition-colors mt-0.5">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                   </button>
                 </div>
@@ -1095,7 +1095,7 @@ export default function CustomersPage() {
                 </div>
               )}
               {!addingContact&&!editingContact&&(
-                <button onClick={()=>{setAddingContact(true);setContactForm(emptyContact)}} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-[#E4E6EE] hover:border-gray-600 text-gray-500 hover:text-gray-300 rounded-xl py-3 text-xs font-medium transition-colors">
+                <button onClick={()=>{setAddingContact(true);setContactForm(emptyContact)}} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-[#E4E6EE] hover:border-gray-600 text-gray-500 hover:text-gray-600 rounded-xl py-3 text-xs font-medium transition-colors">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Contact
                 </button>
               )}
@@ -1115,14 +1115,14 @@ export default function CustomersPage() {
                 {activityOrders.length===0?<p className="text-sm text-gray-500 italic">No orders.</p>
                 :activityOrders.map(o=><a key={o.id} href="/sales/orders" className="flex items-center justify-between bg-[#F0F2F7] border border-[#E4E6EE] rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
                   <div><p className="text-sm text-[#1A1D2E] font-medium font-mono">{o.order_number}</p><p className="text-xs text-gray-500">{fmtD(o.order_date)}</p></div>
-                  <div className="flex items-center gap-3"><span className={`text-xs px-2 py-1 rounded-full border ${STAGE_BADGE[o.status]||STAGE_BADGE.Lead}`}>{o.status}</span><span className="text-sm text-gray-300 font-medium">{fmt$(o.total)}</span></div>
+                  <div className="flex items-center gap-3"><span className={`text-xs px-2 py-1 rounded-full border ${STAGE_BADGE[o.status]||STAGE_BADGE.Lead}`}>{o.status}</span><span className="text-sm text-gray-500 font-medium">{fmt$(o.total)}</span></div>
                 </a>)}
               </div>)
               :activityTab==='quotes'?(<div className="space-y-2">
                 {activityQuotes.length===0?<p className="text-sm text-gray-500 italic">No quotations.</p>
                 :activityQuotes.map(q=><a key={q.id} href="/sales/quotations" className="flex items-center justify-between bg-[#F0F2F7] border border-[#E4E6EE] rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
                   <div><p className="text-sm text-[#1A1D2E] font-medium font-mono">{q.quote_number}</p><p className="text-xs text-gray-500">{fmtD(q.quote_date)}</p></div>
-                  <div className="flex items-center gap-3"><span className={`text-xs px-2 py-1 rounded-full border ${STAGE_BADGE[q.status]||STAGE_BADGE.Lead}`}>{q.status}</span><span className="text-sm text-gray-300 font-medium">{fmt$(q.total)}</span></div>
+                  <div className="flex items-center gap-3"><span className={`text-xs px-2 py-1 rounded-full border ${STAGE_BADGE[q.status]||STAGE_BADGE.Lead}`}>{q.status}</span><span className="text-sm text-gray-500 font-medium">{fmt$(q.total)}</span></div>
                 </a>)}
               </div>)
               :(<div className="space-y-2">
@@ -1169,7 +1169,7 @@ export default function CustomersPage() {
                               {e.author_email&&e.author_email!=='system'&&<span className="text-xs text-gray-600">· {e.author_email.split('@')[0]}</span>}
                               {sourceLinks[e.source_type]&&<a href={sourceLinks[e.source_type]} className="text-xs text-blue-500 hover:text-blue-400 ml-auto shrink-0">View →</a>}
                             </div>
-                            <p className="text-xs text-gray-300 mt-1 leading-relaxed">{e.content}</p>
+                            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{e.content}</p>
                           </div>
                         </div>
                       </div>
@@ -1265,7 +1265,7 @@ export default function CustomersPage() {
                 />
               </div>
               <div className="bg-[#F0F2F7] border border-[#E4E6EE] rounded-xl p-3 text-xs text-gray-400 space-y-1">
-                <p className="font-semibold text-gray-300">After merge, the primary account will have:</p>
+                <p className="font-semibold text-gray-500">After merge, the primary account will have:</p>
                 <p>· Combined spend: {fmt$2(selectedCustomers.reduce((s,c)=>s+(c.lifetime_spend??0),0))}</p>
                 <p>· Combined shipments: {selectedCustomers.reduce((s,c)=>s+(c.total_shipments??0),0)}</p>
                 <p>· All contacts, ship locations, activity, comments, orders, quotes, tasks</p>
@@ -1387,7 +1387,7 @@ export default function CustomersPage() {
                     {customers.filter(c=>groupChildIds.has(c.id)).map(c=>(
                       <div key={c.id} className="flex items-center gap-2 pl-4">
                         <span className="text-gray-600 text-xs">↳</span>
-                        <span className="text-gray-300 text-sm">{c.company_name}</span>
+                        <span className="text-gray-500 text-sm">{c.company_name}</span>
                       </div>
                     ))}
                   </div>

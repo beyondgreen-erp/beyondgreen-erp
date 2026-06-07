@@ -1,403 +1,821 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { createSupabaseBrowserClient } from '@/lib/supabase'
-import FileUpload from '@/components/FileUpload'
-import CommentSection from '@/components/CommentSection'
-import { generateQuotePDF } from '@/lib/pdfHelpers'
-import LinkedTasks from '@/components/LinkedTasks'
-import { useMultiSelect } from '@/hooks/useMultiSelect'
-import BulkActionBar from '@/components/BulkActionBar'
-import WorkflowMover from '@/components/WorkflowMover'
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
-interface Customer { id: string; company_name: string; email?: string; phone?: string; billing_address?: string; contact_name?: string }
-interface Product { id: string; sku: string; product_name: string; unit_of_measure: string | null; unit_price: number | null; on_hand_qty: number | null }
-interface QuoteLine { id?: string; line_number: number; product_id: string | null; sku: string; description: string; quantity: string; unit_of_measure: string; unit_price: string; discount_pct: string }
-interface Quotation { id: string; quote_number: string; customer_id: string | null; quote_date: string | null; expiry_date: string | null; status: string; subtotal: number; tax_pct: number; total: number; notes: string | null; is_active: boolean }
-interface ShipLocation { id: string; location_name: string; address: string | null; city: string | null; state: string | null; zip: string | null; is_default: boolean }
+import { useState, useEffect, useCallback } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
 
-const STATUSES = ['Draft','Sent','Accepted','Rejected','Expired']
-const SC: Record<string,string> = { Draft:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', Sent:'bg-blue-500/15 text-blue-400 border-blue-500/20', Accepted:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Rejected:'bg-red-500/15 text-red-400 border-red-500/20', Expired:'bg-gray-600/20 text-gray-500 border-gray-600' }
-const emptyForm = { quote_number:'', customer_id:'', quote_date:'', expiry_date:'', status:'Draft', tax_pct:'0', notes:'' }
-type F = typeof emptyForm
-const emptyLine = (n=1): QuoteLine => ({ line_number:n, product_id:null, sku:'', description:'', quantity:'1', unit_of_measure:'', unit_price:'0', discount_pct:'0' })
-const lineTotal = (l: QuoteLine) => (parseFloat(l.quantity)||0)*(parseFloat(l.unit_price)||0)*(1-(parseFloat(l.discount_pct)||0)/100)
-const fmt$ = (n:number) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n)
-const fmtD = (d:string|null) => d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
-function dbErr(e:{code?:string;message:string;hint?:string}){return[e.message,e.code&&`(${e.code})`,e.hint&&`Hint: ${e.hint}`].filter(Boolean).join(' — ')}
+interface Quote {
+  id: string
+  quote_number: string
+  customer_id: string | null
+  status: string
+  quote_date: string | null
+  expiry_date: string | null
+  subtotal: number | null
+  tax_amount: number | null
+  total_amount: number | null
+  payment_terms: string | null
+  notes: string | null
+  created_at: string
+  customers?: { company_name: string } | null
+  quotation_lines?: QuoteLine[]
+}
+
+interface QuoteLine {
+  id?: string
+  quotation_id?: string
+  sku: string | null
+  product_name: string | null
+  description: string | null
+  quantity: number
+  unit_price: number
+  line_total: number
+  product_id: string | null
+}
+
+interface Customer {
+  id: string
+  company_name: string
+}
+
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  'Draft':     { bg: '#F3F4F6', text: '#6B7280' },
+  'Sent':      { bg: '#EFF6FF', text: '#2563EB' },
+  'Accepted':  { bg: '#ECFDF5', text: '#059669' },
+  'Rejected':  { bg: '#FEF2F2', text: '#DC2626' },
+  'Converted': { bg: '#F5F3FF', text: '#7C3AED' },
+  'Expired':   { bg: '#FFF7ED', text: '#EA580C' },
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const c = STATUS_COLORS[status] ?? STATUS_COLORS['Draft']
+  return (
+    <span
+      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+      style={{ background: c.bg, color: c.text }}
+    >
+      {status}
+    </span>
+  )
+}
+
+function fmt$(n: number | null | undefined) {
+  if (n == null) return '—'
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+const STATUSES = ['All', 'Draft', 'Sent', 'Accepted', 'Rejected', 'Converted']
+const PAYMENT_TERMS = ['Net 15', 'Net 30', 'Net 45', 'Net 60', 'COD', 'Upfront', '50/50']
 
 export default function QuotationsPage() {
-  const sb = useMemo(()=>createSupabaseBrowserClient(),[])
-  const [rows,setRows]=useState<Quotation[]>([])
-  const [customers,setCustomers]=useState<Customer[]>([])
-  const [products,setProducts]=useState<Product[]>([])
-  const [loading,setLoading]=useState(true)
-  const [search,setSearch]=useState('')
-  const [archived,setArchived]=useState(false)
-  const [costingQuotes,setCostingQuotes]=useState<any[]>([])
-  const [activeTab,setActiveTab]=useState<'quotes'|'costing'>('quotes')
-  const [open,setOpen]=useState(false)
-  const [editing,setEditing]=useState<Quotation|null>(null)
-  const [form,setForm]=useState<F>(emptyForm)
-  const [lines,setLines]=useState<QuoteLine[]>([emptyLine()])
-  const [skuFocus,setSkuFocus]=useState<number|null>(null)
-  const [saving,setSaving]=useState(false)
-  const [converting,setConverting]=useState(false)
-  const [busy,setBusy]=useState(false)
-  const [deleting,setDeleting]=useState(false)
-  const ms=useMultiSelect<Quotation>()
-  const [err,setErr]=useState('')
-  const [shipLocs,setShipLocs]=useState<ShipLocation[]>([])
-  const [selLocId,setSelLocId]=useState('')
-  const [selLocAddr,setSelLocAddr]=useState('')
-  const [userEmail,setUserEmail]=useState('')
-  const ref=useRef<HTMLDivElement>(null)
+  const supabase = createSupabaseBrowserClient()
+  const [quotes, setQuotes] = useState<Quote[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
-  async function load(){
+  // Panel state
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [editing, setEditing] = useState<Quote | null>(null)
+  const [panelTab, setPanelTab] = useState<'overview' | 'lines' | 'notes'>('overview')
+  const [saving, setSaving] = useState(false)
+
+  // Form state
+  const [form, setForm] = useState({
+    customer_id: '',
+    status: 'Draft',
+    quote_date: new Date().toISOString().split('T')[0],
+    expiry_date: '',
+    payment_terms: 'Net 30',
+    notes: '',
+    tax_rate: '0',
+  })
+  const [lines, setLines] = useState<Partial<QuoteLine>[]>([])
+  const [productSearch, setProductSearch] = useState('')
+  const [productResults, setProductResults] = useState<any[]>([])
+
+  const fetchQuotes = useCallback(async () => {
     setLoading(true)
-    const [{data:q},{data:c},{data:p},{data:cq}]=await Promise.all([
-      sb.from('quotations').select('*').order('created_at',{ascending:false}),
-      sb.from('customers').select('*').eq('is_active',true).order('company_name'),
-      sb.from('products').select('id,sku,product_name,unit_of_measure,unit_price,on_hand_qty').neq('is_active',false).order('sku'),
-      sb.from('quote_costing').select('*').order('created_at',{ascending:false}),
-    ])
-    if(q)setRows(q as Quotation[])
-    if(c)setCustomers(c as Customer[])
-    if(p)setProducts(p as Product[])
-    if(cq)setCostingQuotes(cq)
+    const { data } = await supabase
+      .from('quotations')
+      .select('*, customers(company_name), quotation_lines(*)')
+      .order('created_at', { ascending: false })
+    setQuotes((data ?? []) as Quote[])
     setLoading(false)
-  }
-  useEffect(()=>{
-    load()
-    sb.auth.getUser().then(({data})=>{if(data.user?.email)setUserEmail(data.user.email)})
-  },[]) // eslint-disable-line
+  }, [supabase])
 
-  const cmap=Object.fromEntries(customers.map(c=>[c.id,c.company_name]))
-  const filtered=rows.filter(r=>{
-    if(!archived&&!r.is_active) return false
-    if(archived&&r.is_active) return false
-    if(!search) return true
-    const q=search.toLowerCase()
-    return r.quote_number.toLowerCase().includes(q)||(r.customer_id?cmap[r.customer_id]||'':'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
+  const fetchCustomers = useCallback(async () => {
+    const { data } = await supabase
+      .from('customers')
+      .select('id, company_name')
+      .order('company_name')
+    setCustomers(data ?? [])
+  }, [supabase])
+
+  useEffect(() => {
+    fetchQuotes()
+    fetchCustomers()
+  }, [fetchQuotes, fetchCustomers])
+
+  const filtered = quotes.filter(q => {
+    const q2 = search.toLowerCase()
+    const matchSearch = !search ||
+      (q.quote_number ?? '').toLowerCase().includes(q2) ||
+      (q.customers?.company_name ?? '').toLowerCase().includes(q2)
+    const matchStatus = statusFilter === 'All' || q.status === statusFilter
+    return matchSearch && matchStatus
   })
 
-  async function loadShipLocs(cid: string) {
-    if (!cid) { setShipLocs([]); setSelLocId(''); setSelLocAddr(''); return }
-    const { data } = await sb.from('customer_ship_locations').select('id,location_name,address,city,state,zip,is_default').eq('customer_id', cid).order('is_default', { ascending: false })
-    const locs = (data ?? []) as ShipLocation[]
-    setShipLocs(locs)
-    const def = locs.find(l => l.is_default) ?? locs[0]
-    if (def) {
-      setSelLocId(def.id)
-      setSelLocAddr([def.address, def.city && def.state ? `${def.city}, ${def.state}` : (def.city || def.state), def.zip].filter(Boolean).join('\n'))
-    } else {
-      setSelLocId(''); setSelLocAddr('')
+  function openNew() {
+    setEditing(null)
+    setForm({
+      customer_id: '',
+      status: 'Draft',
+      quote_date: new Date().toISOString().split('T')[0],
+      expiry_date: new Date(Date.now() + 30 * 864e5).toISOString().split('T')[0],
+      payment_terms: 'Net 30',
+      notes: '',
+      tax_rate: '0',
+    })
+    setLines([{ sku: '', product_name: '', description: '', quantity: 1, unit_price: 0, line_total: 0, product_id: null }])
+    setPanelTab('overview')
+    setPanelOpen(true)
+  }
+
+  function openEdit(q: Quote) {
+    setEditing(q)
+    setForm({
+      customer_id: q.customer_id ?? '',
+      status: q.status ?? 'Draft',
+      quote_date: q.quote_date ?? '',
+      expiry_date: q.expiry_date ?? '',
+      payment_terms: q.payment_terms ?? 'Net 30',
+      notes: q.notes ?? '',
+      tax_rate: '0',
+    })
+    setLines(q.quotation_lines ?? [])
+    setPanelTab('overview')
+    setPanelOpen(true)
+  }
+
+  function closePanel() {
+    setPanelOpen(false)
+    setEditing(null)
+    setProductSearch('')
+    setProductResults([])
+  }
+
+  function updateLine(i: number, field: string, value: any) {
+    setLines(prev => {
+      const next = [...prev]
+      next[i] = { ...next[i], [field]: value }
+      if (field === 'quantity' || field === 'unit_price') {
+        const qty = field === 'quantity' ? value : (next[i].quantity ?? 0)
+        const price = field === 'unit_price' ? value : (next[i].unit_price ?? 0)
+        next[i].line_total = qty * price
+      }
+      return next
+    })
+  }
+
+  function addLine() {
+    setLines(prev => [...prev, { sku: '', product_name: '', description: '', quantity: 1, unit_price: 0, line_total: 0, product_id: null }])
+  }
+
+  function removeLine(i: number) {
+    setLines(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  const subtotal = lines.reduce((s, l) => s + (l.line_total ?? 0), 0)
+  const taxRate = parseFloat(form.tax_rate) || 0
+  const taxAmount = subtotal * taxRate / 100
+  const total = subtotal + taxAmount
+
+  async function searchProducts(q: string) {
+    if (q.length < 2) { setProductResults([]); return }
+    const { data } = await supabase
+      .from('products')
+      .select('id, sku, product_name, unit_cost, msrp, wholesale_price')
+      .or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`)
+      .limit(8)
+    setProductResults(data ?? [])
+  }
+
+  function selectProduct(lineIdx: number, product: any) {
+    setLines(prev => {
+      const next = [...prev]
+      const price = product.wholesale_price ?? product.msrp ?? product.unit_cost ?? 0
+      next[lineIdx] = {
+        ...next[lineIdx],
+        sku: product.sku,
+        product_name: product.product_name,
+        product_id: product.id,
+        unit_price: price,
+        line_total: (next[lineIdx].quantity ?? 1) * price,
+      }
+      return next
+    })
+    setProductSearch('')
+    setProductResults([])
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const quoteData = {
+        customer_id: form.customer_id || null,
+        status: form.status,
+        quote_date: form.quote_date || null,
+        expiry_date: form.expiry_date || null,
+        payment_terms: form.payment_terms,
+        notes: form.notes || null,
+        subtotal,
+        tax_amount: taxAmount,
+        total_amount: total,
+      }
+
+      let quoteId = editing?.id
+
+      if (editing) {
+        await supabase.from('quotations').update(quoteData).eq('id', editing.id)
+        await supabase.from('quotation_lines').delete().eq('quotation_id', editing.id)
+      } else {
+        const year = new Date().getFullYear()
+        const { count } = await supabase.from('quotations').select('*', { count: 'exact', head: true })
+        const qNum = `Q-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`
+        const { data: newQ } = await supabase.from('quotations').insert({ ...quoteData, quote_number: qNum }).select('id').single()
+        quoteId = (newQ as any)?.id
+      }
+
+      if (quoteId && lines.length > 0) {
+        const validLines = lines.filter(l => l.product_name || l.sku || l.description)
+        if (validLines.length > 0) {
+          await supabase.from('quotation_lines').insert(
+            validLines.map(l => ({
+              quotation_id: quoteId,
+              product_id: l.product_id ?? null,
+              sku: l.sku ?? null,
+              product_name: l.product_name ?? null,
+              description: l.description ?? null,
+              quantity: l.quantity ?? 1,
+              unit_price: l.unit_price ?? 0,
+              line_total: l.line_total ?? 0,
+            }))
+          )
+        }
+      }
+
+      closePanel()
+      fetchQuotes()
+    } catch (e: any) {
+      alert('Error: ' + e.message)
+    } finally {
+      setSaving(false)
     }
   }
 
-  function onLocSelect(locId: string) {
-    setSelLocId(locId)
-    const loc = shipLocs.find(l => l.id === locId)
-    if (!loc) { setSelLocAddr(''); return }
-    setSelLocAddr([loc.address, loc.city && loc.state ? `${loc.city}, ${loc.state}` : (loc.city || loc.state), loc.zip].filter(Boolean).join('\n'))
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this quotation?')) return
+    await supabase.from('quotation_lines').delete().eq('quotation_id', id)
+    await supabase.from('quotations').delete().eq('id', id)
+    fetchQuotes()
   }
 
-  function openAdd(){
-    const nums=rows.map(r=>parseInt(r.quote_number)).filter(n=>!isNaN(n))
-    const next=nums.length>0?Math.max(...nums)+1:1001
-    setEditing(null);setForm({...emptyForm,quote_number:String(next)});setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setSelLocAddr('');setErr('');setOpen(true)
-  }
+  async function convertToSO(quote: Quote) {
+    if (!confirm(`Convert "${quote.quote_number}" to a Sales Order?`)) return
+    const { data: order } = await supabase.from('sales_orders').insert({
+      customer_id: quote.customer_id,
+      order_number: 'SO-' + Date.now().toString().slice(-6),
+      status: 'Confirmed',
+      total_amount: quote.total_amount ?? 0,
+      notes: 'Converted from ' + quote.quote_number,
+    }).select('id').single()
 
-  async function openEdit(r:Quotation){
-    setEditing(r)
-    setForm({quote_number:r.quote_number,customer_id:r.customer_id??'',quote_date:r.quote_date??'',expiry_date:r.expiry_date??'',status:r.status,tax_pct:String(r.tax_pct??0),notes:r.notes??''})
-    setErr('')
-    if (r.customer_id) {
-      const { data } = await sb.from('customer_ship_locations').select('id,location_name,address,city,state,zip,is_default').eq('customer_id', r.customer_id).order('is_default', { ascending: false })
-      setShipLocs((data ?? []) as ShipLocation[])
-      setSelLocId(''); setSelLocAddr('')
-    } else {
-      setShipLocs([]); setSelLocId(''); setSelLocAddr('')
+    if (order) {
+      for (const line of (quote.quotation_lines ?? [])) {
+        await supabase.from('sales_order_lines').insert({
+          order_id: (order as any).id,
+          product_id: line.product_id ?? null,
+          sku: line.sku ?? null,
+          product_name: line.product_name ?? line.description ?? '',
+          quantity: line.quantity ?? 1,
+          unit_price: line.unit_price ?? 0,
+        })
+      }
+      await supabase.from('quotations').update({ status: 'Converted' }).eq('id', quote.id)
+      fetchQuotes()
+      window.location.href = '/sales/orders'
     }
-    const {data:ls}=await sb.from('quotation_lines').select('*').eq('quotation_id',r.id).order('line_number')
-    setLines(ls&&ls.length>0?ls.map((l:any)=>({id:l.id,line_number:l.line_number,product_id:l.product_id,sku:l.sku??'',description:l.description??'',quantity:String(l.quantity),unit_of_measure:l.unit_of_measure??'',unit_price:String(l.unit_price),discount_pct:String(l.discount_pct??0)})):[emptyLine()])
-    setOpen(true)
   }
 
-  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(emptyForm);setLines([emptyLine()]);setShipLocs([]);setSelLocId('');setSelLocAddr('')},300)}
-
-  function setLine(i:number,patch:Partial<QuoteLine>){setLines(prev=>prev.map((l,idx)=>idx===i?{...l,...patch}:l))}
-  function addLine(){setLines(prev=>[...prev,emptyLine(prev.length+1)])}
-  function removeLine(i:number){setLines(prev=>prev.filter((_,idx)=>idx!==i).map((l,idx)=>({...l,line_number:idx+1})))}
-
-  function selectProduct(i:number,p:Product){
-    setLine(i,{product_id:p.id,sku:p.sku,description:p.product_name,unit_of_measure:p.unit_of_measure??'',unit_price:p.unit_price!==null?String(p.unit_price):'0'})
-    setSkuFocus(null)
-  }
-
-  const subtotal=lines.reduce((s,l)=>s+lineTotal(l),0)
-  const taxAmt=subtotal*(parseFloat(form.tax_pct)||0)/100
-  const grandTotal=subtotal+taxAmt
-
-  async function save(){
-    if(!form.quote_number.trim()){setErr('Quote Number is required.');return}
-    setErr('');setSaving(true)
-    const payload={quote_number:form.quote_number.trim(),customer_id:form.customer_id||null,quote_date:form.quote_date||null,expiry_date:form.expiry_date||null,status:form.status,tax_pct:parseFloat(form.tax_pct)||0,subtotal,total:grandTotal,notes:form.notes.trim()||null}
-    let qid=editing?.id
-    if(editing){
-      const{error}=await sb.from('quotations').update({...payload,updated_at:new Date().toISOString()}).eq('id',editing.id)
-      if(error){setErr(dbErr(error));setSaving(false);return}
-    } else {
-      const{data,error}=await sb.from('quotations').insert({...payload,is_active:true}).select('id').single()
-      if(error||!data){setErr(error?dbErr(error):'Insert failed');setSaving(false);return}
-      qid=(data as any).id
-    }
-    if(editing){const{error:de}=await sb.from('quotation_lines').delete().eq('quotation_id',qid!);if(de){setErr('Failed to clear lines: '+de.message);setSaving(false);return}}
-    const lineRows=lines.filter(l=>l.sku||l.description).map((l,i)=>({quotation_id:qid!,line_number:i+1,product_id:l.product_id||null,sku:l.sku||null,description:l.description,quantity:parseFloat(l.quantity)||1,unit_of_measure:l.unit_of_measure||null,unit_price:parseFloat(l.unit_price)||0,discount_pct:parseFloat(l.discount_pct)||0}))
-    if(lineRows.length>0){const{error:le}=await sb.from('quotation_lines').insert(lineRows);if(le){setErr('Failed to save line items: '+le.message);setSaving(false);return}}
-    setSaving(false);close();load()
-  }
-
-  async function convertToSO(){
-    if(!editing)return
-    setConverting(true)
-    const soNum='SO-'+editing.quote_number.replace(/^Q[-_]?/i,'')
-    const{data:so,error:soErr}=await sb.from('sales_orders').insert({order_number:soNum,customer_id:editing.customer_id,quotation_id:editing.id,order_date:new Date().toISOString().slice(0,10),status:'New',tax_pct:editing.tax_pct??0,subtotal:editing.subtotal??0,total:editing.total??0,notes:editing.notes}).select('id').single()
-    if(soErr||!so){setErr(soErr?dbErr(soErr):'Failed to create sales order');setConverting(false);return}
-    const{data:ql}=await sb.from('quotation_lines').select('*').eq('quotation_id',editing.id).order('line_number')
-    if(ql&&ql.length>0){
-      await sb.from('sales_order_lines').insert(ql.map((l:any)=>({sales_order_id:(so as any).id,line_number:l.line_number,product_id:l.product_id,sku:l.sku,description:l.description,quantity:l.quantity,quantity_shipped:0,unit_of_measure:l.unit_of_measure,unit_price:l.unit_price,discount_pct:l.discount_pct})))
-    }
-    await sb.from('quotations').update({status:'Accepted',updated_at:new Date().toISOString()}).eq('id',editing.id)
-    setConverting(false);close();load()
-  }
-
-  async function downloadPDF(){
-    if(!editing)return
-    const {data:ls}=await sb.from('quotation_lines').select('*').eq('quotation_id',editing.id).order('line_number')
-    const freshLines=(ls??[]).filter((l:any)=>l.sku||l.description)
-    const cust=customers.find(c=>c.id===editing.customer_id)||null
-    generateQuotePDF({quote_number:editing.quote_number,quote_date:editing.quote_date,expiry_date:editing.expiry_date,status:editing.status,tax_pct:editing.tax_pct??0,subtotal:editing.subtotal??subtotal,total:editing.total??grandTotal,notes:editing.notes},freshLines.map((l:any)=>({line_number:l.line_number,sku:l.sku||null,description:l.description??'',quantity:Number(l.quantity)??0,unit_of_measure:l.unit_of_measure||null,unit_price:Number(l.unit_price)??0,discount_pct:Number(l.discount_pct)??0})),cust)
-  }
-
-  async function toggleArchive(){if(!editing)return;setBusy(true);await sb.from('quotations').update({is_active:!editing.is_active,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
-
-  async function bulkDelete(){
-    if(!confirm(`Delete ${ms.count} quotations? This cannot be undone.`))return
+  async function bulkDelete() {
+    if (!confirm(`Delete ${selected.size} quotations?`)) return
     setDeleting(true)
-    const ids=Array.from(ms.selected)
-    await sb.from('quotation_lines').delete().in('quotation_id',ids)
-    await sb.from('quotations').delete().in('id',ids)
-    ms.clear();setDeleting(false);load()
+    const ids = Array.from(selected)
+    for (const id of ids) await supabase.from('quotation_lines').delete().eq('quotation_id', id)
+    await supabase.from('quotations').delete().in('id', ids)
+    setSelected(new Set())
+    setDeleting(false)
+    fetchQuotes()
   }
 
-  const inp='w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
-  const inpSm='w-full bg-[#F9FAFB]/80 border border-[#E4E6EE]/60 text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
-
-  const skuMatches=(i:number)=>{
-    const q=lines[i]?.sku.toLowerCase()
-    if(!q) return products.slice(0,6)
-    const pool=products.filter(p=>p.sku.toLowerCase().includes(q)||(p.product_name??'').toLowerCase().includes(q))
-    return pool.sort((a,b)=>{
-      const as=a.sku.toLowerCase(),bs=b.sku.toLowerCase()
-      if(as===q&&bs!==q) return -1; if(bs===q&&as!==q) return 1
-      if(as.startsWith(q)&&!bs.startsWith(q)) return -1; if(bs.startsWith(q)&&!as.startsWith(q)) return 1
-      return 0
-    }).slice(0,6)
-  }
+  const inp = 'w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors'
+  const inpStyle = { borderColor: '#E4E6EE', color: '#1A1D2E', background: '#fff' }
 
   return (
-    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+    <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
+
+      {/* Page Header */}
+      <div className="bg-white border-b px-8 py-5 flex items-center justify-between" style={{ borderColor: '#E4E6EE' }}>
         <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Quotations</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} quotation${filtered.length!==1?'s':''}`}</p>
+          <h1 className="text-lg font-semibold" style={{ color: '#1A1D2E' }}>Quotations</h1>
+          <p className="text-sm mt-0.5" style={{ color: '#9CA3AF' }}>
+            {loading ? 'Loading…' : `${filtered.length} quotation${filtered.length !== 1 ? 's' : ''}${statusFilter !== 'All' ? ` · ${statusFilter}` : ''}`}
+          </p>
         </div>
-        <div className="flex items-center gap-2 self-start">
-          <Link href="/sales/costing" className="flex items-center gap-2 border border-emerald-600 text-emerald-400 hover:bg-emerald-600 hover:text-[#1A1D2E] text-sm font-medium px-3 py-2.5 rounded-lg transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>Quick Quote
-          </Link>
-          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>New Quote
-          </button>
-        </div>
-      </div>
-      {/* Tabs */}
-      <div className="flex items-center gap-1 mb-4 border-b border-[#E4E6EE] pb-0">
-        <button onClick={()=>setActiveTab('quotes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab==='quotes'?'border-blue-500 text-[#1A1D2E]':'border-transparent text-gray-500 hover:text-gray-600'}`}>All Quotes</button>
-        <button onClick={()=>setActiveTab('costing')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab==='costing'?'border-emerald-500 text-emerald-400':'border-transparent text-gray-500 hover:text-gray-300'}`}>
-          Costing Quotes {costingQuotes.length>0&&<span className="ml-1.5 text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">{costingQuotes.length}</span>}
+        <button
+          onClick={openNew}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
+          style={{ background: '#3B6FE0' }}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+          New Quote
         </button>
       </div>
 
-      {activeTab==='costing'?(
-        <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto mb-4">
-          {costingQuotes.length===0?(
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <p className="text-gray-500 text-sm">No costing quotes yet.</p>
-              <Link href="/sales/costing" className="text-xs text-emerald-400 hover:text-emerald-300">→ Go to Quick Quote tool</Link>
+      <div className="px-8 py-6">
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {[
+            { label: 'Total Quotes', value: quotes.length, color: '#3B6FE0' },
+            { label: 'Pending / Sent', value: quotes.filter(q => q.status === 'Sent').length, color: '#D97706' },
+            { label: 'Accepted', value: quotes.filter(q => q.status === 'Accepted').length, color: '#059669' },
+            { label: 'Pipeline Value', value: fmt$(quotes.filter(q => !['Rejected','Converted'].includes(q.status)).reduce((s, q) => s + (q.total_amount ?? 0), 0)), color: '#7C3AED' },
+          ].map(s => (
+            <div key={s.label} className="bg-white rounded-xl border p-5" style={{ borderColor: '#E4E6EE' }}>
+              <p className="text-sm mb-1" style={{ color: '#9CA3AF' }}>{s.label}</p>
+              <p className="text-2xl font-bold" style={{ color: s.color }}>{loading ? '—' : s.value}</p>
             </div>
-          ):(
-            <table className="w-full min-w-[700px] text-sm">
-              <thead><tr className="border-b border-[#E4E6EE]">{['Quote #','Customer','Date','Selling Price','Profit','Margin','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
-              <tbody>
-                {costingQuotes.filter(q=>{if(!search)return true;const s=search.toLowerCase();return(q.quote_number||'').toLowerCase().includes(s)||(q.customer_name||'').toLowerCase().includes(s)}).map((q:any,i:number)=>(
-                  <tr key={q.id} className={`border-b border-[#F3F4F6] last:border-0 ${i%2?'bg-[#FAFAFA]':''}`}>
-                    <td className="px-5 py-3.5 text-[#1A1D2E] font-medium font-mono text-xs">
-                      <Link href="/sales/costing" className="hover:text-emerald-400 transition-colors">{q.quote_number}</Link>
-                    </td>
-                    <td className="px-5 py-3.5 text-gray-400">{q.customer_name||'—'}</td>
-                    <td className="px-5 py-3.5 text-gray-400">{q.quote_date?new Date(q.quote_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</td>
-                    <td className="px-5 py-3.5 text-[#1A1D2E] font-medium tabular-nums">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(q.total_selling_price||0)}</td>
-                    <td className="px-5 py-3.5 text-emerald-400 tabular-nums">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(q.total_profit||0)}</td>
-                    <td className="px-5 py-3.5"><span className={`text-xs px-2 py-0.5 rounded font-medium border ${(q.avg_margin_pct||0)>=40?'bg-emerald-500/15 text-emerald-400 border-emerald-500/20':(q.avg_margin_pct||0)>=25?'bg-amber-500/15 text-amber-400 border-amber-500/20':'bg-red-500/15 text-red-400 border-red-500/20'}`}>{(q.avg_margin_pct||0).toFixed(1)}%</span></td>
-                    <td className="px-5 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[q.status]||SC.Draft}`}>{q.status}</span></td>
+          ))}
+        </div>
+
+        {/* Filters */}
+        <div className="bg-white rounded-xl border p-4 mb-4 flex flex-wrap items-center gap-4" style={{ borderColor: '#E4E6EE' }}>
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <svg className="absolute left-3 top-2.5 w-4 h-4" style={{ color: '#9CA3AF' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by quote # or customer…"
+              className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors"
+              style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }}
+            />
+          </div>
+          <div className="flex gap-1 p-1 rounded-lg" style={{ background: '#F0F2F7' }}>
+            {STATUSES.map(s => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className="px-3 py-1.5 rounded-md text-sm font-medium transition-all"
+                style={{
+                  background: statusFilter === s ? '#fff' : 'transparent',
+                  color: statusFilter === s ? '#1A1D2E' : '#9CA3AF',
+                  boxShadow: statusFilter === s ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          {selected.size > 0 && (
+            <button
+              onClick={bulkDelete}
+              disabled={deleting}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{ background: '#FEF2F2', color: '#DC2626' }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              Delete {selected.size}
+            </button>
+          )}
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#E4E6EE' }}>
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <svg className="w-12 h-12 mb-4" style={{ color: '#D1D5DB' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              <p className="text-sm font-medium mb-1" style={{ color: '#6B7280' }}>No quotations found</p>
+              <p className="text-xs mb-4" style={{ color: '#9CA3AF' }}>
+                {search ? 'Try a different search term' : 'Create your first quotation to get started'}
+              </p>
+              {!search && (
+                <button onClick={openNew} className="px-4 py-2 rounded-lg text-sm font-medium text-white hover:opacity-90" style={{ background: '#3B6FE0' }}>
+                  New Quote
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <table className="w-full">
+                <thead>
+                  <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E4E6EE' }}>
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selected.size === filtered.length && filtered.length > 0}
+                        onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map(q => q.id)))}
+                        className="w-4 h-4 rounded cursor-pointer accent-blue-600"
+                      />
+                    </th>
+                    {['Quote #', 'Customer', 'Date', 'Expiry', 'Status', 'Lines', 'Total', ''].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: '#9CA3AF' }}>
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      ):(<>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search quotations…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/></div>
-        <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-blue-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Archived</span></label>
-      </div>
-      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
-        {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
-        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived quotations.':'No quotations yet.'}</p></div>
-        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-[#E4E6EE]"><th className="w-10 px-5 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>{['Quote #','Customer','Date','Expiry','Status','Total'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
-        <tbody>{filtered.map((r,i)=><tr key={r.id} className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id)?'bg-blue-500/5':i%2?'bg-[#FAFAFA]':''}`}>
-          <td className="px-5 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
-          <td className="px-5 py-3.5 text-[#1A1D2E] font-medium font-mono text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.quote_number}</td>
-          <td className="px-5 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.customer_id?cmap[r.customer_id]||'—':'—'}</td>
-          <td className="px-5 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.quote_date)}</td>
-          <td className="px-5 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.expiry_date)}</td>
-          <td className="px-5 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Draft}`}>{r.status}</span></td>
-          <td className="px-5 py-3.5 text-gray-300 font-medium cursor-pointer" onClick={()=>openEdit(r)}>{fmt$(r.total??0)}</td>
-        </tr>)}</tbody></table>}
-      </div>
-      </>)}
-
-      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
-
-      <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-
-      {/* Wide panel for line items */}
-      <div ref={ref} onClick={e=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[880px] z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
-          <h2 className="text-[#1A1D2E] font-semibold text-sm">{editing?`Edit ${editing.quote_number}`:'New Quotation'}</h2>
-          <div className="flex items-center gap-2">
-            {editing&&<button onClick={downloadPDF} className="flex items-center gap-1.5 text-xs border border-[#E4E6EE] text-gray-400 hover:text-gray-700 hover:border-gray-600 px-2.5 py-1.5 rounded-lg transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>PDF</button>}
-            {editing&&editing.status!=='Accepted'&&<button onClick={convertToSO} disabled={converting} className="flex items-center gap-1.5 text-xs bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white px-2.5 py-1.5 rounded-lg transition-colors">{converting?'Converting…':'→ Sales Order'}</button>}
-            {editing&&<WorkflowMover recordId={editing.id} recordType="quotation" currentStatus={editing.status} orderNumber={editing.quote_number} customerId={editing.customer_id} onMoved={()=>{close();load()}}/>}
-            <button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs text-gray-400 mb-1.5">Quote Number <span className="text-red-400">*</span></label><input value={form.quote_number} onChange={e=>setForm(p=>({...p,quote_number:e.target.value}))} className={inp}/></div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Customer</label>
-              <select value={form.customer_id} onChange={e=>{setForm(p=>({...p,customer_id:e.target.value}));loadShipLocs(e.target.value)}} className={inp+' cursor-pointer'}>
-                <option value="">— None —</option>{customers.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}
-              </select>
-            </div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Quote Date</label><input type="date" value={form.quote_date} onChange={e=>setForm(p=>({...p,quote_date:e.target.value}))} className={inp}/></div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Expiry Date</label><input type="date" value={form.expiry_date} onChange={e=>setForm(p=>({...p,expiry_date:e.target.value}))} className={inp}/></div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Status</label>
-              <select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>
-                {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Tax %</label><input type="number" min="0" max="100" step="0.1" value={form.tax_pct} onChange={e=>setForm(p=>({...p,tax_pct:e.target.value}))} className={inp}/></div>
-          </div>
-          {form.customer_id && shipLocs.length > 0 && (
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Ship-To Location</label>
-              <select value={selLocId} onChange={e=>onLocSelect(e.target.value)} className={inp+' cursor-pointer mb-2'}>
-                <option value="">— Select ship-to location —</option>
-                {shipLocs.map(l=><option key={l.id} value={l.id}>{l.location_name}{l.city?` (${l.city}, ${l.state})`:''}{l.is_default?' ★':''}</option>)}
-              </select>
-              {selLocAddr && <div className="text-xs text-gray-400 bg-[#F9FAFB]/50 border border-[#E4E6EE]/60 rounded-lg px-3 py-2 whitespace-pre-line">{selLocAddr}</div>}
-            </div>
-          )}
-          <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={2} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
-
-          {/* Line Items */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-gray-500 tracking-widest uppercase">Line Items</p>
-              <button onClick={addLine} className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Line</button>
-            </div>
-            <div className="border border-[#E4E6EE] rounded-lg overflow-x-auto">
-              <table className="w-full text-xs min-w-[640px]">
-                <thead><tr className="bg-[#F9FAFB]/80 border-b border-[#E4E6EE]">
-                  {['#','SKU','Description','Qty','UOM','Unit Price','Disc %','Total',''].map(h=><th key={h} className="text-left text-gray-500 px-2 py-2 font-medium first:pl-3 last:w-8">{h}</th>)}
-                </tr></thead>
+                </thead>
                 <tbody>
-                  {lines.map((l,i)=>(
-                    <tr key={i} className="border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB]">
-                      <td className="pl-3 pr-1 py-1.5 text-gray-500 w-6">{i+1}</td>
-                      <td className="px-1 py-1 relative w-28">
-                        <input value={l.sku} onChange={e=>{setLine(i,{sku:e.target.value,product_id:null});setSkuFocus(i)}} onFocus={()=>setSkuFocus(i)} onBlur={()=>setTimeout(()=>setSkuFocus(f=>f===i?null:f),150)} placeholder="SKU…" className={inpSm}/>
-                        {skuFocus===i&&skuMatches(i).length>0&&(
-                          <div className="absolute top-full left-0 z-20 mt-0.5 w-72 bg-white border border-[#E4E6EE] rounded-lg shadow-xl overflow-hidden">
-                            {skuMatches(i).map(p=>{
-                              const qty=parseFloat(lines[i]?.quantity)||1
-                              const stock=p.on_hand_qty??0
-                              const lowStock=stock>0&&stock<qty
-                              const noStock=stock===0
-                              return(
-                              <button key={p.id} type="button" onMouseDown={()=>selectProduct(i,p)} className="w-full text-left px-3 py-2 hover:bg-[#F5F6FA] transition-colors">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-emerald-400 font-mono text-xs shrink-0">{p.sku}</span>
-                                  <span className="text-gray-300 text-xs truncate flex-1">{p.product_name}</span>
-                                  <span className={`text-xs shrink-0 ${noStock?'text-red-400':lowStock?'text-amber-400':'text-gray-500'}`}>{stock} on hand</span>
-                                </div>
-                                {(lowStock||noStock)&&<p className="text-xs mt-0.5 text-amber-400">{noStock?'Out of stock':'Low stock'}</p>}
-                              </button>
-                            )})}
-                          </div>
-                        )}
+                  {filtered.map(quote => (
+                    <tr
+                      key={quote.id}
+                      className="group cursor-pointer hover:bg-[#F9FAFB] transition-colors"
+                      style={{ borderBottom: '1px solid #F3F4F6' }}
+                      onClick={() => openEdit(quote)}
+                    >
+                      <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(quote.id)}
+                          onChange={() => {
+                            const next = new Set(selected)
+                            if (next.has(quote.id)) next.delete(quote.id)
+                            else next.add(quote.id)
+                            setSelected(next)
+                          }}
+                          className="w-4 h-4 rounded cursor-pointer accent-blue-600"
+                        />
                       </td>
-                      <td className="px-1 py-1"><input value={l.description} onChange={e=>setLine(i,{description:e.target.value})} placeholder="Description…" className={inpSm+' min-w-[130px]'}/></td>
-                      <td className="px-1 py-1 w-16"><input type="number" value={l.quantity} onChange={e=>setLine(i,{quantity:e.target.value})} min="0" className={inpSm+' text-right'}/></td>
-                      <td className="px-1 py-1 w-14"><input value={l.unit_of_measure} onChange={e=>setLine(i,{unit_of_measure:e.target.value})} placeholder="ea" className={inpSm}/></td>
-                      <td className="px-1 py-1 w-24"><input type="number" value={l.unit_price} onChange={e=>setLine(i,{unit_price:e.target.value})} min="0" step="0.01" className={inpSm+' text-right'}/></td>
-                      <td className="px-1 py-1 w-14"><input type="number" value={l.discount_pct} onChange={e=>setLine(i,{discount_pct:e.target.value})} min="0" max="100" step="0.1" className={inpSm+' text-right'}/></td>
-                      <td className="px-2 py-1.5 text-gray-300 text-right w-20 font-medium tabular-nums">{fmt$(lineTotal(l))}</td>
-                      <td className="px-1 py-1"><button onClick={()=>removeLine(i)} className="text-gray-600 hover:text-red-400 transition-colors p-0.5 block"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-sm font-semibold" style={{ color: '#3B6FE0' }}>{quote.quote_number || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-sm font-medium" style={{ color: '#1A1D2E' }}>{quote.customers?.company_name || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
+                        {quote.quote_date ? new Date(quote.quote_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                      </td>
+                      <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
+                        {quote.expiry_date ? new Date(quote.expiry_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <StatusBadge status={quote.status ?? 'Draft'} />
+                      </td>
+                      <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
+                        {quote.quotation_lines?.length ?? 0}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-sm font-semibold" style={{ color: '#1A1D2E' }}>{fmt$(quote.total_amount)}</span>
+                      </td>
+                      <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openEdit(quote)}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-gray-100"
+                            style={{ background: '#F0F2F7', color: '#6B7280' }}
+                          >
+                            Edit
+                          </button>
+                          {quote.status !== 'Converted' && (
+                            <button
+                              onClick={() => convertToSO(quote)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                              style={{ background: '#ECFDF5', color: '#059669' }}
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                              SO
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDelete(quote.id)}
+                            className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
+                            style={{ color: '#DC2626' }}
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-            <div className="flex justify-end mt-3">
-              <div className="w-52 space-y-1 text-xs">
-                <div className="flex justify-between text-gray-400"><span>Subtotal</span><span className="tabular-nums">{fmt$(subtotal)}</span></div>
-                <div className="flex justify-between text-gray-400"><span>Tax ({form.tax_pct||'0'}%)</span><span className="tabular-nums">{fmt$(taxAmt)}</span></div>
-                <div className="flex justify-between font-semibold text-[#1A1D2E] border-t border-[#E4E6EE] pt-1.5"><span>Total</span><span className="tabular-nums">{fmt$(grandTotal)}</span></div>
+              <div className="px-4 py-3 flex items-center justify-between border-t" style={{ borderColor: '#F3F4F6', background: '#F9FAFB' }}>
+                <p className="text-xs" style={{ color: '#9CA3AF' }}>{filtered.length} of {quotes.length} quotations</p>
+                <p className="text-xs font-semibold" style={{ color: '#1A1D2E' }}>
+                  Total: {fmt$(filtered.reduce((s, q) => s + (q.total_amount ?? 0), 0))}
+                </p>
               </div>
-            </div>
-          </div>
+            </>
+          )}
+        </div>
+      </div>
 
-          {editing&&(<>
-            <div className="border-t border-[#E4E6EE] pt-4"><LinkedTasks recordType="quotations" recordId={editing.id} defaultCustomerId={editing.customer_id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="quotations" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-[#E4E6EE] pt-4"><CommentSection recordType="quotations" recordId={editing.id} currentUserEmail={userEmail}/></div>
-          </>)}
+      {/* OVERLAY */}
+      <div
+        className="fixed inset-0 z-40 transition-opacity duration-300"
+        style={{
+          background: 'rgba(0,0,0,0.3)',
+          opacity: panelOpen ? 1 : 0,
+          pointerEvents: panelOpen ? 'auto' : 'none',
+        }}
+        onClick={closePanel}
+      />
+
+      {/* SLIDE-OUT PANEL */}
+      <div
+        className="fixed top-0 right-0 h-full z-50 flex flex-col transition-transform duration-300 ease-in-out"
+        style={{
+          width: 700,
+          background: '#FFFFFF',
+          borderLeft: '1px solid #E4E6EE',
+          boxShadow: '-8px 0 32px rgba(0,0,0,0.12)',
+          transform: panelOpen ? 'translateX(0)' : 'translateX(100%)',
+        }}
+      >
+        {/* Panel Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: '#E4E6EE' }}>
+          <div>
+            <h2 className="font-semibold text-base" style={{ color: '#1A1D2E' }}>
+              {editing ? `Quote ${editing.quote_number}` : 'New Quotation'}
+            </h2>
+            {editing && <div className="mt-1"><StatusBadge status={editing.status ?? 'Draft'} /></div>}
+          </div>
+          <button
+            onClick={closePanel}
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-gray-100"
+            style={{ background: '#F0F2F7', color: '#6B7280' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
         </div>
 
-        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
-          {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
-          <div className="flex gap-3">
-            {editing&&<button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50">{editing.is_active?'Archive':'Restore'}</button>}
-            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save Quote'}</button>
+        {/* Panel Tabs */}
+        <div className="flex border-b px-6 shrink-0" style={{ borderColor: '#E4E6EE' }}>
+          {(['overview', 'lines', 'notes'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setPanelTab(tab)}
+              className="px-4 py-3 text-sm font-medium capitalize border-b-2 transition-colors -mb-px"
+              style={{
+                borderColor: panelTab === tab ? '#3B6FE0' : 'transparent',
+                color: panelTab === tab ? '#3B6FE0' : '#9CA3AF',
+              }}
+            >
+              {tab === 'lines' ? 'Line Items' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Panel Body */}
+        <div className="flex-1 overflow-y-auto p-6">
+
+          {/* OVERVIEW TAB */}
+          {panelTab === 'overview' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>
+                    Customer <span className="text-red-500">*</span>
+                  </label>
+                  <select value={form.customer_id} onChange={e => setForm(p => ({ ...p, customer_id: e.target.value }))} className={inp} style={inpStyle}>
+                    <option value="">Select customer…</option>
+                    {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Quote Date</label>
+                  <input type="date" value={form.quote_date} onChange={e => setForm(p => ({ ...p, quote_date: e.target.value }))} className={inp} style={inpStyle} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Expiry Date</label>
+                  <input type="date" value={form.expiry_date} onChange={e => setForm(p => ({ ...p, expiry_date: e.target.value }))} className={inp} style={inpStyle} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Status</label>
+                  <select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))} className={inp} style={inpStyle}>
+                    {['Draft', 'Sent', 'Accepted', 'Rejected', 'Converted', 'Expired'].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Payment Terms</label>
+                  <select value={form.payment_terms} onChange={e => setForm(p => ({ ...p, payment_terms: e.target.value }))} className={inp} style={inpStyle}>
+                    {PAYMENT_TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Notes / Scope</label>
+                  <textarea
+                    value={form.notes}
+                    onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+                    rows={4}
+                    placeholder="Add notes or scope of work…"
+                    className={inp}
+                    style={{ ...inpStyle, resize: 'vertical' }}
+                  />
+                </div>
+              </div>
+
+              {lines.length > 0 && (
+                <div className="rounded-xl p-4" style={{ background: '#F0F2F7' }}>
+                  <p className="text-xs font-semibold mb-3 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Quote Summary</p>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span style={{ color: '#6B7280' }}>Subtotal ({lines.length} line{lines.length !== 1 ? 's' : ''})</span>
+                    <span style={{ color: '#1A1D2E' }}>{fmt$(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span style={{ color: '#6B7280' }}>Tax ({form.tax_rate}%)</span>
+                    <span style={{ color: '#1A1D2E' }}>{fmt$(taxAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold border-t pt-2 mt-2" style={{ borderColor: '#E4E6EE' }}>
+                    <span style={{ color: '#1A1D2E' }}>Total</span>
+                    <span style={{ color: '#3B6FE0' }}>{fmt$(total)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* LINE ITEMS TAB */}
+          {panelTab === 'lines' && (
+            <div className="space-y-4">
+              {/* Product quick-add search */}
+              <div className="relative">
+                <svg className="absolute left-3 top-2.5 w-4 h-4" style={{ color: '#9CA3AF' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <input
+                  value={productSearch}
+                  onChange={e => { setProductSearch(e.target.value); searchProducts(e.target.value) }}
+                  placeholder="Quick-add: search by SKU or product name…"
+                  className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }}
+                />
+                {productResults.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 z-10 bg-white rounded-xl border shadow-lg overflow-hidden" style={{ borderColor: '#E4E6EE' }}>
+                    {productResults.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => selectProduct(lines.length - 1 < 0 ? 0 : lines.length - 1, p)}
+                        className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-[#F9FAFB] text-left transition-colors"
+                      >
+                        <div>
+                          <span className="text-xs font-semibold" style={{ color: '#3B6FE0' }}>{p.sku}</span>
+                          <span className="text-xs ml-2" style={{ color: '#6B7280' }}>{p.product_name}</span>
+                        </div>
+                        <span className="text-xs font-medium" style={{ color: '#1A1D2E' }}>
+                          {fmt$(p.wholesale_price ?? p.msrp ?? p.unit_cost)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Lines table */}
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: '#E4E6EE' }}>
+                <table className="w-full">
+                  <thead>
+                    <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E4E6EE' }}>
+                      {['SKU', 'Description', 'Qty', 'Unit Price', 'Total', ''].map(h => (
+                        <th key={h} className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-sm" style={{ color: '#9CA3AF' }}>
+                          No line items yet. Search above or click Add Line Item.
+                        </td>
+                      </tr>
+                    ) : lines.map((line, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                        <td className="px-3 py-2">
+                          <input value={line.sku ?? ''} onChange={e => updateLine(i, 'sku', e.target.value)} placeholder="SKU"
+                            className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input value={line.product_name ?? line.description ?? ''} onChange={e => updateLine(i, 'product_name', e.target.value)} placeholder="Product / description"
+                            className="w-full px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input type="number" value={line.quantity ?? ''} onChange={e => updateLine(i, 'quantity', parseFloat(e.target.value) || 0)}
+                            className="w-16 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input type="number" value={line.unit_price ?? ''} onChange={e => updateLine(i, 'unit_price', parseFloat(e.target.value) || 0)}
+                            className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                        </td>
+                        <td className="px-3 py-2 text-xs font-semibold text-right" style={{ color: '#1A1D2E' }}>
+                          {fmt$(line.line_total)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <button onClick={() => removeLine(i)} className="p-1 rounded-lg transition-colors hover:bg-red-50" style={{ color: '#DC2626' }}>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={addLine}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border hover:bg-gray-50"
+                  style={{ borderColor: '#E4E6EE', color: '#6B7280' }}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  Add Line Item
+                </button>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm" style={{ color: '#6B7280' }}>Tax Rate (%)</label>
+                  <input type="number" value={form.tax_rate} onChange={e => setForm(p => ({ ...p, tax_rate: e.target.value }))}
+                    className="w-20 px-3 py-1.5 rounded-lg border text-sm text-right focus:outline-none focus:border-blue-500"
+                    style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                </div>
+              </div>
+
+              <div className="rounded-xl p-4" style={{ background: '#F0F2F7' }}>
+                <div className="flex justify-between text-sm mb-2">
+                  <span style={{ color: '#6B7280' }}>Subtotal</span>
+                  <span style={{ color: '#1A1D2E' }}>{fmt$(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-sm mb-2">
+                  <span style={{ color: '#6B7280' }}>Tax ({form.tax_rate}%)</span>
+                  <span style={{ color: '#1A1D2E' }}>{fmt$(taxAmount)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold border-t pt-2 mt-2" style={{ borderColor: '#E4E6EE' }}>
+                  <span style={{ color: '#1A1D2E' }}>Total</span>
+                  <span style={{ color: '#3B6FE0' }}>{fmt$(total)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* NOTES TAB */}
+          {panelTab === 'notes' && (
+            <div>
+              <label className="block text-xs font-medium mb-2" style={{ color: '#374151' }}>Internal Notes</label>
+              <textarea
+                value={form.notes}
+                onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+                rows={10}
+                placeholder="Add internal notes, terms, or conditions…"
+                className={inp}
+                style={{ ...inpStyle, resize: 'vertical' }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Panel Footer */}
+        <div className="px-6 py-4 border-t flex items-center justify-between shrink-0" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
+          <div>
+            {editing && editing.status !== 'Converted' && (
+              <button
+                onClick={() => convertToSO(editing)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{ background: '#ECFDF5', color: '#059669' }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                Convert to Sales Order
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={closePanel} className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-5 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 hover:opacity-90"
+              style={{ background: '#3B6FE0' }}
+            >
+              {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Quote'}
+            </button>
           </div>
         </div>
       </div>
