@@ -267,21 +267,17 @@ export default function QCPage() {
     if (submit && form.work_order_id) {
       if (finalResult === 'Pass') {
         await sb.from('work_orders').update({ status: 'QC Passed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
-        const { data: wo } = await sb.from('work_orders').select('wo_number').eq('id', form.work_order_id).maybeSingle()
-        if (wo?.wo_number) {
-          const { data: so } = await sb.from('sales_orders').select('id').eq('order_number', wo.wo_number.replace(/^WO-/, '')).maybeSingle()
-          if ((so as any)?.id) {
-            await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', (so as any).id)
-            await addToShippingQueue((so as any).id)
-          }
+        const { data: wo } = await sb.from('work_orders').select('notes').eq('id', form.work_order_id).maybeSingle()
+        const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
+        if (soId) {
+          await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', soId)
+          await addToShippingQueue(soId)
         }
       } else if (finalResult === 'Fail') {
         await sb.from('work_orders').update({ status: 'QC Failed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
-        const { data: wo } = await sb.from('work_orders').select('wo_number').eq('id', form.work_order_id).maybeSingle()
-        if (wo?.wo_number) {
-          const { data: so } = await sb.from('sales_orders').select('id').eq('order_number', wo.wo_number.replace(/^WO-/, '')).maybeSingle()
-          if ((so as any)?.id) await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', (so as any).id)
-        }
+        const { data: wo } = await sb.from('work_orders').select('notes').eq('id', form.work_order_id).maybeSingle()
+        const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
+        if (soId) await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', soId)
       } else if (finalResult === 'Rework Required') {
         await sb.from('work_orders').update({ status: 'Rework Required', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
       }
