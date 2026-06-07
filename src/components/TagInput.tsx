@@ -112,16 +112,16 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
           onKeyDown={handleKey}
           onBlur={() => setTimeout(() => setShowDrop(false), 150)}
           placeholder="Add a note or @tag a teammate…"
-          className={className || 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none'}
+          className={className || 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none'}
         />
         {showDrop && filtered.length > 0 && (
-          <div className="absolute z-50 left-0 bottom-full mb-1 w-64 bg-gray-800 border border-gray-700 rounded-xl shadow-xl overflow-hidden">
+          <div className="absolute z-50 left-0 bottom-full mb-1 w-64 bg-white border border-[#E4E6EE] rounded-xl shadow-xl overflow-hidden">
             {filtered.slice(0, 6).map((u, i) => (
               <button
                 key={u.email}
                 type="button"
                 onMouseDown={() => selectUser(u.email)}
-                className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-gray-700'}`}
+                className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-[#F5F6FA]'}`}
               >
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold"

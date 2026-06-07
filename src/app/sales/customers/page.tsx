@@ -53,13 +53,13 @@ const STAGE_COLORS: Record<string,string> = {
   'Closed Lost':'border-red-600/40 bg-red-900/20',
 }
 const STAGE_BADGE: Record<string,string> = {
-  Lead:'bg-gray-700/40 text-gray-400 border-gray-600', Contacted:'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  Lead:'bg-[#F3F4F6] text-gray-600 border-gray-600', Contacted:'bg-blue-500/15 text-blue-400 border-blue-500/20',
   Qualified:'bg-violet-500/15 text-violet-400 border-violet-500/20', 'Proposal Sent':'bg-amber-500/15 text-amber-400 border-amber-500/20',
   Negotiating:'bg-orange-500/15 text-orange-400 border-orange-500/20', 'Closed Won':'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   'Closed Lost':'bg-red-500/15 text-red-400 border-red-500/20',
 }
 const STATUS_BADGE: Record<string,string> = {
-  Lead:'bg-gray-700/40 text-gray-400 border-gray-600', Prospect:'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  Lead:'bg-[#F3F4F6] text-gray-600 border-gray-600', Prospect:'bg-blue-500/15 text-blue-400 border-blue-500/20',
   'Active Customer':'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   Inactive:'bg-gray-600/20 text-gray-500 border-gray-600', 'Do Not Contact':'bg-red-500/15 text-red-400 border-red-500/20',
 }
@@ -623,8 +623,8 @@ export default function CustomersPage() {
   }
 
   // ── Helpers ───────────────────────────────────────────────
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
-  const inpSm = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
+  const inpSm = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
   const sel = inp + ' cursor-pointer'
   const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
@@ -646,33 +646,33 @@ export default function CustomersPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">Customers</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Customers</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${showArchived?'archived':'active'} customer${filtered.length!==1?'s':''}`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {selectedArr.length >= 2 && (
-            <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium transition-colors">
+            <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-[#1A1D2E] font-medium transition-colors">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
               Merge {selectedArr.length} Selected
             </button>
           )}
-          <button onClick={openGroupModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-600 text-white font-medium transition-colors">
+          <button onClick={openGroupModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-600 text-[#1A1D2E] font-medium transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
             Group Accounts
           </button>
-          <button onClick={findDuplicates} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">
+          <button onClick={findDuplicates} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
             Find Duplicates
           </button>
-          <div className="flex items-center bg-gray-800 rounded-lg p-1 border border-gray-700">
-            <button onClick={()=>setViewMode('table')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='table'?'bg-gray-700 text-white':'text-gray-400 hover:text-white'}`}>
+          <div className="flex items-center bg-[#F9FAFB] rounded-lg p-1 border border-[#E4E6EE]">
+            <button onClick={()=>setViewMode('table')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='table'?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18"/></svg>Table
             </button>
-            <button onClick={()=>setViewMode('pipeline')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='pipeline'?'bg-gray-700 text-white':'text-gray-400 hover:text-white'}`}>
+            <button onClick={()=>setViewMode('pipeline')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='pipeline'?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>Pipeline
             </button>
           </div>
-          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Customer
           </button>
         </div>
@@ -683,26 +683,26 @@ export default function CustomersPage() {
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 max-w-sm">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input placeholder="Search by name, contact, email…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+            <input placeholder="Search by name, contact, email…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
-            <div onClick={()=>setShowArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${showArchived?'bg-blue-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showArchived?'translate-x-4':'translate-x-0.5'}`}/></div>
+            <div onClick={()=>setShowArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${showArchived?'bg-blue-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showArchived?'translate-x-4':'translate-x-0.5'}`}/></div>
             <span className="text-sm text-gray-400">Archived</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer select-none">
-            <div onClick={()=>setShowMerged(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${showMerged?'bg-amber-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showMerged?'translate-x-4':'translate-x-0.5'}`}/></div>
+            <div onClick={()=>setShowMerged(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${showMerged?'bg-amber-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showMerged?'translate-x-4':'translate-x-0.5'}`}/></div>
             <span className="text-sm text-gray-400">Show Merged</span>
           </label>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {STATUS_FILTERS.map(f=>(
-            <button key={f} onClick={()=>setStageFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${stageFilter===f?'bg-blue-600 border-blue-600 text-white':'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-white'}`}>
+            <button key={f} onClick={()=>setStageFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${stageFilter===f?'bg-blue-600 border-blue-600 text-white':'border-[#E4E6EE] text-gray-400 hover:border-gray-600 hover:text-gray-700'}`}>
               {f==='all'?'All':f}
             </button>
           ))}
           <span className="text-gray-700 text-xs">|</span>
           {(['all','parent','child','standalone'] as const).map(f=>(
-            <button key={f} onClick={()=>setAccountTypeFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${accountTypeFilter===f?'bg-teal-600 border-teal-600 text-white':'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-white'}`}>
+            <button key={f} onClick={()=>setAccountTypeFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${accountTypeFilter===f?'bg-teal-600 border-teal-600 text-white':'border-[#E4E6EE] text-gray-400 hover:border-gray-600 hover:text-gray-700'}`}>
               {f==='all'?'All Accounts':f==='parent'?'Parent Accounts':f==='child'?'Locations':f==='standalone'?'Standalone':''}
             </button>
           ))}
@@ -730,9 +730,9 @@ export default function CustomersPage() {
               const combinedSpend=isParent ? (c.lifetime_spend??0)+children.reduce((s,ch)=>s+(ch.lifetime_spend??0),0) : (c.lifetime_spend??null)
               const combinedShips=isParent ? (c.total_shipments??0)+children.reduce((s,ch)=>s+(ch.total_shipments??0),0) : (c.total_shipments??null)
               return [
-                <tr key={c.id} className={`border-b border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${isParent?'bg-teal-950/10':isChild?'bg-gray-800/5':i%2?'bg-[#FAFAFA]':''} ${isSelected?'bg-blue-900/10':''}`}>
+                <tr key={c.id} className={`border-b border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${isParent?'bg-teal-950/10':isChild?'bg-[#F5F6FA]/5':i%2?'bg-[#FAFAFA]':''} ${isSelected?'bg-blue-900/10':''}`}>
                   <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
-                    <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(c.id)} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 cursor-pointer"/>
+                    <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(c.id)} className="w-4 h-4 rounded border-gray-600 bg-[#F9FAFB] text-blue-500 cursor-pointer"/>
                   </td>
                   <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}>
                     <div className="flex items-center gap-2.5" style={{paddingLeft:isChild?'1.25rem':0}}>
@@ -742,10 +742,10 @@ export default function CustomersPage() {
                         </button>
                       )}
                       {isChild&&<span className="text-gray-600 text-xs shrink-0">↳</span>}
-                      {!isParent&&!isChild&&<div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-xs">{initials(c.company_name)}</span></div>}
-                      {(isParent||isChild)&&<div className={`w-7 h-7 rounded-full ${isParent?'bg-teal-700':avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-xs">{initials(c.company_name)}</span></div>}
+                      {!isParent&&!isChild&&<div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span></div>}
+                      {(isParent||isChild)&&<div className={`w-7 h-7 rounded-full ${isParent?'bg-teal-700':avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span></div>}
                       <div>
-                        <span className={`font-medium ${isParent?'text-teal-100':'text-white'}`}>{c.company_name}</span>
+                        <span className={`font-medium ${isParent?'text-teal-800':'text-[#1A1D2E]'}`}>{c.company_name}</span>
                         {isParent&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-teal-500/20 text-teal-400 border border-teal-500/30 rounded">Parent · {children.length} locations</span>}
                         {isChild&&<span className="ml-2 text-xs text-gray-600">location</span>}
                         {c.is_merged&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded">Merged</span>}
@@ -771,7 +771,7 @@ export default function CustomersPage() {
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2 pl-10">
                         <span className="text-gray-600 text-xs">↳</span>
-                        <div className={`w-5 h-5 rounded-full ${avatarColor(ch.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-xs">{initials(ch.company_name)}</span></div>
+                        <div className={`w-5 h-5 rounded-full ${avatarColor(ch.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(ch.company_name)}</span></div>
                         <span className="text-gray-300 text-xs">{ch.company_name}</span>
                       </div>
                     </td>
@@ -804,7 +804,7 @@ export default function CustomersPage() {
                   onDrop={()=>dropOnStage(stage)}>
                   <div className="px-3 py-2.5 border-b border-white/5">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-white">{stage}</span>
+                      <span className="text-xs font-semibold text-[#1A1D2E]">{stage}</span>
                       <span className="text-xs text-gray-500">{stageCustomers.length}</span>
                     </div>
                     {stageTotal>0&&<p className="text-xs text-gray-500 mt-0.5">{fmt$(stageTotal)}</p>}
@@ -814,8 +814,8 @@ export default function CustomersPage() {
                       const pc=primaryContacts[c.id]
                       return (
                         <div key={c.id} draggable onDragStart={()=>setDraggingId(c.id)} onDragEnd={()=>{setDraggingId(null);setDragOverStage(null)}} onClick={()=>openEdit(c)}
-                          className={`bg-gray-900 border border-gray-700 rounded-lg p-2.5 cursor-pointer hover:border-gray-600 transition-colors ${draggingId===c.id?'opacity-40':''}`}>
-                          <p className="text-xs text-white font-medium leading-tight">{c.company_name}</p>
+                          className={`bg-white border border-[#E4E6EE] rounded-lg p-2.5 cursor-pointer hover:border-gray-600 transition-colors ${draggingId===c.id?'opacity-40':''}`}>
+                          <p className="text-xs text-[#1A1D2E] font-medium leading-tight">{c.company_name}</p>
                           {pc&&<p className="text-xs text-gray-500 mt-0.5">{pc.full_name}</p>}
                           {c.deal_value&&<p className="text-xs text-emerald-400 font-medium mt-1">{fmt$(c.deal_value)}</p>}
                           {c.probability!=null&&c.probability>0&&<p className="text-xs text-gray-600 mt-0.5">{c.probability}% probability</p>}
@@ -834,13 +834,13 @@ export default function CustomersPage() {
       <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${panelOpen?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={closePanel}/>
 
       {/* ── PANEL ── */}
-      <div ref={panelRef} onClick={e=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[640px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${panelOpen?'translate-x-0':'translate-x-full'}`}>
+      <div ref={panelRef} onClick={e=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[640px] bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${panelOpen?'translate-x-0':'translate-x-full'}`}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
           <div className="flex items-center gap-3">
-            {editing&&<div className={`w-8 h-8 rounded-full ${avatarColor(editing.company_name)} flex items-center justify-center`}><span className="text-white font-bold text-xs">{initials(editing.company_name)}</span></div>}
+            {editing&&<div className={`w-8 h-8 rounded-full ${avatarColor(editing.company_name)} flex items-center justify-center`}><span className="text-[#1A1D2E] font-bold text-xs">{initials(editing.company_name)}</span></div>}
             <div>
-              <h2 className="text-white font-semibold text-sm">{editing?editing.company_name:'Add Customer'}</h2>
+              <h2 className="text-[#1A1D2E] font-semibold text-sm">{editing?editing.company_name:'Add Customer'}</h2>
               <p className="text-xs text-gray-500">
                 {editing?.customer_status||'Lead'}
                 {editing?.is_merged&&<span className="ml-2 text-amber-400">· Merged</span>}
@@ -849,30 +849,30 @@ export default function CustomersPage() {
               </p>
             </div>
           </div>
-          <button onClick={closePanel} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+          <button onClick={closePanel} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
         </div>
 
         {/* Spend summary card */}
         {editing&&(
           <div className="border-b border-[#E4E6EE] shrink-0">
             {!spendEdit ? (
-              <div className="grid grid-cols-4 gap-px bg-gray-800">
-                <div className="bg-gray-900 px-4 py-2.5">
+              <div className="grid grid-cols-4 gap-px bg-[#F9FAFB]">
+                <div className="bg-white px-4 py-2.5">
                   <div className="flex items-center gap-1">
                     <p className="text-xs text-gray-500">Total Spent</p>
                     {editing.manual_spend_override&&<span className="text-xs text-amber-400 font-medium">Manual</span>}
                   </div>
                   <p className="text-sm font-semibold text-emerald-400 mt-0.5">{fmt$2(displaySpend)}</p>
                 </div>
-                <div className="bg-gray-900 px-4 py-2.5">
+                <div className="bg-white px-4 py-2.5">
                   <p className="text-xs text-gray-500">Shipments</p>
                   <p className="text-sm font-semibold text-blue-400 mt-0.5">{editing.total_shipments??0}</p>
                 </div>
-                <div className="bg-gray-900 px-4 py-2.5">
+                <div className="bg-white px-4 py-2.5">
                   <p className="text-xs text-gray-500">First Ship</p>
                   <p className="text-sm font-semibold text-gray-300 mt-0.5">{fmtD(editing.first_shipment_date)}</p>
                 </div>
-                <div className="bg-gray-900 px-4 py-2.5 flex items-start justify-between">
+                <div className="bg-white px-4 py-2.5 flex items-start justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Last Ship</p>
                     <p className="text-sm font-semibold text-gray-300 mt-0.5">{fmtD(editing.last_shipment_date)}</p>
@@ -883,10 +883,10 @@ export default function CustomersPage() {
                 </div>
               </div>
             ) : (
-              <div className="px-4 py-3 space-y-2.5 bg-gray-900">
+              <div className="px-4 py-3 space-y-2.5 bg-white">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Edit Spend Data</p>
-                  <button onClick={()=>{setSpendEdit(false);setRecalcMsg('')}} className="text-xs text-gray-500 hover:text-white">Cancel</button>
+                  <button onClick={()=>{setSpendEdit(false);setRecalcMsg('')}} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -903,13 +903,13 @@ export default function CustomersPage() {
                   <input value={spendForm.spend_notes} onChange={e=>setSpendForm(p=>({...p,spend_notes:e.target.value}))} placeholder="e.g. Includes offline orders" className={inpSm}/>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={spendForm.manual_spend_override} onChange={e=>setSpendForm(p=>({...p,manual_spend_override:e.target.checked}))} className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-amber-500"/>
+                  <input type="checkbox" checked={spendForm.manual_spend_override} onChange={e=>setSpendForm(p=>({...p,manual_spend_override:e.target.checked}))} className="w-3.5 h-3.5 rounded border-gray-600 bg-[#F9FAFB] text-amber-500"/>
                   <span className="text-xs text-gray-400">Use manual override (show above values instead of calculated)</span>
                 </label>
                 {recalcMsg&&<p className="text-xs text-emerald-400">{recalcMsg}</p>}
                 <div className="flex gap-2">
-                  <button onClick={recalcSpend} disabled={savingSpend} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">Recalculate from Shipments</button>
-                  <button onClick={saveSpendOverride} disabled={savingSpend} className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium transition-colors">{savingSpend?'Saving…':'Save Spend Data'}</button>
+                  <button onClick={recalcSpend} disabled={savingSpend} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50">Recalculate from Shipments</button>
+                  <button onClick={saveSpendOverride} disabled={savingSpend} className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">{savingSpend?'Saving…':'Save Spend Data'}</button>
                 </div>
               </div>
             )}
@@ -919,7 +919,7 @@ export default function CustomersPage() {
         {/* Tabs */}
         <div className="flex border-b border-[#E4E6EE] shrink-0 px-2 overflow-x-auto">
           {tabs.map(t=>(
-            <button key={t.key} onClick={()=>setActiveTab(t.key)} className={`px-4 py-3 text-xs font-medium transition-colors relative whitespace-nowrap ${activeTab===t.key?'text-white after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-500':'text-gray-500 hover:text-gray-300'}`}>{t.label}</button>
+            <button key={t.key} onClick={()=>setActiveTab(t.key)} className={`px-4 py-3 text-xs font-medium transition-colors relative whitespace-nowrap ${activeTab===t.key?'text-[#1A1D2E] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-500':'text-gray-500 hover:text-gray-600'}`}>{t.label}</button>
           ))}
         </div>
 
@@ -954,7 +954,7 @@ export default function CustomersPage() {
               <div><label className="block text-xs text-gray-400 mb-1.5">Billing Address</label><textarea rows={2} value={form.billing_address} onChange={e=>setForm(p=>({...p,billing_address:e.target.value}))} className={inp+' resize-none'}/></div>
               <div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={form.do_not_contact} onChange={e=>setForm(p=>({...p,do_not_contact:e.target.checked}))} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-red-500"/>
+                  <input type="checkbox" checked={form.do_not_contact} onChange={e=>setForm(p=>({...p,do_not_contact:e.target.checked}))} className="w-4 h-4 rounded border-gray-600 bg-[#F9FAFB] text-red-500"/>
                   <span className="text-sm text-gray-400">Do Not Contact</span>
                 </label>
               </div>
@@ -976,7 +976,7 @@ export default function CustomersPage() {
                   </div>
 
                   {(addingLoc||editingLoc)&&(
-                    <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-3 space-y-2">
+                    <div className="bg-[#F0F2F7] border border-[#E4E6EE] rounded-xl p-3 space-y-2">
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{editingLoc?'Edit Location':'New Ship-To Location'}</p>
                       <div>
                         <label className="block text-xs text-gray-500 mb-1">Location Name <span className="text-red-400">*</span></label>
@@ -989,24 +989,24 @@ export default function CustomersPage() {
                         <div><label className="block text-xs text-gray-500 mb-1">ZIP</label><input value={locForm.zip??''} onChange={e=>setLocForm(p=>({...p,zip:e.target.value}))} className={inpSm}/></div>
                       </div>
                       <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" checked={locForm.is_default} onChange={e=>setLocForm(p=>({...p,is_default:e.target.checked}))} className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-500"/>
+                        <input type="checkbox" checked={locForm.is_default} onChange={e=>setLocForm(p=>({...p,is_default:e.target.checked}))} className="w-3.5 h-3.5 rounded border-gray-600 bg-[#F9FAFB] text-blue-500"/>
                         <span className="text-xs text-gray-400">Set as default ship-to</span>
                       </label>
                       <div className="flex gap-2">
-                        <button onClick={()=>{setAddingLoc(false);setEditingLoc(null);setLocForm(emptyLoc)}} className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-                        <button onClick={saveLoc} disabled={savingLoc} className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium transition-colors">{savingLoc?'Saving…':'Save Location'}</button>
+                        <button onClick={()=>{setAddingLoc(false);setEditingLoc(null);setLocForm(emptyLoc)}} className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                        <button onClick={saveLoc} disabled={savingLoc} className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">{savingLoc?'Saving…':'Save Location'}</button>
                       </div>
                     </div>
                   )}
 
                   {shipLocs.length===0&&!addingLoc?<p className="text-xs text-gray-600 italic">No ship-to locations.</p>:null}
                   {shipLocs.map(loc=>(
-                    <div key={loc.id} className="bg-[#F5F6FA] border border-gray-700 rounded-xl p-3">
+                    <div key={loc.id} className="bg-[#F5F6FA] border border-[#E4E6EE] rounded-xl p-3">
                       <div className="flex items-start gap-2">
                         <svg className="w-3.5 h-3.5 text-gray-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="text-xs text-white font-medium">{loc.location_name}</p>
+                            <p className="text-xs text-[#1A1D2E] font-medium">{loc.location_name}</p>
                             {loc.is_default&&<span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded">Default</span>}
                           </div>
                           {loc.address&&<p className="text-xs text-gray-500 mt-0.5">{loc.address}</p>}
@@ -1014,7 +1014,7 @@ export default function CustomersPage() {
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {!loc.is_default&&<button onClick={()=>setDefaultLoc(loc)} title="Set as default" className="p-1 text-gray-600 hover:text-blue-400 transition-colors rounded"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z"/></svg></button>}
-                          <button onClick={()=>{setEditingLoc(loc);setAddingLoc(false);setLocForm({location_name:loc.location_name,address:loc.address??'',city:loc.city??'',state:loc.state??'',zip:loc.zip??'',country:loc.country??'US',notes:loc.notes??'',is_default:loc.is_default})}} className="p-1 text-gray-600 hover:text-white transition-colors rounded"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
+                          <button onClick={()=>{setEditingLoc(loc);setAddingLoc(false);setLocForm({location_name:loc.location_name,address:loc.address??'',city:loc.city??'',state:loc.state??'',zip:loc.zip??'',country:loc.country??'US',notes:loc.notes??'',is_default:loc.is_default})}} className="p-1 text-gray-600 hover:text-gray-700 transition-colors rounded"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
                           <button onClick={()=>deleteLoc(loc.id)} disabled={deletingLoc===loc.id} className="p-1 text-gray-600 hover:text-red-400 transition-colors rounded disabled:opacity-50"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
                         </div>
                       </div>
@@ -1033,7 +1033,7 @@ export default function CustomersPage() {
                 const isEditing=editingContact?.id===ct.id
                 if(isEditing){
                   return (
-                    <div key={ct.id} className="bg-gray-800 border border-blue-500/30 rounded-xl p-4 space-y-3">
+                    <div key={ct.id} className="bg-[#F9FAFB] border border-blue-500/30 rounded-xl p-4 space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div><label className="block text-xs text-gray-400 mb-1">Full Name <span className="text-red-400">*</span></label><input value={contactForm.full_name} onChange={e=>setContactForm(p=>({...p,full_name:e.target.value}))} className={inp}/></div>
                         <div><label className="block text-xs text-gray-400 mb-1">Title</label><input value={contactForm.title} onChange={e=>setContactForm(p=>({...p,title:e.target.value}))} placeholder="e.g. CEO" className={inp}/></div>
@@ -1041,25 +1041,25 @@ export default function CustomersPage() {
                         <div><label className="block text-xs text-gray-400 mb-1">Phone</label><input type="tel" value={contactForm.phone} onChange={e=>setContactForm(p=>({...p,phone:e.target.value}))} className={inp}/></div>
                       </div>
                       <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" checked={contactForm.is_primary} onChange={e=>setContactForm(p=>({...p,is_primary:e.target.checked}))} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500"/>
+                        <input type="checkbox" checked={contactForm.is_primary} onChange={e=>setContactForm(p=>({...p,is_primary:e.target.checked}))} className="w-4 h-4 rounded border-gray-600 bg-[#F9FAFB] text-blue-500"/>
                         <span className="text-xs text-gray-400">Set as Primary Contact</span>
                       </label>
                       <div className="flex gap-2">
-                        <button onClick={()=>{setEditingContact(null);setContactForm(emptyContact)}} className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-                        <button onClick={saveContact} disabled={savingContact} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium transition-colors">{savingContact?'Saving…':'Save'}</button>
+                        <button onClick={()=>{setEditingContact(null);setContactForm(emptyContact)}} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                        <button onClick={saveContact} disabled={savingContact} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">{savingContact?'Saving…':'Save'}</button>
                       </div>
                     </div>
                   )
                 }
                 return (
-                  <div key={ct.id} className="bg-gray-800/60 border border-gray-700 rounded-xl p-4">
+                  <div key={ct.id} className="bg-[#F0F2F7] border border-[#E4E6EE] rounded-xl p-4">
                     <div className="flex items-start gap-3">
                       <div className={`w-9 h-9 rounded-full ${avatarColor(ct.full_name)} flex items-center justify-center shrink-0`}>
-                        <span className="text-white font-bold text-xs">{initials(ct.full_name)}</span>
+                        <span className="text-[#1A1D2E] font-bold text-xs">{initials(ct.full_name)}</span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm text-white font-medium">{ct.full_name}</p>
+                          <p className="text-sm text-[#1A1D2E] font-medium">{ct.full_name}</p>
                           {ct.is_primary&&<span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-medium">Primary</span>}
                         </div>
                         {ct.title&&<p className="text-xs text-gray-500 mt-0.5">{ct.title}</p>}
@@ -1068,7 +1068,7 @@ export default function CustomersPage() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {!ct.is_primary&&<button onClick={()=>setPrimary(ct)} title="Set as primary" className="p-1.5 text-gray-600 hover:text-blue-400 transition-colors rounded"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z"/></svg></button>}
-                        <button onClick={()=>{setEditingContact(ct);setContactForm({full_name:ct.full_name,title:ct.title??'',email:ct.email??'',phone:ct.phone??'',is_primary:ct.is_primary,notes:ct.notes??''})}} className="p-1.5 text-gray-600 hover:text-white transition-colors rounded"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
+                        <button onClick={()=>{setEditingContact(ct);setContactForm({full_name:ct.full_name,title:ct.title??'',email:ct.email??'',phone:ct.phone??'',is_primary:ct.is_primary,notes:ct.notes??''})}} className="p-1.5 text-gray-600 hover:text-gray-700 transition-colors rounded"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
                         <button onClick={()=>deleteContact(ct.id)} disabled={deletingContact===ct.id} className="p-1.5 text-gray-600 hover:text-red-400 transition-colors rounded disabled:opacity-50"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
                       </div>
                     </div>
@@ -1076,7 +1076,7 @@ export default function CustomersPage() {
                 )
               })}
               {addingContact&&!editingContact&&(
-                <div className="bg-gray-800 border border-blue-500/30 rounded-xl p-4 space-y-3">
+                <div className="bg-[#F9FAFB] border border-blue-500/30 rounded-xl p-4 space-y-3">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">New Contact</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className="block text-xs text-gray-400 mb-1">Full Name <span className="text-red-400">*</span></label><input value={contactForm.full_name} onChange={e=>setContactForm(p=>({...p,full_name:e.target.value}))} className={inp} autoFocus/></div>
@@ -1085,17 +1085,17 @@ export default function CustomersPage() {
                     <div><label className="block text-xs text-gray-400 mb-1">Phone</label><input type="tel" value={contactForm.phone} onChange={e=>setContactForm(p=>({...p,phone:e.target.value}))} className={inp}/></div>
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input type="checkbox" checked={contactForm.is_primary} onChange={e=>setContactForm(p=>({...p,is_primary:e.target.checked}))} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500"/>
+                    <input type="checkbox" checked={contactForm.is_primary} onChange={e=>setContactForm(p=>({...p,is_primary:e.target.checked}))} className="w-4 h-4 rounded border-gray-600 bg-[#F9FAFB] text-blue-500"/>
                     <span className="text-xs text-gray-400">Set as Primary Contact</span>
                   </label>
                   <div className="flex gap-2">
-                    <button onClick={()=>{setAddingContact(false);setContactForm(emptyContact)}} className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-                    <button onClick={saveContact} disabled={savingContact} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium transition-colors">{savingContact?'Saving…':'Add Contact'}</button>
+                    <button onClick={()=>{setAddingContact(false);setContactForm(emptyContact)}} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                    <button onClick={saveContact} disabled={savingContact} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">{savingContact?'Saving…':'Add Contact'}</button>
                   </div>
                 </div>
               )}
               {!addingContact&&!editingContact&&(
-                <button onClick={()=>{setAddingContact(true);setContactForm(emptyContact)}} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-gray-700 hover:border-gray-600 text-gray-500 hover:text-gray-300 rounded-xl py-3 text-xs font-medium transition-colors">
+                <button onClick={()=>{setAddingContact(true);setContactForm(emptyContact)}} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-[#E4E6EE] hover:border-gray-600 text-gray-500 hover:text-gray-300 rounded-xl py-3 text-xs font-medium transition-colors">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Contact
                 </button>
               )}
@@ -1105,30 +1105,30 @@ export default function CustomersPage() {
           {/* ── TAB: Activity ── */}
           {activeTab==='activity'&&(
             <div className="px-6 py-5">
-              <div className="flex gap-1 mb-4 bg-gray-800/60 p-1 rounded-lg w-fit">
+              <div className="flex gap-1 mb-4 bg-[#F0F2F7] p-1 rounded-lg w-fit">
                 {(['orders','quotes','tasks'] as const).map(t=>(
-                  <button key={t} onClick={()=>setActivityTab(t)} className={`text-xs px-3 py-1.5 rounded-md transition-colors capitalize ${activityTab===t?'bg-gray-700 text-white':'text-gray-400 hover:text-white'}`}>{t}</button>
+                  <button key={t} onClick={()=>setActivityTab(t)} className={`text-xs px-3 py-1.5 rounded-md transition-colors capitalize ${activityTab===t?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}>{t}</button>
                 ))}
               </div>
               {activityLoading?<div className="flex justify-center py-8"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
               :activityTab==='orders'?(<div className="space-y-2">
                 {activityOrders.length===0?<p className="text-sm text-gray-500 italic">No orders.</p>
-                :activityOrders.map(o=><a key={o.id} href="/sales/orders" className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
-                  <div><p className="text-sm text-white font-medium font-mono">{o.order_number}</p><p className="text-xs text-gray-500">{fmtD(o.order_date)}</p></div>
+                :activityOrders.map(o=><a key={o.id} href="/sales/orders" className="flex items-center justify-between bg-[#F0F2F7] border border-[#E4E6EE] rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
+                  <div><p className="text-sm text-[#1A1D2E] font-medium font-mono">{o.order_number}</p><p className="text-xs text-gray-500">{fmtD(o.order_date)}</p></div>
                   <div className="flex items-center gap-3"><span className={`text-xs px-2 py-1 rounded-full border ${STAGE_BADGE[o.status]||STAGE_BADGE.Lead}`}>{o.status}</span><span className="text-sm text-gray-300 font-medium">{fmt$(o.total)}</span></div>
                 </a>)}
               </div>)
               :activityTab==='quotes'?(<div className="space-y-2">
                 {activityQuotes.length===0?<p className="text-sm text-gray-500 italic">No quotations.</p>
-                :activityQuotes.map(q=><a key={q.id} href="/sales/quotations" className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
-                  <div><p className="text-sm text-white font-medium font-mono">{q.quote_number}</p><p className="text-xs text-gray-500">{fmtD(q.quote_date)}</p></div>
+                :activityQuotes.map(q=><a key={q.id} href="/sales/quotations" className="flex items-center justify-between bg-[#F0F2F7] border border-[#E4E6EE] rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
+                  <div><p className="text-sm text-[#1A1D2E] font-medium font-mono">{q.quote_number}</p><p className="text-xs text-gray-500">{fmtD(q.quote_date)}</p></div>
                   <div className="flex items-center gap-3"><span className={`text-xs px-2 py-1 rounded-full border ${STAGE_BADGE[q.status]||STAGE_BADGE.Lead}`}>{q.status}</span><span className="text-sm text-gray-300 font-medium">{fmt$(q.total)}</span></div>
                 </a>)}
               </div>)
               :(<div className="space-y-2">
                 {activityTasks.length===0?<p className="text-sm text-gray-500 italic">No tasks.</p>
-                :activityTasks.map(t=><a key={t.id} href="/bizdev/tasks" className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
-                  <div><p className="text-sm text-white font-medium">{t.task_name}</p><p className="text-xs text-gray-500">{t.due_date?fmtD(t.due_date):'No due date'}</p></div>
+                :activityTasks.map(t=><a key={t.id} href="/bizdev/tasks" className="flex items-center justify-between bg-[#F0F2F7] border border-[#E4E6EE] rounded-lg px-4 py-3 hover:border-gray-600 transition-colors">
+                  <div><p className="text-sm text-[#1A1D2E] font-medium">{t.task_name}</p><p className="text-xs text-gray-500">{t.due_date?fmtD(t.due_date):'No due date'}</p></div>
                   <span className={`text-xs px-2 py-1 rounded-full border ${STAGE_BADGE[t.status]||STAGE_BADGE.Lead}`}>{t.status}</span>
                 </a>)}
               </div>)}
@@ -1140,7 +1140,7 @@ export default function CustomersPage() {
             <div className="px-6 py-5">
               <div className="flex gap-1 mb-4 flex-wrap">
                 {[['all','All'],['shipment','Shipments'],['order','Orders'],['quote','Quotes'],['task','Tasks'],['comment','Comments']].map(([val,lbl])=>(
-                  <button key={val} onClick={()=>setFeedFilter(val)} className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${feedFilter===val?'bg-blue-600 border-blue-600 text-white':'border-gray-700 text-gray-400 hover:text-white'}`}>{lbl}</button>
+                  <button key={val} onClick={()=>setFeedFilter(val)} className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${feedFilter===val?'bg-blue-600 border-blue-600 text-white':'border-[#E4E6EE] text-gray-400 hover:text-gray-700'}`}>{lbl}</button>
                 ))}
               </div>
               {feedLoading&&feedEntries.length===0
@@ -1176,7 +1176,7 @@ export default function CustomersPage() {
                     )
                   })}
                   {feedEntries.length<feedTotal&&(
-                    <button onClick={()=>{const next=feedPage+1;setFeedPage(next);loadFeed(editing.id,feedFilter,next,true)}} disabled={feedLoading} className="w-full mt-3 text-xs text-gray-400 hover:text-white py-2.5 border border-gray-700 rounded-lg transition-colors disabled:opacity-50">
+                    <button onClick={()=>{const next=feedPage+1;setFeedPage(next);loadFeed(editing.id,feedFilter,next,true)}} disabled={feedLoading} className="w-full mt-3 text-xs text-gray-400 hover:text-gray-700 py-2.5 border border-[#E4E6EE] rounded-lg transition-colors disabled:opacity-50">
                       {feedLoading?'Loading…':`Load more (${feedTotal-feedEntries.length} remaining)`}
                     </button>
                   )}
@@ -1214,9 +1214,9 @@ export default function CustomersPage() {
           <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
             {formError&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{formError}</p></div>}
             <div className="flex gap-3">
-              {editing&&<button onClick={handleArchive} disabled={archiving} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">{archiving?'…':editing.is_active?'Archive':'Restore'}</button>}
-              <button onClick={closePanel} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-              <button onClick={handleSave} disabled={saving} className="flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save Customer'}</button>
+              {editing&&<button onClick={handleArchive} disabled={archiving} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50">{archiving?'…':editing.is_active?'Archive':'Restore'}</button>}
+              <button onClick={closePanel} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+              <button onClick={handleSave} disabled={saving} className="flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save Customer'}</button>
             </div>
           </div>
         )}
@@ -1233,22 +1233,22 @@ export default function CustomersPage() {
       {/* ── MERGE MODAL ── */}
       {mergeModal&&(
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-2xl" onClick={e=>e.stopPropagation()}>
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-2xl shadow-2xl" onClick={e=>e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between">
-              <h3 className="text-white font-semibold">Merge Customer Accounts</h3>
-              <button onClick={()=>setMergeModal(false)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+              <h3 className="text-[#1A1D2E] font-semibold">Merge Customer Accounts</h3>
+              <button onClick={()=>setMergeModal(false)} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
             <div className="px-6 py-5 space-y-4">
-              <p className="text-sm text-gray-400">Select which account becomes the <span className="text-white font-medium">primary</span> (survives the merge). All data from other accounts will be moved to it.</p>
+              <p className="text-sm text-gray-400">Select which account becomes the <span className="text-[#1A1D2E] font-medium">primary</span> (survives the merge). All data from other accounts will be moved to it.</p>
               <div className="space-y-2">
                 {selectedCustomers.map(c=>(
-                  <label key={c.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${mergePrimaryId===c.id?'border-blue-500 bg-blue-900/20':'border-gray-700 hover:border-gray-600'}`}>
+                  <label key={c.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${mergePrimaryId===c.id?'border-blue-500 bg-blue-900/20':'border-[#E4E6EE] hover:border-gray-600'}`}>
                     <input type="radio" name="primary" checked={mergePrimaryId===c.id} onChange={()=>selectMergePrimary(c.id)} className="w-4 h-4 text-blue-500"/>
                     <div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}>
-                      <span className="text-white font-semibold text-xs">{initials(c.company_name)}</span>
+                      <span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white font-medium">{c.company_name}</p>
+                      <p className="text-sm text-[#1A1D2E] font-medium">{c.company_name}</p>
                       <p className="text-xs text-gray-500">{c.customer_status||'Lead'} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
                     </div>
                     {mergePrimaryId===c.id&&<span className="text-xs text-blue-400 font-medium">PRIMARY</span>}
@@ -1261,10 +1261,10 @@ export default function CustomersPage() {
                   value={mergeAccountName}
                   onChange={e=>setMergeAccountName(e.target.value)}
                   placeholder="Account name after merge…"
-                  className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                 />
               </div>
-              <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-3 text-xs text-gray-400 space-y-1">
+              <div className="bg-[#F0F2F7] border border-[#E4E6EE] rounded-xl p-3 text-xs text-gray-400 space-y-1">
                 <p className="font-semibold text-gray-300">After merge, the primary account will have:</p>
                 <p>· Combined spend: {fmt$2(selectedCustomers.reduce((s,c)=>s+(c.lifetime_spend??0),0))}</p>
                 <p>· Combined shipments: {selectedCustomers.reduce((s,c)=>s+(c.total_shipments??0),0)}</p>
@@ -1276,8 +1276,8 @@ export default function CustomersPage() {
               {mergeErr&&<p className="text-red-400 text-xs">{mergeErr}</p>}
             </div>
             <div className="px-6 py-4 border-t border-[#E4E6EE] flex gap-3">
-              <button onClick={()=>setMergeModal(false)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-              <button onClick={performMerge} disabled={merging} className="flex-1 text-sm px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-semibold transition-colors">{merging?'Merging…':'Confirm Merge'}</button>
+              <button onClick={()=>setMergeModal(false)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+              <button onClick={performMerge} disabled={merging} className="flex-1 text-sm px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-[#1A1D2E] font-semibold transition-colors">{merging?'Merging…':'Confirm Merge'}</button>
             </div>
           </div>
         </div>
@@ -1286,13 +1286,13 @@ export default function CustomersPage() {
       {/* ── GROUP ACCOUNTS MODAL ── */}
       {groupModal&&(
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
               <div>
-                <h3 className="text-white font-semibold">Group Customer Locations</h3>
+                <h3 className="text-[#1A1D2E] font-semibold">Group Customer Locations</h3>
                 <p className="text-xs text-gray-500 mt-0.5">Step {groupStep} of 3</p>
               </div>
-              <button onClick={()=>setGroupModal(false)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+              <button onClick={()=>setGroupModal(false)} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
@@ -1301,16 +1301,16 @@ export default function CustomersPage() {
               {groupStep===1&&(
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm font-semibold text-white mb-1">Select or create a parent account</p>
+                    <p className="text-sm font-semibold text-[#1A1D2E] mb-1">Select or create a parent account</p>
                     <p className="text-xs text-gray-500">Type a new parent name (e.g. WALMART) or select an existing parent account.</p>
                   </div>
                   <div>
                     <label className="block text-xs text-gray-400 mb-1.5">Parent Account Name</label>
-                    <input value={groupParentName} onChange={e=>setGroupParentName(e.target.value)} placeholder="e.g. WALMART" className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition"/>
+                    <input value={groupParentName} onChange={e=>setGroupParentName(e.target.value)} placeholder="e.g. WALMART" className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition"/>
                   </div>
                   <div>
                     <label className="block text-xs text-gray-400 mb-1.5">Or select existing parent</label>
-                    <select value={groupParentId} onChange={e=>{setGroupParentId(e.target.value);if(e.target.value){const p=customers.find(c=>c.id===e.target.value);if(p)setGroupParentName(p.company_name)}}} className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500 transition">
+                    <select value={groupParentId} onChange={e=>{setGroupParentId(e.target.value);if(e.target.value){const p=customers.find(c=>c.id===e.target.value);if(p)setGroupParentName(p.company_name)}}} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-3 py-2.5 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500 transition">
                       <option value="">— None (create new) —</option>
                       {customers.filter(c=>c.is_active&&!c.is_merged).map(c=><option key={c.id} value={c.id}>{c.company_name}{c.is_parent_account?' (Parent)':''}</option>)}
                     </select>
@@ -1320,19 +1320,19 @@ export default function CustomersPage() {
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Suggested Groups</p>
                       <div className="space-y-2">
                         {suggestedGroups.map(g=>(
-                          <div key={g.baseName} className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-3">
+                          <div key={g.baseName} className="flex items-center justify-between bg-[#F0F2F7] border border-[#E4E6EE] rounded-xl px-4 py-3">
                             <div>
-                              <span className="text-sm text-white font-medium">{g.baseName}</span>
+                              <span className="text-sm text-[#1A1D2E] font-medium">{g.baseName}</span>
                               <span className="text-xs text-gray-500 ml-2">— {g.ids.length} locations found</span>
                               <p className="text-xs text-gray-600 mt-0.5">{g.names.slice(0,3).join(', ')}{g.names.length>3?` +${g.names.length-3} more`:''}</p>
                             </div>
-                            <button onClick={()=>applySuggestedGroup(g)} className="text-xs px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-white font-medium transition-colors whitespace-nowrap">Group All →</button>
+                            <button onClick={()=>applySuggestedGroup(g)} className="text-xs px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-[#1A1D2E] font-medium transition-colors whitespace-nowrap">Group All →</button>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
-                  <button onClick={()=>{if(!groupParentName.trim()&&!groupParentId){setGroupErr('Enter a parent name or select existing');return}setGroupErr('');setGroupStep(2)}} className="w-full py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors">
+                  <button onClick={()=>{if(!groupParentName.trim()&&!groupParentId){setGroupErr('Enter a parent name or select existing');return}setGroupErr('');setGroupStep(2)}} className="w-full py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-[#1A1D2E] text-sm font-medium transition-colors">
                     Next: Select Locations →
                   </button>
                   {groupErr&&<p className="text-red-400 text-xs">{groupErr}</p>}
@@ -1343,18 +1343,18 @@ export default function CustomersPage() {
               {groupStep===2&&(
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm font-semibold text-white">Select locations to group under <span className="text-teal-400">{groupParentName||'parent'}</span></p>
+                    <p className="text-sm font-semibold text-[#1A1D2E]">Select locations to group under <span className="text-teal-400">{groupParentName||'parent'}</span></p>
                     <p className="text-xs text-gray-500 mt-0.5">{groupChildIds.size} selected</p>
                   </div>
                   <div className="space-y-1.5 max-h-64 overflow-y-auto">
                     {customers.filter(c=>c.is_active&&!c.is_merged&&c.id!==groupParentId).map(c=>{
                       const checked=groupChildIds.has(c.id)
                       return (
-                        <label key={c.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${checked?'border-teal-500/50 bg-teal-900/20':'border-gray-700 hover:border-gray-600'}`}>
-                          <input type="checkbox" checked={checked} onChange={()=>{setGroupChildIds(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n})}} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-teal-500 cursor-pointer"/>
-                          <div className={`w-6 h-6 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-bold text-xs">{initials(c.company_name)}</span></div>
+                        <label key={c.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${checked?'border-teal-500/50 bg-teal-900/20':'border-[#E4E6EE] hover:border-gray-600'}`}>
+                          <input type="checkbox" checked={checked} onChange={()=>{setGroupChildIds(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n})}} className="w-4 h-4 rounded border-gray-600 bg-[#F9FAFB] text-teal-500 cursor-pointer"/>
+                          <div className={`w-6 h-6 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-bold text-xs">{initials(c.company_name)}</span></div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white truncate">{c.company_name}</p>
+                            <p className="text-sm text-[#1A1D2E] truncate">{c.company_name}</p>
                             <p className="text-xs text-gray-500">{c.customer_status||'Lead'} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
                           </div>
                           {c.is_parent_account&&<span className="text-xs text-teal-400 shrink-0">Parent</span>}
@@ -1364,8 +1364,8 @@ export default function CustomersPage() {
                     })}
                   </div>
                   <div className="flex gap-3">
-                    <button onClick={()=>setGroupStep(1)} className="flex-1 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white text-sm transition-colors">← Back</button>
-                    <button onClick={()=>{if(groupChildIds.size===0){setGroupErr('Select at least one location');return}setGroupErr('');setGroupStep(3)}} className="flex-1 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors">
+                    <button onClick={()=>setGroupStep(1)} className="flex-1 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E] text-sm transition-colors">← Back</button>
+                    <button onClick={()=>{if(groupChildIds.size===0){setGroupErr('Select at least one location');return}setGroupErr('');setGroupStep(3)}} className="flex-1 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-[#1A1D2E] text-sm font-medium transition-colors">
                       Preview Grouping →
                     </button>
                   </div>
@@ -1376,11 +1376,11 @@ export default function CustomersPage() {
               {/* Step 3 - Confirm */}
               {groupStep===3&&(
                 <div className="space-y-4">
-                  <p className="text-sm font-semibold text-white">Confirm grouping</p>
-                  <div className="bg-gray-800/60 border border-teal-800/40 rounded-xl p-4 space-y-2">
+                  <p className="text-sm font-semibold text-[#1A1D2E]">Confirm grouping</p>
+                  <div className="bg-[#F0F2F7] border border-teal-800/40 rounded-xl p-4 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-400 border border-teal-500/30">PARENT</span>
-                      <span className="text-white font-semibold">{groupParentName}</span>
+                      <span className="text-[#1A1D2E] font-semibold">{groupParentName}</span>
                       {groupParentId&&<span className="text-xs text-gray-500">(existing)</span>}
                       {!groupParentId&&<span className="text-xs text-gray-500">(new)</span>}
                     </div>
@@ -1393,8 +1393,8 @@ export default function CustomersPage() {
                   </div>
                   {groupErr&&<p className="text-red-400 text-xs">{groupErr}</p>}
                   <div className="flex gap-3">
-                    <button onClick={()=>setGroupStep(2)} className="flex-1 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white text-sm transition-colors">← Back</button>
-                    <button onClick={performGroup} disabled={grouping} className="flex-1 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors">{grouping?'Saving…':'Confirm Group'}</button>
+                    <button onClick={()=>setGroupStep(2)} className="flex-1 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E] text-sm transition-colors">← Back</button>
+                    <button onClick={performGroup} disabled={grouping} className="flex-1 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-[#1A1D2E] text-sm font-semibold transition-colors">{grouping?'Saving…':'Confirm Group'}</button>
                   </div>
                 </div>
               )}
@@ -1406,18 +1406,18 @@ export default function CustomersPage() {
       {/* ── DUPLICATES MODAL ── */}
       {dupesModal&&(
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
-              <h3 className="text-white font-semibold">Potential Duplicate Accounts</h3>
-              <button onClick={()=>setDupesModal(false)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+              <h3 className="text-[#1A1D2E] font-semibold">Potential Duplicate Accounts</h3>
+              <button onClick={()=>setDupesModal(false)} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
               {dupesLoading?<div className="flex justify-center py-10"><svg className="w-6 h-6 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
               :dupeGroups.length===0?<p className="text-sm text-gray-400 text-center py-8">No duplicate accounts found.</p>
               :dupeGroups.map((g,gi)=>(
-                <div key={gi} className="border border-gray-700 rounded-xl overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2 bg-gray-800/60 border-b border-gray-700">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${g.score==='exact'?'bg-red-500/15 text-red-400 border-red-500/20':g.score==='contains'?'bg-amber-500/15 text-amber-400 border-amber-500/20':'bg-gray-700/40 text-gray-400 border-gray-600'}`}>
+                <div key={gi} className="border border-[#E4E6EE] rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 bg-[#F0F2F7] border-b border-[#E4E6EE]">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${g.score==='exact'?'bg-red-500/15 text-red-400 border-red-500/20':g.score==='contains'?'bg-amber-500/15 text-amber-400 border-amber-500/20':'bg-[#F3F4F6] text-gray-600 border-gray-600'}`}>
                       {g.score==='exact'?'Exact Match':g.score==='contains'?'Contains Match':'Fuzzy Match'}
                     </span>
                     <button onClick={()=>preMergeGroup(g.customers)} className="text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors">Merge Group →</button>
@@ -1425,10 +1425,10 @@ export default function CustomersPage() {
                   {g.customers.map((c:any)=>(
                     <div key={c.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-[#F3F4F6] last:border-b-0">
                       <div className={`w-6 h-6 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}>
-                        <span className="text-white font-semibold text-xs">{initials(c.company_name)}</span>
+                        <span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white font-medium truncate">{c.company_name}</p>
+                        <p className="text-sm text-[#1A1D2E] font-medium truncate">{c.company_name}</p>
                         <p className="text-xs text-gray-500">{c.customer_status||'Lead'} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
                       </div>
                     </div>
@@ -1437,7 +1437,7 @@ export default function CustomersPage() {
               ))}
             </div>
             <div className="px-6 py-4 border-t border-[#E4E6EE] shrink-0">
-              <button onClick={()=>setDupesModal(false)} className="w-full text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Close</button>
+              <button onClick={()=>setDupesModal(false)} className="w-full text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Close</button>
             </div>
           </div>
         </div>

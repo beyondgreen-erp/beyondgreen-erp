@@ -181,7 +181,7 @@ export default function FileUpload({
         className={`border-2 border-dashed rounded-lg px-4 py-5 text-center cursor-pointer transition-colors ${
           dragging
             ? 'border-emerald-500 bg-emerald-500/10'
-            : 'border-gray-700 hover:border-gray-600 bg-gray-800/30'
+            : 'border-[#E4E6EE] hover:border-gray-600 bg-[#F5F6FA]/30'
         }`}
       >
         <svg className="w-6 h-6 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -203,7 +203,7 @@ export default function FileUpload({
       {uploads.length > 0 && (
         <div className="space-y-2">
           {uploads.map((u, i) => (
-            <div key={i} className="bg-gray-800 rounded-lg px-3 py-2.5">
+            <div key={i} className="bg-[#F5F6FA] rounded-lg px-3 py-2.5">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs text-gray-300 truncate max-w-[200px]">{u.file.name}</span>
                 {u.status === 'done' && (
@@ -216,7 +216,7 @@ export default function FileUpload({
                 )}
               </div>
               {u.status === 'uploading' && (
-                <div className="w-full bg-gray-700 rounded-full h-1">
+                <div className="w-full bg-[#F5F6FA] rounded-full h-1">
                   <div
                     className="bg-emerald-500 h-1 rounded-full transition-all"
                     style={{ width: `${u.progress}%` }}
@@ -232,10 +232,10 @@ export default function FileUpload({
       {attachments.length > 0 && (
         <div className="space-y-1.5">
           {attachments.map((att) => (
-            <div key={att.id} className="flex items-center gap-2.5 bg-gray-800/60 rounded-lg px-3 py-2.5 group">
+            <div key={att.id} className="flex items-center gap-2.5 bg-[#F5F6FA]/60 rounded-lg px-3 py-2.5 group">
               <FileTypeIcon type={att.file_type} name={att.file_name} />
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-white font-medium truncate">{att.file_name}</p>
+                <p className="text-xs text-[#1A1D2E] font-medium truncate">{att.file_name}</p>
                 <p className="text-xs text-gray-600">
                   {formatFileSize(att.file_size)} · {new Date(att.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </p>

@@ -226,8 +226,8 @@ export default function ShipmentsPage() {
     return Object.entries(agg).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
   }, [rows])
 
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
-  const tabCls = (t: string) => `px-4 py-2 text-xs font-medium rounded-lg transition-colors ${tab === t ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
+  const tabCls = (t: string) => `px-4 py-2 text-xs font-medium rounded-lg transition-colors ${tab === t ? 'bg-[#1A1D2E] text-white' : 'text-gray-500 hover:text-gray-600'}`
 
   // ── Geo-filtered shipments for map (only those with coords) ─
   const mapShipments = useMemo(() => {
@@ -241,13 +241,13 @@ export default function ShipmentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-white">Shipments</h1>
+          <h1 className="text-xl font-semibold text-[#1A1D2E]">Shipments</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} total shipments`}</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 mb-5 w-fit">
+      <div className="flex gap-1 bg-white border border-[#E4E6EE] rounded-xl p-1 mb-5 w-fit">
         <button onClick={() => setTab('table')} className={tabCls('table')}>Table</button>
         <button onClick={() => setTab('map')} className={tabCls('map')}>Live Map</button>
         <button onClick={() => setTab('heatmap')} className={tabCls('heatmap')}>Heat Map</button>
@@ -259,26 +259,26 @@ export default function ShipmentsPage() {
         <>
           <div className="flex flex-wrap gap-2 mb-4">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customer, tracking, PO…"
-              className="bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-64" />
+              className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-64" />
             <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-              className="bg-gray-900 border border-gray-800 text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All Months</option>
               {months.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
             <select value={filterCarrier} onChange={e => setFilterCarrier(e.target.value)}
-              className="bg-gray-900 border border-gray-800 text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All Carriers</option>
               {carriers.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={filterState} onChange={e => setFilterState(e.target.value)}
-              className="bg-gray-900 border border-gray-800 text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All States</option>
               {states.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <span className="text-gray-600 text-xs self-center ml-1">{filtered.length} results</span>
           </div>
 
-          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -310,7 +310,7 @@ export default function ShipmentsPage() {
                       <tr key={s.id}
                         className={`border-t border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
                         <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={()=>ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
-                        <td className="px-4 py-3 text-white font-medium max-w-[160px] truncate cursor-pointer" onClick={()=>openEdit(s)}>{s.customer_name || '—'}</td>
+                        <td className="px-4 py-3 text-[#1A1D2E] font-medium max-w-[160px] truncate cursor-pointer" onClick={()=>openEdit(s)}>{s.customer_name || '—'}</td>
                         <td className="px-4 py-3 text-gray-300 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtD(s.ship_date)}</td>
                         <td className="px-4 py-3 text-gray-300 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtC(s.ship_cost)}</td>
                         <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={()=>openEdit(s)}>{s.po_number || '—'}</td>
@@ -353,17 +353,17 @@ export default function ShipmentsPage() {
 
       {/* ── MAP TAB ── */}
       {tab === 'map' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4" style={{ height: 580 }}>
+        <div className="bg-white border border-[#E4E6EE] rounded-xl p-4" style={{ height: 580 }}>
           <ShipmentMap shipments={mapShipments} mode="map" />
         </div>
       )}
 
       {/* ── HEAT MAP TAB ── */}
       {tab === 'heatmap' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4" style={{ height: 580 }}>
+        <div className="bg-white border border-[#E4E6EE] rounded-xl p-4" style={{ height: 580 }}>
           <div className="flex gap-3 mb-3">
             <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-              className="bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-3 py-1.5 text-xs cursor-pointer">
+              className="bg-white border border-[#E4E6EE] text-gray-300 rounded-lg px-3 py-1.5 text-xs cursor-pointer">
               <option value="all">All Months</option>
               {months.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
@@ -386,16 +386,16 @@ export default function ShipmentsPage() {
               { label: 'Top Carrier', value: topCarrier, small: true },
               { label: 'Most Active Month', value: topMonth.replace(' 2026', ''), small: true },
             ].map(c => (
-              <div key={c.label} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div key={c.label} className="bg-white border border-[#E4E6EE] rounded-xl p-4">
                 <p className="text-xs text-gray-500 mb-1">{c.label}</p>
-                <p className={`font-semibold text-white ${c.small ? 'text-xs leading-tight mt-1' : 'text-lg'}`}>{c.value}</p>
+                <p className={`font-semibold text-[#1A1D2E] ${c.small ? 'text-xs leading-tight mt-1' : 'text-lg'}`}>{c.value}</p>
               </div>
             ))}
           </div>
 
           {/* Chart 1 — Monthly */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-            <p className="text-sm font-medium text-white mb-4">Monthly Shipping Cost {drillMonth && <span className="text-gray-500 font-normal text-xs ml-2">→ click bar to drill down</span>}</p>
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
+            <p className="text-sm font-medium text-[#1A1D2E] mb-4">Monthly Shipping Cost {drillMonth && <span className="text-gray-500 font-normal text-xs ml-2">→ click bar to drill down</span>}</p>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={monthlyData} onClick={(d: any) => { if (d?.activePayload) { setDrillMonth(d.activePayload[0].payload.month); setDrillWeek(null) } }}>
                 <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -408,9 +408,9 @@ export default function ShipmentsPage() {
 
           {/* Chart 2 — Weekly drill-down */}
           {drillMonth && (
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
-                <p className="text-sm font-medium text-white">{drillMonth} — Weekly Breakdown</p>
+                <p className="text-sm font-medium text-[#1A1D2E]">{drillMonth} — Weekly Breakdown</p>
                 <button onClick={() => { setDrillMonth(null); setDrillWeek(null) }} className="text-xs text-gray-500 hover:text-gray-300">✕ Clear</button>
               </div>
               <ResponsiveContainer width="100%" height={200}>
@@ -426,9 +426,9 @@ export default function ShipmentsPage() {
 
           {/* Chart 3 — Daily drill-down */}
           {drillWeek && (
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
-                <p className="text-sm font-medium text-white">{drillMonth} {drillWeek} — Daily Breakdown</p>
+                <p className="text-sm font-medium text-[#1A1D2E]">{drillMonth} {drillWeek} — Daily Breakdown</p>
                 <button onClick={() => setDrillWeek(null)} className="text-xs text-gray-500 hover:text-gray-300">✕ Clear</button>
               </div>
               <ResponsiveContainer width="100%" height={200}>
@@ -445,8 +445,8 @@ export default function ShipmentsPage() {
           {/* Charts 4 + 5 side by side */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Carrier pie */}
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <p className="text-sm font-medium text-white mb-4">Shipments by Carrier</p>
+            <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
+              <p className="text-sm font-medium text-[#1A1D2E] mb-4">Shipments by Carrier</p>
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
                   <Pie data={carrierData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }: any) => `${name} ${((percent || 0) * 100).toFixed(0)}%`} labelLine={false} fontSize={10}>
@@ -459,8 +459,8 @@ export default function ShipmentsPage() {
             </div>
 
             {/* Top 10 states */}
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <p className="text-sm font-medium text-white mb-4">Top 10 States by Shipments</p>
+            <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
+              <p className="text-sm font-medium text-[#1A1D2E] mb-4">Top 10 States by Shipments</p>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={stateData} layout="vertical">
                   <XAxis type="number" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -480,14 +480,14 @@ export default function ShipmentsPage() {
       {open && (
         <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setOpen(false)}>
           <div className="fixed inset-0 bg-black/50" />
-          <div className="relative w-full max-w-lg bg-gray-950 border-l border-gray-800 h-full overflow-y-auto flex flex-col"
+          <div className="relative w-full max-w-lg bg-[#F9FAFB] border-l border-[#E4E6EE] h-full overflow-y-auto flex flex-col"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE] shrink-0">
               <div>
-                <h2 className="text-base font-semibold text-white truncate max-w-xs">{editing?.customer_name || 'Shipment'}</h2>
+                <h2 className="text-base font-semibold text-[#1A1D2E] truncate max-w-xs">{editing?.customer_name || 'Shipment'}</h2>
                 <p className="text-xs text-gray-500 mt-0.5">{editing?.month_group}</p>
               </div>
-              <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition-colors">
+              <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-700 p-1.5 rounded-lg hover:bg-[#F5F6FA] transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
@@ -543,8 +543,8 @@ export default function ShipmentsPage() {
               </div>
 
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setOpen(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-                <button onClick={save} disabled={saving} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white font-medium transition-colors">{saving ? 'Saving…' : 'Save Changes'}</button>
+                <button onClick={() => setOpen(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                <button onClick={save} disabled={saving} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-[#1A1D2E] font-medium transition-colors">{saving ? 'Saving…' : 'Save Changes'}</button>
               </div>
 
               {editing && (

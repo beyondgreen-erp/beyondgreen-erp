@@ -141,18 +141,18 @@ export default function Chat() {
       <div
         className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full md:w-[480px] z-[60] transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
       >
-        <div className="h-full bg-gray-900 md:border-l md:border-gray-800 flex flex-col shadow-2xl">
+        <div className="h-full bg-white md:border-l md:border-[#E4E6EE] flex flex-col shadow-2xl">
 
           {/* header — push below iOS status bar */}
           <div
-            className="flex items-center gap-3 px-5 border-b border-gray-800 shrink-0"
+            className="flex items-center gap-3 px-5 border-b border-[#E4E6EE] shrink-0"
             style={{ paddingTop: 'max(16px, env(safe-area-inset-top))', paddingBottom: '16px' }}
           >
             <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
-            <p className="text-white font-semibold flex-1">Company Chat</p>
-            <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-gray-800 transition-colors">
+            <p className="text-[#1A1D2E] font-semibold flex-1">Company Chat</p>
+            <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-[#F5F6FA] transition-colors">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -160,7 +160,7 @@ export default function Chat() {
           </div>
 
           {/* channel tabs */}
-          <div className="flex border-b border-gray-800 shrink-0">
+          <div className="flex border-b border-[#E4E6EE] shrink-0">
             {CHANNELS.map(c => (
               <button key={c.id} onClick={() => setChannel(c.id)}
                 className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 ${channel === c.id ? `${c.color} border-current` : 'text-gray-500 border-transparent hover:text-gray-300'}`}>
@@ -183,7 +183,7 @@ export default function Chat() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className="text-white text-sm font-medium">{m.sender_name || m.sender_email.split('@')[0]}</span>
+                    <span className="text-[#1A1D2E] text-sm font-medium">{m.sender_name || m.sender_email.split('@')[0]}</span>
                     <span className="text-gray-600 text-xs">{timeAgo(m.created_at)}</span>
                   </div>
                   <p className="text-gray-300 text-sm mt-0.5 leading-relaxed whitespace-pre-wrap break-words">{renderContent(m.content)}</p>
@@ -195,15 +195,15 @@ export default function Chat() {
 
           {/* input — respect home bar on iPhone */}
           <div
-            className="shrink-0 px-4 pt-3 border-t border-gray-800"
+            className="shrink-0 px-4 pt-3 border-t border-[#E4E6EE]"
             style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
           >
             <div className="relative">
               {showDrop && filteredUsers.length > 0 && (
-                <div className="absolute z-10 bottom-full mb-2 left-0 right-0 bg-gray-800 border border-gray-700 rounded-xl shadow-xl overflow-hidden">
+                <div className="absolute z-10 bottom-full mb-2 left-0 right-0 bg-white border border-[#E4E6EE] rounded-xl shadow-xl overflow-hidden">
                   {filteredUsers.slice(0, 6).map((u, i) => (
                     <button key={u} type="button" onMouseDown={() => selectMention(u)}
-                      className={`w-full text-left px-3 py-3 text-sm flex items-center gap-2 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-gray-700'}`}>
+                      className={`w-full text-left px-3 py-3 text-sm flex items-center gap-2 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-300 hover:bg-[#F5F6FA]'}`}>
                       <div className={`w-7 h-7 rounded-full ${avatarColor(u)} flex items-center justify-center shrink-0`}>
                         <span className="text-xs font-bold text-white">{u[0].toUpperCase()}</span>
                       </div>
@@ -220,11 +220,11 @@ export default function Chat() {
                   onChange={handleInput}
                   onKeyDown={handleKey}
                   placeholder={`Message #${channel}…`}
-                  className="flex-1 bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none transition"
+                  className="flex-1 bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none transition"
                   style={{ minHeight: 44, maxHeight: 120 }}
                 />
                 <button onClick={sendMsg} disabled={!input.trim()}
-                  className="p-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white transition-colors shrink-0">
+                  className="p-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-[#F5F6FA] disabled:text-gray-600 text-white transition-colors shrink-0">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                   </svg>
@@ -249,7 +249,7 @@ export function ChatTrigger() {
   }, [])
   function open() { (window as Window & { __openChat?: () => void }).__openChat?.() }
   return (
-    <button onClick={open} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800/50 transition-colors w-full relative">
+    <button onClick={open} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-gray-700 hover:bg-[#F5F6FA]/50 transition-colors w-full relative">
       <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>

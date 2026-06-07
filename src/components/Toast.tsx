@@ -44,8 +44,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <svg className={`w-4 h-4 shrink-0 ${c.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={c.icon} />
               </svg>
-              <p className="text-sm text-white flex-1">{t.message}</p>
-              <button onClick={() => remove(t.id)} className="text-[#5A5A6A] hover:text-white shrink-0">
+              <p className="text-sm text-[#1A1D2E] flex-1">{t.message}</p>
+              <button onClick={() => remove(t.id)} className="text-[#5A5A6A] hover:text-gray-700 shrink-0">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>

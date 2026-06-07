@@ -26,7 +26,7 @@ interface Presence {
 const ROLE_COLORS: Record<string, string> = {
   Admin: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
   Manager: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  Member: 'bg-gray-700/40 text-gray-400 border-gray-700',
+  Member: 'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
 }
 
 const DEPT_COLORS: Record<string, string> = {
@@ -89,7 +89,7 @@ export default function TeamPage() {
     <div className="p-4 md:p-8 min-h-screen">
       <div className="mb-8">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-white mt-1">Team Directory</h1>
+        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Team Directory</h1>
         <p className="text-gray-500 text-sm mt-0.5">{profiles.length} active team member{profiles.length !== 1 ? 's' : ''}</p>
       </div>
 
@@ -98,14 +98,14 @@ export default function TeamPage() {
           const online = !!presence[p.email]
           const pres = presence[p.email]
           const roleColor = ROLE_COLORS[p.role] ?? ROLE_COLORS.Member
-          const deptColor = p.department ? (DEPT_COLORS[p.department] ?? 'bg-gray-700/40 text-gray-400') : ''
+          const deptColor = p.department ? (DEPT_COLORS[p.department] ?? 'bg-[#F3F4F6] text-gray-600') : ''
 
           return (
-            <div key={p.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col gap-4">
+            <div key={p.id} className="bg-white border border-[#E4E6EE] rounded-xl p-5 flex flex-col gap-4">
               <div className="flex items-start gap-4">
                 <div className="relative shrink-0">
                   <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base"
+                    className="w-12 h-12 rounded-full flex items-center justify-center text-[#1A1D2E] font-bold text-base"
                     style={{ backgroundColor: p.avatar_color }}
                   >
                     {p.avatar_initials || p.full_name[0]}
@@ -115,7 +115,7 @@ export default function TeamPage() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-white font-semibold text-sm truncate">{p.full_name}</p>
+                  <p className="text-[#1A1D2E] font-semibold text-sm truncate">{p.full_name}</p>
                   {p.display_name && <p className="text-gray-500 text-xs">{p.display_name}</p>}
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${roleColor}`}>{p.role}</span>
@@ -143,9 +143,9 @@ export default function TeamPage() {
                 )}
               </div>
 
-              <div className="flex items-center justify-between pt-1 border-t border-gray-800 text-xs">
+              <div className="flex items-center justify-between pt-1 border-t border-[#E4E6EE] text-xs">
                 <span className={`flex items-center gap-1.5 ${online ? 'text-emerald-400' : 'text-gray-600'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-400' : 'bg-gray-700'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-400' : 'bg-[#F5F6FA]'}`} />
                   {online ? 'Online now' : 'Offline'}
                 </span>
                 {pres && (

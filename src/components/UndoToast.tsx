@@ -24,45 +24,46 @@ export default function UndoToast({
     return () => clearInterval(tick)
   }, [duration, onDismiss])
 
-  const barColor = type === 'error' ? 'bg-red-500' : type === 'info' ? 'bg-blue-500' : 'bg-emerald-500'
-  const iconBg = type === 'error' ? 'bg-red-500/20 text-red-400' : type === 'info' ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400'
+  const barColor = type === 'error' ? '#DC2626' : type === 'info' ? '#2563EB' : '#059669'
+  const iconBg = type === 'error' ? '#FEF2F2' : type === 'info' ? '#EFF6FF' : '#ECFDF5'
+  const iconColor = type === 'error' ? '#DC2626' : type === 'info' ? '#2563EB' : '#059669'
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100] w-80 bg-[#1A1A1F] border border-[#3A3A45] rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2">
+    <div className="fixed bottom-6 right-6 z-[100] w-80 rounded-2xl shadow-xl overflow-hidden"
+      style={{background:'#FFFFFF',border:'1px solid #E4E6EE'}}>
       <div className="flex items-center gap-3 px-4 py-3.5">
-        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
-          {type === 'error' ? (
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          ) : (
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
-            </svg>
-          )}
+        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+          style={{background:iconBg}}>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{color:iconColor}}>
+            {type === 'error'
+              ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+              : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
+            }
+          </svg>
         </div>
-        <p className="text-white text-sm flex-1 leading-snug">{message}</p>
+        <p className="text-sm flex-1 leading-snug" style={{color:'#1A1D2E'}}>{message}</p>
         <div className="flex items-center gap-0.5 shrink-0">
           {onUndo && (
-            <button
-              onClick={() => { onUndo(); onDismiss() }}
-              className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 transition-colors"
-            >
+            <button onClick={() => { onUndo(); onDismiss() }}
+              className="text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors"
+              style={{color:'#059669'}}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#ECFDF5'}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='transparent'}}>
               Undo
             </button>
           )}
-          <button
-            onClick={onDismiss}
-            className="text-gray-600 hover:text-gray-400 p-1.5 rounded-lg hover:bg-gray-800 transition-colors"
-          >
+          <button onClick={onDismiss}
+            className="p-1.5 rounded-lg transition-colors" style={{color:'#9CA3AF'}}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#F5F6FA'}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='transparent'}}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
         </div>
       </div>
-      <div className="h-0.5 bg-[#2A2A35]">
-        <div className={`h-full ${barColor} transition-all`} style={{ width: `${progress}%`, transition: 'width 40ms linear' }}/>
+      <div className="h-0.5" style={{background:'#F3F4F6'}}>
+        <div className="h-full transition-all" style={{width:`${progress}%`,background:barColor,transition:'width 40ms linear'}}/>
       </div>
     </div>
   )

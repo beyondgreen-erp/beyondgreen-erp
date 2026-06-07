@@ -400,7 +400,7 @@ export default function BERG() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
   }
 
-  const inp = 'flex-1 bg-gray-900 border border-gray-700 text-white placeholder-gray-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none transition'
+  const inp = 'flex-1 bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none transition'
 
   return (
     <>
@@ -413,7 +413,7 @@ export default function BERG() {
           style={{ width: 'min(400px, calc(100vw - 32px))' }}
         >
           <div
-            className="w-full bg-gray-950 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            className="w-full bg-[#F9FAFB] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             style={{
               border: '1px solid rgba(16,185,129,0.25)',
               boxShadow: '0 0 40px rgba(16,185,129,0.08), 0 25px 60px rgba(0,0,0,0.6)',
@@ -474,7 +474,7 @@ export default function BERG() {
 
             {/* iOS Safari mic hint — shown on first open when voice is supported */}
             {voiceSupported && micPermission === 'unknown' && (
-              <div className="mx-3 mb-2 px-3 py-2 rounded-lg text-[10px] text-gray-500 border border-gray-800 bg-gray-900/50 leading-relaxed">
+              <div className="mx-3 mb-2 px-3 py-2 rounded-lg text-[10px] text-gray-500 border border-[#E4E6EE] bg-white/50 leading-relaxed">
                 Using Safari on iPhone? Tap the mic and <strong className="text-gray-400">allow microphone</strong> when prompted.
                 Chrome on iPhone does not support voice.
               </div>
@@ -486,7 +486,7 @@ export default function BERG() {
             )}
 
             {/* input */}
-            <div className="shrink-0 px-3 py-3 border-t border-emerald-500/10 bg-gray-950">
+            <div className="shrink-0 px-3 py-3 border-t border-emerald-500/10 bg-[#F9FAFB]">
               <div className="flex items-end gap-2">
                 {voiceSupported ? (
                   <button
@@ -498,7 +498,7 @@ export default function BERG() {
                         ? 'border-red-500 text-red-400 bg-red-500/20 animate-pulse'
                         : micPermission === 'denied'
                         ? 'border-red-800 text-red-600'
-                        : 'border-gray-700 text-gray-500 hover:text-emerald-400 hover:border-emerald-700'
+                        : 'border-[#E4E6EE] text-gray-500 hover:text-emerald-400 hover:border-emerald-700'
                     } disabled:opacity-40`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -525,7 +525,7 @@ export default function BERG() {
                   className={`p-2 rounded-xl border transition-colors shrink-0 ${
                     speakEnabled
                       ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10'
-                      : 'border-gray-700 text-gray-500 hover:text-emerald-400 hover:border-emerald-700'
+                      : 'border-[#E4E6EE] text-gray-500 hover:text-emerald-400 hover:border-emerald-700'
                   }`}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -568,7 +568,7 @@ export default function BERG() {
             }
           </button>
           {!open && (
-            <span className="absolute right-16 top-1/2 -translate-y-1/2 bg-gray-900 text-emerald-400 text-xs px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-emerald-500/20 font-mono">
+            <span className="absolute right-16 top-1/2 -translate-y-1/2 bg-white text-emerald-400 text-xs px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-emerald-500/20 font-mono">
               BERG — Online
             </span>
           )}

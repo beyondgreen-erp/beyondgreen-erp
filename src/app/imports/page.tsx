@@ -218,7 +218,7 @@ const DownloadModal = memo(({
                   key={f.id}
                   onClick={() => setFilter(f.id as any)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
-                    filter === f.id ? 'bg-emerald-600 text-white' : 'bg-[#F9FAFB] border border-[#E4E6EE] text-gray-400 hover:text-white'
+                    filter === f.id ? 'bg-emerald-600 text-white' : 'bg-[#F9FAFB] border border-[#E4E6EE] text-gray-400 hover:text-gray-700'
                   }`}
                 >
                   {f.label}
@@ -769,7 +769,7 @@ export default function ImportsPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Total',             value: rows.length,                                                     cls: 'text-white' },
+          { label: 'Total',             value: rows.length,                                                     cls: 'text-[#1A1D2E]' },
           { label: 'Active',            value: activeCount,                                                     cls: 'text-blue-400' },
           { label: 'Comm Inv Total',    value: totalInv    > 0 ? '$' + (totalInv    / 1000).toFixed(1) + 'K' : '—', cls: 'text-amber-400' },
           { label: 'Landed Cost Total', value: totalLanded > 0 ? '$' + (totalLanded / 1000).toFixed(1) + 'K' : '—', cls: 'text-emerald-400' },
@@ -812,7 +812,7 @@ export default function ImportsPage() {
             className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors ${
               tab === t.id
                 ? 'bg-emerald-600 text-white'
-                : 'bg-white border border-[#E4E6EE] text-gray-400 hover:text-white'
+                : 'bg-white border border-[#E4E6EE] text-gray-400 hover:text-gray-700'
             }`}
           >
             {t.label}
@@ -1035,7 +1035,7 @@ export default function ImportsPage() {
                               )}
                               <button
                                 onClick={() => setEditing(row)}
-                                className="p-1.5 rounded-lg hover:bg-[#F5F6FA] text-gray-500 hover:text-white transition-colors"
+                                className="p-1.5 rounded-lg hover:bg-[#F5F6FA] text-gray-500 hover:text-gray-700 transition-colors"
                                 title="Edit"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

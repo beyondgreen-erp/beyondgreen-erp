@@ -34,12 +34,12 @@ export default function PlaceholderPage({ title, module, moduleColor, descriptio
               {module}
             </span>
           </div>
-          <h1 className="text-2xl font-semibold text-white">{title}</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E]">{title}</h1>
           {description && <p className="text-gray-500 text-sm mt-1">{description}</p>}
         </div>
       </div>
 
-      <div className={`rounded-xl border ${colors.border} bg-gray-900 p-12 flex flex-col items-center justify-center text-center`}>
+      <div className={`rounded-xl border ${colors.border} bg-white p-12 flex flex-col items-center justify-center text-center`}>
         <div className={`w-3 h-3 rounded-full ${colors.dot} mb-4 opacity-60`} />
         <p className="text-gray-400 font-medium">This page is under construction</p>
         <p className="text-gray-600 text-sm mt-1">Content for <span className="text-gray-500">{title}</span> will appear here.</p>

@@ -372,7 +372,7 @@ function ProductionTab({ inventory, onRefresh, showToast }: {
                   className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
                     shift === s.id
                       ? 'bg-[#0071CE] border-[#0071CE] text-white'
-                      : 'bg-white border-[#E4E6EE] text-[#9898A8] hover:text-white'
+                      : 'bg-white border-[#E4E6EE] text-[#9898A8] hover:text-gray-700'
                   }`}
                 >
                   {s.icon} {s.id}
@@ -705,7 +705,7 @@ function InventoryTab({ inventory, production, onRefresh, showToast }: {
           <h3 className="text-[#1A1D2E] font-semibold">Production History</h3>
           <div className="flex gap-1">
             {(['daily', 'weekly', 'monthly'] as const).map(v => (
-              <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${view === v ? 'bg-[#0071CE] text-white' : 'bg-white text-[#9898A8] hover:text-white'}`}>
+              <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${view === v ? 'bg-[#0071CE] text-white' : 'bg-white text-[#9898A8] hover:text-gray-700'}`}>
                 {v.charAt(0).toUpperCase() + v.slice(1)}
               </button>
             ))}
@@ -1023,7 +1023,7 @@ function BomTab({ bom, onRefresh, showToast }: {
           <button
             key={sku}
             onClick={() => setSelectedSku(sku)}
-            className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${selectedSku === sku ? 'bg-[#0071CE]/15 border-[#0071CE]/40 text-white' : 'bg-white border-[#E4E6EE] text-[#9898A8] hover:text-white hover:border-[#3A3A45]'}`}
+            className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${selectedSku === sku ? 'bg-[#0071CE]/15 border-[#0071CE]/40 text-[#1A1D2E]' : 'bg-white border-[#E4E6EE] text-[#9898A8] hover:text-gray-700 hover:border-gray-400'}`}
           >
             <p className="font-mono text-xs font-bold text-[#0071CE]">{sku}</p>
             <div className="flex items-center justify-between mt-0.5">
@@ -1448,7 +1448,7 @@ export default function WalmartPage() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all relative ${tab === t.id ? 'bg-[#0071CE] text-white' : 'text-[#9898A8] hover:text-white hover:bg-[#F5F6FA]'}`}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all relative ${tab === t.id ? 'bg-[#0071CE] text-white' : 'text-[#9898A8] hover:text-gray-700 hover:bg-[#F5F6FA]'}`}
           >
             <span>{t.icon}</span>
             <span className="hidden sm:inline">{t.label}</span>

@@ -111,7 +111,7 @@ function marginBg(pct: number) {
 
 const STATUSES = ['Draft', 'Sent', 'Accepted', 'Rejected', 'Expired']
 const SC: Record<string, string> = {
-  Draft: 'bg-gray-700/40 text-gray-400 border-gray-700',
+  Draft: 'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
   Sent: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
   Accepted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   Rejected: 'bg-red-500/15 text-red-400 border-red-500/20',
@@ -567,8 +567,8 @@ export default function QuoteCostingPage() {
   }
 
   // ── Styles ──
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
-  const inpSm = 'w-full bg-gray-800/80 border border-gray-700/60 text-white placeholder-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
+  const inpSm = 'w-full bg-[#F9FAFB]/80 border border-[#E4E6EE]/60 text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 transition'
   const label = 'block text-xs text-gray-400 mb-1'
   const sectionHead = 'text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2'
 
@@ -598,10 +598,10 @@ export default function QuoteCostingPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">Quick Quote — Costing Tool</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Quick Quote — Costing Tool</h1>
           <p className="text-gray-500 text-sm mt-0.5">Build customer quotes with full landed cost and margin analysis</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors self-start">
+        <button onClick={openNew} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors self-start">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           New Quote
         </button>
@@ -609,10 +609,10 @@ export default function QuoteCostingPage() {
 
       <div className="relative mb-4 max-w-sm">
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-        <input placeholder="Search quotes…" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition" />
+        <input placeholder="Search quotes…" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition" />
       </div>
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto">
+      <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>
         ) : filtered.length === 0 ? (
@@ -623,7 +623,7 @@ export default function QuoteCostingPage() {
         ) : (
           <table className="w-full min-w-[800px] text-sm">
             <thead>
-              <tr className="border-b border-gray-800">
+              <tr className="border-b border-[#E4E6EE]">
                 {['Quote #', 'Customer', 'Date', 'Items', 'Total Cost', 'Selling Price', 'Profit', 'Margin', 'Status'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>
                 ))}
@@ -631,13 +631,13 @@ export default function QuoteCostingPage() {
             </thead>
             <tbody>
               {filtered.map((q, i) => (
-                <tr key={q.id} onClick={() => openEdit(q)} className={`border-b border-gray-800/60 last:border-0 cursor-pointer hover:bg-gray-800/40 transition-colors ${i % 2 ? 'bg-gray-800/10' : ''}`}>
-                  <td className="px-5 py-3.5 text-white font-medium font-mono text-xs">{q.quote_number}</td>
+                <tr key={q.id} onClick={() => openEdit(q)} className={`border-b border-[#E4E6EE]/60 last:border-0 cursor-pointer hover:bg-[#F9FAFB] transition-colors ${i % 2 ? 'bg-[#F5F6FA]/10' : ''}`}>
+                  <td className="px-5 py-3.5 text-[#1A1D2E] font-medium font-mono text-xs">{q.quote_number}</td>
                   <td className="px-5 py-3.5 text-gray-400">{q.customer_name || '—'}</td>
                   <td className="px-5 py-3.5 text-gray-400">{q.quote_date ? new Date(q.quote_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
                   <td className="px-5 py-3.5 text-gray-400 tabular-nums">—</td>
                   <td className="px-5 py-3.5 text-gray-300 tabular-nums">{fmt$(q.total_landed_cost)}</td>
-                  <td className="px-5 py-3.5 text-white font-medium tabular-nums">{fmt$(q.total_selling_price)}</td>
+                  <td className="px-5 py-3.5 text-[#1A1D2E] font-medium tabular-nums">{fmt$(q.total_selling_price)}</td>
                   <td className="px-5 py-3.5 text-emerald-400 tabular-nums">{fmt$(q.total_profit)}</td>
                   <td className="px-5 py-3.5">
                     <span className={`text-xs px-2 py-0.5 rounded font-medium border ${marginBg(q.avg_margin_pct)}`}>{fmtPct(q.avg_margin_pct)}</span>
@@ -658,25 +658,25 @@ export default function QuoteCostingPage() {
   // EDITOR VIEW
   // ═══════════════════════════════
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col">
+    <div className="min-h-screen bg-[#F9FAFB] flex flex-col">
       {/* Editor top bar */}
-      <div className="sticky top-0 z-20 bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between gap-4">
+      <div className="sticky top-0 z-20 bg-white border-b border-[#E4E6EE] px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <button onClick={backToList} className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition-colors">
+          <button onClick={backToList} className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-[#F5F6FA] transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
           <div>
-            <h2 className="text-white font-semibold text-sm">{editingQuote ? `Edit ${editingQuote.quote_number}` : 'New Costing Quote'}</h2>
+            <h2 className="text-[#1A1D2E] font-semibold text-sm">{editingQuote ? `Edit ${editingQuote.quote_number}` : 'New Costing Quote'}</h2>
             <p className="text-gray-500 text-xs">{lines.length} line item{lines.length !== 1 ? 's' : ''}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {lines.length > 0 && <>
-            <button onClick={downloadCustomerPDF} className="flex items-center gap-1.5 text-xs border border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 px-2.5 py-1.5 rounded-lg transition-colors">
+            <button onClick={downloadCustomerPDF} className="flex items-center gap-1.5 text-xs border border-[#E4E6EE] text-gray-400 hover:text-gray-700 hover:border-gray-600 px-2.5 py-1.5 rounded-lg transition-colors">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
               Customer PDF
             </button>
-            <button onClick={downloadInternalPDF} className="flex items-center gap-1.5 text-xs border border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 px-2.5 py-1.5 rounded-lg transition-colors">
+            <button onClick={downloadInternalPDF} className="flex items-center gap-1.5 text-xs border border-[#E4E6EE] text-gray-400 hover:text-gray-700 hover:border-gray-600 px-2.5 py-1.5 rounded-lg transition-colors">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
               Internal PDF
             </button>
@@ -687,7 +687,7 @@ export default function QuoteCostingPage() {
               </button>
             )}
           </>}
-          <button onClick={() => saveQuote()} disabled={saving} className="flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+          <button onClick={() => saveQuote()} disabled={saving} className="flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] font-medium px-4 py-2 rounded-lg transition-colors">
             {saving ? 'Saving…' : editingQuote ? 'Save' : 'Save Draft'}
           </button>
         </div>
@@ -699,7 +699,7 @@ export default function QuoteCostingPage() {
           {err && <div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><p className="text-red-400 text-sm">{err}</p></div>}
 
           {/* ── Quote Header ── */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
             <p className={sectionHead}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
               Quote Header
@@ -740,7 +740,7 @@ export default function QuoteCostingPage() {
             </div>
 
             {inlineCustomer && (
-              <div className="mt-4 p-4 bg-gray-800/60 border border-gray-700 rounded-lg">
+              <div className="mt-4 p-4 bg-[#F0F2F7] border border-[#E4E6EE] rounded-lg">
                 <p className="text-xs font-semibold text-gray-400 mb-3">New Customer</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className={label}>Company Name *</label><input value={newCust.company_name} onChange={e => setNewCust(p => ({ ...p, company_name: e.target.value }))} className={inpSm} /></div>
@@ -754,7 +754,7 @@ export default function QuoteCostingPage() {
           </div>
 
           {/* ── Settings ── */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
             <p className={sectionHead}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
               Default Settings
@@ -762,16 +762,16 @@ export default function QuoteCostingPage() {
             <div className="flex flex-wrap gap-6">
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-400 whitespace-nowrap">Default Markup %</label>
-                <input type="number" value={quoteForm.default_markup_pct} onChange={e => setQuoteForm(p => ({ ...p, default_markup_pct: e.target.value }))} min="0" max="500" step="1" className="w-20 bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <input type="number" value={quoteForm.default_markup_pct} onChange={e => setQuoteForm(p => ({ ...p, default_markup_pct: e.target.value }))} min="0" max="500" step="1" className="w-20 bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-400 whitespace-nowrap" title="Standard: 25% China tariff + 10% duty">Default Duty % ⓘ</label>
-                <input type="number" value={quoteForm.default_duty_pct} onChange={e => setQuoteForm(p => ({ ...p, default_duty_pct: e.target.value }))} min="0" max="200" step="1" className="w-20 bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <input type="number" value={quoteForm.default_duty_pct} onChange={e => setQuoteForm(p => ({ ...p, default_duty_pct: e.target.value }))} min="0" max="200" step="1" className="w-20 bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-400">Freight Method</label>
                 {FREIGHTS.map(f => (
-                  <button key={f} onClick={() => setQuoteForm(p => ({ ...p, freight_method: f }))} className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${quoteForm.freight_method === f ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-gray-700 text-gray-400 hover:border-gray-600'}`}>{f}</button>
+                  <button key={f} onClick={() => setQuoteForm(p => ({ ...p, freight_method: f }))} className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${quoteForm.freight_method === f ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-[#E4E6EE] text-gray-400 hover:border-gray-600'}`}>{f}</button>
                 ))}
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -782,7 +782,7 @@ export default function QuoteCostingPage() {
           </div>
 
           {/* ── Line Items ── */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
               <p className={sectionHead + ' mb-0'}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
@@ -795,7 +795,7 @@ export default function QuoteCostingPage() {
             </div>
 
             {lines.length === 0 ? (
-              <div className="border-2 border-dashed border-gray-700 rounded-lg py-12 flex flex-col items-center gap-3">
+              <div className="border-2 border-dashed border-[#E4E6EE] rounded-lg py-12 flex flex-col items-center gap-3">
                 <svg className="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" /></svg>
                 <p className="text-gray-500 text-sm">No line items yet. Click Add Item to begin.</p>
               </div>
@@ -803,7 +803,7 @@ export default function QuoteCostingPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs min-w-[900px]">
                   <thead>
-                    <tr className="bg-gray-800/80 border-b border-gray-700">
+                    <tr className="bg-[#F9FAFB]/80 border-b border-[#E4E6EE]">
                       {['#', 'Description', 'Origin', 'Freight', 'Cases', 'Pcs/Cs', 'EXW/Cs', 'Duties/Cs', 'Total Cost', 'Markup', 'Sell/Cs', 'Sell/Pc', 'Margin', 'Total Profit', ''].map(h => (
                         <th key={h} className="text-left text-gray-500 px-2 py-2 font-medium first:pl-3">{h}</th>
                       ))}
@@ -813,10 +813,10 @@ export default function QuoteCostingPage() {
                     {lines.map((l, i) => {
                       const c = calcLine(l)
                       return (
-                        <tr key={i} className="border-b border-gray-800/60 last:border-0 hover:bg-gray-800/20 group">
+                        <tr key={i} className="border-b border-[#E4E6EE]/60 last:border-0 hover:bg-[#F9FAFB] group">
                           <td className="pl-3 pr-1 py-2 text-gray-500">{i + 1}</td>
                           <td className="px-2 py-2">
-                            <div className="text-white font-medium max-w-[180px] truncate">{l.description}</div>
+                            <div className="text-[#1A1D2E] font-medium max-w-[180px] truncate">{l.description}</div>
                             {l.specs && <div className="text-gray-500 text-xs truncate max-w-[180px]">{l.specs}</div>}
                           </td>
                           <td className="px-2 py-2 text-gray-400">{l.country_of_origin}</td>
@@ -835,8 +835,8 @@ export default function QuoteCostingPage() {
                           <td className="px-2 py-2 text-gray-300 tabular-nums">{fmt$(c.totalProfit)}</td>
                           <td className="px-2 py-2">
                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => openEditLine(i)} className="p-1 text-gray-500 hover:text-white rounded hover:bg-gray-700"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
-                              <button onClick={() => removeLine(i)} className="p-1 text-gray-500 hover:text-red-400 rounded hover:bg-gray-700"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                              <button onClick={() => openEditLine(i)} className="p-1 text-gray-500 hover:text-gray-700 rounded hover:bg-[#F5F6FA]"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                              <button onClick={() => removeLine(i)} className="p-1 text-gray-500 hover:text-red-400 rounded hover:bg-[#F5F6FA]"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                             </div>
                           </td>
                         </tr>
@@ -846,13 +846,13 @@ export default function QuoteCostingPage() {
                   {/* Summary row */}
                   {lines.length > 1 && (
                     <tfoot>
-                      <tr className="border-t-2 border-gray-700 bg-gray-800/40">
+                      <tr className="border-t-2 border-[#E4E6EE] bg-[#F9FAFB]/40">
                         <td colSpan={4} className="pl-3 pr-2 py-2 text-xs font-bold text-gray-400">TOTALS</td>
                         <td className="px-2 py-2 text-gray-300 font-semibold tabular-nums">{allCalcs.reduce((s, c) => s + c.orderQty, 0).toLocaleString()}</td>
                         <td></td>
                         <td className="px-2 py-2 text-gray-200 font-semibold tabular-nums">{fmt$(summaryExw)}</td>
                         <td></td>
-                        <td className="px-2 py-2 text-white font-bold tabular-nums">{fmt$(summaryLanded)}</td>
+                        <td className="px-2 py-2 text-[#1A1D2E] font-bold tabular-nums">{fmt$(summaryLanded)}</td>
                         <td></td>
                         <td className="px-2 py-2 text-emerald-300 font-bold tabular-nums">{fmt$(summarySell)}</td>
                         <td></td>
@@ -871,11 +871,11 @@ export default function QuoteCostingPage() {
 
           {/* ── Notes ── */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
               <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Customer Notes</label>
               <textarea rows={3} value={quoteForm.notes} onChange={e => setQuoteForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes visible on customer PDF…" className={inp + ' resize-none'} />
             </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
               <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Internal Notes <span className="ml-1 text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded text-xs">Internal Only</span></label>
               <textarea rows={3} value={quoteForm.internal_notes} onChange={e => setQuoteForm(p => ({ ...p, internal_notes: e.target.value }))} placeholder="Internal notes (not on customer PDF)…" className={inp + ' resize-none'} />
             </div>
@@ -883,12 +883,12 @@ export default function QuoteCostingPage() {
         </div>
 
         {/* Right sidebar — Financial Summary */}
-        <div className="w-72 shrink-0 border-l border-gray-800 bg-gray-900 p-5 overflow-y-auto hidden lg:block">
+        <div className="w-72 shrink-0 border-l border-[#E4E6EE] bg-white p-5 overflow-y-auto hidden lg:block">
           <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Financial Summary</p>
           <div className="space-y-3">
             {[
               { label: 'Total EXW Cost', val: summaryExw, color: 'text-gray-300' },
-              { label: 'Total Landed Cost', val: summaryLanded, color: 'text-white font-medium' },
+              { label: 'Total Landed Cost', val: summaryLanded, color: 'text-[#1A1D2E] font-medium' },
               { label: 'Total Selling Price', val: summarySell, color: 'text-emerald-400 font-semibold' },
               { label: 'Total Profit', val: summaryProfit, color: 'text-emerald-300 font-semibold' },
             ].map(row => (
@@ -897,14 +897,14 @@ export default function QuoteCostingPage() {
                 <span className={`text-sm tabular-nums ${row.color}`}>{fmt$(row.val)}</span>
               </div>
             ))}
-            <div className="border-t border-gray-700 pt-3 flex justify-between items-center">
+            <div className="border-t border-[#E4E6EE] pt-3 flex justify-between items-center">
               <span className="text-xs text-gray-400 font-medium">Overall Margin</span>
               <span className={`text-lg font-bold tabular-nums ${marginColor(summaryMargin)}`}>{fmtPct(summaryMargin)}</span>
             </div>
           </div>
 
           {lines.length > 0 && (
-            <div className="mt-6 pt-4 border-t border-gray-800">
+            <div className="mt-6 pt-4 border-t border-[#E4E6EE]">
               <p className="text-xs text-gray-500 mb-3">Margin by line</p>
               <div className="space-y-2">
                 {lines.map((l, i) => {
@@ -912,7 +912,7 @@ export default function QuoteCostingPage() {
                   return (
                     <div key={i} className="flex items-center gap-2">
                       <span className="text-gray-600 text-xs w-4">{i + 1}</span>
-                      <div className="flex-1 bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                      <div className="flex-1 bg-[#F9FAFB] rounded-full h-1.5 overflow-hidden">
                         <div className={`h-full rounded-full ${c.margin >= 40 ? 'bg-emerald-500' : c.margin >= 25 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${Math.min(c.margin, 100)}%` }} />
                       </div>
                       <span className={`text-xs tabular-nums w-12 text-right ${marginColor(c.margin)}`}>{fmtPct(c.margin)}</span>
@@ -924,11 +924,11 @@ export default function QuoteCostingPage() {
           )}
 
           <div className="mt-6 space-y-2">
-            <button onClick={() => saveQuote()} disabled={saving} className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">
+            <button onClick={() => saveQuote()} disabled={saving} className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] text-sm font-medium py-2.5 rounded-lg transition-colors">
               {saving ? 'Saving…' : 'Save Draft'}
             </button>
             {lines.length > 0 && (
-              <button onClick={downloadCustomerPDF} className="w-full flex items-center justify-center gap-2 border border-gray-700 text-gray-400 hover:text-white text-sm py-2.5 rounded-lg transition-colors">
+              <button onClick={downloadCustomerPDF} className="w-full flex items-center justify-center gap-2 border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E] text-sm py-2.5 rounded-lg transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 Download Customer PDF
               </button>
@@ -939,10 +939,10 @@ export default function QuoteCostingPage() {
 
       {/* ═══ LINE ITEM FORM PANEL ═══ */}
       <div className={`fixed inset-0 bg-black/60 z-30 transition-opacity duration-300 ${lineFormOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setLineFormOpen(false)} />
-      <div className={`fixed top-0 right-0 h-full w-full max-w-[640px] bg-gray-900 border-l border-gray-800 z-40 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${lineFormOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
-          <h3 className="text-white font-semibold text-sm">{editingLineIdx !== null ? 'Edit Line Item' : 'Add Line Item'}</h3>
-          <button onClick={() => setLineFormOpen(false)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800">
+      <div className={`fixed top-0 right-0 h-full w-full max-w-[640px] bg-white border-l border-[#E4E6EE] z-40 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${lineFormOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
+          <h3 className="text-[#1A1D2E] font-semibold text-sm">{editingLineIdx !== null ? 'Edit Line Item' : 'Add Line Item'}</h3>
+          <button onClick={() => setLineFormOpen(false)} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -951,7 +951,7 @@ export default function QuoteCostingPage() {
           {/* Section A: Product Details */}
           <div>
             <p className={sectionHead}>
-              <span className="w-5 h-5 rounded-full bg-emerald-600 flex items-center justify-center text-white text-xs font-bold">A</span>
+              <span className="w-5 h-5 rounded-full bg-emerald-600 flex items-center justify-center text-[#1A1D2E] text-xs font-bold">A</span>
               Product Details
             </p>
             <div className="space-y-3">
@@ -992,7 +992,7 @@ export default function QuoteCostingPage() {
                 <label className={label}>Freight Method</label>
                 <div className="flex gap-2">
                   {FREIGHTS.map(f => (
-                    <button key={f} type="button" onClick={() => setLF({ freight_method: f, needs_freight_disclaimer: f !== 'DOMESTIC' })} className={`flex-1 py-2 rounded-lg border text-sm transition-colors ${lineForm.freight_method === f ? 'bg-emerald-600 border-emerald-500 text-white font-medium' : 'border-gray-700 text-gray-400 hover:border-gray-600'}`}>{f}</button>
+                    <button key={f} type="button" onClick={() => setLF({ freight_method: f, needs_freight_disclaimer: f !== 'DOMESTIC' })} className={`flex-1 py-2 rounded-lg border text-sm transition-colors ${lineForm.freight_method === f ? 'bg-emerald-600 border-emerald-500 text-[#1A1D2E] font-medium' : 'border-[#E4E6EE] text-gray-400 hover:border-gray-600'}`}>{f}</button>
                   ))}
                 </div>
               </div>
@@ -1002,7 +1002,7 @@ export default function QuoteCostingPage() {
           {/* Section B: Quantities */}
           <div>
             <p className={sectionHead}>
-              <span className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">B</span>
+              <span className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-[#1A1D2E] text-xs font-bold">B</span>
               Quantities
             </p>
             <div className="grid grid-cols-2 gap-3">
@@ -1030,7 +1030,7 @@ export default function QuoteCostingPage() {
           {/* Section C: Costs (Internal) */}
           <div>
             <p className={sectionHead}>
-              <span className="w-5 h-5 rounded-full bg-amber-600 flex items-center justify-center text-white text-xs font-bold">C</span>
+              <span className="w-5 h-5 rounded-full bg-amber-600 flex items-center justify-center text-[#1A1D2E] text-xs font-bold">C</span>
               Cost Inputs
               <span className="ml-auto text-xs font-normal text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">🔒 Internal Only</span>
             </p>
@@ -1048,13 +1048,13 @@ export default function QuoteCostingPage() {
 
               {/* Duty calculator */}
               {(lineForm.freight_method === 'DOMESTIC' || lineForm.country_of_origin === 'USA') ? (
-                <div className="bg-gray-800/40 border border-gray-700/40 rounded-lg p-3 text-xs text-gray-500 text-center">
+                <div className="bg-[#F9FAFB]/40 border border-[#E4E6EE]/40 rounded-lg p-3 text-xs text-gray-500 text-center">
                   {lineForm.freight_method === 'DOMESTIC'
                     ? 'No import duties — domestic freight selected.'
                     : 'No import duties — USA origin product.'}
                 </div>
               ) : (
-                <div className="bg-gray-800/60 border border-gray-700/60 rounded-lg p-4">
+                <div className="bg-[#F0F2F7] border border-[#E4E6EE]/60 rounded-lg p-4">
                   <p className="text-xs font-semibold text-gray-400 mb-3">Duty Calculator — Auto-Calculated from EXW</p>
                   <div className="space-y-2">
                     {lineForm.country_of_origin === 'CHINA' && (
@@ -1087,9 +1087,9 @@ export default function QuoteCostingPage() {
                         <p className="text-[10px] text-gray-600 mt-0.5">Ocean freight only: 0.125% of EXW cost</p>
                       </div>
                     </div>
-                    <div className="border-t border-gray-700 pt-2 flex justify-between items-center text-xs font-semibold">
+                    <div className="border-t border-[#E4E6EE] pt-2 flex justify-between items-center text-xs font-semibold">
                       <span className="text-gray-400">Total Duties per Case</span>
-                      <span className={`tabular-nums ${liveCalc.exw > 0 ? 'text-white' : 'text-gray-600'}`}>
+                      <span className={`tabular-nums ${liveCalc.exw > 0 ? 'text-[#1A1D2E]' : 'text-gray-400'}`}>
                         {liveCalc.exw > 0 ? fmt$(liveCalc.totalDuties) : '—'}
                       </span>
                     </div>
@@ -1148,10 +1148,10 @@ export default function QuoteCostingPage() {
           {/* Section D: Live Cost Summary + Selling Price */}
           <div>
             <p className={sectionHead}>
-              <span className="w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center text-white text-xs font-bold">D</span>
+              <span className="w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center text-[#1A1D2E] text-xs font-bold">D</span>
               Live Cost & Selling Price
             </p>
-            <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl overflow-hidden">
+            <div className="bg-[#F0F2F7] border border-[#E4E6EE]/60 rounded-xl overflow-hidden">
               {liveCalc.exw === 0 ? (
                 /* Empty state — no EXW entered yet */
                 <div className="px-4 py-8 text-center">
@@ -1182,9 +1182,9 @@ export default function QuoteCostingPage() {
                   </div>
 
                   {/* Total landed */}
-                  <div className="border-t border-gray-700 px-4 py-3 bg-gray-800/50 flex justify-between items-center">
-                    <span className="text-sm font-bold text-white">TOTAL LANDED COST</span>
-                    <span className="text-sm font-bold text-white tabular-nums">{fmt$(liveCalc.totalCost)}/case</span>
+                  <div className="border-t border-[#E4E6EE] px-4 py-3 bg-[#F9FAFB]/50 flex justify-between items-center">
+                    <span className="text-sm font-bold text-[#1A1D2E]">TOTAL LANDED COST</span>
+                    <span className="text-sm font-bold text-[#1A1D2E] tabular-nums">{fmt$(liveCalc.totalCost)}/case</span>
                   </div>
                   {liveCalc.packing > 0 && (
                     <div className="px-4 pb-2 flex justify-between items-center text-xs">
@@ -1194,11 +1194,11 @@ export default function QuoteCostingPage() {
                   )}
 
                   {/* Selling price */}
-                  <div className="border-t border-gray-700 px-4 py-3 space-y-2">
+                  <div className="border-t border-[#E4E6EE] px-4 py-3 space-y-2">
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-xs font-semibold text-gray-400">MARKUP %</span>
                       <div className="flex items-center gap-1">
-                        <input type="number" value={lineForm.markup_pct} onChange={e => setLF({ markup_pct: e.target.value })} min="0" max="500" step="1" className="w-20 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                        <input type="number" value={lineForm.markup_pct} onChange={e => setLF({ markup_pct: e.target.value })} min="0" max="500" step="1" className="w-20 bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                         <span className="text-gray-400 text-sm">%</span>
                       </div>
                     </div>
@@ -1223,7 +1223,7 @@ export default function QuoteCostingPage() {
                   </div>
 
                   {parseInt(lineForm.order_qty) > 0 && (
-                    <div className="border-t border-gray-700 px-4 py-3 bg-emerald-900/20 space-y-1">
+                    <div className="border-t border-[#E4E6EE] px-4 py-3 bg-emerald-900/20 space-y-1">
                       <div className="flex justify-between text-xs">
                         <span className="text-gray-400">Total Income ({lineForm.order_qty} cases)</span>
                         <span className="text-emerald-300 font-semibold tabular-nums">{fmt$(liveCalc.totalIncome)}</span>
@@ -1241,9 +1241,9 @@ export default function QuoteCostingPage() {
         </div>
 
         {/* Line form footer */}
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 flex gap-3">
-          <button onClick={() => setLineFormOpen(false)} className="flex-1 text-sm py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-          <button onClick={commitLine} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">
+        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] flex gap-3">
+          <button onClick={() => setLineFormOpen(false)} className="flex-1 text-sm py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+          <button onClick={commitLine} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium py-2.5 rounded-lg transition-colors">
             {editingLineIdx !== null ? 'Update Line' : 'Add Line'}
           </button>
         </div>

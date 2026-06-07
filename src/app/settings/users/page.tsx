@@ -28,7 +28,7 @@ const DEPARTMENTS = ['Management', 'Sustainability', 'Marketing', 'Sales', 'R&D'
 const ROLE_COLORS: Record<string, string> = {
   Admin: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
   Manager: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  Member: 'bg-gray-700/40 text-gray-400 border-gray-700',
+  Member: 'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
 }
 
 function fmtDate(d: string) {
@@ -100,13 +100,13 @@ export default function UsersPage() {
     load()
   }
 
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition'
 
   return (
     <div className="p-4 md:p-8 min-h-screen">
       <div className="mb-8">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-white mt-1">User Management</h1>
+        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">User Management</h1>
         <p className="text-gray-500 text-sm mt-0.5">{profiles.length} registered user{profiles.length !== 1 ? 's' : ''}</p>
       </div>
 
@@ -116,7 +116,7 @@ export default function UsersPage() {
         </div>
       )}
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-x-auto">
+      <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24">
@@ -127,7 +127,7 @@ export default function UsersPage() {
         ) : (
           <table className="w-full min-w-[700px] text-sm">
             <thead>
-              <tr className="border-b border-gray-800">
+              <tr className="border-b border-[#E4E6EE]">
                 {['User', 'Role', 'Department', 'Status', 'Last Seen', 'Activity', ''].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>
                 ))}
@@ -138,17 +138,17 @@ export default function UsersPage() {
                 const pres = presence[p.email]
                 const roleColor = ROLE_COLORS[p.role] ?? ROLE_COLORS.Member
                 return (
-                  <tr key={p.id} className={`border-b border-gray-800/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-gray-800/10'}`}>
+                  <tr key={p.id} className={`border-b border-[#E4E6EE]/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-[#F5F6FA]/10'}`}>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-[#1A1D2E] text-xs font-bold shrink-0"
                           style={{ backgroundColor: p.avatar_color }}
                         >
                           {p.avatar_initials ?? p.full_name[0]}
                         </div>
                         <div>
-                          <p className="text-white font-medium text-sm">{p.full_name}</p>
+                          <p className="text-[#1A1D2E] font-medium text-sm">{p.full_name}</p>
                           <p className="text-gray-500 text-xs">{p.email}</p>
                         </div>
                       </div>
@@ -158,7 +158,7 @@ export default function UsersPage() {
                     </td>
                     <td className="px-5 py-3 text-gray-400 text-sm">{p.department ?? '—'}</td>
                     <td className="px-5 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.is_active ? 'text-emerald-400 bg-emerald-500/10' : 'text-gray-500 bg-gray-700/30'}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.is_active ? 'text-emerald-400 bg-emerald-500/10' : 'text-gray-500 bg-[#F5F6FA]/30'}`}>
                         {p.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
@@ -168,7 +168,7 @@ export default function UsersPage() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => openEdit(p)}
-                          className="text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-2.5 py-1 rounded-lg transition-colors"
+                          className="text-xs text-gray-400 hover:text-gray-700 border border-[#E4E6EE] hover:border-gray-500 px-2.5 py-1 rounded-lg transition-colors"
                         >
                           Edit
                         </button>
@@ -191,21 +191,21 @@ export default function UsersPage() {
       {/* Edit modal */}
       {editing && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md space-y-4">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 w-full max-w-md space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-white font-semibold">Edit User</h2>
-              <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-white">
+              <h2 className="text-[#1A1D2E] font-semibold">Edit User</h2>
+              <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-gray-700">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
                 </svg>
               </button>
             </div>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ backgroundColor: editing.avatar_color }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-[#1A1D2E] font-bold" style={{ backgroundColor: editing.avatar_color }}>
                 {editing.avatar_initials ?? editing.full_name[0]}
               </div>
               <div>
-                <p className="text-white font-medium">{editing.full_name}</p>
+                <p className="text-[#1A1D2E] font-medium">{editing.full_name}</p>
                 <p className="text-gray-500 text-xs">{editing.email}</p>
               </div>
             </div>
@@ -228,8 +228,8 @@ export default function UsersPage() {
               </div>
             )}
             <div className="flex gap-3 pt-1">
-              <button onClick={() => setEditing(null)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+              <button onClick={() => setEditing(null)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+              <button onClick={saveEdit} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>

@@ -66,20 +66,20 @@ const SECTIONS = ['Make To Stock','Private Label','Straw Orders','Customer DropS
 const SECTION_TABS = ['All', ...SECTIONS]
 const STATUSES = ['Pending','Confirmed','In Production','Ready to Ship','Shipped','On Hold','Partially Shipped','Closed']
 const STATUS_COLORS: Record<string,string> = {
-  Pending:             'bg-gray-700/50 text-gray-400 border-gray-700',
+  Pending:             'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
   Confirmed:           'bg-blue-500/15 text-blue-400 border-blue-500/20',
   'In Production':     'bg-amber-500/15 text-amber-400 border-amber-500/20',
   'Ready to Ship':     'bg-teal-500/15 text-teal-400 border-teal-500/20',
   Shipped:             'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   'On Hold':           'bg-red-500/15 text-red-400 border-red-500/20',
   'Partially Shipped': 'bg-violet-500/15 text-violet-400 border-violet-500/20',
-  Closed:              'bg-gray-800/60 text-gray-600 border-gray-800',
+  Closed:              'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]',
 }
 const fmt$ = (n: number | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const fmtD = (d: string | null) =>
   d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
+const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function orderCustomerName(o: SalesOrder): string {
@@ -150,14 +150,14 @@ function SkuAssign({ lineId, onAssigned }: { lineId: string; onAssigned: (sku: s
     <div ref={ref} className="relative">
       <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search SKU…"
         onFocus={() => q && setOpen(true)}
-        className="bg-gray-800 border border-amber-500/40 text-white placeholder-gray-600 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-amber-500 transition"/>
+        className="bg-[#F9FAFB] border border-amber-500/40 text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-amber-500 transition"/>
       {open && results.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-20 w-72 overflow-hidden">
+        <div className="absolute top-full left-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-xl z-20 w-72 overflow-hidden">
           {results.map(p => (
             <button key={p.id} onMouseDown={() => assign(p)}
-              className="w-full text-left px-3 py-2 text-xs border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors">
+              className="w-full text-left px-3 py-2 text-xs border-b border-[#E4E6EE] last:border-0 hover:bg-[#F5F6FA] transition-colors">
               <span className="text-emerald-400 font-mono font-bold">{p.sku}</span>
-              <span className="text-gray-300 ml-2">{p.product_name}</span>
+              <span className="text-[#374151] ml-2">{p.product_name}</span>
             </button>
           ))}
         </div>
@@ -191,7 +191,7 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
         const done = line.completed_qty ?? line.quantity_shipped ?? 0
         const pct = qty > 0 ? Math.min(100, Math.round((done / qty) * 100)) : 0
         return (
-          <tr key={line.id} className="bg-gray-950/60 border-b border-[#E4E6EE]/40 last:border-0">
+          <tr key={line.id} className="bg-[#F0F2F7] border-b border-[#E4E6EE]/40 last:border-0">
             <td className="pl-12 pr-2 py-2.5 w-8">
               {line.sku_flagged
                 ? <span className="text-amber-400 text-xs" title="Needs SKU assignment">⚠</span>
@@ -222,14 +222,14 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
             <td className="px-2 py-2.5 text-gray-500 text-xs">{line.packaging ?? '—'}</td>
             <td className="px-2 py-2.5">
               {line.production_status && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-400 border border-gray-700 whitespace-nowrap">{line.production_status}</span>
+                <span className="text-xs px-1.5 py-0.5 rounded bg-[#F5F6FA]/50 text-gray-400 border border-[#E4E6EE] whitespace-nowrap">{line.production_status}</span>
               )}
             </td>
             <td className="px-2 py-2.5 text-gray-600 text-xs max-w-[160px] truncate">{line.added_details ?? '—'}</td>
             <td className="px-2 py-2.5 w-24">
               <div className="flex items-center gap-1.5">
-                <div className="flex-1 bg-gray-800 rounded-full h-1.5 overflow-hidden">
-                  <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-400' : pct > 0 ? 'bg-blue-500' : 'bg-gray-700'}`}
+                <div className="flex-1 bg-[#F9FAFB] rounded-full h-1.5 overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-400' : pct > 0 ? 'bg-blue-500' : 'bg-[#F5F6FA]'}`}
                     style={{ width: `${pct}%` }}/>
                 </div>
                 <span className={`text-xs font-medium w-8 text-right ${pct === 100 ? 'text-emerald-400' : 'text-gray-500'}`}>{pct}%</span>
@@ -304,10 +304,10 @@ function EditPanel({
         className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[600px] z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <div>
-            <h2 className="text-white font-semibold">{editing ? 'Edit Order' : 'New Order'}</h2>
+            <h2 className="text-[#1A1D2E] font-semibold">{editing ? 'Edit Order' : 'New Order'}</h2>
             {editing && <p className="text-xs text-gray-500 mt-0.5">{editing.order_number}</p>}
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -438,11 +438,11 @@ function EditPanel({
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-semibold uppercase tracking-wider">Line Items</p>
-              <button onClick={addLine} className="text-xs px-2.5 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors">+ Add Line</button>
+              <button onClick={addLine} className="text-xs px-2.5 py-1 rounded bg-[#F5F6FA] hover:bg-gray-600 text-gray-300 transition-colors">+ Add Line</button>
             </div>
             <div className="space-y-2">
               {editLines.map((line, i) => (
-                <div key={line._key} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-gray-700 bg-gray-800/30'}`}>
+                <div key={line._key} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-[#E4E6EE] bg-[#F9FAFB]/30'}`}>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-600 w-5 shrink-0">{i + 1}</span>
                     {/* SKU with typeahead */}
@@ -452,23 +452,23 @@ function EditPanel({
                         onBlur={() => setTimeout(() => setSkuDropdown(null), 200)}
                         onChange={e => { setSkuQ(e.target.value); updateLine(line._key, { sku: e.target.value, sku_flagged: !e.target.value }) }}
                         placeholder="SKU"
-                        className={`w-full bg-gray-900 border ${line.sku_flagged ? 'border-amber-500/40' : 'border-gray-700'} text-emerald-400 placeholder-gray-600 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500 transition`}/>
+                        className={`w-full bg-white border ${line.sku_flagged ? 'border-amber-500/40' : 'border-[#E4E6EE]'} text-emerald-400 placeholder-gray-600 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500 transition`}/>
                       {skuDropdown === i && skuMatches.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-10 overflow-hidden mt-0.5 max-h-40 overflow-y-auto">
+                        <div className="absolute top-full left-0 right-0 bg-white border border-[#E4E6EE] rounded-lg shadow-xl z-10 overflow-hidden mt-0.5 max-h-40 overflow-y-auto">
                           {skuMatches.map(p => (
                             <button key={p.id} onMouseDown={() => {
                               updateLine(line._key, { sku: p.sku, description: p.product_name, product_id: p.id, sku_flagged: false })
                               setSkuDropdown(null)
-                            }} className="w-full text-left px-3 py-2 text-xs border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors">
+                            }} className="w-full text-left px-3 py-2 text-xs border-b border-[#E4E6EE] last:border-0 hover:bg-[#F5F6FA] transition-colors">
                               <span className="text-emerald-400 font-mono font-bold">{p.sku}</span>
-                              <span className="text-gray-300 ml-2">{p.product_name}</span>
+                              <span className="text-[#374151] ml-2">{p.product_name}</span>
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
                     <input value={line.description} onChange={e => updateLine(line._key, { description: e.target.value })}
-                      placeholder="Description" className="flex-1 bg-gray-900 border border-gray-700 text-white placeholder-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                      placeholder="Description" className="flex-1 bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     <button onClick={() => removeLine(line._key)} className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/10 transition-colors shrink-0">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
@@ -476,14 +476,14 @@ function EditPanel({
                   <div className="grid grid-cols-4 gap-2">
                     {([['quantity','Qty'],['completed_qty','Done'],['unit_of_measure','UOM'],['packaging','Packaging']] as const).map(([key, label]) => (
                       <input key={key} value={(line as any)[key]} onChange={e => updateLine(line._key, { [key]: e.target.value })}
-                        placeholder={label} className="bg-gray-900 border border-gray-700 text-white placeholder-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                        placeholder={label} className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     ))}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <input value={line.production_status} onChange={e => updateLine(line._key, { production_status: e.target.value })}
-                      placeholder="Production Status" className="bg-gray-900 border border-gray-700 text-white placeholder-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                      placeholder="Production Status" className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     <input value={line.added_details} onChange={e => updateLine(line._key, { added_details: e.target.value })}
-                      placeholder="Details / Specs" className="bg-gray-900 border border-gray-700 text-white placeholder-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                      placeholder="Details / Specs" className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                   </div>
                 </div>
               ))}
@@ -502,9 +502,9 @@ function EditPanel({
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
               </button>
             )}
-            <button onClick={onClose} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
+            <button onClick={onClose} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
             <button onClick={onSave} disabled={saving}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
               {saving ? 'Saving…' : 'Save Order'}
             </button>
           </div>
@@ -784,11 +784,11 @@ export default function OrdersPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">ORDERS</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">Sales Orders</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Sales Orders</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${orders.length} orders`}</p>
         </div>
         <button onClick={openAdd}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
           New Order
         </button>
@@ -800,17 +800,17 @@ export default function OrdersPage() {
           <Stat label="Total Orders" value={String(tabPool.length)}/>
           <Stat label="In Production" value={String(stats.inProd)} accent="text-amber-400"/>
           <Stat label="Ready to Ship" value={String(stats.ready)} accent="text-teal-400"/>
-          <Stat label="On Hold" value={String(stats.onHold)} accent={stats.onHold > 0 ? 'text-red-400' : 'text-white'}/>
+          <Stat label="On Hold" value={String(stats.onHold)} accent={stats.onHold > 0 ? 'text-red-400' : 'text-[#1A1D2E]'}/>
           <Stat label="Total Value" value={fmt$(stats.totalVal) ?? '—'} accent="text-emerald-400"/>
-          <Stat label="Flagged Lines" value={String(stats.flaggedTotal)} accent={stats.flaggedTotal > 0 ? 'text-amber-400' : 'text-white'} sub="need SKU"/>
+          <Stat label="Flagged Lines" value={String(stats.flaggedTotal)} accent={stats.flaggedTotal > 0 ? 'text-amber-400' : 'text-[#1A1D2E]'} sub="need SKU"/>
         </div>
       )}
 
       {/* Section tabs */}
-      <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 overflow-x-auto mb-4">
+      <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-4">
         {SECTION_TABS.map(t => (
           <button key={t} onClick={() => setSectionTab(t)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${sectionTab === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
+            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${sectionTab === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-700'}`}>
             {t}{sectionCounts[t] != null ? ` (${sectionCounts[t]})` : ''}
           </button>
         ))}
@@ -820,7 +820,7 @@ export default function OrdersPage() {
       <div className="relative mb-4 max-w-md">
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
         <input placeholder="Search customer, PO#, order name…" value={search} onChange={e => setSearch(e.target.value)}
-          className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+          className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
         {search && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">{filtered.length}</span>}
       </div>
 
@@ -852,7 +852,7 @@ export default function OrdersPage() {
                 return (
                   <>
                     <tr key={order.id}
-                      className={`border-b border-[#F3F4F6] transition-colors ${ms.isSelected(order.id) ? 'bg-blue-500/5' : expanded ? 'bg-gray-800/30' : i % 2 === 1 ? 'bg-[#FAFAFA] hover:bg-[#F9FAFB]' : 'hover:bg-[#F9FAFB]'}`}>
+                      className={`border-b border-[#F3F4F6] transition-colors ${ms.isSelected(order.id) ? 'bg-blue-500/5' : expanded ? 'bg-[#F5F6FA]/30' : i % 2 === 1 ? 'bg-[#FAFAFA] hover:bg-[#F9FAFB]' : 'hover:bg-[#F9FAFB]'}`}>
                       {/* Checkbox */}
                       <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
                         <input type="checkbox" checked={ms.isSelected(order.id)} onChange={()=>ms.toggle(order.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
@@ -863,12 +863,12 @@ export default function OrdersPage() {
                       </td>
                       {/* Customer / Order Name */}
                       <td className="px-3 py-3.5 max-w-[200px] cursor-pointer" onClick={() => toggleExpand(order.id)}>
-                        <p className="text-white font-semibold text-sm truncate">{custName}</p>
+                        <p className="text-[#1A1D2E] font-semibold text-sm truncate">{custName}</p>
                         {ref && <p className="text-gray-500 text-xs truncate mt-0.5">{ref}</p>}
                       </td>
                       <td className="px-3 py-3.5">
                         {order.order_section && (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-400 border border-gray-700 whitespace-nowrap">{order.order_section}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-[#F5F6FA]/50 text-gray-400 border border-[#E4E6EE] whitespace-nowrap">{order.order_section}</span>
                         )}
                       </td>
                       <td className="px-3 py-3.5 text-gray-400 text-xs font-mono whitespace-nowrap">{order.po_number ?? '—'}</td>
@@ -900,7 +900,7 @@ export default function OrdersPage() {
                     {/* Expanded line items */}
                     {expanded && (
                       <>
-                        <tr className="border-b border-[#E4E6EE]/40 bg-gray-950/40">
+                        <tr className="border-b border-[#E4E6EE]/40 bg-[#F9FAFB]/40">
                           <td colSpan={14} className="px-0 py-0">
                             <div className="ml-8 mr-2 my-1">
                               <table className="w-full text-xs">

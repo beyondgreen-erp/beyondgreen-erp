@@ -46,12 +46,12 @@ interface Invoice {
 interface Customer { id: string; company_name: string }
 
 const STATUS_CFG: Record<string,{label:string;cls:string;pulse?:boolean}> = {
-  proforma: { label:'PROFORMA', cls:'bg-gray-700/50 text-gray-300 border-gray-600' },
+  proforma: { label:'PROFORMA', cls:'bg-[#F5F6FA]/50 text-gray-300 border-gray-600' },
   pending:  { label:'UNPAID',   cls:'bg-red-500/20 text-red-400 border-red-500/30' },
   partial:  { label:'PARTIAL',  cls:'bg-blue-500/15 text-blue-400 border-blue-500/20' },
   overdue:  { label:'OVERDUE',  cls:'bg-red-600/20 text-red-500 border-red-600/30', pulse: true },
   paid:     { label:'PAID',     cls:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
-  void:     { label:'VOID',     cls:'bg-gray-700/30 text-gray-500 border-gray-700' },
+  void:     { label:'VOID',     cls:'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]' },
 }
 
 type Tab = 'all' | 'unpaid' | 'overdue' | 'paid' | 'proforma'
@@ -328,8 +328,8 @@ export default function InvoicesPage() {
     setImporting(false)
   }
 
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
-  const inpSm = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
+  const inpSm = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
   const selSm = inpSm + ' cursor-pointer'
 
   return (
@@ -345,12 +345,12 @@ export default function InvoicesPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">Invoices & Billing</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Invoices & Billing</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} invoice${rows.length !== 1 ? 's' : ''}`}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <button onClick={importShipments} disabled={importing}
-            className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border border-gray-700 text-gray-300 hover:text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+            className="flex items-center gap-2 bg-[#F9FAFB] hover:bg-[#F5F6FA] disabled:opacity-50 border border-[#E4E6EE] text-gray-300 hover:text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
             {importing
               ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Importing…</>
               : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Import Shipments</>
@@ -363,22 +363,22 @@ export default function InvoicesPage() {
       {/* Stats */}
       {!loading && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-gray-900 border border-red-900/40 rounded-xl p-4">
+          <div className="bg-white border border-red-900/40 rounded-xl p-4">
             <p className="text-xs text-gray-500 mb-1">Total Outstanding</p>
             <p className="text-lg font-bold text-red-400">{fmt$(outstandingAmt)}</p>
             <p className="text-xs text-gray-600 mt-0.5">{outstanding.length} unpaid invoice{outstanding.length !== 1 ? 's' : ''}</p>
           </div>
-          <div className="bg-gray-900 border border-red-900/60 rounded-xl p-4">
+          <div className="bg-white border border-red-900/60 rounded-xl p-4">
             <p className="text-xs text-gray-500 mb-1">Overdue</p>
             <p className="text-lg font-bold text-red-500">{fmt$(overdueAmt)}</p>
             <p className="text-xs text-gray-600 mt-0.5">{overdueRows.length} overdue</p>
           </div>
-          <div className="bg-gray-900 border border-emerald-900/30 rounded-xl p-4">
+          <div className="bg-white border border-emerald-900/30 rounded-xl p-4">
             <p className="text-xs text-gray-500 mb-1">Paid This Month</p>
             <p className="text-lg font-bold text-emerald-400">{fmt$(paidMonthAmt)}</p>
             <p className="text-xs text-gray-600 mt-0.5">{paidMonth.length} paid</p>
           </div>
-          <div className="bg-gray-900 border border-blue-900/30 rounded-xl p-4">
+          <div className="bg-white border border-blue-900/30 rounded-xl p-4">
             <p className="text-xs text-gray-500 mb-1">Total Invoiced</p>
             <p className="text-lg font-bold text-blue-400">{fmt$(totalInvoiced)}</p>
             <p className="text-xs text-gray-600 mt-0.5">{rows.length} invoices</p>
@@ -388,17 +388,17 @@ export default function InvoicesPage() {
 
       {/* Tabs + Search */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 overflow-x-auto">
+        <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto">
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${tab === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
+              className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${tab === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-700'}`}>
               {t === 'unpaid' ? 'Unpaid' : t.charAt(0).toUpperCase() + t.slice(1)}{tabCounts[t] > 0 ? ` (${tabCounts[t]})` : ''}
             </button>
           ))}
         </div>
         <div className="relative flex-1 max-w-sm ml-auto">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input placeholder="Search customer, invoice #, PO #…" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+          <input placeholder="Search customer, invoice #, PO #…" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
         </div>
       </div>
 
@@ -432,7 +432,7 @@ export default function InvoicesPage() {
                   <tr key={r.id}
                     className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id) ? 'bg-blue-500/5' : isOverdue ? 'bg-red-950/10' : status === 'pending' ? 'bg-red-950/5' : i % 2 === 1 ? 'bg-[#FAFAFA]' : ''}`}>
                     <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
-                    <td className="px-4 py-3.5 text-white font-mono text-xs font-medium cursor-pointer" onClick={() => openPanel(r)}>{displayNum(r)}</td>
+                    <td className="px-4 py-3.5 text-[#1A1D2E] font-mono text-xs font-medium cursor-pointer" onClick={() => openPanel(r)}>{displayNum(r)}</td>
                     <td className="px-4 py-3.5 text-gray-300" onClick={() => openPanel(r)}>{getCustomerName(r)}</td>
                     <td className="px-4 py-3.5 text-gray-400 font-mono text-xs" onClick={() => openPanel(r)}>{r.po_number ?? '—'}</td>
                     <td className="px-4 py-3.5 text-gray-400 whitespace-nowrap" onClick={() => openPanel(r)}>{fmtD(r.invoice_date)}</td>
@@ -445,7 +445,7 @@ export default function InvoicesPage() {
                       {days > 0 ? <span className="text-xs text-red-400 font-medium">{days}d</span> : <span className="text-gray-600">—</span>}
                     </td>
                     <td className="px-4 py-3.5" onClick={() => openPanel(r)}>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium border ${r.shipment_id ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : r.sales_order_id ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' : 'bg-gray-700/30 text-gray-500 border-gray-700'}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium border ${r.shipment_id ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : r.sales_order_id ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' : 'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]'}`}>
                         {getSource(r)}
                       </span>
                     </td>
@@ -459,7 +459,7 @@ export default function InvoicesPage() {
                         )}
                         <WorkflowMover recordId={r.id} recordType="invoice" currentStatus={r.status} onMoved={load}/>
                         <button onClick={e => { e.stopPropagation(); openPanel(r) }}
-                          className="text-xs px-2 py-1 rounded bg-gray-700/50 hover:bg-gray-700 text-gray-300 transition-colors">
+                          className="text-xs px-2 py-1 rounded bg-[#F5F6FA]/50 hover:bg-[#F5F6FA] text-gray-300 transition-colors">
                           View
                         </button>
                       </div>
@@ -492,14 +492,14 @@ export default function InvoicesPage() {
                   <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${(STATUS_CFG[sel.status.toLowerCase()] ?? STATUS_CFG.pending).cls}`}>
                     {(STATUS_CFG[sel.status.toLowerCase()] ?? STATUS_CFG.pending).label}
                   </span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium border ${sel.shipment_id ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : sel.sales_order_id ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' : 'bg-gray-700/30 text-gray-500 border-gray-700'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium border ${sel.shipment_id ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : sel.sales_order_id ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' : 'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]'}`}>
                     {getSource(sel)}
                   </span>
                 </div>
-                <h2 className="text-white font-semibold text-lg font-mono">{displayNum(sel)}</h2>
+                <h2 className="text-[#1A1D2E] font-semibold text-lg font-mono">{displayNum(sel)}</h2>
                 <p className="text-gray-500 text-sm">{getCustomerName(sel)}</p>
               </div>
-              <button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors">
+              <button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA] transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
@@ -528,7 +528,7 @@ export default function InvoicesPage() {
                     ].map(([label, value]) => (
                       <div key={label} className="rounded-lg bg-[#F9FAFB] px-3 py-2.5">
                         <p className="text-xs text-gray-500">{label}</p>
-                        <p className="text-sm text-white mt-0.5">{value}</p>
+                        <p className="text-sm text-[#1A1D2E] mt-0.5">{value}</p>
                       </div>
                     ))}
                   </div>
@@ -537,15 +537,15 @@ export default function InvoicesPage() {
                 {/* Financials */}
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider mb-3">Financials</p>
-                  <div className="bg-gray-800/30 rounded-xl overflow-hidden">
+                  <div className="bg-[#F9FAFB]/30 rounded-xl overflow-hidden">
                     {[
                       ['Invoice Amount', fmt$(sel.total_amount ?? sel.amount ?? 0), true],
                       ['Amount Paid', fmt$(sel.amount_paid ?? 0), false],
                       ['Balance Due', fmt$(sel.balance_due ?? 0), true],
                     ].map(([label, value, bold], i, arr) => (
-                      <div key={label as string} className={`flex justify-between px-4 py-3 ${i < arr.length - 1 ? 'border-b border-gray-700/50' : ''}`}>
-                        <span className={`text-sm ${bold ? 'text-white font-semibold' : 'text-gray-400'}`}>{label}</span>
-                        <span className={`text-sm font-medium ${label === 'Balance Due' ? ((sel.balance_due ?? 0) > 0 ? 'text-red-400' : 'text-emerald-400') : label === 'Amount Paid' ? 'text-emerald-400' : 'text-white'}`}>{value}</span>
+                      <div key={label as string} className={`flex justify-between px-4 py-3 ${i < arr.length - 1 ? 'border-b border-[#E4E6EE]/50' : ''}`}>
+                        <span className={`text-sm ${bold ? 'text-[#1A1D2E] font-semibold' : 'text-gray-400'}`}>{label}</span>
+                        <span className={`text-sm font-medium ${label === 'Balance Due' ? ((sel.balance_due ?? 0) > 0 ? 'text-red-400' : 'text-emerald-400') : label === 'Amount Paid' ? 'text-emerald-400' : 'text-[#1A1D2E]'}`}>{value}</span>
                       </div>
                     ))}
                   </div>
@@ -557,36 +557,36 @@ export default function InvoicesPage() {
                   <div className="flex flex-wrap gap-2">
                     {sel.status !== 'paid' && sel.status !== 'void' && (
                       <button onClick={() => { setShowPayFull(v => !v); setShowPartial(false); setShowUpdateAmt(false) }}
-                        className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
                         Mark as Fully Paid
                       </button>
                     )}
                     {sel.status !== 'paid' && sel.status !== 'void' && (
                       <button onClick={() => { setShowPartial(v => !v); setShowPayFull(false); setShowUpdateAmt(false) }}
-                        className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                         Record Partial Payment
                       </button>
                     )}
                     {sel.status !== 'paid' && sel.status !== 'void' && (
                       <button onClick={() => { setShowUpdateAmt(v => !v); setShowPayFull(false); setShowPartial(false) }}
-                        className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                         Update Amount
                       </button>
                     )}
                     {sel.invoice_type === 'proforma' && (
                       <button onClick={convertToInvoice} disabled={busy}
-                        className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-[#F5F6FA] hover:bg-gray-600 disabled:opacity-50 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                         Convert to Invoice
                       </button>
                     )}
                     {['pending','partial','overdue'].includes(sel.status) && (
                       <button onClick={sendReminder} disabled={busy}
-                        className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-[#F5F6FA] hover:bg-gray-600 disabled:opacity-50 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                         Send Reminder
                       </button>
                     )}
-                    <button onClick={downloadPDF} className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                    <button onClick={downloadPDF} className="flex items-center gap-1.5 bg-[#F5F6FA] hover:bg-gray-600 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                       Download PDF
                     </button>
@@ -622,8 +622,8 @@ export default function InvoicesPage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setShowPayFull(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-                        <button onClick={markPaid} disabled={busy} className="flex-1 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium transition-colors">
+                        <button onClick={() => setShowPayFull(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                        <button onClick={markPaid} disabled={busy} className="flex-1 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">
                           {busy ? 'Saving…' : `Confirm — ${fmt$(sel.total_amount ?? sel.amount ?? 0)} Paid`}
                         </button>
                       </div>
@@ -660,8 +660,8 @@ export default function InvoicesPage() {
                         </div>
                       )}
                       <div className="flex gap-2">
-                        <button onClick={() => setShowPartial(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-                        <button onClick={recordPartial} disabled={busy || !partialAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium transition-colors">
+                        <button onClick={() => setShowPartial(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                        <button onClick={recordPartial} disabled={busy || !partialAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">
                           {busy ? 'Saving…' : 'Record Payment'}
                         </button>
                       </div>
@@ -678,8 +678,8 @@ export default function InvoicesPage() {
                         <input type="number" min="0" step="0.01" value={updateAmt} onChange={e => setUpdateAmt(e.target.value)} className={inpSm}/>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setShowUpdateAmt(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-                        <button onClick={updateAmount} disabled={updatingAmt || !updateAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-medium transition-colors">
+                        <button onClick={() => setShowUpdateAmt(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                        <button onClick={updateAmount} disabled={updatingAmt || !updateAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">
                           {updatingAmt ? 'Saving…' : 'Update Amount'}
                         </button>
                       </div>
@@ -690,8 +690,8 @@ export default function InvoicesPage() {
                   {showVoidConfirm && (
                     <div className="mt-3 bg-red-950/30 border border-red-800/40 rounded-xl p-3 flex gap-3 items-center">
                       <p className="text-red-300 text-sm flex-1">Void this invoice? This cannot be undone.</p>
-                      <button onClick={() => setShowVoidConfirm(false)} className="text-xs text-gray-400 hover:text-white transition-colors">Cancel</button>
-                      <button onClick={voidInvoice} disabled={busy} className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                      <button onClick={() => setShowVoidConfirm(false)} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+                      <button onClick={voidInvoice} disabled={busy} className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                         {busy ? 'Voiding…' : 'Confirm Void'}
                       </button>
                     </div>
@@ -702,10 +702,10 @@ export default function InvoicesPage() {
                 {lineItems.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider mb-3">Line Items</p>
-                    <div className="rounded-xl border border-gray-700 overflow-hidden">
+                    <div className="rounded-xl border border-[#E4E6EE] overflow-hidden">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="bg-gray-800 border-b border-gray-700">
+                          <tr className="bg-[#F9FAFB] border-b border-[#E4E6EE]">
                             {['SKU','Description','Qty','Unit Price','Total'].map(h => (
                               <th key={h} className="text-left text-gray-400 px-3 py-2 font-medium">{h}</th>
                             ))}
@@ -713,12 +713,12 @@ export default function InvoicesPage() {
                         </thead>
                         <tbody>
                           {lineItems.map((l, i) => (
-                            <tr key={l.id} className={`border-b border-gray-700/50 last:border-0 ${i % 2 === 1 ? 'bg-gray-800/20' : ''}`}>
+                            <tr key={l.id} className={`border-b border-[#E4E6EE]/50 last:border-0 ${i % 2 === 1 ? 'bg-[#F5F6FA]/20' : ''}`}>
                               <td className="px-3 py-2 text-gray-400 font-mono">{l.sku ?? '—'}</td>
                               <td className="px-3 py-2 text-gray-300">{l.description}</td>
                               <td className="px-3 py-2 text-gray-400 text-right">{l.quantity}</td>
                               <td className="px-3 py-2 text-gray-400 text-right">{fmt$(l.unit_price)}</td>
-                              <td className="px-3 py-2 text-white font-medium text-right">{fmt$(l.line_total)}</td>
+                              <td className="px-3 py-2 text-[#1A1D2E] font-medium text-right">{fmt$(l.line_total)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -731,7 +731,7 @@ export default function InvoicesPage() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider mb-3">Internal Notes</p>
                   <textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add internal notes…" className={inp + ' resize-none'}/>
-                  <button onClick={saveNotes} disabled={savingNotes} className="mt-2 text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-50">
+                  <button onClick={saveNotes} disabled={savingNotes} className="mt-2 text-xs text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50">
                     {savingNotes ? 'Saved ✓' : 'Save Notes'}
                   </button>
                 </div>

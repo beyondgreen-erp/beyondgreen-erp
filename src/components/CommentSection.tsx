@@ -152,7 +152,7 @@ export default function CommentSection({ recordType, recordId, currentUserEmail 
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-semibold text-white">
+                  <span className="text-xs font-semibold text-[#1A1D2E]">
                     {profile?.full_name || c.author_email.split('@')[0]}
                   </span>
                   <span className="text-xs text-gray-600">{fmtTime(c.created_at)}</span>
@@ -171,13 +171,13 @@ export default function CommentSection({ recordType, recordId, currentUserEmail 
                       <button onClick={saveEdit} className="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors">
                         Save
                       </button>
-                      <button onClick={() => { setEditId(null); setEditContent('') }} className="text-xs px-3 py-1.5 text-gray-400 hover:text-white border border-gray-700 rounded-lg transition-colors">
+                      <button onClick={() => { setEditId(null); setEditContent('') }} className="text-xs px-3 py-1.5 text-gray-400 hover:text-gray-700 border border-[#E4E6EE] rounded-lg transition-colors">
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 text-sm">
+                  <div className="bg-[#F5F6FA]/60 rounded-lg px-3 py-2.5 text-sm">
                     <div className="rte-view" dangerouslySetInnerHTML={{ __html: c.content }} />
                   </div>
                 )}

@@ -79,7 +79,7 @@ export default function CompanyPage() {
     setSaving(false)
   }
 
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition'
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -94,11 +94,11 @@ export default function CompanyPage() {
     <div className="p-4 md:p-8 min-h-screen max-w-2xl mx-auto">
       <div className="mb-8">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-amber-500/20 text-amber-300 border-amber-500/30">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-white mt-1">Company Profile</h1>
+        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Company Profile</h1>
         <p className="text-gray-500 text-sm mt-0.5">Your organization details</p>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+      <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Company Name</label>
@@ -148,7 +148,7 @@ export default function CompanyPage() {
         <button
           onClick={save}
           disabled={saving}
-          className="w-full bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 disabled:text-amber-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+          className="w-full bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 disabled:text-amber-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
         >
           {saving ? 'Saving…' : 'Save Company Profile'}
         </button>

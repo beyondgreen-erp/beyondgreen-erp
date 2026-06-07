@@ -105,8 +105,8 @@ export default function SettingsPage() {
   return (
     <div className="p-4 md:p-8 min-h-screen">
       <div className="mb-8">
-        <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-gray-700/40 text-gray-400 border-gray-700">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-white mt-1">Settings</h1>
+        <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-[#F5F6FA]/40 text-gray-400 border-[#E4E6EE]">SETTINGS</span>
+        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Settings</h1>
         <p className="text-gray-500 text-sm mt-0.5">Manage your profile, team, and platform preferences</p>
       </div>
 
@@ -115,11 +115,11 @@ export default function SettingsPage() {
           <Link
             key={card.href}
             href={card.href}
-            className={`group bg-gray-900 border border-gray-800 ${card.border} rounded-xl p-5 flex flex-col gap-3 transition-colors`}
+            className={`group bg-white border border-[#E4E6EE] ${card.border} rounded-xl p-5 flex flex-col gap-3 transition-colors`}
           >
             <div className={`${card.color}`}>{card.icon}</div>
             <div>
-              <p className="text-white font-semibold text-sm group-hover:text-white">{card.title}</p>
+              <p className="text-[#1A1D2E] font-semibold text-sm group-hover:text-gray-700">{card.title}</p>
               <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">{card.description}</p>
             </div>
             <div className="mt-auto flex items-center justify-end">

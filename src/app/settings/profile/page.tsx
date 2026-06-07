@@ -19,7 +19,7 @@ interface Profile {
 const ROLE_COLORS: Record<string, string> = {
   Admin: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
   Manager: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  Member: 'bg-gray-700/40 text-gray-400 border-gray-700',
+  Member: 'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
 }
 
 export default function ProfilePage() {
@@ -85,7 +85,7 @@ export default function ProfilePage() {
     setNotice({ ok: true, msg: 'Password updated.' })
   }
 
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -108,12 +108,12 @@ export default function ProfilePage() {
     <div className="p-4 md:p-8 min-h-screen max-w-2xl mx-auto">
       <div className="mb-8">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-white mt-1">My Profile</h1>
+        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">My Profile</h1>
         <p className="text-gray-500 text-sm mt-0.5">Your beyondGREEN identity and contact info</p>
       </div>
 
       {/* Avatar + identity */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6 flex items-center gap-5">
+      <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 mb-6 flex items-center gap-5">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold shrink-0"
           style={{ backgroundColor: profile.avatar_color }}
@@ -121,7 +121,7 @@ export default function ProfilePage() {
           {profile.avatar_initials || profile.full_name[0]}
         </div>
         <div>
-          <p className="text-white text-lg font-semibold">{profile.full_name}</p>
+          <p className="text-[#1A1D2E] text-lg font-semibold">{profile.full_name}</p>
           {profile.display_name && <p className="text-gray-400 text-sm">{profile.display_name}</p>}
           <div className="flex items-center gap-2 mt-1.5">
             <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${roleColor}`}>{profile.role}</span>
@@ -131,8 +131,8 @@ export default function ProfilePage() {
       </div>
 
       {/* Edit form */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6 space-y-4">
-        <h2 className="text-white font-semibold mb-2">Edit Details</h2>
+      <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 mb-6 space-y-4">
+        <h2 className="text-[#1A1D2E] font-semibold mb-2">Edit Details</h2>
 
         <div>
           <label className="block text-xs text-gray-400 mb-1.5">Full Name</label>
@@ -168,14 +168,14 @@ export default function ProfilePage() {
         <div className="flex gap-3 pt-1">
           <button
             onClick={() => setChangingPw(v => !v)}
-            className="text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+            className="text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 hover:border-gray-500 transition-colors"
           >
             Change Password
           </button>
           <button
             onClick={save}
             disabled={saving}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 disabled:text-emerald-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 disabled:text-emerald-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
           >
             {saving ? 'Saving…' : 'Save Profile'}
           </button>
@@ -184,8 +184,8 @@ export default function ProfilePage() {
 
       {/* Change password panel */}
       {changingPw && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-          <h2 className="text-white font-semibold">Change Password</h2>
+        <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 space-y-4">
+          <h2 className="text-[#1A1D2E] font-semibold">Change Password</h2>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">New Password</label>
             <input type="password" value={pwForm.next} onChange={e => setPwForm(p => ({ ...p, next: e.target.value }))} className={inp} />
@@ -196,8 +196,8 @@ export default function ProfilePage() {
           </div>
           {pwErr && <p className="text-red-400 text-xs">{pwErr}</p>}
           <div className="flex gap-3">
-            <button onClick={() => setChangingPw(false)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-            <button onClick={changePassword} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">Update Password</button>
+            <button onClick={() => setChangingPw(false)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+            <button onClick={changePassword} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">Update Password</button>
           </div>
         </div>
       )}

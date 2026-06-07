@@ -90,7 +90,7 @@ export default function NotificationBell() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(v => !v)}
-        className="relative p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        className="relative p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-[#F5F6FA] transition-colors"
         title="Notifications"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -104,9 +104,9 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-            <span className="text-white font-semibold text-sm">Notifications</span>
+        <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-[#E4E6EE] rounded-xl shadow-2xl z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#E4E6EE]">
+            <span className="text-[#1A1D2E] font-semibold text-sm">Notifications</span>
             {unread > 0 && (
               <button onClick={markAllRead} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
                 Mark all read
@@ -121,7 +121,7 @@ export default function NotificationBell() {
                 <button
                   key={n.id}
                   onClick={() => clickNotif(n)}
-                  className={`w-full text-left px-4 py-3 border-b border-gray-800/60 last:border-0 hover:bg-gray-800/50 transition-colors ${!n.is_read ? 'bg-gray-800/20' : ''}`}
+                  className={`w-full text-left px-4 py-3 border-b border-[#E4E6EE]/60 last:border-0 hover:bg-[#F5F6FA]/50 transition-colors ${!n.is_read ? 'bg-[#F5F6FA]/20' : ''}`}
                 >
                   <div className="flex items-start gap-2">
                     {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />}

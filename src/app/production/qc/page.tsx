@@ -286,7 +286,7 @@ export default function QCPage() {
     return (
       <div className="p-8 max-w-2xl">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">OPERATIONS</span>
-        <h1 className="text-2xl font-bold text-white mt-2 mb-6">Quality Control</h1>
+        <h1 className="text-2xl font-bold text-[#1A1D2E] mt-2 mb-6">Quality Control</h1>
         <div className="bg-white border border-[#E4E6EE] rounded-2xl p-8 text-center">
           <div className="w-14 h-14 bg-amber-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <svg className="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -357,7 +357,7 @@ export default function QCPage() {
           placeholder="Search by SKU, product, batch…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full bg-white border border-[#E4E6EE] text-white placeholder-[#5A5A6A] rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#00C896] transition-all"
+          className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#00C896] transition-all"
         />
       </div>
 
@@ -583,7 +583,7 @@ export default function QCPage() {
                   onChange={e => setForm(p => ({ ...p, failure_notes: e.target.value }))}
                   placeholder="Failure description (required for Fail/Rework)…"
                   rows={2}
-                  className="mt-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5 text-sm text-white placeholder-red-400/50 w-full focus:outline-none focus:border-red-500/50 transition-all resize-none"
+                  className="mt-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] placeholder-red-400/50 w-full focus:outline-none focus:border-red-500/50 transition-all resize-none"
                 />
                 <textarea
                   value={form.corrective_action}
@@ -634,7 +634,7 @@ function ParamRow({ param, result, onChange, onMeasure }: ParamRowProps) {
                 placeholder={`Measured value${param.unit ? ` (${param.unit})` : ''}`}
                 value={result?.measured_value ?? ''}
                 onChange={e => onMeasure(e.target.value)}
-                className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#5A5A6A] w-36 focus:outline-none focus:border-[#00C896] transition-all"
+                className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-1.5 text-xs text-[#1A1D2E] placeholder-[#9CA3AF] w-36 focus:outline-none focus:border-[#00C896] transition-all"
               />
               {param.unit && <span className="text-[#5A5A6A] text-xs">{param.unit}</span>}
               {(param.min_value != null || param.max_value != null) && (
@@ -653,7 +653,7 @@ function ParamRow({ param, result, onChange, onMeasure }: ParamRowProps) {
                   ? v === 'Pass' ? 'bg-[#00C89620] text-[#00C896] border-[#00C89640]'
                   : v === 'Fail' ? 'bg-red-500/20 text-red-400 border-red-500/30'
                   : 'bg-[#2A2A35] text-[#9898A8] border-[#3A3A45]'
-                  : 'bg-transparent text-[#5A5A6A] border-[#E4E6EE] hover:text-white hover:border-[#3A3A45]'
+                  : 'bg-transparent text-[#5A5A6A] border-[#E4E6EE] hover:text-gray-700 hover:border-gray-400'
               }`}
             >
               {v}

@@ -11,7 +11,7 @@ function SentimentBadge({ s }: { s: string | null }) {
     ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
     : s === 'negative'
     ? 'bg-red-500/15 text-red-400 border-red-500/20'
-    : 'bg-gray-700/40 text-gray-400 border-gray-700'
+    : 'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]'
   return <span className={`text-xs px-2 py-0.5 rounded-full border font-medium capitalize ${cfg}`}>{s}</span>
 }
 
@@ -66,21 +66,21 @@ export default function BergAlertsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-8">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">SETTINGS</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">BERG Alerts</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">BERG Alerts</h1>
           <p className="text-gray-500 text-sm mt-0.5">
             {loading ? 'Loading…' : `${alerts.length} alert${alerts.length !== 1 ? 's' : ''}${unread > 0 ? ` • ${unread} unread` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {unread > 0 && (
-            <button onClick={markAllRead} className="text-sm px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">
+            <button onClick={markAllRead} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">
               Mark all read
             </button>
           )}
           <button
             onClick={runMonitor}
             disabled={running}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
           >
             <svg className={`w-4 h-4 ${running ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -96,7 +96,7 @@ export default function BergAlertsPage() {
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+      <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24">
@@ -114,10 +114,10 @@ export default function BergAlertsPage() {
             {alerts.map(a => (
               <div key={a.id} className={`px-5 py-4 ${a.is_read ? 'opacity-60' : ''}`}>
                 <div className="flex items-start gap-3">
-                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${a.is_read ? 'bg-gray-700' : 'bg-emerald-400'}`} />
+                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${a.is_read ? 'bg-[#F5F6FA]' : 'bg-emerald-400'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="text-white text-sm font-medium">{a.title}</span>
+                      <span className="text-[#1A1D2E] text-sm font-medium">{a.title}</span>
                       <SentimentBadge s={a.sentiment} />
                     </div>
                     {a.summary && <p className="text-gray-400 text-sm leading-relaxed mb-2">{a.summary}</p>}

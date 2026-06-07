@@ -95,19 +95,19 @@ export default function BergBrainPage() {
   }
 
   const totalPages = Math.ceil(total / PER_PAGE)
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
 
   return (
     <div className="p-4 md:p-8 min-h-screen max-w-4xl mx-auto">
       <div className="mb-8">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-white mt-1">BERG Knowledge Base</h1>
+        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">BERG Knowledge Base</h1>
         <p className="text-gray-500 text-sm mt-0.5">Teach BERG everything about beyondGREEN</p>
       </div>
 
       {/* Add a fact */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
-        <h2 className="text-white font-semibold mb-4">Add a Fact</h2>
+      <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 mb-6">
+        <h2 className="text-[#1A1D2E] font-semibold mb-4">Add a Fact</h2>
         <div className="space-y-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Category</label>
@@ -134,14 +134,14 @@ export default function BergBrainPage() {
             <button
               onClick={saveFact}
               disabled={saving || !factText.trim()}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 disabled:text-emerald-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 disabled:text-emerald-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
             >
               {saving ? 'Saving…' : 'Save to BERG\'s brain'}
             </button>
             <button
               onClick={seedDefaults}
               disabled={seeding}
-              className="flex items-center gap-2 border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-white text-sm px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 border border-[#E4E6EE] hover:border-gray-500 text-gray-400 hover:text-[#1A1D2E] text-sm px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50"
             >
               {seeding ? 'Loading…' : 'Load Default Knowledge'}
             </button>
@@ -150,9 +150,9 @@ export default function BergBrainPage() {
       </div>
 
       {/* Knowledge overview */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-6">
-        <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
-          <h2 className="text-white font-semibold">Current Knowledge</h2>
+      <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden mb-6">
+        <div className="px-5 py-4 border-b border-[#E4E6EE] flex items-center justify-between">
+          <h2 className="text-[#1A1D2E] font-semibold">Current Knowledge</h2>
           <span className="text-gray-500 text-sm">{total} fact{total !== 1 ? 's' : ''}</span>
         </div>
         {loading ? (
@@ -170,7 +170,7 @@ export default function BergBrainPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-800">
+                <tr className="border-b border-[#E4E6EE]">
                   {['Category', 'Fact', 'Added', ''].map(h => (
                     <th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>
                   ))}
@@ -178,7 +178,7 @@ export default function BergBrainPage() {
               </thead>
               <tbody>
                 {facts.map((f, i) => (
-                  <tr key={f.id} className={`border-b border-gray-800/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-gray-800/10'}`}>
+                  <tr key={f.id} className={`border-b border-[#E4E6EE]/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-[#F5F6FA]/10'}`}>
                     <td className="px-5 py-3 text-emerald-400 text-xs font-medium whitespace-nowrap">{f.category}</td>
                     <td className="px-5 py-3 text-gray-300 max-w-md truncate">{f.fact}</td>
                     <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">
@@ -199,25 +199,25 @@ export default function BergBrainPage() {
           </div>
         )}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-800">
+          <div className="flex items-center justify-between px-5 py-3 border-t border-[#E4E6EE]">
             <button
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="text-sm text-gray-400 hover:text-white disabled:opacity-30 transition-colors"
+              className="text-sm text-gray-400 hover:text-gray-700 disabled:opacity-30 transition-colors"
             >← Prev</button>
             <span className="text-gray-500 text-xs">Page {page + 1} of {totalPages}</span>
             <button
               onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
-              className="text-sm text-gray-400 hover:text-white disabled:opacity-30 transition-colors"
+              className="text-sm text-gray-400 hover:text-gray-700 disabled:opacity-30 transition-colors"
             >Next →</button>
           </div>
         )}
       </div>
 
       {/* Document upload placeholder */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 opacity-50 cursor-not-allowed">
-        <h2 className="text-white font-semibold mb-2">Document Upload <span className="text-xs text-gray-500 font-normal ml-2">Phase 2</span></h2>
+      <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 opacity-50 cursor-not-allowed">
+        <h2 className="text-[#1A1D2E] font-semibold mb-2">Document Upload <span className="text-xs text-gray-500 font-normal ml-2">Phase 2</span></h2>
         <p className="text-gray-500 text-sm">Upload PDFs, SOPs, pricing guides and BERG will learn from them. Coming soon.</p>
       </div>
     </div>

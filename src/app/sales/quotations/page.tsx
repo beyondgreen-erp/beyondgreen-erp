@@ -19,7 +19,7 @@ interface Quotation { id: string; quote_number: string; customer_id: string | nu
 interface ShipLocation { id: string; location_name: string; address: string | null; city: string | null; state: string | null; zip: string | null; is_default: boolean }
 
 const STATUSES = ['Draft','Sent','Accepted','Rejected','Expired']
-const SC: Record<string,string> = { Draft:'bg-gray-700/40 text-gray-400 border-gray-700', Sent:'bg-blue-500/15 text-blue-400 border-blue-500/20', Accepted:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Rejected:'bg-red-500/15 text-red-400 border-red-500/20', Expired:'bg-gray-600/20 text-gray-500 border-gray-600' }
+const SC: Record<string,string> = { Draft:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', Sent:'bg-blue-500/15 text-blue-400 border-blue-500/20', Accepted:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Rejected:'bg-red-500/15 text-red-400 border-red-500/20', Expired:'bg-gray-600/20 text-gray-500 border-gray-600' }
 const emptyForm = { quote_number:'', customer_id:'', quote_date:'', expiry_date:'', status:'Draft', tax_pct:'0', notes:'' }
 type F = typeof emptyForm
 const emptyLine = (n=1): QuoteLine => ({ line_number:n, product_id:null, sku:'', description:'', quantity:'1', unit_of_measure:'', unit_price:'0', discount_pct:'0' })
@@ -193,8 +193,8 @@ export default function QuotationsPage() {
     ms.clear();setDeleting(false);load()
   }
 
-  const inp='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
-  const inpSm='w-full bg-gray-800/80 border border-gray-700/60 text-white placeholder-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
+  const inp='w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
+  const inpSm='w-full bg-[#F9FAFB]/80 border border-[#E4E6EE]/60 text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
 
   const skuMatches=(i:number)=>{
     const q=lines[i]?.sku.toLowerCase()
@@ -213,28 +213,28 @@ export default function QuotationsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-white mt-1">Quotations</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Quotations</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} quotation${filtered.length!==1?'s':''}`}</p>
         </div>
         <div className="flex items-center gap-2 self-start">
-          <Link href="/sales/costing" className="flex items-center gap-2 border border-emerald-600 text-emerald-400 hover:bg-emerald-600 hover:text-white text-sm font-medium px-3 py-2.5 rounded-lg transition-colors">
+          <Link href="/sales/costing" className="flex items-center gap-2 border border-emerald-600 text-emerald-400 hover:bg-emerald-600 hover:text-[#1A1D2E] text-sm font-medium px-3 py-2.5 rounded-lg transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>Quick Quote
           </Link>
-          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>New Quote
           </button>
         </div>
       </div>
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-[#E4E6EE] pb-0">
-        <button onClick={()=>setActiveTab('quotes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab==='quotes'?'border-blue-500 text-white':'border-transparent text-gray-500 hover:text-gray-300'}`}>All Quotes</button>
+        <button onClick={()=>setActiveTab('quotes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab==='quotes'?'border-blue-500 text-[#1A1D2E]':'border-transparent text-gray-500 hover:text-gray-600'}`}>All Quotes</button>
         <button onClick={()=>setActiveTab('costing')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab==='costing'?'border-emerald-500 text-emerald-400':'border-transparent text-gray-500 hover:text-gray-300'}`}>
           Costing Quotes {costingQuotes.length>0&&<span className="ml-1.5 text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">{costingQuotes.length}</span>}
         </button>
       </div>
 
       {activeTab==='costing'?(
-        <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-x-auto mb-4">
+        <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto mb-4">
           {costingQuotes.length===0?(
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <p className="text-gray-500 text-sm">No costing quotes yet.</p>
@@ -246,12 +246,12 @@ export default function QuotationsPage() {
               <tbody>
                 {costingQuotes.filter(q=>{if(!search)return true;const s=search.toLowerCase();return(q.quote_number||'').toLowerCase().includes(s)||(q.customer_name||'').toLowerCase().includes(s)}).map((q:any,i:number)=>(
                   <tr key={q.id} className={`border-b border-[#F3F4F6] last:border-0 ${i%2?'bg-[#FAFAFA]':''}`}>
-                    <td className="px-5 py-3.5 text-white font-medium font-mono text-xs">
+                    <td className="px-5 py-3.5 text-[#1A1D2E] font-medium font-mono text-xs">
                       <Link href="/sales/costing" className="hover:text-emerald-400 transition-colors">{q.quote_number}</Link>
                     </td>
                     <td className="px-5 py-3.5 text-gray-400">{q.customer_name||'—'}</td>
                     <td className="px-5 py-3.5 text-gray-400">{q.quote_date?new Date(q.quote_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</td>
-                    <td className="px-5 py-3.5 text-white font-medium tabular-nums">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(q.total_selling_price||0)}</td>
+                    <td className="px-5 py-3.5 text-[#1A1D2E] font-medium tabular-nums">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(q.total_selling_price||0)}</td>
                     <td className="px-5 py-3.5 text-emerald-400 tabular-nums">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(q.total_profit||0)}</td>
                     <td className="px-5 py-3.5"><span className={`text-xs px-2 py-0.5 rounded font-medium border ${(q.avg_margin_pct||0)>=40?'bg-emerald-500/15 text-emerald-400 border-emerald-500/20':(q.avg_margin_pct||0)>=25?'bg-amber-500/15 text-amber-400 border-amber-500/20':'bg-red-500/15 text-red-400 border-red-500/20'}`}>{(q.avg_margin_pct||0).toFixed(1)}%</span></td>
                     <td className="px-5 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[q.status]||SC.Draft}`}>{q.status}</span></td>
@@ -263,8 +263,8 @@ export default function QuotationsPage() {
         </div>
       ):(<>
       <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search quotations…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white placeholder-gray-600 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/></div>
-        <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-blue-600':'bg-gray-700'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Archived</span></label>
+        <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search quotations…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/></div>
+        <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-blue-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Archived</span></label>
       </div>
       <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
         {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
@@ -272,7 +272,7 @@ export default function QuotationsPage() {
         :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-[#E4E6EE]"><th className="w-10 px-5 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>{['Quote #','Customer','Date','Expiry','Status','Total'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
         <tbody>{filtered.map((r,i)=><tr key={r.id} className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id)?'bg-blue-500/5':i%2?'bg-[#FAFAFA]':''}`}>
           <td className="px-5 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
-          <td className="px-5 py-3.5 text-white font-medium font-mono text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.quote_number}</td>
+          <td className="px-5 py-3.5 text-[#1A1D2E] font-medium font-mono text-xs cursor-pointer" onClick={()=>openEdit(r)}>{r.quote_number}</td>
           <td className="px-5 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{r.customer_id?cmap[r.customer_id]||'—':'—'}</td>
           <td className="px-5 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.quote_date)}</td>
           <td className="px-5 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(r)}>{fmtD(r.expiry_date)}</td>
@@ -289,12 +289,12 @@ export default function QuotationsPage() {
       {/* Wide panel for line items */}
       <div ref={ref} onClick={e=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[880px] z-50 flex flex-col" style={{background:"#FFFFFF",borderLeft:"1px solid #E4E6EE"}} shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
-          <h2 className="text-white font-semibold text-sm">{editing?`Edit ${editing.quote_number}`:'New Quotation'}</h2>
+          <h2 className="text-[#1A1D2E] font-semibold text-sm">{editing?`Edit ${editing.quote_number}`:'New Quotation'}</h2>
           <div className="flex items-center gap-2">
-            {editing&&<button onClick={downloadPDF} className="flex items-center gap-1.5 text-xs border border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 px-2.5 py-1.5 rounded-lg transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>PDF</button>}
+            {editing&&<button onClick={downloadPDF} className="flex items-center gap-1.5 text-xs border border-[#E4E6EE] text-gray-400 hover:text-gray-700 hover:border-gray-600 px-2.5 py-1.5 rounded-lg transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>PDF</button>}
             {editing&&editing.status!=='Accepted'&&<button onClick={convertToSO} disabled={converting} className="flex items-center gap-1.5 text-xs bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white px-2.5 py-1.5 rounded-lg transition-colors">{converting?'Converting…':'→ Sales Order'}</button>}
             {editing&&<WorkflowMover recordId={editing.id} recordType="quotation" currentStatus={editing.status} orderNumber={editing.quote_number} customerId={editing.customer_id} onMoved={()=>{close();load()}}/>}
-            <button onClick={close} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+            <button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
           </div>
         </div>
 
@@ -322,7 +322,7 @@ export default function QuotationsPage() {
                 <option value="">— Select ship-to location —</option>
                 {shipLocs.map(l=><option key={l.id} value={l.id}>{l.location_name}{l.city?` (${l.city}, ${l.state})`:''}{l.is_default?' ★':''}</option>)}
               </select>
-              {selLocAddr && <div className="text-xs text-gray-400 bg-gray-800/50 border border-gray-700/60 rounded-lg px-3 py-2 whitespace-pre-line">{selLocAddr}</div>}
+              {selLocAddr && <div className="text-xs text-gray-400 bg-[#F9FAFB]/50 border border-[#E4E6EE]/60 rounded-lg px-3 py-2 whitespace-pre-line">{selLocAddr}</div>}
             </div>
           )}
           <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={2} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
@@ -333,26 +333,26 @@ export default function QuotationsPage() {
               <p className="text-xs font-semibold text-gray-500 tracking-widest uppercase">Line Items</p>
               <button onClick={addLine} className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Line</button>
             </div>
-            <div className="border border-gray-700 rounded-lg overflow-x-auto">
+            <div className="border border-[#E4E6EE] rounded-lg overflow-x-auto">
               <table className="w-full text-xs min-w-[640px]">
-                <thead><tr className="bg-gray-800/80 border-b border-gray-700">
+                <thead><tr className="bg-[#F9FAFB]/80 border-b border-[#E4E6EE]">
                   {['#','SKU','Description','Qty','UOM','Unit Price','Disc %','Total',''].map(h=><th key={h} className="text-left text-gray-500 px-2 py-2 font-medium first:pl-3 last:w-8">{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {lines.map((l,i)=>(
-                    <tr key={i} className="border-b border-[#F3F4F6] last:border-0 hover:bg-gray-800/20">
+                    <tr key={i} className="border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB]">
                       <td className="pl-3 pr-1 py-1.5 text-gray-500 w-6">{i+1}</td>
                       <td className="px-1 py-1 relative w-28">
                         <input value={l.sku} onChange={e=>{setLine(i,{sku:e.target.value,product_id:null});setSkuFocus(i)}} onFocus={()=>setSkuFocus(i)} onBlur={()=>setTimeout(()=>setSkuFocus(f=>f===i?null:f),150)} placeholder="SKU…" className={inpSm}/>
                         {skuFocus===i&&skuMatches(i).length>0&&(
-                          <div className="absolute top-full left-0 z-20 mt-0.5 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+                          <div className="absolute top-full left-0 z-20 mt-0.5 w-72 bg-white border border-[#E4E6EE] rounded-lg shadow-xl overflow-hidden">
                             {skuMatches(i).map(p=>{
                               const qty=parseFloat(lines[i]?.quantity)||1
                               const stock=p.on_hand_qty??0
                               const lowStock=stock>0&&stock<qty
                               const noStock=stock===0
                               return(
-                              <button key={p.id} type="button" onMouseDown={()=>selectProduct(i,p)} className="w-full text-left px-3 py-2 hover:bg-gray-700 transition-colors">
+                              <button key={p.id} type="button" onMouseDown={()=>selectProduct(i,p)} className="w-full text-left px-3 py-2 hover:bg-[#F5F6FA] transition-colors">
                                 <div className="flex items-center gap-2">
                                   <span className="text-emerald-400 font-mono text-xs shrink-0">{p.sku}</span>
                                   <span className="text-gray-300 text-xs truncate flex-1">{p.product_name}</span>
@@ -380,7 +380,7 @@ export default function QuotationsPage() {
               <div className="w-52 space-y-1 text-xs">
                 <div className="flex justify-between text-gray-400"><span>Subtotal</span><span className="tabular-nums">{fmt$(subtotal)}</span></div>
                 <div className="flex justify-between text-gray-400"><span>Tax ({form.tax_pct||'0'}%)</span><span className="tabular-nums">{fmt$(taxAmt)}</span></div>
-                <div className="flex justify-between font-semibold text-white border-t border-gray-700 pt-1.5"><span>Total</span><span className="tabular-nums">{fmt$(grandTotal)}</span></div>
+                <div className="flex justify-between font-semibold text-[#1A1D2E] border-t border-[#E4E6EE] pt-1.5"><span>Total</span><span className="tabular-nums">{fmt$(grandTotal)}</span></div>
               </div>
             </div>
           </div>
@@ -395,9 +395,9 @@ export default function QuotationsPage() {
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
           {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
           <div className="flex gap-3">
-            {editing&&<button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors disabled:opacity-50">{editing.is_active?'Archive':'Restore'}</button>}
-            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
-            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save Quote'}</button>
+            {editing&&<button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50">{editing.is_active?'Archive':'Restore'}</button>}
+            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save Quote'}</button>
           </div>
         </div>
       </div>

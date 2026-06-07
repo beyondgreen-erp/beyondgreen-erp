@@ -20,7 +20,7 @@ interface Props {
   currentUserEmail: string
 }
 
-const SC: Record<string,string> = { Backlog:'bg-gray-700/40 text-gray-400 border-gray-700', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', Review:'bg-violet-500/15 text-violet-400 border-violet-500/20', Done:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Blocked:'bg-red-500/15 text-red-400 border-red-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
+const SC: Record<string,string> = { Backlog:'bg-[#F5F6FA]/40 text-gray-400 border-[#E4E6EE]', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', Review:'bg-violet-500/15 text-violet-400 border-violet-500/20', Done:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Blocked:'bg-red-500/15 text-red-400 border-red-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
 const PRIORITIES = ['Low','Medium','High','Critical']
 const STATUSES = ['Backlog','In Progress','Review','Done','Blocked','On Hold']
 const emptyTask = { task_name:'', assigned_to:'', due_date:'', priority:'Medium', status:'Backlog', notes:'' }
@@ -74,7 +74,7 @@ export default function LinkedTasks({ recordType, recordId, defaultCustomerId, c
     load()
   }
 
-  const inp = 'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-600 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
 
   return (
     <div className="space-y-3">
@@ -88,7 +88,7 @@ export default function LinkedTasks({ recordType, recordId, defaultCustomerId, c
       </div>
 
       {adding && (
-        <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-3 space-y-2.5">
+        <div className="bg-[#F5F6FA]/60 border border-[#E4E6EE] rounded-lg p-3 space-y-2.5">
           <div>
             <input value={form.task_name} onChange={e=>setForm(p=>({...p,task_name:e.target.value}))} placeholder="Task name…" className={inp} autoFocus/>
           </div>
@@ -122,7 +122,7 @@ export default function LinkedTasks({ recordType, recordId, defaultCustomerId, c
           </div>
           {err && <p className="text-red-400 text-xs">{err}</p>}
           <div className="flex gap-2">
-            <button onClick={()=>{setAdding(false);setErr('')}} className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-colors">Cancel</button>
+            <button onClick={()=>{setAdding(false);setErr('')}} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
             <button onClick={createTask} disabled={saving} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white font-medium transition-colors">{saving?'Saving…':'Create Task'}</button>
           </div>
         </div>
@@ -131,10 +131,10 @@ export default function LinkedTasks({ recordType, recordId, defaultCustomerId, c
       {tasks.length > 0 ? (
         <div className="space-y-1.5">
           {tasks.map(t => (
-            <div key={t.id} className="flex items-center gap-2.5 bg-gray-800/40 rounded-lg px-3 py-2.5">
+            <div key={t.id} className="flex items-center gap-2.5 bg-[#F5F6FA]/40 rounded-lg px-3 py-2.5">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.priority==='Critical'?'bg-red-400':t.priority==='High'?'bg-orange-400':t.priority==='Medium'?'bg-blue-400':'bg-gray-500'}`}/>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-white font-medium truncate">{t.task_name}</p>
+                <p className="text-xs text-[#1A1D2E] font-medium truncate">{t.task_name}</p>
                 {(t.assigned_to||t.due_date) && (
                   <p className="text-xs text-gray-500 mt-0.5">
                     {t.assigned_to && <span>{t.assigned_to.split('@')[0]}</span>}

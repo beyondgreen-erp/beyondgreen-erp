@@ -136,7 +136,7 @@ export default function LotsPage() {
     return (
       <div className="p-8 max-w-2xl">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">OPERATIONS</span>
-        <h1 className="text-2xl font-bold text-white mt-2 mb-6">Lot Tracking</h1>
+        <h1 className="text-2xl font-bold text-[#1A1D2E] mt-2 mb-6">Lot Tracking</h1>
         <div className="bg-white border border-[#E4E6EE] rounded-2xl p-8 text-center">
           <div className="w-14 h-14 bg-amber-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <svg className="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -180,7 +180,7 @@ export default function LotsPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {LOT_TYPES.slice(1).map(t => {
-          const cfg = TYPE_CFG[t] ?? { cls: 'bg-white text-white border-[#E4E6EE]', dot: 'bg-white' }
+          const cfg = TYPE_CFG[t] ?? { cls: 'bg-gray-100 text-gray-600 border-[#E4E6EE]', dot: 'bg-gray-400' }
           return (
             <div key={t} className="bg-white border border-[#E4E6EE] rounded-2xl p-4">
               <p className="text-2xl font-bold text-[#1A1D2E]">{loading ? '—' : counts[t] ?? 0}</p>
@@ -212,7 +212,7 @@ export default function LotsPage() {
             placeholder="Search lot number or SKU…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full bg-white border border-[#E4E6EE] text-white placeholder-[#5A5A6A] rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#00C896] transition-all"
+            className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#00C896] transition-all"
           />
         </div>
       </div>
@@ -282,7 +282,7 @@ export default function LotsPage() {
           <>
             <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
               <h2 className="text-[#1A1D2E] font-semibold">{adding ? 'Add Lot Code' : 'Edit Lot Code'}</h2>
-              <button onClick={close} className="p-2 rounded-xl text-[#5A5A6A] hover:text-white hover:bg-[#F5F6FA] transition-colors">
+              <button onClick={close} className="p-2 rounded-xl text-[#5A5A6A] hover:text-gray-700 hover:bg-[#F5F6FA] transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
@@ -322,7 +322,7 @@ export default function LotsPage() {
             </div>
             <div className="px-6 py-4 border-t border-[#E4E6EE] shrink-0 flex gap-3">
               {!adding && <button onClick={handleDelete} className="text-sm px-3 py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>}
-              <button onClick={close} className="px-5 text-sm rounded-xl border border-[#E4E6EE] text-[#5A5A6A] hover:text-white transition-colors">Cancel</button>
+              <button onClick={close} className="px-5 text-sm rounded-xl border border-[#E4E6EE] text-[#5A5A6A] hover:text-gray-700 transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-[#1A1D2E] text-sm font-medium py-2.5 rounded-xl flex items-center justify-center gap-2">
                 {saving && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>}
                 {saving ? 'Saving…' : adding ? 'Add Lot' : 'Save Changes'}
@@ -340,8 +340,8 @@ export default function LotsPage() {
                 <p className="text-[#5A5A6A] text-xs mt-0.5">{selected.lot_type} · {selected.product_name ?? selected.sku ?? '—'}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => openEdit(selected)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-[#9898A8] hover:text-white hover:border-gray-600 transition-colors">Edit</button>
-                <button onClick={close} className="p-2 rounded-xl text-[#5A5A6A] hover:text-white hover:bg-[#F5F6FA] transition-colors">
+                <button onClick={() => openEdit(selected)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-[#9898A8] hover:text-gray-700 hover:border-gray-600 transition-colors">Edit</button>
+                <button onClick={close} className="p-2 rounded-xl text-[#5A5A6A] hover:text-gray-700 hover:bg-[#F5F6FA] transition-colors">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
@@ -413,7 +413,7 @@ export default function LotsPage() {
 
             <div className="px-6 py-4 border-t border-[#E4E6EE] shrink-0 flex gap-3">
               <button onClick={handleDelete} className="text-sm px-3 py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">Delete</button>
-              <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-xl border border-[#E4E6EE] text-[#5A5A6A] hover:text-white transition-colors">Close</button>
+              <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-xl border border-[#E4E6EE] text-[#5A5A6A] hover:text-gray-700 transition-colors">Close</button>
               <button onClick={() => openEdit(selected)} className="px-5 bg-violet-600 hover:bg-violet-500 text-[#1A1D2E] text-sm font-medium py-2.5 rounded-xl transition-colors">Edit</button>
             </div>
           </>

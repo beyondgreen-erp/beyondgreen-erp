@@ -93,7 +93,7 @@ function Btn({
       title={title}
       disabled={disabled}
       className={`p-1.5 rounded text-xs transition-colors shrink-0 ${
-        active ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#F5F6FA]'
+        active ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-700 hover:bg-[#F5F6FA]'
       } disabled:opacity-40`}
     >
       {children}

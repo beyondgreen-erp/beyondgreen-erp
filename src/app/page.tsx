@@ -342,15 +342,15 @@ export default function DashboardPage() {
           </div>
           <div className="mt-4 pt-4 border-t border-[#E4E6EE] grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-white text-xl font-bold">{kpi.totalCustomers}</p>
+              <p className="text-[#1A1D2E] text-xl font-bold">{kpi.totalCustomers}</p>
               <p className="text-[#9CA3AF] text-[10px] mt-0.5">Customers</p>
             </div>
             <div>
-              <p className="text-white text-xl font-bold">{kpi.openWorkOrders}</p>
+              <p className="text-[#1A1D2E] text-xl font-bold">{kpi.openWorkOrders}</p>
               <p className="text-[#9CA3AF] text-[10px] mt-0.5">Work Orders</p>
             </div>
             <div>
-              <p className="text-white text-xl font-bold">{kpi.openTasks}</p>
+              <p className="text-[#1A1D2E] text-xl font-bold">{kpi.openTasks}</p>
               <p className="text-[#9CA3AF] text-[10px] mt-0.5">Open Tasks</p>
             </div>
           </div>

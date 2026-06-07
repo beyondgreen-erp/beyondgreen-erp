@@ -17,7 +17,7 @@ interface Machine { id: string; name: string }
 interface WO { id: string; wo_number: string; sales_order_id: string | null; product_id: string | null; machine_id: string | null; qty_ordered: number; qty_produced: number; start_date: string | null; due_date: string | null; status: string; notes: string | null; is_active: boolean }
 const STATUSES = ['Queued','In Progress','QC','Complete','On Hold']
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const SC: Record<string,string> = { Queued:'bg-gray-700/40 text-gray-400 border-gray-700', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', QC:'bg-violet-500/15 text-violet-400 border-violet-500/20', Complete:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
+const SC: Record<string,string> = { Queued:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', QC:'bg-violet-500/15 text-violet-400 border-violet-500/20', Complete:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
 const empty = { wo_number:'', sales_order_id:'', product_id:'', machine_id:'', qty_ordered:'1', qty_produced:'0', start_date:'', due_date:'', status:'Queued', notes:'' }
 type F = typeof empty
 const fmtD=(d:string|null)=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
@@ -129,7 +129,7 @@ export default function ProductionPage() {
               { header: 'Status', dbKey: 'status', example: 'Queued' },
               { header: 'Notes', dbKey: 'notes', example: '' },
             ]} onImportDone={load} />
-            <button onClick={openAdd} className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors" style={{ background: '#3B6FE0' }} onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#2D5EC7'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#3B6FE0'}}>
+            <button onClick={openAdd} className="flex items-center gap-2 text-[#1A1D2E] text-sm font-medium px-4 py-2 rounded-lg transition-colors" style={{ background: '#3B6FE0' }} onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#2D5EC7'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#3B6FE0'}}>
               <i className="ti ti-plus text-sm"/>Add Work Order
             </button>
           </div>

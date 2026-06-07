@@ -49,7 +49,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
     <button
       type="button"
       onClick={() => onChange(!on)}
-      className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${on ? 'bg-emerald-600' : 'bg-gray-700'}`}
+      className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${on ? 'bg-emerald-600' : 'bg-[#F5F6FA]'}`}
     >
       <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-4' : 'translate-x-0.5'}`} />
     </button>
@@ -113,12 +113,12 @@ export default function NotificationsPage() {
     <div className="p-4 md:p-8 min-h-screen max-w-2xl mx-auto">
       <div className="mb-8">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-cyan-500/20 text-cyan-300 border-cyan-500/30">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-white mt-1">Notifications</h1>
+        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Notifications</h1>
         <p className="text-gray-500 text-sm mt-0.5">Choose how you want to be notified</p>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-6">
-        <div className="grid grid-cols-[1fr_auto_auto] px-5 py-3 border-b border-gray-800 text-xs font-semibold text-gray-500 gap-6">
+      <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden mb-6">
+        <div className="grid grid-cols-[1fr_auto_auto] px-5 py-3 border-b border-[#E4E6EE] text-xs font-semibold text-gray-500 gap-6">
           <span>Event</span>
           <span className="text-center w-12">Email</span>
           <span className="text-center w-12">In-app</span>
@@ -126,10 +126,10 @@ export default function NotificationsPage() {
         {NOTIFICATION_ROWS.map((row, i) => (
           <div
             key={row.label}
-            className={`grid grid-cols-[1fr_auto_auto] items-center px-5 py-4 gap-6 border-b border-gray-800/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-gray-800/10'}`}
+            className={`grid grid-cols-[1fr_auto_auto] items-center px-5 py-4 gap-6 border-b border-[#E4E6EE]/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-[#F5F6FA]/10'}`}
           >
             <div>
-              <p className="text-white text-sm font-medium">{row.label}</p>
+              <p className="text-[#1A1D2E] text-sm font-medium">{row.label}</p>
               <p className="text-gray-500 text-xs mt-0.5">{row.description}</p>
             </div>
             <div className="flex items-center justify-center w-12">
@@ -159,7 +159,7 @@ export default function NotificationsPage() {
       <button
         onClick={save}
         disabled={saving}
-        className="w-full bg-cyan-700 hover:bg-cyan-600 disabled:bg-cyan-900 disabled:text-cyan-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+        className="w-full bg-cyan-700 hover:bg-cyan-600 disabled:bg-cyan-900 disabled:text-cyan-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
       >
         {saving ? 'Saving…' : 'Save Preferences'}
       </button>
