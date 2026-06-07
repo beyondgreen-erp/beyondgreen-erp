@@ -160,6 +160,10 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
                 await addToShippingQueue(recordId)
                 return 'Inventory OK → Added to Shipping Queue'
               } else {
+                const { data: existingWo } = await sb.from('work_orders').select('wo_number').eq('sales_order_id', recordId).maybeSingle()
+                if (existingWo) {
+                  return `Work Order ${(existingWo as any).wo_number} already exists — awaiting production`
+                }
                 const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
                 const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true, qty_ordered: 0, qty_produced: 0 })
                 if (woErr) throw new Error('Work order creation failed: ' + woErr.message)
@@ -170,14 +174,23 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
             },
           },
           {
-            label: 'Send to Production',
+            label: 'Create Work Order',
+            description: 'Create a linked work order for this sales order',
             color: 'text-violet-400',
             handler: async () => {
+              // Idempotency check — don't create a duplicate
+              const { data: existing } = await sb.from('work_orders').select('wo_number').eq('sales_order_id', recordId).maybeSingle()
+              if (existing) return `Work Order ${(existing as any).wo_number} already exists for this order`
               const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
-              const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true, qty_ordered: 0, qty_produced: 0 })
+              // If the order is already flagged In Production, create the WO as In Progress
+              const woStatus = currentStatus === 'In Production' ? 'In Progress' : 'Queued'
+              const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: woStatus, is_active: true, qty_ordered: 0, qty_produced: 0 })
               if (woErr) throw new Error('Work order creation failed: ' + woErr.message)
-              await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
-              return `Work Order ${woNum} created`
+              // Only change SO status if it wasn't already in an active production state
+              if (currentStatus !== 'In Production' && currentStatus !== 'Production Queue') {
+                await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
+              }
+              return `Work Order ${woNum} created (${woStatus})`
             },
           },
           {
