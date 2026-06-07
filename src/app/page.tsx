@@ -103,11 +103,11 @@ export default function DashboardPage() {
         supabase.from('shipments').select('id',{count:'exact',head:true}).gte('ship_date', monthStart),
         supabase.from('invoices').select('id,status,total_amount,due_date').not('status','in','("paid","void")'),
         supabase.from('tasks').select('id',{count:'exact',head:true}).not('status','in','("Done","Cancelled")'),
-        supabase.from('products').select('id,stock_qty,reorder_point'),
+        supabase.from('products').select('id,on_hand_qty,reorder_point'),
         supabase.from('work_orders').select('id',{count:'exact',head:true}).not('status','in','("Complete","Cancelled")'),
         supabase.from('customers').select('id',{count:'exact',head:true}),
         supabase.from('sales_orders').select('id,order_number,status,total,created_at,customer_id,customers(company_name)').order('created_at',{ascending:false}).limit(5),
-        supabase.from('tasks').select('id,title,status,due_date,assigned_to').order('created_at',{ascending:false}).limit(5),
+        supabase.from('tasks').select('id,task_name,status,due_date,assigned_to').order('created_at',{ascending:false}).limit(5),
         supabase.from('invoices').select('id,invoice_number_display,total_amount,due_date,customers(company_name)').in('status',['overdue','pending']).lte('due_date', todayStr).order('due_date').limit(5),
         supabase.from('sales_orders').select('status').not('status','in','("Closed","Cancelled")'),
       ])
@@ -118,7 +118,7 @@ export default function DashboardPage() {
 
       const overdueInvs = invs.filter(i => i.status === 'overdue' || (i.due_date && i.due_date < todayStr))
       const invoicesDue = invs.filter(i => ['pending','partial','overdue'].includes(i.status)).length
-      const lowStock = prods.filter(p => p.reorder_point != null && (p.stock_qty ?? 0) <= p.reorder_point).length
+      const lowStock = prods.filter(p => p.reorder_point != null && (p.on_hand_qty ?? 0) <= p.reorder_point).length
 
       const paidRes = await supabase.from('invoices').select('total_amount').eq('status','paid').gte('invoice_date', monthStart)
       const revenueMTD = (paidRes.data ?? []).reduce((a,r) => a + (r.total_amount ?? 0), 0)
@@ -289,7 +289,7 @@ export default function DashboardPage() {
               : recentTasks.map(t => (
                 <Link key={t.id} href="/bizdev/tasks" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#F5F6FA] transition-colors">
                   <div className="flex-1 min-w-0">
-                    <p className="text-[#1A1D2E] text-xs truncate">{t.title}</p>
+                    <p className="text-[#1A1D2E] text-xs truncate">{t.task_name}</p>
                     <p className="text-[#9CA3AF] text-[11px]">{t.assigned_to ? t.assigned_to.split('@')[0] : '—'}{t.due_date ? ` · ${fmtD(t.due_date)}` : ''}</p>
                   </div>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${t.status === 'Done' ? 'bg-[#00C89615] text-[#00C896] border-[#00C89630]' : 'bg-[#1E1E24] text-[#6B7280] border-[#E4E6EE]'}`}>{t.status}</span>

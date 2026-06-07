@@ -13,13 +13,15 @@ export default function PresenceTracker() {
 
     async function upsertSimple(online: boolean) {
       if (!email) return
-      await sb.from('user_presence').upsert(
-        { email, current_page: pathname, last_seen: new Date().toISOString(), is_online: online },
-        { onConflict: 'email', ignoreDuplicates: false }
-      )
-      if (online) {
-        await sb.rpc('increment_presence_activity', { user_email: email }).maybeSingle()
-      }
+      try {
+        await sb.from('user_presence').upsert(
+          { email, current_page: pathname, last_seen: new Date().toISOString(), is_online: online },
+          { onConflict: 'email', ignoreDuplicates: false }
+        )
+        if (online) {
+          await sb.rpc('increment_presence_activity', { user_email: email }).maybeSingle()
+        }
+      } catch { /* table/rpc not yet created — silently skip */ }
     }
 
     async function init() {
@@ -32,10 +34,12 @@ export default function PresenceTracker() {
 
     async function offline() {
       if (!email) return
-      await sb.from('user_presence').upsert(
-        { email, is_online: false, last_seen: new Date().toISOString() },
-        { onConflict: 'email', ignoreDuplicates: false }
-      )
+      try {
+        await sb.from('user_presence').upsert(
+          { email, is_online: false, last_seen: new Date().toISOString() },
+          { onConflict: 'email', ignoreDuplicates: false }
+        )
+      } catch { /* silently skip */ }
     }
 
     init()
