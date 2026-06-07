@@ -4,9 +4,45 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 export type OrderStatus =
   | 'Pending' | 'New' | 'Confirmed' | 'Awaiting Production'
   | 'Awaiting BOM Components' | 'In Production'
-  | 'Production Complete' | 'Ready to Ship'
+  | 'Production Complete' | 'QC' | 'Ready to Ship'
   | 'Ready at Will Call' | 'Shipped'
   | 'Partially Shipped' | 'On Hold' | 'Cancelled' | 'Closed'
+
+export interface InventoryCheckResult {
+  sufficient: boolean
+  shortages: Array<{ sku: string; needed: number; available: number }>
+}
+
+export async function checkInventoryForOrder(orderId: string): Promise<InventoryCheckResult> {
+  const sb = createSupabaseBrowserClient()
+  const { data: lines } = await sb.from('sales_order_lines').select('sku, quantity').eq('sales_order_id', orderId)
+  if (!lines?.length) return { sufficient: true, shortages: [] }
+  const shortages: InventoryCheckResult['shortages'] = []
+  for (const line of lines as any[]) {
+    if (!line.sku || !line.quantity) continue
+    const { data: prod } = await sb.from('products').select('on_hand_qty').eq('sku', line.sku).maybeSingle()
+    const available = (prod as any)?.on_hand_qty ?? 0
+    if (available < line.quantity) shortages.push({ sku: line.sku, needed: line.quantity, available })
+  }
+  return { sufficient: shortages.length === 0, shortages }
+}
+
+export async function addToShippingQueue(orderId: string): Promise<void> {
+  const sb = createSupabaseBrowserClient()
+  const { data: existing } = await sb.from('shipping_queue').select('id').eq('sales_order_id', orderId).eq('is_active', true).maybeSingle()
+  if (existing) return
+  const { data: order } = await sb.from('sales_orders').select('order_number, notes, customer_id').eq('id', orderId).maybeSingle()
+  await sb.from('shipping_queue').insert({
+    sales_order_id: orderId,
+    carrier: null,
+    tracking_number: null,
+    scheduled_ship_date: null,
+    actual_ship_date: null,
+    status: 'Pending',
+    notes: `Auto-added: ${order?.order_number ?? ''}`,
+    is_active: true,
+  })
+}
 
 export interface FlowResult {
   success: boolean

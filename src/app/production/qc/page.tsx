@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
+import { addToShippingQueue } from '@/lib/orderFlow'
 
 interface QCInspection {
   id: string
@@ -263,12 +264,24 @@ export default function QCPage() {
       await sb.from('qc_results').insert(resultRows)
     }
 
-    if (submit && form.work_order_id && finalResult === 'Pass') {
-      await sb.from('work_orders').update({ status: 'QC Passed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
-    } else if (submit && form.work_order_id && finalResult === 'Fail') {
-      await sb.from('work_orders').update({ status: 'QC Failed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
-    } else if (submit && form.work_order_id && finalResult === 'Rework Required') {
-      await sb.from('work_orders').update({ status: 'Rework Required', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
+    if (submit && form.work_order_id) {
+      if (finalResult === 'Pass') {
+        await sb.from('work_orders').update({ status: 'QC Passed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
+        // Advance linked sales order → Ready to Ship → Shipping Queue
+        const { data: wo } = await sb.from('work_orders').select('sales_order_id').eq('id', form.work_order_id).maybeSingle()
+        if (wo?.sales_order_id) {
+          await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', wo.sales_order_id)
+          await addToShippingQueue(wo.sales_order_id)
+        }
+      } else if (finalResult === 'Fail') {
+        await sb.from('work_orders').update({ status: 'QC Failed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
+        const { data: wo } = await sb.from('work_orders').select('sales_order_id').eq('id', form.work_order_id).maybeSingle()
+        if (wo?.sales_order_id) {
+          await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', wo.sales_order_id)
+        }
+      } else if (finalResult === 'Rework Required') {
+        await sb.from('work_orders').update({ status: 'Rework Required', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
+      }
     }
 
     toast(submit ? `Inspection ${finalResult === 'Pass' ? 'passed' : finalResult === 'Fail' ? 'failed' : 'submitted'}` : 'Draft saved', submit && finalResult === 'Fail' ? 'error' : 'success')

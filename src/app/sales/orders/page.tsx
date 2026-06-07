@@ -69,6 +69,7 @@ const STATUS_COLORS: Record<string,string> = {
   Pending:             'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
   Confirmed:           'bg-blue-500/15 text-blue-400 border-blue-500/20',
   'In Production':     'bg-amber-500/15 text-amber-400 border-amber-500/20',
+  QC:                  'bg-violet-500/15 text-violet-400 border-violet-500/20',
   'Ready to Ship':     'bg-teal-500/15 text-teal-400 border-teal-500/20',
   Shipped:             'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   'On Hold':           'bg-red-500/15 text-red-400 border-red-500/20',
@@ -101,6 +102,7 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium border whitespace-nowrap ${cls}`}>
       {status === 'In Production' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"/>}
+      {status === 'QC' && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse"/>}
       {status}
     </span>
   )
@@ -529,6 +531,7 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('')
   const [sectionTab, setSectionTab] = useState('All')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [completedOpen, setCompletedOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<SalesOrder | null>(null)
   const [form, setForm] = useState<F>(emptyForm)
@@ -564,15 +567,30 @@ export default function OrdersPage() {
     sectionTab === 'All' ? orders : orders.filter(o => (o.order_section ?? '') === sectionTab),
     [orders, sectionTab])
 
+  const COMPLETED_STATUSES = ['Shipped', 'Closed', 'Cancelled']
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    if (!q) return tabPool
-    return tabPool.filter(o =>
+    const pool = tabPool.filter(o => !COMPLETED_STATUSES.includes(o.status))
+    if (!q) return pool
+    return pool.filter(o =>
       orderCustomerName(o).toLowerCase().includes(q) ||
       (o.notes ?? '').toLowerCase().includes(q) ||
       (o.order_number ?? '').toLowerCase().includes(q) ||
       (o.po_number ?? '').toLowerCase().includes(q) ||
       (o.customer_email ?? '').toLowerCase().includes(q)
+    )
+  }, [tabPool, search])
+
+  const completedOrders = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    const pool = tabPool.filter(o => COMPLETED_STATUSES.includes(o.status))
+    if (!q) return pool
+    return pool.filter(o =>
+      orderCustomerName(o).toLowerCase().includes(q) ||
+      (o.notes ?? '').toLowerCase().includes(q) ||
+      (o.order_number ?? '').toLowerCase().includes(q) ||
+      (o.po_number ?? '').toLowerCase().includes(q)
     )
   }, [tabPool, search])
 
@@ -930,6 +948,53 @@ export default function OrdersPage() {
           </table>
         )}
       </div>
+
+      {/* ── Completed / Shipped Group ─────────────────────────────── */}
+      {completedOrders.length > 0 && (
+        <div className="mt-4 rounded-xl overflow-hidden" style={{ border: '1px solid #E4E6EE' }}>
+          <button
+            onClick={() => setCompletedOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-[#F9FAFB] hover:bg-[#F3F4F6] transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${completedOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+              <span className="text-sm font-semibold text-gray-500">Completed & Shipped</span>
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 font-medium">{completedOrders.length}</span>
+            </div>
+            <span className="text-xs text-gray-400">{completedOpen ? 'hide' : 'show'}</span>
+          </button>
+          {completedOpen && (
+            <div className="bg-white overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <tbody>
+                  {completedOrders.map((order, i) => {
+                    const custName = orderCustomerName(order)
+                    const ref = orderRef(order)
+                    return (
+                      <tr key={order.id}
+                        className={`border-b border-[#F3F4F6] last:border-0 ${i % 2 === 1 ? 'bg-[#FAFAFA]' : ''}`}>
+                        <td className="px-3 py-3 max-w-[200px]">
+                          <p className="text-gray-500 font-medium text-sm truncate">{custName}</p>
+                          {ref && <p className="text-gray-400 text-xs truncate mt-0.5">{ref}</p>}
+                        </td>
+                        <td className="px-3 py-3 text-gray-400 text-xs font-mono">{order.order_number ?? '—'}</td>
+                        <td className="px-3 py-3 text-gray-400 text-xs font-mono">{order.po_number ?? '—'}</td>
+                        <td className="px-3 py-3"><StatusBadge status={order.status}/></td>
+                        <td className="px-3 py-3 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.ship_date ?? order.required_ship_date)}</td>
+                        <td className="px-3 py-3 text-gray-500 text-xs font-medium">{fmt$(orderValue(order))}</td>
+                        <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => openEdit(order)}
+                            className="text-xs px-2 py-1 rounded bg-[#F5F6FA] hover:bg-[#E4E6EE] text-gray-500 transition-colors">View</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 

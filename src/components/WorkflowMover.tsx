@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useRef, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { onStatusChange, checkInventoryForOrder, addToShippingQueue, type OrderStatus } from '@/lib/orderFlow'
 
 export type WorkflowRecordType = 'quotation' | 'sales_order' | 'production' | 'shipment' | 'invoice'
 
@@ -18,7 +19,7 @@ interface Action {
   label: string
   description?: string
   color?: string
-  handler: () => Promise<void>
+  handler: () => Promise<string | void>
 }
 
 function getWorkflowStage(status: string): number {
@@ -71,7 +72,7 @@ export function WorkflowProgressBar({ status }: { status: string }) {
   )
 }
 
-export default function WorkflowMover({ recordId, recordType, orderNumber, onMoved }: WorkflowMoverProps) {
+export default function WorkflowMover({ recordId, recordType, currentStatus, orderNumber, onMoved }: WorkflowMoverProps) {
   const sb = createSupabaseBrowserClient()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState<string | null>(null)
@@ -87,14 +88,14 @@ export default function WorkflowMover({ recordId, recordType, orderNumber, onMov
     return () => document.removeEventListener('mousedown', handle)
   }, [open])
 
-  async function run(label: string, fn: () => Promise<void>) {
+  async function run(label: string, fn: () => Promise<string | void>) {
     setLoading(label)
     setMsg('')
     try {
-      await fn()
-      setMsg(`✓ ${label}`)
+      const customMsg = await fn()
+      setMsg(`✓ ${customMsg ?? label}`)
       setOpen(false)
-      setTimeout(() => setMsg(''), 3000)
+      setTimeout(() => setMsg(''), 4000)
       onMoved?.()
     } catch (e: any) {
       setMsg(`Error: ${e?.message ?? 'Unknown error'}`)
@@ -149,70 +150,51 @@ export default function WorkflowMover({ recordId, recordType, orderNumber, onMov
       case 'sales_order':
         return [
           {
-            label: 'Send to Production',
-            color: 'text-violet-400',
+            label: '⚡ Fulfill Order',
+            description: 'Check inventory → auto-route to production or shipping',
+            color: 'text-emerald-400',
             handler: async () => {
-              await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
-              await sb.from('work_orders').insert({
-                sales_order_id: recordId,
-                wo_number: woNum,
-                status: 'Queued',
-                is_active: true,
-              })
+              const { sufficient, shortages } = await checkInventoryForOrder(recordId)
+              if (sufficient) {
+                await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', recordId)
+                await addToShippingQueue(recordId)
+                return 'Inventory OK → Added to Shipping Queue'
+              } else {
+                const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
+                await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true })
+                await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', recordId)
+                const skus = shortages.map(s => `${s.sku} (need ${s.needed}, have ${s.available})`).join('; ')
+                return `Work Order ${woNum} created — Short: ${skus}`
+              }
             },
           },
           {
-            label: 'Ready to Ship',
+            label: 'Send to Production',
+            color: 'text-violet-400',
+            handler: async () => {
+              const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
+              await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true })
+              await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', recordId)
+              return `Work Order ${woNum} created`
+            },
+          },
+          {
+            label: 'Mark Ready to Ship',
             color: 'text-blue-400',
             handler: async () => {
               await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', recordId)
+              await addToShippingQueue(recordId)
+              return 'Added to Shipping Queue'
             },
           },
           {
             label: 'Mark Shipped',
-            color: 'text-emerald-400',
+            color: 'text-teal-400',
             handler: async () => {
+              const prev = currentStatus as OrderStatus
               await sb.from('sales_orders').update({ status: 'Shipped', updated_at: new Date().toISOString() }).eq('id', recordId)
-            },
-          },
-          {
-            label: 'Create Invoice',
-            color: 'text-amber-400',
-            handler: async () => {
-              const { data: order } = await sb.from('sales_orders').select('*, sales_order_lines(*)').eq('id', recordId).single()
-              if (!order) throw new Error('Order not found')
-              const lines = (order.sales_order_lines as any[]) ?? []
-              const subtotal = lines.reduce((s: number, l: any) => s + ((l.quantity ?? 0) * (l.unit_price ?? 0) * (1 - (l.discount_pct ?? 0) / 100)), 0)
-              const invNum = 'INV-' + Date.now().toString().slice(-6)
-              const { data: inv, error: invErr } = await sb.from('invoices').insert({
-                invoice_number: invNum,
-                customer_id: order.customer_id,
-                sales_order_id: recordId,
-                status: 'pending',
-                invoice_date: new Date().toISOString().slice(0, 10),
-                due_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-                subtotal,
-                tax_pct: order.tax_pct ?? 0,
-                total_amount: subtotal * (1 + (order.tax_pct ?? 0) / 100),
-                amount_paid: 0,
-                balance_due: subtotal * (1 + (order.tax_pct ?? 0) / 100),
-              }).select('id').single()
-              if (invErr || !inv) throw invErr ?? new Error('Failed to create invoice')
-              if (lines.length > 0) {
-                await sb.from('invoice_line_items').insert(
-                  lines.map((l: any) => ({
-                    invoice_id: (inv as any).id,
-                    sku: l.sku ?? null,
-                    description: l.description ?? '',
-                    quantity: l.quantity ?? 1,
-                    unit_price: l.unit_price ?? 0,
-                    uom: l.unit_of_measure ?? null,
-                    line_total: (l.quantity ?? 0) * (l.unit_price ?? 0) * (1 - (l.discount_pct ?? 0) / 100),
-                  }))
-                )
-              }
-              await sb.from('sales_orders').update({ status: 'Closed', updated_at: new Date().toISOString() }).eq('id', recordId)
+              const result = await onStatusChange(recordId, 'Shipped', prev)
+              return result.message
             },
           },
           {
@@ -229,10 +211,59 @@ export default function WorkflowMover({ recordId, recordType, orderNumber, onMov
 
       case 'production':
         return [
-          { label: 'Start Production', color: 'text-blue-400', handler: async () => { await sb.from('work_orders').update({ status: 'In Progress', updated_at: new Date().toISOString() }).eq('id', recordId) } },
-          { label: 'Send to QC', color: 'text-violet-400', handler: async () => { await sb.from('work_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', recordId) } },
-          { label: 'Mark Complete', color: 'text-emerald-400', handler: async () => { await sb.from('work_orders').update({ status: 'Complete', updated_at: new Date().toISOString() }).eq('id', recordId) } },
-          { label: 'Put On Hold', color: 'text-amber-400', handler: async () => { await sb.from('work_orders').update({ status: 'On Hold', updated_at: new Date().toISOString() }).eq('id', recordId) } },
+          {
+            label: 'Start Production',
+            color: 'text-blue-400',
+            handler: async () => {
+              await sb.from('work_orders').update({ status: 'In Progress', updated_at: new Date().toISOString() }).eq('id', recordId)
+            },
+          },
+          {
+            label: 'Production Complete → QC',
+            color: 'text-violet-400',
+            handler: async () => {
+              await sb.from('work_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', recordId)
+              // Add finished goods to inventory
+              const { data: wo } = await sb.from('work_orders').select('sales_order_id, product_id, qty_produced').eq('id', recordId).maybeSingle()
+              if (wo?.product_id && (wo.qty_produced ?? 0) > 0) {
+                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', wo.product_id).maybeSingle()
+                if (prod) {
+                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + wo.qty_produced }).eq('id', wo.product_id)
+                }
+              }
+              // Advance sales order to QC stage
+              if (wo?.sales_order_id) {
+                await sb.from('sales_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', wo.sales_order_id)
+                return 'Production complete → Order moved to QC'
+              }
+              return 'Work order sent to QC'
+            },
+          },
+          {
+            label: 'Skip QC → Ready to Ship',
+            color: 'text-emerald-400',
+            handler: async () => {
+              await sb.from('work_orders').update({ status: 'Complete', updated_at: new Date().toISOString() }).eq('id', recordId)
+              const { data: wo } = await sb.from('work_orders').select('sales_order_id, product_id, qty_produced').eq('id', recordId).maybeSingle()
+              if (wo?.product_id && (wo.qty_produced ?? 0) > 0) {
+                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', wo.product_id).maybeSingle()
+                if (prod) {
+                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + wo.qty_produced }).eq('id', wo.product_id)
+                }
+              }
+              if (wo?.sales_order_id) {
+                await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', wo.sales_order_id)
+                await addToShippingQueue(wo.sales_order_id)
+                return 'Work order complete → Order added to Shipping Queue'
+              }
+              return 'Work order marked complete'
+            },
+          },
+          {
+            label: 'Put On Hold',
+            color: 'text-amber-400',
+            handler: async () => { await sb.from('work_orders').update({ status: 'On Hold', updated_at: new Date().toISOString() }).eq('id', recordId) },
+          },
         ]
 
       case 'invoice':
