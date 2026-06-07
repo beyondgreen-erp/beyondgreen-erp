@@ -165,7 +165,7 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
                   return `Work Order ${(existingWo as any).wo_number} already exists — awaiting production`
                 }
                 const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
-                const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true, qty_ordered: 0, qty_produced: 0 })
+                const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', qty_ordered: 0, qty_produced: 0 })
                 if (woErr) throw new Error('Work order creation failed: ' + woErr.message)
                 await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
                 const skus = shortages.map(s => `${s.sku} (need ${s.needed}, have ${s.available})`).join('; ')
@@ -184,7 +184,7 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
               const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
               // If the order is already flagged In Production, create the WO as In Progress
               const woStatus = currentStatus === 'In Production' ? 'In Progress' : 'Queued'
-              const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: woStatus, is_active: true, qty_ordered: 0, qty_produced: 0 })
+              const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: woStatus, qty_ordered: 0, qty_produced: 0 })
               if (woErr) throw new Error('Work order creation failed: ' + woErr.message)
               // Only change SO status if it wasn't already in an active production state
               if (currentStatus !== 'In Production' && currentStatus !== 'Production Queue') {

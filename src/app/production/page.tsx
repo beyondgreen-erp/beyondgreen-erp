@@ -14,7 +14,7 @@ interface SalesOrder { id: string; order_number: string; customer_id: string | n
 interface Customer { id: string; company_name: string }
 interface Product { id: string; name: string }
 interface Machine { id: string; name: string }
-interface WO { id: string; wo_number: string; sales_order_id: string | null; product_id: string | null; machine_id: string | null; qty_ordered: number; qty_produced: number; start_date: string | null; due_date: string | null; status: string; notes: string | null; is_active: boolean }
+interface WO { id: string; wo_number: string; sales_order_id: string | null; product_id: string | null; machine_id: string | null; qty_ordered: number; qty_produced: number; start_date: string | null; due_date: string | null; status: string; notes: string | null }
 const STATUSES = ['Queued','In Progress','QC','Complete','On Hold']
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const SC: Record<string,string> = { Queued:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', QC:'bg-violet-500/15 text-violet-400 border-violet-500/20', Complete:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
@@ -72,9 +72,10 @@ export default function ProductionPage() {
   const mmap=Object.fromEntries(machines.map(m=>[m.id,m.name]))
   const now=new Date(); now.setHours(0,0,0,0)
 
+  const DONE = new Set(['Complete', 'Cancelled'])
   const filtered=rows.filter(r=>{
-    if(!archived&&!r.is_active) return false
-    if(archived&&r.is_active) return false
+    if(!archived&&DONE.has(r.status)) return false
+    if(archived&&!DONE.has(r.status)) return false
     if(!search) return true
     const q=search.toLowerCase()
     return r.wo_number.toLowerCase().includes(q)||(r.product_id?pmap[r.product_id]||'':'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
@@ -88,11 +89,11 @@ export default function ProductionPage() {
     if(!form.wo_number.trim()){setErr('WO Number is required.');return}
     setErr('');setSaving(true)
     const p={wo_number:form.wo_number.trim(),sales_order_id:form.sales_order_id||null,product_id:form.product_id||null,machine_id:form.machine_id||null,qty_ordered:parseFloat(form.qty_ordered)||0,qty_produced:parseFloat(form.qty_produced)||0,start_date:form.start_date||null,due_date:form.due_date||null,status:form.status,notes:form.notes.trim()||null}
-    const{error}=editing?await sb.from('work_orders').update({...p,updated_at:new Date().toISOString()}).eq('id',editing.id):await sb.from('work_orders').insert({...p,is_active:true})
+    const{error}=editing?await sb.from('work_orders').update({...p,updated_at:new Date().toISOString()}).eq('id',editing.id):await sb.from('work_orders').insert(p)
     if(error){setErr(dbErr(error));setSaving(false);return}
     setSaving(false);await tagRef.current?.sendNotifications();close();load()
   }
-  async function toggleArchive(){if(!editing)return;setBusy(true);await sb.from('work_orders').update({is_active:!editing.is_active,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
+  async function toggleArchive(){if(!editing)return;setBusy(true);const nextStatus=DONE.has(editing.status)?'Queued':'Complete';await sb.from('work_orders').update({status:nextStatus,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
   async function handleDelete(){if(!editing)return;if(!confirm('Permanently delete this work order? This cannot be undone.'))return;const{error}=await sb.from('work_orders').delete().eq('id',editing.id);if(error){alert('Delete failed: '+error.message);return}close();load()}
   async function bulkDelete(){if(!confirm(`Delete ${ms.count} work orders? This cannot be undone.`))return;setDeleting(true);await sb.from('work_orders').delete().in('id',Array.from(ms.selected));ms.clear();setDeleting(false);load()}
 
@@ -279,7 +280,7 @@ export default function ProductionPage() {
           {err&&<div className="flex gap-2 rounded-lg px-3 py-2.5 text-xs" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}>{err}</div>}
           <div className="flex gap-3">
             {editing&&<button onClick={handleDelete} className="px-3 py-2 rounded-lg border text-sm font-medium transition-colors" style={{ borderColor: '#FECACA', background: '#FEF2F2', color: '#DC2626' }}>Delete</button>}
-            {editing&&<button onClick={toggleArchive} disabled={busy} className="px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>{editing.is_active?'Archive':'Restore'}</button>}
+            {editing&&<button onClick={toggleArchive} disabled={busy} className="px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>{DONE.has(editing.status)?'Restore':'Archive'}</button>}
             <button onClick={close} className="flex-1 px-4 py-2 rounded-lg border text-sm font-medium transition-colors" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>Cancel</button>
             <button onClick={save} disabled={saving} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50" style={{ background: '#3B6FE0' }}>{saving?'Saving…':'Save'}</button>
           </div>
