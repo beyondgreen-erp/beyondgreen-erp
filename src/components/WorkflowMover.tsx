@@ -161,8 +161,9 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
                 return 'Inventory OK → Added to Shipping Queue'
               } else {
                 const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
-                await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true })
-                await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', recordId)
+                const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true, qty_ordered: 0, qty_produced: 0 })
+                if (woErr) throw new Error('Work order creation failed: ' + woErr.message)
+                await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
                 const skus = shortages.map(s => `${s.sku} (need ${s.needed}, have ${s.available})`).join('; ')
                 return `Work Order ${woNum} created — Short: ${skus}`
               }
@@ -173,8 +174,9 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
             color: 'text-violet-400',
             handler: async () => {
               const woNum = 'WO-' + (orderNumber ?? Date.now().toString().slice(-6))
-              await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true })
-              await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', recordId)
+              const { error: woErr } = await sb.from('work_orders').insert({ sales_order_id: recordId, wo_number: woNum, status: 'Queued', is_active: true, qty_ordered: 0, qty_produced: 0 })
+              if (woErr) throw new Error('Work order creation failed: ' + woErr.message)
+              await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
               return `Work Order ${woNum} created`
             },
           },
@@ -216,6 +218,11 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, ord
             color: 'text-blue-400',
             handler: async () => {
               await sb.from('work_orders').update({ status: 'In Progress', updated_at: new Date().toISOString() }).eq('id', recordId)
+              const { data: wo } = await sb.from('work_orders').select('sales_order_id').eq('id', recordId).maybeSingle()
+              if ((wo as any)?.sales_order_id) {
+                await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', (wo as any).sales_order_id)
+              }
+              return 'Production started → Order status: In Production'
             },
           },
           {

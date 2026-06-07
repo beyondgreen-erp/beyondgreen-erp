@@ -3,7 +3,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 export type OrderStatus =
   | 'Pending' | 'New' | 'Confirmed' | 'Awaiting Production'
-  | 'Awaiting BOM Components' | 'In Production'
+  | 'Awaiting BOM Components' | 'Production Queue' | 'In Production'
   | 'Production Complete' | 'QC' | 'Ready to Ship'
   | 'Ready at Will Call' | 'Shipped'
   | 'Partially Shipped' | 'On Hold' | 'Cancelled' | 'Closed'

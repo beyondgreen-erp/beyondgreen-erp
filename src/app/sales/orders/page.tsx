@@ -68,8 +68,9 @@ const STATUSES = ['Pending','Confirmed','In Production','Ready to Ship','Shipped
 const STATUS_COLORS: Record<string,string> = {
   Pending:             'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
   Confirmed:           'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  'In Production':     'bg-amber-500/15 text-amber-400 border-amber-500/20',
-  QC:                  'bg-violet-500/15 text-violet-400 border-violet-500/20',
+  'Production Queue':  'bg-orange-500/15 text-orange-500 border-orange-500/20',
+  'In Production':     'bg-amber-500/15 text-amber-500 border-amber-500/20',
+  QC:                  'bg-violet-500/15 text-violet-500 border-violet-500/20',
   'Ready to Ship':     'bg-teal-500/15 text-teal-400 border-teal-500/20',
   Shipped:             'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   'On Hold':           'bg-red-500/15 text-red-400 border-red-500/20',
@@ -101,6 +102,7 @@ function StatusBadge({ status }: { status: string }) {
   const cls = STATUS_COLORS[status] ?? STATUS_COLORS.Pending
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium border whitespace-nowrap ${cls}`}>
+      {status === 'Production Queue' && <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"/>}
       {status === 'In Production' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"/>}
       {status === 'QC' && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse"/>}
       {status}
