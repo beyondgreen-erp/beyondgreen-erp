@@ -246,10 +246,14 @@ export default function QuotationsPage() {
   }
 
   async function handleSave() {
+    if (!form.customer_id) {
+      alert('Please select a customer')
+      return
+    }
     setSaving(true)
     try {
       const quoteData = {
-        customer_id: form.customer_id || null,
+        customer_id: form.customer_id,
         status: form.status,
         quote_date: form.quote_date || null,
         expiry_date: form.expiry_date || null,
@@ -263,20 +267,22 @@ export default function QuotationsPage() {
       let quoteId = editing?.id
 
       if (editing) {
-        await supabase.from('quotations').update(quoteData).eq('id', editing.id)
+        const { error: updateErr } = await supabase.from('quotations').update(quoteData).eq('id', editing.id)
+        if (updateErr) { alert('Save failed: ' + updateErr.message); setSaving(false); return }
         await supabase.from('quotation_lines').delete().eq('quotation_id', editing.id)
       } else {
         const year = new Date().getFullYear()
         const { count } = await supabase.from('quotations').select('*', { count: 'exact', head: true })
         const qNum = `Q-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`
-        const { data: newQ } = await supabase.from('quotations').insert({ ...quoteData, quote_number: qNum }).select('id').single()
+        const { data: newQ, error: insertErr } = await supabase.from('quotations').insert({ ...quoteData, quote_number: qNum }).select('id').single()
+        if (insertErr) { alert('Save failed: ' + insertErr.message); setSaving(false); return }
         quoteId = (newQ as any)?.id
       }
 
       if (quoteId && lines.length > 0) {
         const validLines = lines.filter(l => l.product_name || l.sku || l.description)
         if (validLines.length > 0) {
-          await supabase.from('quotation_lines').insert(
+          const { error: linesErr } = await supabase.from('quotation_lines').insert(
             validLines.map(l => ({
               quotation_id: quoteId,
               product_id: l.product_id ?? null,
@@ -288,6 +294,7 @@ export default function QuotationsPage() {
               line_total: l.line_total ?? 0,
             }))
           )
+          if (linesErr) { alert('Quote saved but line items failed: ' + linesErr.message); setSaving(false); fetchQuotes(); return }
         }
       }
 
