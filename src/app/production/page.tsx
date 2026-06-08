@@ -1,304 +1,685 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import TagInput, { TagInputHandle } from '@/components/TagInput'
-import ImportExportBar from '@/components/ImportExportBar'
-import FileUpload from '@/components/FileUpload'
-import CommentSection from '@/components/CommentSection'
-import { useMultiSelect } from '@/hooks/useMultiSelect'
-import BulkActionBar from '@/components/BulkActionBar'
-import WorkflowMover from '@/components/WorkflowMover'
+import { approveWorkOrder, completeWorkOrder } from '@/lib/orderFlow'
+import UndoToast from '@/components/UndoToast'
 
-interface SalesOrder { id: string; order_number: string; customer_id: string | null }
-interface Customer { id: string; company_name: string }
-interface Product { id: string; name: string }
-interface Machine { id: string; name: string }
-interface WO { id: string; wo_number: string; sales_order_id: string | null; product_id: string | null; machine_id: string | null; qty_ordered: number; qty_produced: number; start_date: string | null; due_date: string | null; status: string; notes: string | null }
-const STATUSES = ['Queued','In Progress','QC','Complete','On Hold']
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const SC: Record<string,string> = { Queued:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', QC:'bg-violet-500/15 text-violet-400 border-violet-500/20', Complete:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'On Hold':'bg-amber-500/15 text-amber-400 border-amber-500/20' }
-const empty = { wo_number:'', sales_order_id:'', product_id:'', machine_id:'', qty_ordered:'1', qty_produced:'0', start_date:'', due_date:'', status:'Queued', notes:'' }
-type F = typeof empty
-const fmtD=(d:string|null)=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
-function dbErr(e:{code?:string;message:string;hint?:string}){console.error(e);return[e.message,e.code&&`(${e.code})`,e.hint&&`Hint: ${e.hint}`].filter(Boolean).join(' — ')}
+interface WO {
+  id: string
+  wo_number: number | null
+  sales_order_id: string | null
+  product_id: string | null
+  machine_id: string | null
+  qty_ordered: number
+  qty_produced: number
+  start_date: string | null
+  due_date: string | null
+  status: string
+  notes: string | null
+  created_at: string
+}
 
-export default function ProductionPage() {
-  const sb=useMemo(()=>createSupabaseBrowserClient(),[])
-  const [rows,setRows]=useState<WO[]>([])
-  const [orders,setOrders]=useState<SalesOrder[]>([])
-  const [customers,setCustomers]=useState<Customer[]>([])
-  const [products,setProducts]=useState<Product[]>([])
-  const [machines,setMachines]=useState<Machine[]>([])
-  const [loading,setLoading]=useState(true)
-  const [search,setSearch]=useState('')
-  const [archived,setArchived]=useState(false)
-  const [open,setOpen]=useState(false)
-  const [editing,setEditing]=useState<WO|null>(null)
-  const [form,setForm]=useState<F>(empty)
-  const [saving,setSaving]=useState(false)
-  const [busy,setBusy]=useState(false)
-  const [err,setErr]=useState('')
-  const [deleting,setDeleting]=useState(false)
-  const [userEmail,setUserEmail]=useState('')
-  const ref=useRef<HTMLDivElement>(null)
-  const tagRef=useRef<TagInputHandle>(null)
-  const ms=useMultiSelect<WO>()
+interface SalesOrder { id: string; order_number: string; status: string }
 
-  async function load(){
-    setLoading(true)
-    const [wRes,oRes,cRes,pRes,mRes]=await Promise.all([
-      sb.from('work_orders').select('*').order('created_at',{ascending:false}),
-      sb.from('sales_orders').select('id,order_number,customer_id').order('order_number'),
-      sb.from('customers').select('id,company_name'),
-      sb.from('products').select('id,name').order('name'),
-      sb.from('machines').select('id,name').order('name'),
-    ])
-    if(wRes.error) console.error('work_orders:',wRes.error)
-    if(cRes.error) console.error('customers:',cRes.error)
-    setRows((wRes.data??[]) as WO[])
-    setOrders((oRes.data??[]) as SalesOrder[])
-    setCustomers((cRes.data??[]) as Customer[])
-    setProducts((pRes.data??[]) as Product[])
-    setMachines((mRes.data??[]) as Machine[])
-    setLoading(false)
+const TABS = ['All', 'Queued', 'In Progress', 'QC', 'Complete', 'On Hold']
+
+const STATUS_STYLE: Record<string, { bg: string; text: string; border: string }> = {
+  Queued:        { bg: '#F3F4F6',      text: '#6B7280', border: '#E4E6EE' },
+  'In Progress': { bg: '#EFF6FF',      text: '#2563EB', border: '#BFDBFE' },
+  QC:            { bg: '#F5F3FF',      text: '#7C3AED', border: '#DDD6FE' },
+  Complete:      { bg: '#ECFDF5',      text: '#059669', border: '#A7F3D0' },
+  'On Hold':     { bg: '#FFFBEB',      text: '#D97706', border: '#FDE68A' },
+  Cancelled:     { bg: '#FEF2F2',      text: '#DC2626', border: '#FECACA' },
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_STYLE[status] ?? { bg: '#F3F4F6', text: '#6B7280', border: '#E4E6EE' }
+  return (
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border"
+      style={{ background: s.bg, color: s.text, borderColor: s.border }}>
+      {status}
+    </span>
+  )
+}
+
+function daysSince(dateStr: string) {
+  const ms = Date.now() - new Date(dateStr).getTime()
+  return Math.floor(ms / 86400000)
+}
+
+function parseMeta(notes: string | null) {
+  if (!notes) return { productName: '', soId: '', isAuto: false }
+  const parts = notes.split('|')
+  const isAuto = parts[0] === 'AUTO'
+  const productName = isAuto ? parts[1] : ''
+  const soRef = parts.find(p => p.startsWith('SOREF:'))
+  const soId = soRef ? soRef.slice(6) : ''
+  return { productName, soId, isAuto }
+}
+
+function parseSku(notes: string | null) {
+  if (!notes) return null
+  const m = notes.match(/Need \d+ of ([^\s]+) for/)
+  return m?.[1] ?? null
+}
+
+// ─── Approval Modal ───────────────────────────────────────────────────────────
+function ApproveModal({ wo, userEmail, onClose, onDone }: {
+  wo: WO; userEmail: string; onClose: () => void; onDone: () => void
+}) {
+  const [machine, setMachine] = useState('')
+  const [scheduledDate, setScheduledDate] = useState('')
+  const [operator, setOperator] = useState(userEmail)
+  const [priority, setPriority] = useState('Normal')
+  const [saving, setSaving] = useState(false)
+  const { productName, soId } = parseMeta(wo.notes)
+  const sku = parseSku(wo.notes)
+
+  async function approve() {
+    setSaving(true)
+    await approveWorkOrder(wo.id, userEmail || 'system', machine, scheduledDate, operator, priority)
+    onDone()
   }
-  useEffect(()=>{
-    load()
-    sb.auth.getUser().then(({data})=>{if(data.user?.email)setUserEmail(data.user.email)})
-    const onVisible=()=>{if(document.visibilityState==='visible')load()}
-    document.addEventListener('visibilitychange',onVisible)
-    return()=>document.removeEventListener('visibilitychange',onVisible)
-  },[]) // eslint-disable-line
 
-  const omap=Object.fromEntries(orders.map(o=>[o.id,o]))
-  const cmap=Object.fromEntries(customers.map(c=>[c.id,c.company_name]))
-  const pmap=Object.fromEntries(products.map(p=>[p.id,p.name]))
-  const mmap=Object.fromEntries(machines.map(m=>[m.id,m.name]))
-  const now=new Date(); now.setHours(0,0,0,0)
-
-  const DONE = new Set(['Complete', 'Cancelled'])
-  const filtered=rows.filter(r=>{
-    if(!archived&&DONE.has(r.status)) return false
-    if(archived&&!DONE.has(r.status)) return false
-    if(!search) return true
-    const q=search.toLowerCase()
-    return r.wo_number.toLowerCase().includes(q)||(r.product_id?pmap[r.product_id]||'':'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
-  })
-
-  function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
-  function openEdit(r:WO){setEditing(r);setForm({wo_number:r.wo_number,sales_order_id:r.sales_order_id??'',product_id:r.product_id??'',machine_id:r.machine_id??'',qty_ordered:String(r.qty_ordered),qty_produced:String(r.qty_produced),start_date:r.start_date??'',due_date:r.due_date??'',status:r.status,notes:r.notes??''});setErr('');setOpen(true)}
-  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
-
-  async function save(){
-    if(!form.wo_number.trim()){setErr('WO Number is required.');return}
-    setErr('');setSaving(true)
-    const p={wo_number:form.wo_number.trim(),sales_order_id:form.sales_order_id||null,product_id:form.product_id||null,machine_id:form.machine_id||null,qty_ordered:parseFloat(form.qty_ordered)||0,qty_produced:parseFloat(form.qty_produced)||0,start_date:form.start_date||null,due_date:form.due_date||null,status:form.status,notes:form.notes.trim()||null}
-    const{error}=editing?await sb.from('work_orders').update({...p,updated_at:new Date().toISOString()}).eq('id',editing.id):await sb.from('work_orders').insert(p)
-    if(error){setErr(dbErr(error));setSaving(false);return}
-    setSaving(false);await tagRef.current?.sendNotifications();close();load()
-  }
-  async function toggleArchive(){if(!editing)return;setBusy(true);const nextStatus=DONE.has(editing.status)?'Queued':'Complete';await sb.from('work_orders').update({status:nextStatus,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
-  async function handleDelete(){if(!editing)return;if(!confirm('Permanently delete this work order? This cannot be undone.'))return;const{error}=await sb.from('work_orders').delete().eq('id',editing.id);if(error){alert('Delete failed: '+error.message);return}close();load()}
-  async function bulkDelete(){if(!confirm(`Delete ${ms.count} work orders? This cannot be undone.`))return;setDeleting(true);await sb.from('work_orders').delete().in('id',Array.from(ms.selected));ms.clear();setDeleting(false);load()}
-
-  const inp = 'w-full px-3 py-2.5 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#3B6FE0] transition'
-  const inpStyle = { borderColor: '#E4E6EE', color: '#1A1D2E' }
-
-  const SC2: Record<string,string> = {
-    Queued:'bg-[#F3F4F6] text-[#6B7280]',
-    'In Progress':'bg-[#EFF6FF] text-[#2563EB]',
-    QC:'bg-[#F5F3FF] text-[#7C3AED]',
-    Complete:'bg-[#ECFDF5] text-[#059669]',
-    'On Hold':'bg-[#FFFBEB] text-[#D97706]',
-  }
+  const inp = 'w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-[#1A1D2E]'
+  const sel = inp + ' bg-white'
 
   return (
-    <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
-      {/* Page header */}
-      <div className="bg-white border-b px-8 py-5" style={{ borderColor: '#E4E6EE' }}>
-        <div className="flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="px-6 py-5 border-b flex items-center justify-between" style={{ borderColor: '#E4E6EE' }}>
           <div>
-            <h1 className="text-lg font-semibold" style={{ color: '#1A1D2E' }}>Work Orders</h1>
-            <p className="text-sm mt-0.5" style={{ color: '#9CA3AF' }}>{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} work order${filtered.length!==1?'s':''}`}</p>
+            <h2 className="font-semibold text-base text-[#1A1D2E]">Approve Work Order</h2>
+            <p className="text-sm text-gray-400 mt-0.5">
+              {sku && <span className="font-mono text-blue-500 mr-2">{sku}</span>}
+              {productName || `WO-${wo.wo_number ?? wo.id.slice(0, 6)}`}
+            </p>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={load} title="Refresh" className="w-9 h-9 rounded-lg border flex items-center justify-center transition-colors" style={{ borderColor: '#E4E6EE', color: '#6B7280', background: '#fff' }} onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#F5F6FA'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#fff'}}>
-              <i className={`ti ti-refresh text-sm${loading?' animate-spin':''}`}/>
-            </button>
-            <ImportExportBar table="work_orders" filename="work_orders" columns={[
-              { header: 'WO Number', dbKey: 'wo_number', example: 'WO-2024-001', required: true },
-              { header: 'Order Number', dbKey: 'order_number', example: 'SO-2024-001', lookup: { fromTable: 'sales_orders', matchField: 'order_number', storeAs: 'sales_order_id' } },
-              { header: 'Product SKU', dbKey: 'product_sku', example: 'BG-001', lookup: { fromTable: 'products', matchField: 'sku', storeAs: 'product_id' } },
-              { header: 'Machine Name', dbKey: 'machine_name', example: 'Injection Molder 1', lookup: { fromTable: 'machines', matchField: 'name', storeAs: 'machine_id' } },
-              { header: 'Qty Ordered', dbKey: 'qty_ordered', example: '500' },
-              { header: 'Qty Produced', dbKey: 'qty_produced', example: '0' },
-              { header: 'Start Date', dbKey: 'start_date', example: '2024-02-01' },
-              { header: 'Due Date', dbKey: 'due_date', example: '2024-02-15' },
-              { header: 'Status', dbKey: 'status', example: 'Queued' },
-              { header: 'Notes', dbKey: 'notes', example: '' },
-            ]} onImportDone={load} />
-            <button onClick={openAdd} className="flex items-center gap-2 text-[#1A1D2E] text-sm font-medium px-4 py-2 rounded-lg transition-colors" style={{ background: '#3B6FE0' }} onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#2D5EC7'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#3B6FE0'}}>
-              <i className="ti ti-plus text-sm"/>Add Work Order
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-8 py-6">
-        {/* Filters */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="relative flex-1 max-w-sm">
-            <i className="ti ti-search absolute left-3 top-2.5 text-sm" style={{ color: '#9CA3AF' }}/>
-            <input placeholder="Search work orders…" value={search} onChange={e=>setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm bg-white focus:outline-none"
-              style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }}/>
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer select-none text-sm" style={{ color: '#6B7280' }}>
-            <div onClick={()=>setArchived(v=>!v)} className={`w-8 h-4 rounded-full relative transition-colors ${archived?'bg-[#3B6FE0]':'bg-gray-300'}`}>
-              <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/>
-            </div>
-            Archived
-          </label>
-        </div>
-
-        {/* Table */}
-        <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#E4E6EE' }}>
-          {loading ? (
-            <div className="flex items-center justify-center py-16"><div className="w-5 h-5 rounded-full border-2 border-[#3B6FE0] border-t-transparent animate-spin"/></div>
-          ) : filtered.length === 0 ? (
-            <div className="flex items-center justify-center py-16"><p className="text-sm" style={{ color: '#9CA3AF' }}>{search?'No matches.':archived?'No archived work orders.':'No work orders yet.'}</p></div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px]">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #E4E6EE', background: '#F9FAFB' }}>
-                    <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="w-4 h-4 cursor-pointer accent-[#3B6FE0]"/></th>
-                    {['WO #','Customer','Product','Machine','Qty Ord.','Qty Prod.','Start','Due','Status',''].map(h=>(
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(r=>{
-                    const soId=r.notes?.startsWith('SOREF:')?r.notes.slice(6):null
-                    if(soId&&!omap[soId]) console.warn('WO',r.wo_number,'soId not in omap:',soId,'omap keys:',Object.keys(omap).slice(0,3))
-                    const o=soId?omap[soId]:null
-                    const overdue=r.due_date&&new Date(r.due_date+'T00:00:00')<now&&r.status!=='Complete'
-                    return (
-                      <tr key={r.id} className="transition-colors" style={{ borderBottom: '1px solid #F3F4F6', background: ms.isSelected(r.id)?'#EEF2FF':overdue?'#FEF2F2':'transparent' }}
-                        onMouseEnter={e=>{if(!ms.isSelected(r.id))(e.currentTarget as HTMLElement).style.background=overdue?'#FEE2E2':'#F9FAFB'}}
-                        onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background=ms.isSelected(r.id)?'#EEF2FF':overdue?'#FEF2F2':'transparent'}}>
-                        <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="w-4 h-4 cursor-pointer accent-[#3B6FE0]"/></td>
-                        <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
-                          <div className="font-mono text-xs font-semibold" style={{ color: '#1A1D2E' }}>WO-{r.wo_number}</div>
-                          {o&&<div className="text-[11px] mt-0.5" style={{ color: '#9CA3AF' }}>{o.order_number}</div>}
-                        </td>
-                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{o?.customer_id?cmap[o.customer_id]||'—':'—'}</td>
-                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{r.product_id?pmap[r.product_id]||'—':'—'}</td>
-                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{r.machine_id?mmap[r.machine_id]||'—':'—'}</td>
-                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#374151' }} onClick={()=>openEdit(r)}>{r.qty_ordered}</td>
-                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#374151' }} onClick={()=>openEdit(r)}>{r.qty_produced}</td>
-                        <td className="px-4 py-3.5 text-sm cursor-pointer" style={{ color: '#6B7280' }} onClick={()=>openEdit(r)}>{fmtD(r.start_date)}</td>
-                        <td className="px-4 py-3.5 text-sm cursor-pointer font-medium" style={{ color: overdue?'#DC2626':'#6B7280' }} onClick={()=>openEdit(r)}>{fmtD(r.due_date)}</td>
-                        <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(r)}>
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${SC2[r.status]||SC2.Queued}`}>{r.status}</span>
-                        </td>
-                        <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}>
-                          <WorkflowMover recordId={r.id} recordType="production" currentStatus={r.status} onMoved={load}/>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
-
-      {/* Backdrop */}
-      <div className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-200 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-
-      {/* Slide-out panel */}
-      <div ref={ref} onClick={e=>e.stopPropagation()}
-        className={`fixed top-0 right-0 h-full z-50 flex flex-col shadow-xl transition-transform duration-300 ${open?'translate-x-0':'translate-x-full'}`}
-        style={{ width: 480, background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
-        <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: '1px solid #E4E6EE' }}>
-          <div>
-            <h2 className="font-semibold text-base" style={{ color: '#1A1D2E' }}>{editing?'Edit Work Order':'New Work Order'}</h2>
-            {editing && <p className="text-xs mt-0.5" style={{ color: '#9CA3AF' }}>WO #{editing.wo_number}</p>}
-          </div>
-          <button onClick={close} className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: '#F5F6FA', color: '#6B7280' }}
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#E4E6EE'}} onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#F5F6FA'}}>
-            <i className="ti ti-x text-sm"/>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100">
+            <i className="ti ti-x text-sm text-gray-500" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div>
-            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>WO Number <span style={{ color: '#DC2626' }}>*</span></label>
-            <input value={form.wo_number} onChange={e=>setForm(p=>({...p,wo_number:e.target.value}))} className={inp} style={inpStyle}/>
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Sales Order</label>
-            <select value={form.sales_order_id} onChange={e=>setForm(p=>({...p,sales_order_id:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
-              <option value="">— None —</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_number}{o.customer_id&&cmap[o.customer_id]?' — '+cmap[o.customer_id]:''}</option>)}
-            </select>
-          </div>
-          {form.sales_order_id&&omap[form.sales_order_id]?.customer_id&&(
-            <div className="rounded-lg px-3 py-2.5" style={{ background: '#F5F6FA' }}>
-              <p className="text-xs font-medium" style={{ color: '#9CA3AF' }}>Customer</p>
-              <p className="text-sm mt-0.5" style={{ color: '#1A1D2E' }}>{cmap[omap[form.sales_order_id]!.customer_id!]||'—'}</p>
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Qty Required</label>
+              <p className="text-2xl font-bold text-[#1A1D2E]">{wo.qty_ordered.toLocaleString()}</p>
             </div>
-          )}
-          <div>
-            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Product</label>
-            <select value={form.product_id} onChange={e=>setForm(p=>({...p,product_id:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
-              <option value="">— None —</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            {soId && (
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1.5">Sales Order</label>
+                <Link href="/sales/orders" className="text-sm font-medium text-blue-500 hover:text-blue-400">
+                  View Order →
+                </Link>
+              </div>
+            )}
           </div>
+
           <div>
-            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Machine</label>
-            <select value={form.machine_id} onChange={e=>setForm(p=>({...p,machine_id:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
-              <option value="">— None —</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Machine / Line</label>
+            <input value={machine} onChange={e => setMachine(e.target.value)}
+              placeholder="e.g. Line 3, Machine A" className={inp} />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Qty Ordered</label><input type="number" value={form.qty_ordered} onChange={e=>setForm(p=>({...p,qty_ordered:e.target.value}))} className={inp} style={inpStyle}/></div>
-            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Qty Produced</label><input type="number" value={form.qty_produced} onChange={e=>setForm(p=>({...p,qty_produced:e.target.value}))} className={inp} style={inpStyle}/></div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Scheduled Date</label>
+              <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} className={sel}>
+                {['Normal', 'High', 'Urgent'].map(p => <option key={p}>{p}</option>)}
+              </select>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Start Date</label><input type="date" value={form.start_date} onChange={e=>setForm(p=>({...p,start_date:e.target.value}))} className={inp} style={inpStyle}/></div>
-            <div><label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Due Date</label><input type="date" value={form.due_date} onChange={e=>setForm(p=>({...p,due_date:e.target.value}))} className={inp} style={inpStyle}/></div>
-          </div>
+
           <div>
-            <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Status</label>
-            <select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'} style={inpStyle}>
-              {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-            </select>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Operator</label>
+            <input value={operator} onChange={e => setOperator(e.target.value)}
+              placeholder="Assigned operator" className={inp} />
           </div>
-          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Work Orders" className={inp+' resize-none'}/>
-          {editing&&(
+        </div>
+
+        <div className="px-6 py-4 border-t flex gap-3 justify-end" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm border text-gray-500 hover:bg-gray-100 transition-colors"
+            style={{ borderColor: '#E4E6EE' }}>
+            Cancel
+          </button>
+          <button onClick={approve} disabled={saving}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
+            style={{ background: '#059669' }}>
+            <i className="ti ti-check text-sm" />
+            {saving ? 'Approving...' : 'Approve & Schedule'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── QC Complete Modal ────────────────────────────────────────────────────────
+function QCModal({ wo, onClose, onDone }: { wo: WO; onClose: () => void; onDone: () => void }) {
+  const sku = parseSku(wo.notes)
+  const today = new Date().toISOString().split('T')[0].replace(/-/g, '')
+  const skuPart = (sku ?? 'PROD').replace(/[^A-Z0-9]/gi, '').slice(0, 6).toUpperCase()
+  const [lotNumber, setLotNumber] = useState(`LOT-${skuPart}-${today}`)
+  const [qtyProduced, setQtyProduced] = useState(wo.qty_ordered)
+  const [saving, setSaving] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+
+  const { productName } = parseMeta(wo.notes)
+
+  async function complete() {
+    setSaving(true)
+    const r = await completeWorkOrder(wo.id, lotNumber, qtyProduced)
+    setResult(r.message)
+    if (r.success) setTimeout(onDone, 1200)
+    else setSaving(false)
+  }
+
+  const inp = 'w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-[#1A1D2E]'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="px-6 py-5 border-b flex items-center justify-between" style={{ borderColor: '#E4E6EE' }}>
+          <div>
+            <h2 className="font-semibold text-base text-[#1A1D2E]">QC Complete — Close Work Order</h2>
+            <p className="text-sm text-gray-400 mt-0.5">
+              {sku && <span className="font-mono text-emerald-500 mr-2">{sku}</span>}
+              {productName || `WO-${wo.wo_number ?? wo.id.slice(0, 6)}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100">
+            <i className="ti ti-x text-sm text-gray-500" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {result ? (
+            <div className="rounded-xl p-4 text-center" style={{ background: '#ECFDF5' }}>
+              <i className="ti ti-circle-check text-3xl text-green-500 block mb-2" />
+              <p className="text-sm font-semibold text-green-700">{result}</p>
+            </div>
+          ) : (
             <>
-              <div className="pt-2" style={{ borderTop: '1px solid #E4E6EE' }}><FileUpload supabase={sb} recordType="work_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
-              <div className="pt-2" style={{ borderTop: '1px solid #E4E6EE' }}><CommentSection recordType="work_orders" recordId={editing.id} currentUserEmail={userEmail}/></div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1.5">Lot Number</label>
+                <input value={lotNumber} onChange={e => setLotNumber(e.target.value)} className={inp} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1.5">Qty Produced</label>
+                <input type="number" min={1} value={qtyProduced}
+                  onChange={e => setQtyProduced(parseInt(e.target.value) || 0)} className={inp} />
+                <p className="text-xs text-gray-400 mt-1">Required: {wo.qty_ordered.toLocaleString()}</p>
+              </div>
+              <div className="rounded-xl p-3" style={{ background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
+                <p className="text-xs text-blue-600">
+                  Completing this work order will:
+                  update inventory for <strong>{sku ?? 'this SKU'}</strong>,
+                  create lot code <strong>{lotNumber}</strong>,
+                  and check if the linked sales order is ready to ship.
+                </p>
+              </div>
             </>
           )}
         </div>
 
-        <div className="shrink-0 px-6 py-4 flex flex-col gap-3" style={{ borderTop: '1px solid #E4E6EE', background: '#F9FAFB' }}>
-          {err&&<div className="flex gap-2 rounded-lg px-3 py-2.5 text-xs" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}>{err}</div>}
-          <div className="flex gap-3">
-            {editing&&<button onClick={handleDelete} className="px-3 py-2 rounded-lg border text-sm font-medium transition-colors" style={{ borderColor: '#FECACA', background: '#FEF2F2', color: '#DC2626' }}>Delete</button>}
-            {editing&&<button onClick={toggleArchive} disabled={busy} className="px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>{DONE.has(editing.status)?'Restore':'Archive'}</button>}
-            <button onClick={close} className="flex-1 px-4 py-2 rounded-lg border text-sm font-medium transition-colors" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>Cancel</button>
-            <button onClick={save} disabled={saving} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50" style={{ background: '#3B6FE0' }}>{saving?'Saving…':'Save'}</button>
+        {!result && (
+          <div className="px-6 py-4 border-t flex gap-3 justify-end" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
+            <button onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm border text-gray-500 hover:bg-gray-100 transition-colors"
+              style={{ borderColor: '#E4E6EE' }}>
+              Cancel
+            </button>
+            <button onClick={complete} disabled={saving || !lotNumber}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
+              style={{ background: '#059669' }}>
+              <i className="ti ti-package text-sm" />
+              {saving ? 'Completing...' : 'Complete & Update Inventory'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Progress Update Modal ────────────────────────────────────────────────────
+function ProgressModal({ wo, onClose, onDone }: { wo: WO; onClose: () => void; onDone: () => void }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [qty, setQty] = useState(wo.qty_produced)
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const { productName } = parseMeta(wo.notes)
+  const sku = parseSku(wo.notes)
+
+  async function sendToQC() {
+    setSaving(true)
+    await sb.from('work_orders').update({ status: 'QC', qty_produced: qty, notes: wo.notes + (notes ? `\nProgress: ${notes}` : '') }).eq('id', wo.id)
+    onDone()
+  }
+
+  async function updateProgress() {
+    setSaving(true)
+    await sb.from('work_orders').update({ qty_produced: qty, notes: wo.notes + (notes ? `\nProgress: ${notes}` : '') }).eq('id', wo.id)
+    onDone()
+  }
+
+  const inp = 'w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-[#1A1D2E]'
+  const pct = wo.qty_ordered > 0 ? Math.round((qty / wo.qty_ordered) * 100) : 0
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="px-6 py-5 border-b flex items-center justify-between" style={{ borderColor: '#E4E6EE' }}>
+          <div>
+            <h2 className="font-semibold text-base text-[#1A1D2E]">Update Production Progress</h2>
+            <p className="text-sm text-gray-400 mt-0.5">
+              {sku && <span className="font-mono text-blue-500 mr-2">{sku}</span>}
+              {productName || `WO-${wo.wo_number ?? wo.id.slice(0, 6)}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100">
+            <i className="ti ti-x text-sm text-gray-500" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">
+              Qty Completed <span className="text-gray-400">/ {wo.qty_ordered.toLocaleString()}</span>
+            </label>
+            <input type="number" min={0} max={wo.qty_ordered} value={qty}
+              onChange={e => setQty(parseInt(e.target.value) || 0)} className={inp} />
+            <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(100, pct)}%`, background: pct >= 100 ? '#059669' : '#3B6FE0' }} />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">{pct}% complete</p>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Notes (optional)</label>
+            <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Any notes about this production run..." className={inp + ' resize-none'} />
           </div>
         </div>
+        <div className="px-6 py-4 border-t flex gap-3 justify-end" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm border text-gray-500 hover:bg-gray-100"
+            style={{ borderColor: '#E4E6EE' }}>Cancel</button>
+          <button onClick={updateProgress} disabled={saving}
+            className="px-4 py-2 rounded-lg text-sm border font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+            style={{ borderColor: '#BFDBFE' }}>
+            {saving ? '...' : 'Save Progress'}
+          </button>
+          {qty >= wo.qty_ordered && (
+            <button onClick={sendToQC} disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: '#7C3AED' }}>
+              <i className="ti ti-checkup-list text-sm" />
+              {saving ? '...' : 'Send to QC'}
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Work Order Card ──────────────────────────────────────────────────────────
+function WOCard({ wo, soMap, onAction }: {
+  wo: WO
+  soMap: Record<string, SalesOrder>
+  onAction: (action: 'approve' | 'progress' | 'qc' | 'start', wo: WO) => void
+}) {
+  const { productName, soId, isAuto } = parseMeta(wo.notes)
+  const sku = parseSku(wo.notes)
+  const so = soId ? soMap[soId] : null
+  const days = daysSince(wo.created_at)
+  const pct = wo.qty_ordered > 0 ? Math.round(((wo.qty_produced ?? 0) / wo.qty_ordered) * 100) : 0
+
+  const priorityMatch = wo.notes?.match(/Priority: (\w+)/)
+  const priority = priorityMatch?.[1]
+  const machineMatch = wo.notes?.match(/Machine: ([^|]+)/)
+  const machine = machineMatch?.[1]?.trim()
+
+  return (
+    <div className="bg-white rounded-xl border p-4 hover:border-gray-300 transition-all"
+      style={{ borderColor: '#E4E6EE' }}>
+      {/* Top row */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex-1 min-w-0">
+          {sku && (
+            <p className="text-xs font-semibold font-mono mb-0.5" style={{ color: '#3B6FE0' }}>{sku}</p>
+          )}
+          <p className="text-sm font-semibold text-[#1A1D2E] leading-snug truncate">
+            {productName || (isAuto ? `Auto WO` : `WO-${wo.wo_number ?? wo.id.slice(0, 6)}`)}
+          </p>
+          {wo.wo_number && (
+            <p className="text-xs text-gray-400 font-mono mt-0.5">WO-{wo.wo_number}</p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <StatusBadge status={wo.status} />
+          {priority && priority !== 'Normal' && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+              style={{
+                background: priority === 'Urgent' ? '#FEF2F2' : '#FFFBEB',
+                color: priority === 'Urgent' ? '#DC2626' : '#D97706',
+              }}>
+              {priority}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Meta */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="rounded-lg p-2 text-center" style={{ background: '#F9FAFB' }}>
+          <p className="text-xs text-gray-400">Required</p>
+          <p className="text-base font-bold text-[#1A1D2E]">{wo.qty_ordered.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg p-2 text-center" style={{ background: '#F9FAFB' }}>
+          <p className="text-xs text-gray-400">Produced</p>
+          <p className="text-base font-bold" style={{ color: pct >= 100 ? '#059669' : '#1A1D2E' }}>
+            {(wo.qty_produced ?? 0).toLocaleString()}
+          </p>
+        </div>
+        <div className="rounded-lg p-2 text-center" style={{ background: '#F9FAFB' }}>
+          <p className="text-xs text-gray-400">Age</p>
+          <p className="text-base font-bold" style={{ color: days > 7 ? '#DC2626' : '#1A1D2E' }}>
+            {days}d
+          </p>
+        </div>
+      </div>
+
+      {/* Progress bar (In Progress only) */}
+      {wo.status === 'In Progress' && (
+        <div className="mb-3">
+          <div className="flex justify-between text-xs text-gray-400 mb-1">
+            <span>Progress</span><span>{pct}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+            <div className="h-full rounded-full transition-all"
+              style={{ width: `${Math.min(100, pct)}%`, background: pct >= 100 ? '#059669' : '#3B6FE0' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Machine / due date */}
+      {(machine || wo.due_date) && (
+        <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
+          {machine && <span><i className="ti ti-tool mr-1" />{machine}</span>}
+          {wo.due_date && <span><i className="ti ti-calendar mr-1" />{new Date(wo.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+        </div>
+      )}
+
+      {/* Sales Order link */}
+      {so && (
+        <div className="mb-3 text-xs">
+          <Link href="/sales/orders" className="text-blue-500 hover:text-blue-400">
+            <i className="ti ti-shopping-cart mr-1" />{so.order_number}
+          </Link>
+          <span className="ml-2 px-1.5 py-0.5 rounded text-[10px]"
+            style={{ background: '#F3F4F6', color: '#6B7280' }}>{so.status}</span>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: '#F3F4F6' }}>
+        {wo.status === 'Queued' && (
+          <button
+            onClick={() => onAction('approve', wo)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
+            style={{ background: '#059669' }}>
+            <i className="ti ti-check text-xs" />
+            Approve & Schedule
+          </button>
+        )}
+        {wo.status === 'In Progress' && (
+          <button
+            onClick={() => onAction('progress', wo)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
+            style={{ background: '#3B6FE0' }}>
+            <i className="ti ti-chart-bar text-xs" />
+            Update Progress
+          </button>
+        )}
+        {wo.status === 'QC' && (
+          <button
+            onClick={() => onAction('qc', wo)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
+            style={{ background: '#7C3AED' }}>
+            <i className="ti ti-package text-xs" />
+            Complete & Close
+          </button>
+        )}
+        {wo.status === 'Complete' && (
+          <span className="flex-1 text-center text-xs text-gray-400 py-1.5">
+            <i className="ti ti-check text-green-500 mr-1" />
+            Completed · {(wo.qty_produced ?? 0).toLocaleString()} produced
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+export default function ProductionPage() {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [rows, setRows] = useState<WO[]>([])
+  const [orders, setOrders] = useState<SalesOrder[]>([])
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState('All')
+  const [search, setSearch] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Modal state
+  const [approveWO, setApproveWO] = useState<WO | null>(null)
+  const [progressWO, setProgressWO] = useState<WO | null>(null)
+  const [qcWO, setQcWO] = useState<WO | null>(null)
+
+  async function load() {
+    setLoading(true)
+    const [wRes, oRes] = await Promise.all([
+      sb.from('work_orders').select('*').order('created_at', { ascending: false }),
+      sb.from('sales_orders').select('id, order_number, status').order('order_number'),
+    ])
+    setRows((wRes.data ?? []) as WO[])
+    setOrders((oRes.data ?? []) as SalesOrder[])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    load()
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, []) // eslint-disable-line
+
+  const soMap = useMemo(() =>
+    Object.fromEntries(orders.map(o => [o.id, o])),
+  [orders])
+
+  const tabRows = useMemo(() => {
+    let pool = tab === 'All' ? rows : rows.filter(r => r.status === tab)
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      pool = pool.filter(r =>
+        (r.notes ?? '').toLowerCase().includes(q) ||
+        String(r.wo_number).includes(q)
+      )
+    }
+    return pool
+  }, [rows, tab, search])
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { All: rows.length }
+    for (const r of rows) c[r.status] = (c[r.status] ?? 0) + 1
+    return c
+  }, [rows])
+
+  const pendingApproval = counts['Queued'] ?? 0
+
+  function handleAction(action: string, wo: WO) {
+    if (action === 'approve') setApproveWO(wo)
+    else if (action === 'progress') setProgressWO(wo)
+    else if (action === 'qc') setQcWO(wo)
+  }
+
+  function closeAll() {
+    setApproveWO(null)
+    setProgressWO(null)
+    setQcWO(null)
+  }
+
+  function onModalDone(msg?: string) {
+    closeAll()
+    if (msg) setToast(msg)
+    load()
+  }
+
+  return (
+    <div className="min-h-screen p-5 md:p-8" style={{ background: '#F5F6FA' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-amber-500/20 text-amber-600 border-amber-500/30">PRODUCTION</span>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Work Orders</h1>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {loading ? 'Loading…' : `${rows.length} work orders`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href="/production/qc"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+            style={{ borderColor: '#E4E6EE', color: '#374151' }}>
+            <i className="ti ti-checkup-list text-sm" />
+            QC Board
+          </Link>
+          <Link href="/production/lots"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+            style={{ borderColor: '#E4E6EE', color: '#374151' }}>
+            <i className="ti ti-barcode text-sm" />
+            Lot Codes
+          </Link>
+        </div>
+      </div>
+
+      {/* Approval alert */}
+      {!loading && pendingApproval > 0 && (
+        <div className="rounded-xl px-5 py-3.5 flex items-center gap-4 mb-5"
+          style={{ background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          <div className="flex-1">
+            <span className="text-amber-700 font-semibold text-sm">
+              {pendingApproval} work order{pendingApproval !== 1 ? 's' : ''} awaiting approval
+            </span>
+            <span className="text-amber-600 text-sm"> — Shea or Veejay must approve before production begins</span>
+          </div>
+          <button onClick={() => setTab('Queued')}
+            className="text-xs text-amber-700 border border-amber-400 px-3 py-1.5 rounded-lg hover:bg-amber-50 transition-colors">
+            View {pendingApproval > 1 ? 'All' : 'It'}
+          </button>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-5">
+        {TABS.map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${tab === t ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            {t}
+            {counts[t] != null && counts[t] > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${tab === t ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
+                {counts[t]}
+              </span>
+            )}
+            {t === 'Queued' && (counts['Queued'] ?? 0) > 0 && tab !== 'Queued' && (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-5 max-w-sm">
+        <i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search SKU, product, WO#…"
+          className="w-full bg-white border border-[#E4E6EE] rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-[#1A1D2E] placeholder-gray-400"
+        />
+      </div>
+
+      {/* Cards grid */}
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="skeleton h-48 rounded-xl" />
+          ))}
+        </div>
+      ) : tabRows.length === 0 ? (
+        <div className="bg-white rounded-xl border border-[#E4E6EE] flex items-center justify-center py-20">
+          <div className="text-center">
+            <i className="ti ti-tool text-4xl text-gray-200 block mb-3" />
+            <p className="text-gray-400 text-sm">No work orders{tab !== 'All' ? ` in "${tab}"` : ''}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {tabRows.map(wo => (
+            <WOCard key={wo.id} wo={wo} soMap={soMap} onAction={handleAction} />
+          ))}
+        </div>
+      )}
+
+      {/* Modals */}
+      {approveWO && (
+        <ApproveModal
+          wo={approveWO}
+          userEmail={userEmail}
+          onClose={closeAll}
+          onDone={() => onModalDone('Work order approved and scheduled')}
+        />
+      )}
+      {progressWO && (
+        <ProgressModal
+          wo={progressWO}
+          onClose={closeAll}
+          onDone={() => onModalDone('Progress updated')}
+        />
+      )}
+      {qcWO && (
+        <QCModal
+          wo={qcWO}
+          onClose={closeAll}
+          onDone={() => onModalDone('Work order complete · Inventory updated')}
+        />
+      )}
+
+      {toast && (
+        <UndoToast
+          message={toast}
+          onDismiss={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

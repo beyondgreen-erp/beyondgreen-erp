@@ -200,7 +200,20 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Alert banner */}
+      {/* Production approval alert */}
+      {!loading && kpi.openWorkOrders > 0 && (
+        <div className="rounded-2xl px-5 py-3.5 flex items-center gap-4"
+          style={{ background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          <div className="flex-1">
+            <span className="text-amber-700 font-semibold text-sm">{kpi.openWorkOrders} open work order{kpi.openWorkOrders !== 1 ? 's' : ''}</span>
+            <span className="text-amber-600 text-sm"> — some may need approval from Shea or Veejay</span>
+          </div>
+          <Link href="/production" className="text-xs text-amber-700 hover:text-amber-600 font-medium border border-amber-400 px-3 py-1.5 rounded-lg transition-colors">Go to Production</Link>
+        </div>
+      )}
+
+      {/* Overdue invoice alert */}
       {!loading && kpi.overdueInvoices > 0 && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-2xl px-5 py-3.5 flex items-center gap-4">
           <span className="w-2 h-2 rounded-full bg-red-500 alert-pulse shrink-0" />

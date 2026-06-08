@@ -8,6 +8,8 @@ import BulkActionBar from '@/components/BulkActionBar'
 import WorkflowMover, { WorkflowProgressBar } from '@/components/WorkflowMover'
 import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
+import CommentSection from '@/components/CommentSection'
+import InventoryCheckModal from '@/components/InventoryCheckModal'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -64,7 +66,14 @@ interface Customer { id: string; company_name: string }
 // ── Constants ──────────────────────────────────────────────────────────────
 const SECTIONS = ['Make To Stock','Private Label','Straw Orders','Customer DropShip','Injection Molding','Paper Products','Outsourced']
 const SECTION_TABS = ['All', ...SECTIONS]
-const STATUSES = ['Pending','Confirmed','In Production','Ready to Ship','Shipped','On Hold','Partially Shipped','Closed']
+const STATUSES = [
+  'Pending','New','Confirmed',
+  'Awaiting BOM Components','Awaiting Production','Production Queue',
+  'In Production','QC',
+  'Ready to Ship','Ready at Will Call',
+  'Partially Shipped','Shipped',
+  'On Hold','Cancelled','Closed',
+]
 const STATUS_COLORS: Record<string,string> = {
   Pending:             'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
   Confirmed:           'bg-blue-500/15 text-blue-400 border-blue-500/20',
@@ -344,7 +353,7 @@ function EditPanel({
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Status</label>
                   <select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))} className={inp + ' cursor-pointer'}>
-                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    {(STATUSES.includes(form.status) ? STATUSES : [...STATUSES, form.status]).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
@@ -526,14 +535,19 @@ export default function OrdersPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
+  const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
+  const [userEmail, setUserEmail] = useState('')
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [flowToast, setFlowToast] = useState<{message:string; undoData?:any} | null>(null)
+  const [inventoryCheckOrder, setInventoryCheckOrder] = useState<SalesOrder | null>(null)
   const ms = useMultiSelect<SalesOrder>()
   const [search, setSearch] = useState('')
   const [sectionTab, setSectionTab] = useState('All')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [expandedCompletedIds, setExpandedCompletedIds] = useState<Set<string>>(new Set())
   const [completedOpen, setCompletedOpen] = useState(false)
+  const [shippedOrderIds, setShippedOrderIds] = useState<Set<string>>(new Set())
   const [editOpen, setEditOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<SalesOrder | null>(null)
   const [form, setForm] = useState<F>(emptyForm)
@@ -544,12 +558,15 @@ export default function OrdersPage() {
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError('')
-    const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }] = await Promise.all([
+    const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }] = await Promise.all([
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone)').order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id').eq('sku_flagged', true),
+      sb.from('work_orders').select('wo_number,notes').order('wo_number'),
+      sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
     ])
+    if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) }) }
     if (oErr) setLoadError('Failed to load orders: ' + oErr.message)
     else if (o) setOrders(o as SalesOrder[])
     if (c) setCustomers(c as Customer[])
@@ -559,10 +576,30 @@ export default function OrdersPage() {
       for (const r of fl as any[]) if (r.sales_order_id) fm[r.sales_order_id] = (fm[r.sales_order_id] ?? 0) + 1
       setFlaggedMap(fm)
     }
+    if (wo) {
+      const wm: Record<string, number> = {}
+      for (const r of wo as any[]) {
+        const soId = r.notes?.startsWith('SOREF:') ? r.notes.slice(6) : null
+        if (soId) wm[soId] = r.wo_number
+      }
+      setWoMap(wm)
+    }
+    if (sh) {
+      setShippedOrderIds(new Set((sh as any[]).map(r => r.sales_order_id).filter(Boolean)))
+    }
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    // Realtime: reflect SO status changes from any page instantly
+    const channel = sb.channel('so-live')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sales_orders' }, payload => {
+        setOrders(prev => prev.map(o => o.id === (payload.new as any).id ? { ...o, ...(payload.new as any) } : o))
+      })
+      .subscribe()
+    return () => { sb.removeChannel(channel) }
+  }, [load, sb])
 
   // Pools + stats
   const tabPool = useMemo(() =>
@@ -571,9 +608,13 @@ export default function OrdersPage() {
 
   const COMPLETED_STATUSES = ['Shipped', 'Closed', 'Cancelled']
 
+  const isCompleted = useCallback((o: SalesOrder) =>
+    COMPLETED_STATUSES.includes(o.status) || shippedOrderIds.has(o.id),
+  [shippedOrderIds]) // eslint-disable-line
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    const pool = tabPool.filter(o => !COMPLETED_STATUSES.includes(o.status))
+    const pool = tabPool.filter(o => !isCompleted(o))
     if (!q) return pool
     return pool.filter(o =>
       orderCustomerName(o).toLowerCase().includes(q) ||
@@ -582,11 +623,11 @@ export default function OrdersPage() {
       (o.po_number ?? '').toLowerCase().includes(q) ||
       (o.customer_email ?? '').toLowerCase().includes(q)
     )
-  }, [tabPool, search])
+  }, [tabPool, search, isCompleted])
 
   const completedOrders = useMemo(() => {
     const q = search.toLowerCase().trim()
-    const pool = tabPool.filter(o => COMPLETED_STATUSES.includes(o.status))
+    const pool = tabPool.filter(o => isCompleted(o))
     if (!q) return pool
     return pool.filter(o =>
       orderCustomerName(o).toLowerCase().includes(q) ||
@@ -594,7 +635,7 @@ export default function OrdersPage() {
       (o.order_number ?? '').toLowerCase().includes(q) ||
       (o.po_number ?? '').toLowerCase().includes(q)
     )
-  }, [tabPool, search])
+  }, [tabPool, search, isCompleted])
 
   const stats = useMemo(() => {
     const inProd = tabPool.filter(o => o.status === 'In Production').length
@@ -613,6 +654,14 @@ export default function OrdersPage() {
 
   function toggleExpand(id: string) {
     setExpandedIds(prev => {
+      const n = new Set(prev)
+      if (n.has(id)) { n.delete(id) } else { n.add(id) }
+      return n
+    })
+  }
+
+  function toggleExpandCompleted(id: string) {
+    setExpandedCompletedIds(prev => {
       const n = new Set(prev)
       if (n.has(id)) { n.delete(id) } else { n.add(id) }
       return n
@@ -893,7 +942,16 @@ export default function OrdersPage() {
                         )}
                       </td>
                       <td className="px-3 py-3.5 text-gray-400 text-xs font-mono whitespace-nowrap">{order.po_number ?? '—'}</td>
-                      <td className="px-3 py-3.5"><StatusBadge status={order.status}/></td>
+                      <td className="px-3 py-3.5">
+                        <div className="flex flex-col gap-1">
+                          <StatusBadge status={order.status}/>
+                          {woMap[order.id] != null && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 font-mono whitespace-nowrap w-fit">
+                              WO-{woMap[order.id]}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-3.5 text-gray-500 text-xs whitespace-nowrap">{order.facility ?? order.carrier ?? '—'}</td>
                       <td className="px-3 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.order_date)}</td>
                       <td className="px-3 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.estimated_completion)}</td>
@@ -908,17 +966,24 @@ export default function OrdersPage() {
                         )}
                       </td>
                       <td className="px-3 py-3.5" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
                           <button onClick={() => openEdit(order)}
                             className="text-xs px-2 py-1 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-300 transition-colors">Edit</button>
                           <WorkflowMover recordId={order.id} recordType="sales_order" currentStatus={order.status} orderNumber={order.order_number} customerId={order.customer_id} onMoved={load}/>
+                          <button
+                            onClick={e => { e.stopPropagation(); setInventoryCheckOrder(order) }}
+                            className="text-xs px-2 py-1 rounded transition-colors"
+                            style={{ background: '#EFF6FF', color: '#2563EB' }}
+                            title="Check inventory and route order">
+                            Check Stock
+                          </button>
                           <button onClick={() => handleDelete(order.id)}
                             className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-900/70 text-red-400 transition-colors">Del</button>
                         </div>
                       </td>
                     </tr>
 
-                    {/* Expanded line items */}
+                    {/* Expanded line items + activity log */}
                     {expanded && (
                       <>
                         <tr className="border-b border-[#E4E6EE]/40 bg-[#F9FAFB]/40">
@@ -938,6 +1003,10 @@ export default function OrdersPage() {
                                   }}/>
                                 </tbody>
                               </table>
+                            </div>
+                            <div className="ml-8 mr-2 mb-3 mt-2 border-t border-[#E4E6EE] pt-3">
+                              <p className="text-xs font-semibold text-gray-500 mb-2">Activity Log</p>
+                              <CommentSection recordType="sales_order" recordId={order.id} currentUserEmail={userEmail}/>
                             </div>
                           </td>
                         </tr>
@@ -967,28 +1036,80 @@ export default function OrdersPage() {
           </button>
           {completedOpen && (
             <div className="bg-white overflow-x-auto">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="w-full min-w-[1100px] text-sm">
+                <thead>
+                  <tr className="border-b border-[#E4E6EE] bg-[#F9FAFB]">
+                    <th className="w-8 px-3 py-2.5"/>
+                    {['Customer / Order','PO #','Status','Ship Date','Value','Actions'].map(h => (
+                      <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5 whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
                 <tbody>
                   {completedOrders.map((order, i) => {
+                    const expanded = expandedCompletedIds.has(order.id)
                     const custName = orderCustomerName(order)
                     const ref = orderRef(order)
                     return (
-                      <tr key={order.id}
-                        className={`border-b border-[#F3F4F6] last:border-0 ${i % 2 === 1 ? 'bg-[#FAFAFA]' : ''}`}>
-                        <td className="px-3 py-3 max-w-[200px]">
-                          <p className="text-gray-500 font-medium text-sm truncate">{custName}</p>
-                          {ref && <p className="text-gray-400 text-xs truncate mt-0.5">{ref}</p>}
-                        </td>
-                        <td className="px-3 py-3 text-gray-400 text-xs font-mono">{order.order_number ?? '—'}</td>
-                        <td className="px-3 py-3 text-gray-400 text-xs font-mono">{order.po_number ?? '—'}</td>
-                        <td className="px-3 py-3"><StatusBadge status={order.status}/></td>
-                        <td className="px-3 py-3 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.ship_date ?? order.required_ship_date)}</td>
-                        <td className="px-3 py-3 text-gray-500 text-xs font-medium">{fmt$(orderValue(order))}</td>
-                        <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => openEdit(order)}
-                            className="text-xs px-2 py-1 rounded bg-[#F5F6FA] hover:bg-[#E4E6EE] text-gray-500 transition-colors">View</button>
-                        </td>
-                      </tr>
+                      <>
+                        <tr key={order.id}
+                          className={`border-b border-[#F3F4F6] transition-colors cursor-pointer ${expanded ? 'bg-[#F5F6FA]/30' : i % 2 === 1 ? 'bg-[#FAFAFA] hover:bg-[#F9FAFB]' : 'hover:bg-[#F9FAFB]'}`}
+                          onClick={() => toggleExpandCompleted(order.id)}>
+                          <td className="px-3 py-3">
+                            <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+                          </td>
+                          <td className="px-3 py-3 max-w-[220px]">
+                            <p className="text-gray-600 font-medium text-sm truncate">{custName}</p>
+                            {ref && <p className="text-gray-400 text-xs truncate mt-0.5">{ref}</p>}
+                          </td>
+                          <td className="px-3 py-3 text-gray-400 text-xs font-mono whitespace-nowrap">{order.po_number ?? '—'}</td>
+                          <td className="px-3 py-3">
+                            <div className="flex flex-col gap-1">
+                              <StatusBadge status={order.status}/>
+                              {woMap[order.id] != null && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 font-mono whitespace-nowrap w-fit">
+                                  WO-{woMap[order.id]}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-gray-400 text-xs whitespace-nowrap">{fmtD(order.ship_date ?? order.required_ship_date)}</td>
+                          <td className="px-3 py-3 text-gray-500 text-xs font-medium whitespace-nowrap">{fmt$(orderValue(order))}</td>
+                          <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => openEdit(order)}
+                                className="text-xs px-2 py-1 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-300 transition-colors">Edit</button>
+                              <WorkflowMover recordId={order.id} recordType="sales_order" currentStatus={order.status} orderNumber={order.order_number} customerId={order.customer_id} onMoved={load}/>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Expanded: line items + activity log */}
+                        {expanded && (
+                          <tr key={order.id + '-exp'} className="border-b border-[#E4E6EE]/40 bg-[#F9FAFB]/40">
+                            <td colSpan={7} className="px-0 py-0">
+                              <div className="ml-6 mr-2 my-1">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="bg-[#F5F6FA]">
+                                      {['⚠','#','SKU','Product / Description','Qty','Done','UOM','Packaging','Prod. Status','Details','Progress'].map(h => (
+                                        <th key={h} className="text-left text-gray-600 px-2 py-2 font-medium first:pl-12">{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    <LinesTable orderId={order.id} onLineUpdated={load}/>
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div className="ml-6 mr-2 mb-3 mt-2 border-t border-[#E4E6EE] pt-3">
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Activity Log</p>
+                                <CommentSection recordType="sales_order" recordId={order.id} currentUserEmail={userEmail}/>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     )
                   })}
                 </tbody>
@@ -999,6 +1120,23 @@ export default function OrdersPage() {
       )}
 
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+
+      {inventoryCheckOrder && (
+        <InventoryCheckModal
+          orderId={inventoryCheckOrder.id}
+          orderNumber={inventoryCheckOrder.order_number}
+          onClose={() => setInventoryCheckOrder(null)}
+          onDone={result => {
+            setInventoryCheckOrder(null)
+            if (result === 'shipped') {
+              setFlowToast({ message: '✓ Order moved to Shipping Queue' })
+            } else if (result === 'production') {
+              setFlowToast({ message: '✓ Work orders created — pending approval from Shea/Veejay' })
+            }
+            load()
+          }}
+        />
+      )}
 
       {flowToast && (
         <UndoToast

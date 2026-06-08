@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useRef, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import { onStatusChange, checkInventoryForOrder, addToShippingQueue, type OrderStatus } from '@/lib/orderFlow'
+import { onStatusChange, checkInventoryForOrder, addToShippingQueue, logActivity, type OrderStatus } from '@/lib/orderFlow'
 
 export type WorkflowRecordType = 'quotation' | 'sales_order' | 'production' | 'shipment' | 'invoice'
 
@@ -152,26 +152,31 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
           { label: 'Mark Rejected', color: 'text-red-400', handler: async () => { await sb.from('quotations').update({ status: 'Rejected', updated_at: new Date().toISOString() }).eq('id', recordId) } },
         ]
 
-      case 'sales_order':
+      case 'sales_order': {
+        const getEmail = async () => { const { data: { user } } = await sb.auth.getUser(); return user?.email ?? 'system' }
         return [
           {
             label: '⚡ Fulfill Order',
             description: 'Check inventory → auto-route to production or shipping',
             color: 'text-emerald-400',
             handler: async () => {
-              const { sufficient, shortages } = await checkInventoryForOrder(recordId)
-              if (sufficient) {
+              const email = await getEmail()
+              const { allSufficient, shortages } = await checkInventoryForOrder(recordId)
+              if (allSufficient) {
                 await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', recordId)
                 await addToShippingQueue(recordId)
+                await logActivity(recordId, email, 'Status changed to Ready to Ship — inventory sufficient, added to shipping queue')
                 return 'Inventory OK → Added to Shipping Queue'
               } else {
-                const { data: existingWo } = await sb.from('work_orders').select('wo_number').eq('notes', 'SOREF:' + recordId).maybeSingle()
-                if (existingWo) return `Work Order WO-${(existingWo as any).wo_number} already exists — awaiting production`
+                const { data: wos } = await sb.from('work_orders').select('wo_number,status').or(`notes.eq.SOREF:${recordId},sales_order_id.eq.${recordId}`)
+                const activeWo = (wos ?? []).find((w: any) => !['Complete','Cancelled'].includes(w.status))
+                if (activeWo) return `Work Order WO-${(activeWo as any).wo_number} already active — awaiting production`
                 const num = await nextWONum(sb)
-                const { error: woErr } = await sb.from('work_orders').insert({ wo_number: num, status: 'Queued', notes: 'SOREF:' + recordId })
+                const { error: woErr } = await sb.from('work_orders').insert({ wo_number: num, status: 'Queued', sales_order_id: recordId, notes: 'SOREF:' + recordId })
                 if (woErr) { console.error('WO insert error:', woErr); throw new Error('Work order creation failed: ' + woErr.message) }
                 await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
-                const skus = shortages.map(s => `${s.sku} (need ${s.needed}, have ${s.available})`).join('; ')
+                const skus = shortages.map(s => `${s.sku} (need ${s.qty_short}, have ${s.qty_on_hand})`).join('; ')
+                await logActivity(recordId, email, `Status changed to Production Queue — Work Order WO-${num} created. Shortages: ${skus}`)
                 return `Work Order WO-${num} created — Short: ${skus}`
               }
             },
@@ -181,14 +186,19 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             description: 'Create a linked work order for this sales order',
             color: 'text-violet-400',
             handler: async () => {
-              const { data: existing } = await sb.from('work_orders').select('wo_number').eq('notes', 'SOREF:' + recordId).maybeSingle()
-              if (existing) return `Work Order WO-${(existing as any).wo_number} already exists for this order`
+              const email = await getEmail()
+              const { data: wos } = await sb.from('work_orders').select('wo_number,status').or(`notes.eq.SOREF:${recordId},sales_order_id.eq.${recordId}`)
+              const activeWo = (wos ?? []).find((w: any) => !['Complete','Cancelled'].includes(w.status))
+              if (activeWo) return `Work Order WO-${(activeWo as any).wo_number} is already active for this order`
               const woStatus = currentStatus === 'In Production' ? 'In Progress' : 'Queued'
               const num = await nextWONum(sb)
-              const { error: woErr } = await sb.from('work_orders').insert({ wo_number: num, status: woStatus, notes: 'SOREF:' + recordId })
+              const { error: woErr } = await sb.from('work_orders').insert({ wo_number: num, status: woStatus, sales_order_id: recordId, notes: 'SOREF:' + recordId })
               if (woErr) { console.error('WO insert error:', woErr); throw new Error('Work order creation failed: ' + woErr.message) }
               if (currentStatus !== 'In Production' && currentStatus !== 'Production Queue') {
                 await sb.from('sales_orders').update({ status: 'Production Queue', updated_at: new Date().toISOString() }).eq('id', recordId)
+                await logActivity(recordId, email, `Status changed to Production Queue — Work Order WO-${num} created`)
+              } else {
+                await logActivity(recordId, email, `Work Order WO-${num} created (${woStatus})`)
               }
               return `Work Order WO-${num} created (${woStatus})`
             },
@@ -197,8 +207,10 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             label: 'Mark Ready to Ship',
             color: 'text-blue-400',
             handler: async () => {
+              const email = await getEmail()
               await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', recordId)
               await addToShippingQueue(recordId)
+              await logActivity(recordId, email, 'Status changed to Ready to Ship — added to shipping queue')
               return 'Added to Shipping Queue'
             },
           },
@@ -206,34 +218,51 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             label: 'Mark Shipped',
             color: 'text-teal-400',
             handler: async () => {
+              const email = await getEmail()
               const prev = currentStatus as OrderStatus
               await sb.from('sales_orders').update({ status: 'Shipped', updated_at: new Date().toISOString() }).eq('id', recordId)
               const result = await onStatusChange(recordId, 'Shipped', prev)
+              await logActivity(recordId, email, `Status changed to Shipped — ${result.message}`)
               return result.message
             },
           },
           {
             label: 'Put On Hold',
             color: 'text-amber-400',
-            handler: async () => { await sb.from('sales_orders').update({ status: 'On Hold', updated_at: new Date().toISOString() }).eq('id', recordId) },
+            handler: async () => {
+              const email = await getEmail()
+              await sb.from('sales_orders').update({ status: 'On Hold', updated_at: new Date().toISOString() }).eq('id', recordId)
+              await logActivity(recordId, email, `Status changed to On Hold (was: ${currentStatus})`)
+            },
           },
           {
             label: 'Cancel Order',
             color: 'text-red-400',
-            handler: async () => { if (!confirm('Cancel this order?')) throw new Error('Cancelled'); await sb.from('sales_orders').update({ status: 'Cancelled', updated_at: new Date().toISOString() }).eq('id', recordId) },
+            handler: async () => {
+              if (!confirm('Cancel this order?')) throw new Error('Cancelled')
+              const email = await getEmail()
+              await sb.from('sales_orders').update({ status: 'Cancelled', updated_at: new Date().toISOString() }).eq('id', recordId)
+              await logActivity(recordId, email, `Order cancelled (was: ${currentStatus})`)
+            },
           },
         ]
+      }
 
-      case 'production':
+      case 'production': {
+        const getEmail = async () => { const { data: { user } } = await sb.auth.getUser(); return user?.email ?? 'system' }
         return [
           {
             label: 'Start Production',
             color: 'text-blue-400',
             handler: async () => {
+              const email = await getEmail()
               await sb.from('work_orders').update({ status: 'In Progress', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const { data: wo } = await sb.from('work_orders').select('notes').eq('id', recordId).maybeSingle()
+              const { data: wo } = await sb.from('work_orders').select('notes,wo_number').eq('id', recordId).maybeSingle()
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
-              if (soId) await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', soId)
+              if (soId) {
+                await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', soId)
+                await logActivity(soId, email, `Status changed to In Production — Work Order WO-${(wo as any)?.wo_number} started`)
+              }
               return 'Production started → Order status: In Production'
             },
           },
@@ -241,8 +270,9 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             label: 'Production Complete → QC',
             color: 'text-violet-400',
             handler: async () => {
+              const email = await getEmail()
               await sb.from('work_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced').eq('id', recordId).maybeSingle()
+              const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced, wo_number').eq('id', recordId).maybeSingle()
               if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
                 const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
                 if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
@@ -250,6 +280,7 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
               if (soId) {
                 await sb.from('sales_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', soId)
+                await logActivity(soId, email, `Status changed to QC — Work Order WO-${(wo as any)?.wo_number} production complete`)
                 return 'Production complete → Order moved to QC'
               }
               return 'Work order sent to QC'
@@ -259,8 +290,9 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             label: 'Skip QC → Ready to Ship',
             color: 'text-emerald-400',
             handler: async () => {
+              const email = await getEmail()
               await sb.from('work_orders').update({ status: 'Complete', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced').eq('id', recordId).maybeSingle()
+              const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced, wo_number').eq('id', recordId).maybeSingle()
               if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
                 const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
                 if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
@@ -269,6 +301,7 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
               if (soId) {
                 await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', soId)
                 await addToShippingQueue(soId)
+                await logActivity(soId, email, `Status changed to Ready to Ship — Work Order WO-${(wo as any)?.wo_number} complete, QC skipped`)
                 return 'Work order complete → Order added to Shipping Queue'
               }
               return 'Work order marked complete'
@@ -280,6 +313,7 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             handler: async () => { await sb.from('work_orders').update({ status: 'On Hold', updated_at: new Date().toISOString() }).eq('id', recordId) },
           },
         ]
+      }
 
       case 'invoice':
         return [

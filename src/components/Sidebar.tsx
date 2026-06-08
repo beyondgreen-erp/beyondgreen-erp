@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { ChatTrigger } from './Chat'
 
-interface NavItem { href: string; label: string; icon: string }
+interface NavItem { href: string; label: string; icon: string; badgeKey?: string }
 interface NavSection { label: string; items: NavItem[] }
 
 const NAV: NavSection[] = [
@@ -17,10 +17,10 @@ const NAV: NavSection[] = [
     { href: '/sales/quotations', label: 'Quotations', icon: 'ti-file-invoice' },
     { href: '/sales/costing', label: 'Quick Quote', icon: 'ti-calculator' },
     { href: '/sales/orders', label: 'Sales Orders', icon: 'ti-shopping-cart' },
-    { href: '/sales/invoices', label: 'Invoices', icon: 'ti-receipt' },
+    { href: '/sales/invoices', label: 'Invoices', icon: 'ti-receipt', badgeKey: 'invoices' },
   ]},
   { label: 'Fulfillment', items: [
-    { href: '/sales/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck' },
+    { href: '/sales/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', badgeKey: 'shippingQueue' },
     { href: '/sales/shipments', label: 'Shipments', icon: 'ti-package-export' },
   ]},
   { label: 'Inventory', items: [
@@ -28,7 +28,7 @@ const NAV: NavSection[] = [
     { href: '/imports', label: 'Import Tracker', icon: 'ti-ship' },
   ]},
   { label: 'Production', items: [
-    { href: '/production', label: 'Work Orders', icon: 'ti-tool' },
+    { href: '/production', label: 'Work Orders', icon: 'ti-tool', badgeKey: 'workOrders' },
     { href: '/production/qc', label: 'Quality Control', icon: 'ti-checkup-list' },
     { href: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode' },
   ]},
@@ -45,14 +45,12 @@ const NAV: NavSection[] = [
   { label: 'Walmart', items: [
     { href: '/walmart', label: 'Walmart Portal', icon: 'ti-building' },
   ]},
-  { label: 'Intelligence', items: [
-    { href: '/settings/berg-brain', label: 'BERG AI', icon: 'ti-brain' },
-    { href: '/settings/berg-alerts', label: 'Alerts', icon: 'ti-bell' },
-  ]},
   { label: 'System', items: [
     { href: '/settings', label: 'Settings', icon: 'ti-settings' },
   ]},
 ]
+
+interface Badges { workOrders: number; shippingQueue: number; invoices: number }
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -60,6 +58,7 @@ export default function Sidebar() {
   const [userEmail, setUserEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [avatarColor, setAvatarColor] = useState('#3B6FE0')
+  const [badges, setBadges] = useState<Badges>({ workOrders: 0, shippingQueue: 0, invoices: 0 })
   const sb = createSupabaseBrowserClient()
 
   useEffect(() => {
@@ -73,6 +72,23 @@ export default function Sidebar() {
         })
     })
   }, [sb])
+
+  useEffect(() => {
+    async function loadBadges() {
+      const today = new Date().toISOString().split('T')[0]
+      const [wo, sq, inv] = await Promise.all([
+        sb.from('work_orders').select('id', { count: 'exact', head: true }).eq('status', 'Queued'),
+        sb.from('shipping_queue').select('id', { count: 'exact', head: true }).eq('is_active', true),
+        sb.from('invoices').select('id', { count: 'exact', head: true }).neq('status', 'paid').neq('status', 'void').lt('due_date', today),
+      ])
+      setBadges({
+        workOrders: wo.count ?? 0,
+        shippingQueue: sq.count ?? 0,
+        invoices: inv.count ?? 0,
+      })
+    }
+    loadBadges()
+  }, [pathname, sb])
 
   const displayName = fullName || userEmail.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   const initials = displayName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
@@ -130,6 +146,13 @@ export default function Sidebar() {
               )}
               {section.items.map(item => {
                 const active = isActive(item.href)
+                const badgeCount = item.badgeKey ? badges[item.badgeKey as keyof Badges] : 0
+                const badgeColor = item.badgeKey === 'workOrders'
+                  ? { bg: '#FDE68A', text: '#92400E' }
+                  : item.badgeKey === 'invoices'
+                    ? { bg: '#FECACA', text: '#991B1B' }
+                    : { bg: '#BFDBFE', text: '#1E40AF' }
+
                 return (
                   <Link
                     key={item.href}
@@ -158,7 +181,17 @@ export default function Sidebar() {
                     )}
                     <i className={`ti ${item.icon} text-lg shrink-0`} style={{ width: 22, textAlign: 'center' }}/>
                     {!collapsed && (
-                      <span className="text-sm font-medium truncate">{item.label}</span>
+                      <span className="flex-1 text-sm font-medium truncate">{item.label}</span>
+                    )}
+                    {!collapsed && badgeCount > 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                        style={{ background: badgeColor.bg, color: badgeColor.text }}>
+                        {badgeCount}
+                      </span>
+                    )}
+                    {collapsed && badgeCount > 0 && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full"
+                        style={{ background: badgeColor.bg }} />
                     )}
                   </Link>
                 )
