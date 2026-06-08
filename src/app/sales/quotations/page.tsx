@@ -14,8 +14,8 @@ interface Quote {
   quote_date: string | null
   expiry_date: string | null
   subtotal: number | null
-  tax_amount: number | null
-  total_amount: number | null
+  tax_pct: number | null
+  total: number | null
   payment_terms: string | null
   notes: string | null
   created_at: string
@@ -260,8 +260,8 @@ export default function QuotationsPage() {
         payment_terms: form.payment_terms || 'Net 30',
         notes: form.notes || null,
         subtotal,
-        tax_amount: taxAmount,
-        total_amount: total,
+        tax_pct: taxRate,
+        total: total,
       }
 
       let quoteId = editing?.id
@@ -323,7 +323,7 @@ export default function QuotationsPage() {
         customer_id: quote.customer_id,
         order_number: 'SO-' + Date.now().toString().slice(-6),
         status: 'Confirmed',
-        total_amount: quote.total_amount ?? 0,
+        total_amount: quote.total ?? 0,
         notes: 'Converted from ' + quote.quote_number,
       }).select('id').single()
 
@@ -394,7 +394,7 @@ export default function QuotationsPage() {
             { label: 'Total Quotes', value: quotes.length, color: '#3B6FE0' },
             { label: 'Pending / Sent', value: quotes.filter(q => q.status === 'Sent').length, color: '#D97706' },
             { label: 'Accepted', value: quotes.filter(q => q.status === 'Accepted').length, color: '#059669' },
-            { label: 'Pipeline Value', value: fmt$(quotes.filter(q => !['Rejected','Converted'].includes(q.status)).reduce((s, q) => s + (q.total_amount ?? 0), 0)), color: '#7C3AED' },
+            { label: 'Pipeline Value', value: fmt$(quotes.filter(q => !['Rejected','Converted'].includes(q.status)).reduce((s, q) => s + (q.total ?? 0), 0)), color: '#7C3AED' },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl border p-5" style={{ borderColor: '#E4E6EE' }}>
               <p className="text-sm mb-1" style={{ color: '#9CA3AF' }}>{s.label}</p>
@@ -523,7 +523,7 @@ export default function QuotationsPage() {
                         {lineCounts[quote.id] ?? 0}
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="text-sm font-semibold" style={{ color: '#1A1D2E' }}>{fmt$(quote.total_amount)}</span>
+                        <span className="text-sm font-semibold" style={{ color: '#1A1D2E' }}>{fmt$(quote.total)}</span>
                       </td>
                       <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -560,7 +560,7 @@ export default function QuotationsPage() {
               <div className="px-4 py-3 flex items-center justify-between border-t" style={{ borderColor: '#F3F4F6', background: '#F9FAFB' }}>
                 <p className="text-xs" style={{ color: '#9CA3AF' }}>{filtered.length} of {quotes.length} quotations</p>
                 <p className="text-xs font-semibold" style={{ color: '#1A1D2E' }}>
-                  Total: {fmt$(filtered.reduce((s, q) => s + (q.total_amount ?? 0), 0))}
+                  Total: {fmt$(filtered.reduce((s, q) => s + (q.total ?? 0), 0))}
                 </p>
               </div>
             </>
