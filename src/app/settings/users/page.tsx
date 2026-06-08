@@ -10,6 +10,8 @@ interface Profile {
   display_name: string | null
   role: string
   department: string | null
+  phone: string | null
+  job_title: string | null
   avatar_color: string
   avatar_initials: string | null
   is_admin: boolean
@@ -22,13 +24,14 @@ interface Presence {
   activity_count: number
 }
 
-const ROLES = ['Admin', 'Manager', 'Member']
+const ROLES = ['Admin', 'Manager', 'Member', 'Viewer']
 const DEPARTMENTS = ['Management', 'Sustainability', 'Marketing', 'Sales', 'R&D', 'Finance', 'Warehouse', 'Other']
 
 const ROLE_COLORS: Record<string, string> = {
   Admin: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
   Manager: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
   Member: 'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
+  Viewer: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
 }
 
 function fmtDate(d: string) {
@@ -48,7 +51,7 @@ export default function UsersPage() {
   const [presence, setPresence] = useState<Record<string, Presence>>({})
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Profile | null>(null)
-  const [editForm, setEditForm] = useState({ role: '', department: '' })
+  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '', job_title: '', role: '', department: '' })
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null)
 
@@ -70,15 +73,27 @@ export default function UsersPage() {
 
   function openEdit(p: Profile) {
     setEditing(p)
-    setEditForm({ role: p.role, department: p.department ?? '' })
+    const parts = p.full_name.trim().split(' ')
+    setEditForm({
+      first_name: parts[0] ?? '',
+      last_name: parts.slice(1).join(' '),
+      phone: p.phone ?? '',
+      job_title: p.job_title ?? '',
+      role: p.role,
+      department: p.department ?? '',
+    })
     setNotice(null)
   }
 
   async function saveEdit() {
     if (!editing) return
     setSaving(true)
-    const initials = editing.full_name.trim().split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
+    const full_name = [editForm.first_name, editForm.last_name].filter(Boolean).join(' ').trim() || editing.full_name
+    const initials = full_name.trim().split(' ').filter(Boolean).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
     const { error } = await sb.from('user_profiles').update({
+      full_name,
+      phone: editForm.phone || null,
+      job_title: editForm.job_title || null,
       role: editForm.role,
       department: editForm.department || null,
       avatar_initials: initials,
@@ -191,7 +206,7 @@ export default function UsersPage() {
       {/* Edit modal */}
       {editing && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 w-full max-w-md space-y-4">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 w-full max-w-lg space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-[#1A1D2E] font-semibold">Edit User</h2>
               <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-gray-700">
@@ -209,18 +224,48 @@ export default function UsersPage() {
                 <p className="text-gray-500 text-xs">{editing.email}</p>
               </div>
             </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Role</label>
-              <select value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))} className={inp + ' cursor-pointer'}>
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
+            {/* Name row */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">First Name</label>
+                <input value={editForm.first_name} onChange={e => setEditForm(p => ({ ...p, first_name: e.target.value }))} className={inp} placeholder="First"/>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Last Name</label>
+                <input value={editForm.last_name} onChange={e => setEditForm(p => ({ ...p, last_name: e.target.value }))} className={inp} placeholder="Last"/>
+              </div>
             </div>
+            {/* Email (readonly) */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Department</label>
-              <select value={editForm.department} onChange={e => setEditForm(p => ({ ...p, department: e.target.value }))} className={inp + ' cursor-pointer'}>
-                <option value="">— None —</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              <label className="block text-xs text-gray-400 mb-1.5">Email</label>
+              <input value={editing.email} readOnly className={inp + ' opacity-60 cursor-not-allowed bg-[#F5F6FA]'}/>
+            </div>
+            {/* Phone + Job Title */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Phone</label>
+                <input value={editForm.phone} onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} className={inp} placeholder="+1 (555) 000-0000"/>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Job Title</label>
+                <input value={editForm.job_title} onChange={e => setEditForm(p => ({ ...p, job_title: e.target.value }))} className={inp} placeholder="e.g. Sales Manager"/>
+              </div>
+            </div>
+            {/* Role + Department */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Role</label>
+                <select value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))} className={inp + ' cursor-pointer'}>
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Department</label>
+                <select value={editForm.department} onChange={e => setEditForm(p => ({ ...p, department: e.target.value }))} className={inp + ' cursor-pointer'}>
+                  <option value="">— None —</option>
+                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
             </div>
             {notice && (
               <div className={`text-xs px-3 py-2.5 rounded-lg border ${notice.ok ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
@@ -229,8 +274,8 @@ export default function UsersPage() {
             )}
             <div className="flex gap-3 pt-1">
               <button onClick={() => setEditing(null)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-                {saving ? 'Saving…' : 'Save'}
+              <button onClick={saveEdit} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+                {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>

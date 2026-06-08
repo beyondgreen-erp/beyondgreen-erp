@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Quote {
@@ -69,6 +70,7 @@ const PAYMENT_TERMS = ['Net 15', 'Net 30', 'Net 45', 'Net 60', 'COD', 'Upfront',
 
 export default function QuotationsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
+  const router = useRouter()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [lineCounts, setLineCounts] = useState<Record<string, number>>({})
@@ -77,6 +79,7 @@ export default function QuotationsPage() {
   const [statusFilter, setStatusFilter] = useState('All')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [confirmConvert, setConfirmConvert] = useState<string | null>(null)
 
   // Panel state
   const [panelOpen, setPanelOpen] = useState(false)
@@ -180,6 +183,7 @@ export default function QuotationsPage() {
     setEditing(null)
     setProductSearch('')
     setProductResults([])
+    setConfirmConvert(null)
   }
 
   function updateLine(i: number, field: string, value: any) {
@@ -298,32 +302,40 @@ export default function QuotationsPage() {
     fetchQuotes()
   }
 
-  async function convertToSO(quote: Quote) {
-    if (!confirm(`Convert "${quote.quote_number}" to a Sales Order?`)) return
-    const { data: quoteLines } = await supabase
-      .from('quotation_lines').select('*').eq('quotation_id', quote.id)
-    const { data: order } = await supabase.from('sales_orders').insert({
-      customer_id: quote.customer_id,
-      order_number: 'SO-' + Date.now().toString().slice(-6),
-      status: 'Confirmed',
-      total_amount: quote.total_amount ?? 0,
-      notes: 'Converted from ' + quote.quote_number,
-    }).select('id').single()
+  async function doConvertToSO(quote: Quote) {
+    setSaving(true)
+    try {
+      const { data: quoteLines } = await supabase
+        .from('quotation_lines').select('*').eq('quotation_id', quote.id)
+      const { data: order } = await supabase.from('sales_orders').insert({
+        customer_id: quote.customer_id,
+        order_number: 'SO-' + Date.now().toString().slice(-6),
+        status: 'Confirmed',
+        total_amount: quote.total_amount ?? 0,
+        notes: 'Converted from ' + quote.quote_number,
+      }).select('id').single()
 
-    if (order) {
-      for (const line of (quoteLines ?? [])) {
-        await supabase.from('sales_order_lines').insert({
-          order_id: (order as any).id,
-          product_id: (line as any).product_id ?? null,
-          sku: (line as any).sku ?? null,
-          product_name: (line as any).product_name ?? (line as any).description ?? '',
-          quantity: (line as any).quantity ?? 1,
-          unit_price: (line as any).unit_price ?? 0,
-        })
+      if (order) {
+        for (const line of (quoteLines ?? [])) {
+          await supabase.from('sales_order_lines').insert({
+            sales_order_id: (order as any).id,
+            product_id: (line as any).product_id ?? null,
+            sku: (line as any).sku ?? null,
+            description: (line as any).product_name ?? (line as any).description ?? '',
+            quantity: (line as any).quantity ?? 1,
+            unit_price: (line as any).unit_price ?? 0,
+          })
+        }
+        await supabase.from('quotations').update({ status: 'Converted' }).eq('id', quote.id)
+        setConfirmConvert(null)
+        closePanel()
+        fetchQuotes()
+        setTimeout(() => router.push('/sales/orders'), 800)
       }
-      await supabase.from('quotations').update({ status: 'Converted' }).eq('id', quote.id)
-      fetchQuotes()
-      window.location.href = '/sales/orders'
+    } catch (e: any) {
+      alert('Conversion error: ' + e.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -512,7 +524,7 @@ export default function QuotationsPage() {
                           </button>
                           {quote.status !== 'Converted' && (
                             <button
-                              onClick={() => convertToSO(quote)}
+                              onClick={() => { openEdit(quote); setConfirmConvert(quote.id) }}
                               className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
                               style={{ background: '#ECFDF5', color: '#059669' }}
                             >
@@ -810,14 +822,37 @@ export default function QuotationsPage() {
         <div className="px-6 py-4 border-t flex items-center justify-between shrink-0" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
           <div>
             {editing && editing.status !== 'Converted' && (
-              <button
-                onClick={() => convertToSO(editing)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{ background: '#ECFDF5', color: '#059669' }}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-                Convert to Sales Order
-              </button>
+              confirmConvert === editing.id ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium" style={{ color: '#374151' }}>
+                    Convert {editing.quote_number} → SO?
+                  </span>
+                  <button
+                    onClick={() => doConvertToSO(editing)}
+                    disabled={saving}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 transition-colors"
+                    style={{ background: '#059669' }}
+                  >
+                    {saving ? 'Converting…' : 'Confirm'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmConvert(null)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{ background: '#F0F2F7', color: '#6B7280' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmConvert(editing.id)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{ background: '#ECFDF5', color: '#059669' }}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                  Convert to Sales Order
+                </button>
+              )
             )}
           </div>
           <div className="flex items-center gap-3">

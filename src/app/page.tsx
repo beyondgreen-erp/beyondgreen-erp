@@ -93,57 +93,56 @@ export default function DashboardPage() {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10)
     const todayStr = now.toISOString().slice(0,10)
 
-    try {
-      const [
-        ordersRes, shipmentsCountRes, invoicesRes, tasksRes,
-        productsRes, workOrdersRes, customersRes,
-        recentOrdersRes, recentTasksRes, overdueRes, pipelineRes,
-      ] = await Promise.all([
-        supabase.from('sales_orders').select('id,status').not('status','in','("Closed","Cancelled")'),
-        supabase.from('shipments').select('id',{count:'exact',head:true}).gte('ship_date', monthStart),
-        supabase.from('invoices').select('id,status,total_amount,due_date').not('status','in','("paid","void")'),
-        supabase.from('tasks').select('id',{count:'exact',head:true}).not('status','in','("Done","Cancelled")'),
-        supabase.from('products').select('id,on_hand_qty,reorder_point'),
-        supabase.from('work_orders').select('id',{count:'exact',head:true}).not('status','in','("Complete","Cancelled")'),
-        supabase.from('customers').select('id',{count:'exact',head:true}),
-        supabase.from('sales_orders').select('id,order_number,status,total,created_at,customer_id,customers(company_name)').order('created_at',{ascending:false}).limit(5),
-        supabase.from('tasks').select('id,task_name,status,due_date,assigned_to').order('created_at',{ascending:false}).limit(5),
-        supabase.from('invoices').select('id,invoice_number_display,total_amount,due_date,customers(company_name)').in('status',['overdue','pending']).lte('due_date', todayStr).order('due_date').limit(5),
-        supabase.from('sales_orders').select('status').not('status','in','("Closed","Cancelled")'),
-      ])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settle = (p: PromiseLike<any>) => Promise.resolve(p).catch(() => ({ data: null, error: null, count: null }))
 
-      const orders = ordersRes.data ?? []
-      const invs = invoicesRes.data ?? []
-      const prods = productsRes.data ?? []
+    const [
+      ordersRes, shipmentsCountRes, invoicesRes, tasksRes,
+      productsRes, workOrdersRes, customersRes,
+      recentOrdersRes, recentTasksRes, overdueRes,
+      paidRes,
+    ] = await Promise.all([
+      settle(supabase.from('sales_orders').select('id,status').not('status','in','("Closed","Cancelled")')),
+      settle(supabase.from('shipments').select('id',{count:'exact',head:true}).gte('ship_date', monthStart)),
+      settle(supabase.from('invoices').select('id,status,total_amount,due_date').not('status','in','("paid","void")')),
+      settle(supabase.from('tasks').select('id',{count:'exact',head:true}).not('status','in','("Done","Cancelled")')),
+      settle(supabase.from('products').select('id,on_hand_qty,reorder_point')),
+      settle(supabase.from('work_orders').select('id',{count:'exact',head:true}).not('status','in','("Complete","Cancelled")')),
+      settle(supabase.from('customers').select('id',{count:'exact',head:true})),
+      settle(supabase.from('sales_orders').select('id,order_number,status,total,created_at,customer_id,customers(company_name)').order('created_at',{ascending:false}).limit(5)),
+      settle(supabase.from('tasks').select('id,task_name,status,due_date,assigned_to').order('created_at',{ascending:false}).limit(5)),
+      settle(supabase.from('invoices').select('id,invoice_number_display,total_amount,due_date,customers(company_name)').in('status',['overdue','pending']).lte('due_date', todayStr).order('due_date').limit(5)),
+      settle(supabase.from('invoices').select('total_amount').eq('status','paid').gte('invoice_date', monthStart)),
+    ])
 
-      const overdueInvs = invs.filter(i => i.status === 'overdue' || (i.due_date && i.due_date < todayStr))
-      const invoicesDue = invs.filter(i => ['pending','partial','overdue'].includes(i.status)).length
-      const lowStock = prods.filter(p => p.reorder_point != null && (p.on_hand_qty ?? 0) <= p.reorder_point).length
+    const orders = ordersRes.data ?? []
+    const invs = invoicesRes.data ?? []
+    const prods = productsRes.data ?? []
 
-      const paidRes = await supabase.from('invoices').select('total_amount').eq('status','paid').gte('invoice_date', monthStart)
-      const revenueMTD = (paidRes.data ?? []).reduce((a,r) => a + (r.total_amount ?? 0), 0)
+    const overdueInvs = invs.filter((i: any) => i.status === 'overdue' || (i.due_date && i.due_date < todayStr))
+    const invoicesDue = invs.filter((i: any) => ['pending','partial','overdue'].includes(i.status)).length
+    const lowStock = prods.filter((p: any) => p.reorder_point != null && (p.on_hand_qty ?? 0) <= p.reorder_point).length
+    const revenueMTD = (paidRes.data ?? []).reduce((a: number, r: any) => a + (r.total_amount ?? 0), 0)
 
-      const pipeline: Record<string,number> = {}
-      for (const o of orders) pipeline[o.status] = (pipeline[o.status] ?? 0) + 1
-      for (const o of (pipelineRes.data ?? [])) pipeline[o.status] = (pipeline[o.status] ?? 0)
+    const pipeline: Record<string,number> = {}
+    for (const o of orders) pipeline[(o as any).status] = (pipeline[(o as any).status] ?? 0) + 1
 
-      setKpi({
-        openOrders: orders.length,
-        revenueMTD,
-        shipmentsMTD: shipmentsCountRes.count ?? 0,
-        invoicesDue,
-        openTasks: tasksRes.count ?? 0,
-        lowStock,
-        openWorkOrders: workOrdersRes.count ?? 0,
-        overdueInvoices: overdueInvs.length,
-        overdueAmount: overdueInvs.reduce((a,r) => a + (r.total_amount ?? 0), 0),
-        totalCustomers: customersRes.count ?? 0,
-      })
-      setPipelineCounts(pipeline)
-      setRecentOrders(recentOrdersRes.data ?? [])
-      setRecentTasks(recentTasksRes.data ?? [])
-      setOverdueInvoiceList(overdueRes.data ?? [])
-    } catch { /* ignore */ }
+    setKpi({
+      openOrders: orders.length,
+      revenueMTD,
+      shipmentsMTD: shipmentsCountRes.count ?? 0,
+      invoicesDue,
+      openTasks: tasksRes.count ?? 0,
+      lowStock,
+      openWorkOrders: workOrdersRes.count ?? 0,
+      overdueInvoices: overdueInvs.length,
+      overdueAmount: overdueInvs.reduce((a: number, r: any) => a + (r.total_amount ?? 0), 0),
+      totalCustomers: customersRes.count ?? 0,
+    })
+    setPipelineCounts(pipeline)
+    setRecentOrders(recentOrdersRes.data ?? [])
+    setRecentTasks(recentTasksRes.data ?? [])
+    setOverdueInvoiceList(overdueRes.data ?? [])
     setLoading(false)
   }
 
