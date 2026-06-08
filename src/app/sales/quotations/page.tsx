@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import Comments from '@/components/Comments'
 
 interface Quote {
   id: string
@@ -80,11 +81,12 @@ export default function QuotationsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [confirmConvert, setConfirmConvert] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState('')
 
   // Panel state
   const [panelOpen, setPanelOpen] = useState(false)
   const [editing, setEditing] = useState<Quote | null>(null)
-  const [panelTab, setPanelTab] = useState<'overview' | 'lines' | 'notes'>('overview')
+  const [panelTab, setPanelTab] = useState<'overview' | 'lines' | 'notes' | 'comments'>('overview')
   const [saving, setSaving] = useState(false)
 
   // Form state
@@ -127,7 +129,10 @@ export default function QuotationsPage() {
   useEffect(() => {
     fetchQuotes()
     fetchCustomers()
-  }, [fetchQuotes, fetchCustomers])
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setUserEmail(user.email)
+    })
+  }, [fetchQuotes, fetchCustomers, supabase])
 
   const cmap = useMemo(() => Object.fromEntries(customers.map(c => [c.id, c.company_name])), [customers])
 
@@ -597,7 +602,7 @@ export default function QuotationsPage() {
 
         {/* Panel Tabs */}
         <div className="flex border-b px-6 shrink-0" style={{ borderColor: '#E4E6EE' }}>
-          {(['overview', 'lines', 'notes'] as const).map(tab => (
+          {(['overview', 'lines', 'notes', 'comments'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setPanelTab(tab)}
@@ -815,6 +820,15 @@ export default function QuotationsPage() {
                 style={{ ...inpStyle, resize: 'vertical' }}
               />
             </div>
+          )}
+
+          {panelTab === 'comments' && (
+            <Comments
+              recordId={editing?.id}
+              recordType="quotation"
+              currentUserEmail={userEmail}
+              title="Comments"
+            />
           )}
         </div>
 
