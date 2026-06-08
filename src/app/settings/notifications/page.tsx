@@ -14,7 +14,6 @@ interface Prefs {
   machine_down_inapp: boolean
   cert_expiring_email: boolean
   cert_expiring_inapp: boolean
-  berg_alert_inapp: boolean
   new_chat_inapp: boolean
 }
 
@@ -29,7 +28,6 @@ const DEFAULT_PREFS: Prefs = {
   machine_down_inapp: true,
   cert_expiring_email: true,
   cert_expiring_inapp: true,
-  berg_alert_inapp: true,
   new_chat_inapp: true,
 }
 
@@ -40,7 +38,6 @@ const NOTIFICATION_ROWS: { label: string; description: string; emailKey?: keyof 
   { label: 'Low stock alert', description: 'When inventory falls below reorder point', inappKey: 'low_stock_inapp' },
   { label: 'Machine down', description: 'When a machine status changes to Down', emailKey: 'machine_down_email', inappKey: 'machine_down_inapp' },
   { label: 'Certification expiring', description: 'When a cert is within 90 days of expiry', emailKey: 'cert_expiring_email', inappKey: 'cert_expiring_inapp' },
-  { label: 'BERG web alert', description: 'New intelligence from BERG monitoring', inappKey: 'berg_alert_inapp' },
   { label: 'New chat message', description: 'When you receive a direct message', inappKey: 'new_chat_inapp' },
 ]
 

@@ -2,7 +2,6 @@
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Sidebar from './Sidebar'
-import BERG from './BERG'
 import PresenceTracker from './PresenceTracker'
 import NotificationBell from './NotificationBell'
 import Chat from './Chat'
@@ -43,8 +42,6 @@ const PAGE_TITLES: Record<string, string> = {
   '/settings/users': 'Users',
   '/settings/company': 'Company',
   '/settings/notifications': 'Notifications',
-  '/settings/berg-brain': 'BERG AI',
-  '/settings/berg-alerts': 'Alerts',
 }
 
 function getPageTitle(pathname: string): string {
@@ -61,6 +58,15 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const [userInitials, setUserInitials] = useState('?')
   const [userName, setUserName] = useState('')
   const [avatarColor, setAvatarColor] = useState('#3B6FE0')
+
+  // Auto-reload when a new service worker takes over, so stale cached JS never persists
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    // Unregister all old SWs immediately
+    navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()))
+    // If a new SW takes control mid-session, reload to get fresh bundles
+    navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload())
+  }, [])
 
   useEffect(() => {
     if (pathname === '/login') return
@@ -136,7 +142,6 @@ export default function ClientShell({ children }: { children: React.ReactNode })
         </div>
       </div>
 
-      <BERG />
       <Chat />
       <PresenceTracker />
       <div className="md:hidden">

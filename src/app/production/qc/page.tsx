@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
-import { addToShippingQueue } from '@/lib/orderFlow'
+import { addToShippingQueue, logActivity } from '@/lib/orderFlow'
 
 interface QCInspection {
   id: string
@@ -50,7 +50,7 @@ interface QCResult {
   notes: string
 }
 
-interface WorkOrder { id: string; wo_number: string; product_id: string | null; qty_ordered: number; status: string }
+interface WorkOrder { id: string; wo_number: string; product_id: string | null; qty_ordered: number; status: string; notes: string | null }
 interface Product { id: string; name: string; sku: string | null }
 interface UserProfile { email: string; full_name: string }
 
@@ -91,6 +91,8 @@ export default function QCPage() {
   const [editing, setEditing] = useState<QCInspection | null>(null)
   const [saving, setSaving] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const [soLineProducts, setSoLineProducts] = useState<Product[]>([])
+  const [soInfo, setSoInfo] = useState<{ order_number: string; customer_name: string } | null>(null)
   const [results, setResults] = useState<Record<string, QCResult>>({})
   const [tableExists, setTableExists] = useState(true)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -108,7 +110,7 @@ export default function QCPage() {
     setLoading(true)
     const [insp, wos, prods, pms, usrs] = await Promise.all([
       sb.from('qc_inspections').select('*').order('created_at',{ascending:false}),
-      sb.from('work_orders').select('id,wo_number,product_id,qty_ordered,status').order('created_at',{ascending:false}).limit(100),
+      sb.from('work_orders').select('id,wo_number,product_id,qty_ordered,status,notes').order('created_at',{ascending:false}).limit(100),
       sb.from('products').select('id,name,sku').order('name').limit(500),
       sb.from('qc_parameters').select('*').eq('is_active',true).order('display_order'),
       sb.from('user_profiles').select('email,full_name').order('full_name'),
@@ -121,6 +123,64 @@ export default function QCPage() {
     setParams(pms.data ?? [])
     setUsers(usrs.data ?? [])
     setLoading(false)
+  }
+
+  async function fetchSOInfo(soId: string) {
+    const [linesRes, soRes] = await Promise.all([
+      sb.from('sales_order_lines').select('product_id').eq('sales_order_id', soId),
+      sb.from('sales_orders').select('order_number,customers(company_name)').eq('id', soId).maybeSingle(),
+    ])
+    const ids = new Set(linesRes.data?.map((l: any) => l.product_id) ?? [])
+    setSoLineProducts(products.filter(p => ids.has(p.id)))
+    const so = soRes.data as any
+    if (so) setSoInfo({ order_number: so.order_number, customer_name: so.customers?.company_name ?? '' })
+    else setSoInfo(null)
+  }
+
+  function printLabel() {
+    const wo = form.work_order_id ? woMap[form.work_order_id] : null
+    const prod = form.product_id ? prodMap[form.product_id] : null
+    const resColor = form.overall_result === 'Pass' ? '#00aa66'
+      : form.overall_result === 'Pass with Conditions' ? '#d97706'
+      : form.overall_result === 'Fail' ? '#cc0000'
+      : form.overall_result === 'Rework Required' ? '#c2410c' : '#888'
+    const w = window.open('', '_blank', 'width=500,height=720')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:4in;height:6in;font-family:Arial,sans-serif;font-size:10pt}
+@media print{@page{size:4in 6in;margin:0}}
+.label{width:4in;height:6in;padding:.2in;display:flex;flex-direction:column;gap:5px;border:2px solid #000}
+.hdr{text-align:center;font-size:15pt;font-weight:bold;border-bottom:2px solid #000;padding-bottom:5px;margin-bottom:2px}
+.sub{text-align:center;font-size:8pt;color:#555;margin-bottom:4px}
+.row{display:flex;flex-direction:column;gap:1px}
+.lbl{font-size:6pt;text-transform:uppercase;color:#777;font-weight:bold;letter-spacing:.5px}
+.val{font-size:11pt;font-weight:bold;color:#000}
+.val.sm{font-size:9pt}
+.div{border-top:1px solid #ccc;margin:3px 0}
+.res{text-align:center;padding:8px 4px;border:2.5px solid;font-size:13pt;font-weight:bold;margin-top:auto;color:${resColor};border-color:${resColor};border-radius:4px}
+.footer{text-align:center;font-size:6.5pt;color:#aaa;margin-top:auto;padding-top:4px}
+</style></head><body><div class="label">
+<div class="hdr">beyondGREEN ERP</div>
+<div class="sub">Quality Control Label</div>
+<div class="row"><span class="lbl">Work Order</span><span class="val">WO-${wo?.wo_number ?? '—'}</span></div>
+${soInfo ? `<div class="row"><span class="lbl">Sales Order</span><span class="val">${soInfo.order_number}</span></div>` : ''}
+${soInfo?.customer_name ? `<div class="row"><span class="lbl">Customer</span><span class="val sm">${soInfo.customer_name}</span></div>` : ''}
+<div class="div"></div>
+<div class="row"><span class="lbl">SKU</span><span class="val">${prod?.sku ?? '—'}</span></div>
+<div class="row"><span class="lbl">Product</span><span class="val sm">${prod?.name ?? '—'}</span></div>
+<div class="row"><span class="lbl">Batch Number</span><span class="val">${form.batch_number || '—'}</span></div>
+<div class="div"></div>
+<div class="row"><span class="lbl">Inspection Type</span><span class="val sm">${form.inspection_type}</span></div>
+<div class="row"><span class="lbl">Inspection Date</span><span class="val sm">${form.inspection_date || '—'}</span></div>
+<div class="row"><span class="lbl">Inspector</span><span class="val sm">${form.inspector_email || '—'}</span></div>
+<div class="row"><span class="lbl">Qty Inspected / Passed / Failed / Rework</span><span class="val sm">${form.qty_inspected} / ${form.qty_passed} / ${form.qty_failed} / ${form.qty_rework}</span></div>
+${form.failure_notes ? `<div class="row"><span class="lbl">Failure Notes</span><span class="val" style="font-size:8pt;font-weight:normal">${form.failure_notes.slice(0,120)}</span></div>` : ''}
+${form.corrective_action ? `<div class="row"><span class="lbl">Corrective Action</span><span class="val" style="font-size:8pt;font-weight:normal">${form.corrective_action.slice(0,120)}</span></div>` : ''}
+<div class="res">${form.overall_result}</div>
+<div class="footer">beyondGREEN ERP &mdash; Printed ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
+</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script></body></html>`)
+    w.document.close()
   }
 
   useEffect(() => {
@@ -162,6 +222,29 @@ export default function QCPage() {
       notes: '', failure_notes: '', corrective_action: '',
     })
     setResults({})
+    setSoLineProducts([])
+    setSoInfo(null)
+    setOpen(true)
+  }
+
+  function openFromWO(wo: WorkOrder) {
+    setEditing(null)
+    setForm({
+      work_order_id: wo.id,
+      product_id: wo.product_id ?? '',
+      inspector_email: userEmail,
+      batch_number: `BATCH-${Date.now().toString().slice(-6)}`,
+      qty_inspected: String(wo.qty_ordered),
+      qty_passed: '0', qty_failed: '0', qty_rework: '0',
+      overall_result: 'Pending', inspection_type: 'Final',
+      inspection_date: new Date().toISOString().slice(0,10),
+      notes: '', failure_notes: '', corrective_action: '',
+    })
+    setResults({})
+    setSoLineProducts([])
+    setSoInfo(null)
+    const soId = wo.notes?.startsWith('SOREF:') ? wo.notes.slice(6) : null
+    if (soId) fetchSOInfo(soId)
     setOpen(true)
   }
 
@@ -183,6 +266,13 @@ export default function QCPage() {
       failure_notes: r.failure_notes ?? '',
       corrective_action: r.corrective_action ?? '',
     })
+    setSoLineProducts([])
+    setSoInfo(null)
+    if (r.work_order_id) {
+      const wo = woMap[r.work_order_id]
+      const soId = wo?.notes?.startsWith('SOREF:') ? wo.notes.slice(6) : null
+      if (soId) fetchSOInfo(soId)
+    }
     if (r.id) {
       sb.from('qc_results').select('*').eq('inspection_id', r.id).then(({ data }) => {
         const map: Record<string, QCResult> = {}
@@ -265,21 +355,27 @@ export default function QCPage() {
     }
 
     if (submit && form.work_order_id) {
+      const { data: wo } = await sb.from('work_orders').select('notes,wo_number').eq('id', form.work_order_id).maybeSingle()
+      const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
+      const woNum = (wo as any)?.wo_number
       if (finalResult === 'Pass') {
         await sb.from('work_orders').update({ status: 'QC Passed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
-        const { data: wo } = await sb.from('work_orders').select('notes').eq('id', form.work_order_id).maybeSingle()
-        const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
         if (soId) {
           await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', soId)
           await addToShippingQueue(soId)
+          await logActivity(soId, userEmail, `QC Passed by ${userEmail} — Status changed to Ready to Ship (WO-${woNum}, batch: ${form.batch_number || 'N/A'})`)
         }
       } else if (finalResult === 'Fail') {
         await sb.from('work_orders').update({ status: 'QC Failed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
-        const { data: wo } = await sb.from('work_orders').select('notes').eq('id', form.work_order_id).maybeSingle()
-        const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
-        if (soId) await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', soId)
+        if (soId) {
+          await sb.from('sales_orders').update({ status: 'In Production', updated_at: new Date().toISOString() }).eq('id', soId)
+          await logActivity(soId, userEmail, `QC Failed by ${userEmail} — Status returned to In Production (WO-${woNum}). ${form.failure_notes ? 'Failure: ' + form.failure_notes : ''}`)
+        }
       } else if (finalResult === 'Rework Required') {
         await sb.from('work_orders').update({ status: 'Rework Required', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
+        if (soId) {
+          await logActivity(soId, userEmail, `QC result: Rework Required — WO-${woNum} by ${userEmail}. ${form.corrective_action ? 'Action: ' + form.corrective_action : ''}`)
+        }
       }
     }
 
@@ -288,6 +384,8 @@ export default function QCPage() {
     close()
     load()
   }
+
+  const pendingWOs = workOrders.filter(w => w.status === 'QC')
 
   const visibleParams = params.filter(p => p.is_global || (form.product_id && p.product_id === form.product_id))
   const criticalParams = visibleParams.filter(p => p.is_critical)
@@ -344,6 +442,39 @@ export default function QCPage() {
           </div>
         ))}
       </div>
+
+      {/* Awaiting Inspection */}
+      {pendingWOs.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-[#1A1D2E] mb-3 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            Awaiting Inspection ({pendingWOs.length})
+          </h2>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {pendingWOs.map(wo => {
+              const prod = wo.product_id ? prodMap[wo.product_id] : null
+              return (
+                <div key={wo.id} className="bg-white border border-amber-500/25 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[#1A1D2E] font-mono">WO-{wo.wo_number}</p>
+                    {prod && <p className="text-xs text-[#5A5A6A] mt-0.5 truncate">{prod.name}</p>}
+                    <p className="text-xs text-amber-600 mt-0.5">{wo.qty_ordered} units</p>
+                  </div>
+                  <button
+                    onClick={() => openFromWO(wo)}
+                    className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
+                    style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FCD34D' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FEF3C7' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#FFFBEB' }}
+                  >
+                    Start Inspection
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-white border border-[#E4E6EE] rounded-xl p-1 w-fit">
@@ -462,16 +593,20 @@ export default function QCPage() {
                 <select value={form.work_order_id} onChange={e => {
                   const wo = woMap[e.target.value]
                   setForm(p => ({ ...p, work_order_id: e.target.value, product_id: wo?.product_id ?? p.product_id }))
+                  setSoLineProducts([])
+                  setSoInfo(null)
+                  const soId = wo?.notes?.startsWith('SOREF:') ? wo.notes.slice(6) : null
+                  if (soId) fetchSOInfo(soId)
                 }} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all">
                   <option value="">— None —</option>
                   {workOrders.map(w => <option key={w.id} value={w.id}>{w.wo_number} ({w.status})</option>)}
                 </select>
               </div>
               <div className="col-span-2">
-                <label className="block text-xs text-[#9898A8] mb-1.5">Product</label>
+                <label className="block text-xs text-[#9898A8] mb-1.5">Product{soLineProducts.length > 0 && <span className="ml-1.5 text-[10px] text-[#5A5A6A]">— from linked SO</span>}</label>
                 <select value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))} className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-2.5 text-sm text-[#1A1D2E] w-full focus:outline-none focus:border-[#3B6FE0] transition-all">
                   <option value="">— None —</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.sku ? `[${p.sku}] ` : ''}{p.name}</option>)}
+                  {(soLineProducts.length > 0 ? soLineProducts : products).map(p => <option key={p.id} value={p.id}>{p.sku ? `[${p.sku}] ` : ''}{p.name}</option>)}
                 </select>
               </div>
               <div>
@@ -610,11 +745,15 @@ export default function QCPage() {
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] flex gap-3">
-          <button onClick={close} className="flex-1 bg-white hover:bg-[#F5F6FA] border border-[#E4E6EE] text-[#1A1D2E] text-sm px-4 py-2.5 rounded-xl transition-all">
+        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] flex gap-2 flex-wrap">
+          <button onClick={close} className="bg-white hover:bg-[#F5F6FA] border border-[#E4E6EE] text-[#1A1D2E] text-sm px-4 py-2.5 rounded-xl transition-all">
             Cancel
           </button>
-          <button onClick={() => save(false)} disabled={saving} className="px-5 py-2.5 rounded-xl border border-[#E4E6EE] text-[#9898A8] hover:text-[#1A1D2E] text-sm transition-all disabled:opacity-50">
+          <button onClick={printLabel} className="px-4 py-2.5 rounded-xl border border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E] text-sm transition-all flex items-center gap-1.5">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+            Print Label
+          </button>
+          <button onClick={() => save(false)} disabled={saving} className="px-4 py-2.5 rounded-xl border border-[#E4E6EE] text-[#9898A8] hover:text-[#1A1D2E] text-sm transition-all disabled:opacity-50">
             {saving ? 'Saving…' : 'Save Draft'}
           </button>
           <button onClick={() => save(true)} disabled={saving} className="flex-1 bg-[#00C896] hover:bg-[#00B085] text-black font-semibold text-sm px-5 py-2.5 rounded-xl transition-all disabled:opacity-50">

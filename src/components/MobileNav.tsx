@@ -17,10 +17,6 @@ export default function MobileNav() {
   function openChat() {
     ;(window as Window & { __openChat?: () => void }).__openChat?.()
   }
-  function openBERG() {
-    ;(window as Window & { __openBERG?: () => void }).__openBERG?.()
-  }
-
   const isActive = (path: string) =>
     path === '/' ? pathname === '/' : pathname.startsWith(path)
 
@@ -81,14 +77,6 @@ export default function MobileNav() {
         <span className="text-[9px] font-medium" style={{ color: inactiveColor }}>Chat</span>
       </button>
 
-      {/* BERG */}
-      <button onClick={openBERG} className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full">
-        <div className="w-7 h-7 rounded-full flex items-center justify-center"
-          style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)' }}>
-          <span className="font-black text-xs" style={{ color: activeColor, fontFamily: 'monospace' }}>B</span>
-        </div>
-        <span className="text-[9px] font-medium" style={{ color: inactiveColor }}>BERG</span>
-      </button>
     </nav>
   )
 }

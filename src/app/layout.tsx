@@ -49,6 +49,17 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.21.0/dist/tabler-icons.min.css"/>
+        {/* Unregister stale service workers and wipe old caches */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              regs.forEach(function(r) { r.unregister(); });
+            });
+            caches.keys().then(function(keys) {
+              keys.forEach(function(k) { caches.delete(k); });
+            });
+          }
+        `}} />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} style={{ background: '#F5F6FA' }}>
         <ClientShell>{children}</ClientShell>
