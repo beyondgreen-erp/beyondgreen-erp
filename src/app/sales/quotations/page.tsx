@@ -330,7 +330,7 @@ export default function QuotationsPage() {
         setConfirmConvert(null)
         closePanel()
         fetchQuotes()
-        setTimeout(() => router.push('/sales/orders'), 800)
+        router.push('/sales/orders')
       }
     } catch (e: any) {
       alert('Conversion error: ' + e.message)
