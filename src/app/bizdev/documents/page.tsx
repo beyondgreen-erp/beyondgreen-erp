@@ -5,7 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
-import CommentSection from '@/components/CommentSection'
+import Comments from '@/components/Comments'
 
 interface Customer { id: string; company_name: string }
 interface Vendor { id: string; company_name: string }
@@ -151,7 +151,7 @@ export default function DocumentsPage() {
           <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Documents" className={inp+' resize-none'}/>
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="documents" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-[#E4E6EE] pt-4"><CommentSection recordType="documents" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="document" recordId={editing.id} currentUserEmail={userEmail}/></div>
           </>)}
         </div>
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">

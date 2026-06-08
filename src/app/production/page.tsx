@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { approveWorkOrder, completeWorkOrder } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
+import Comments from '@/components/Comments'
 
 interface WO {
   id: string
@@ -339,16 +340,18 @@ function ProgressModal({ wo, onClose, onDone }: { wo: WO; onClose: () => void; o
 }
 
 // ─── Work Order Card ──────────────────────────────────────────────────────────
-function WOCard({ wo, soMap, onAction }: {
+function WOCard({ wo, soMap, onAction, userEmail }: {
   wo: WO
   soMap: Record<string, SalesOrder>
   onAction: (action: 'approve' | 'progress' | 'qc' | 'start', wo: WO) => void
+  userEmail: string
 }) {
   const { productName, soId, isAuto } = parseMeta(wo.notes)
   const sku = parseSku(wo.notes)
   const so = soId ? soMap[soId] : null
   const days = daysSince(wo.created_at)
   const pct = wo.qty_ordered > 0 ? Math.round(((wo.qty_produced ?? 0) / wo.qty_ordered) * 100) : 0
+  const [showComments, setShowComments] = useState(false)
 
   const priorityMatch = wo.notes?.match(/Priority: (\w+)/)
   const priority = priorityMatch?.[1]
@@ -434,6 +437,20 @@ function WOCard({ wo, soMap, onAction }: {
           </Link>
           <span className="ml-2 px-1.5 py-0.5 rounded text-[10px]"
             style={{ background: '#F3F4F6', color: '#6B7280' }}>{so.status}</span>
+        </div>
+      )}
+
+      {/* Comments toggle */}
+      <button
+        onClick={() => setShowComments(v => !v)}
+        className="w-full flex items-center justify-between text-xs text-gray-400 hover:text-gray-600 transition-colors py-1"
+      >
+        <span>Comments</span>
+        <svg className={`w-3 h-3 transition-transform ${showComments ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+      </button>
+      {showComments && (
+        <div className="border-t pt-2" style={{ borderColor: '#F3F4F6' }}>
+          <Comments recordId={wo.id} recordType="work_order" currentUserEmail={userEmail}/>
         </div>
       )}
 
@@ -645,7 +662,7 @@ export default function ProductionPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {tabRows.map(wo => (
-            <WOCard key={wo.id} wo={wo} soMap={soMap} onAction={handleAction} />
+            <WOCard key={wo.id} wo={wo} soMap={soMap} onAction={handleAction} userEmail={userEmail} />
           ))}
         </div>
       )}

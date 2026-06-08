@@ -5,7 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
-import CommentSection from '@/components/CommentSection'
+import Comments from '@/components/Comments'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 
@@ -587,7 +587,7 @@ export default function TasksPage() {
                 <FileUpload supabase={sb} recordType="tasks" recordId={editing.id} currentUserEmail={userEmail}/>
               </div>
               <div className="border-t border-[#E4E6EE] pt-5">
-                <CommentSection recordType="tasks" recordId={editing.id} currentUserEmail={userEmail}/>
+                <Comments recordType="task" recordId={editing.id} currentUserEmail={userEmail}/>
               </div>
             </>
           )}

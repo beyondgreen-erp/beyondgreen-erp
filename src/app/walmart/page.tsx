@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import Comments from '@/components/Comments'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line,
@@ -26,7 +27,7 @@ const fmtDate = (d: string) => {
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-type Tab = 'dashboard' | 'production' | 'inventory' | 'orders' | 'bom' | 'ai'
+type Tab = 'dashboard' | 'production' | 'inventory' | 'orders' | 'bom' | 'ai' | 'comments'
 
 interface WalmartInventory {
   id: string; sku: string; product_name: string
@@ -1373,6 +1374,7 @@ export default function WalmartPage() {
   const [bom, setBom] = useState<WalmartBom[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [userEmail, setUserEmail] = useState('')
   const toastClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
@@ -1400,7 +1402,10 @@ export default function WalmartPage() {
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, [load, sb])
 
   // Realtime subscription
   useEffect(() => {
@@ -1421,6 +1426,7 @@ export default function WalmartPage() {
     { id: 'orders' as Tab, label: 'Orders', icon: '📋', badge: openOrderCount },
     { id: 'bom' as Tab, label: 'BOM', icon: '🔧' },
     { id: 'ai' as Tab, label: 'AI Insights', icon: '🤖' },
+    { id: 'comments' as Tab, label: 'Comments', icon: '💬' },
   ]
 
   return (
@@ -1470,6 +1476,11 @@ export default function WalmartPage() {
           {tab === 'orders' && <OrdersTab inventory={inventory} orders={orders} onRefresh={load} showToast={showToast} />}
           {tab === 'bom' && <BomTab bom={bom} onRefresh={load} showToast={showToast} />}
           {tab === 'ai' && <AiInsightsTab showToast={showToast} />}
+          {tab === 'comments' && (
+            <div className="bg-white border border-[#E4E6EE] rounded-2xl p-6">
+              <Comments recordId="walmart-portal" recordType="walmart_order" currentUserEmail={userEmail} title="Walmart Portal Comments"/>
+            </div>
+          )}
         </>
       )}
 

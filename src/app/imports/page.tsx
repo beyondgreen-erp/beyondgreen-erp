@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import dynamic from 'next/dynamic'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import Comments from '@/components/Comments'
 
 const ImportMap = dynamic(
   () => import('@/components/ImportMap'),
@@ -303,12 +304,14 @@ const ShipmentForm = memo(({
   onClose,
   title,
   saveLabel,
+  currentUserEmail,
 }: {
   initial: Record<string, any>
   onSave: (data: Record<string, any>) => Promise<void>
   onClose: () => void
   title: string
   saveLabel: string
+  currentUserEmail?: string
 }) => {
   const [form, setForm] = useState<Record<string, any>>(initial)
   const [saving, setSaving] = useState(false)
@@ -391,6 +394,11 @@ const ShipmentForm = memo(({
         ))}
       </div>
 
+      {initial.id && currentUserEmail !== undefined && (
+        <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
+          <Comments recordId={initial.id} recordType="import" currentUserEmail={currentUserEmail}/>
+        </div>
+      )}
       <div className="p-6 border-t border-[#E4E6EE] flex gap-3 shrink-0">
         <button
           onClick={handleSave}
@@ -594,6 +602,7 @@ export default function ImportsPage() {
   const [error, setError] = useState('')
   const [tab, setTab] = useState('all')
   const [search, setSearch] = useState('')
+  const [userEmail, setUserEmail] = useState('')
   const [editing, setEditing] = useState<any>(null)
   const [adding, setAdding] = useState(false)
   const [showDownload, setShowDownload] = useState(false)
@@ -617,7 +626,10 @@ export default function ImportsPage() {
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    supabase.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, [])
 
   // useCallback keeps onSave stable so ShipmentForm memo doesn't re-render unnecessarily
   const handleSave = useCallback(async (form: Record<string, any>) => {
@@ -1080,6 +1092,7 @@ export default function ImportsPage() {
           saveLabel="Save Changes"
           onSave={handleSave}
           onClose={() => setEditing(null)}
+          currentUserEmail={userEmail}
         />
       )}
 

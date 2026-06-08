@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import nextDynamic from 'next/dynamic'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
-import CommentSection from '@/components/CommentSection'
+import Comments from '@/components/Comments'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import {
@@ -565,7 +565,7 @@ export default function ShipmentsPage() {
                     <FileUpload supabase={sb} recordType="shipments" recordId={editing.id} currentUserEmail={userEmail} />
                   </div>
                   <div className="border-t border-[#E4E6EE] pt-4">
-                    <CommentSection recordType="shipments" recordId={editing.id} currentUserEmail={userEmail} />
+                    <Comments recordType="shipment" recordId={editing.id} currentUserEmail={userEmail}/>
                   </div>
                 </>
               )}

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
 import { addToShippingQueue, logActivity } from '@/lib/orderFlow'
+import Comments from '@/components/Comments'
 
 interface QCInspection {
   id: string
@@ -743,6 +744,13 @@ ${form.corrective_action ? `<div class="row"><span class="lbl">Corrective Action
             )}
           </section>
         </div>
+
+        {/* Comments */}
+        {editing && (
+          <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
+            <Comments recordId={editing.id} recordType="qc_inspection" currentUserEmail={userEmail}/>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] flex gap-2 flex-wrap">

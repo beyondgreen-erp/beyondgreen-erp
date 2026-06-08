@@ -7,6 +7,7 @@ import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import Comments from '@/components/Comments'
 
 interface ShipQItem {
   id: string
@@ -57,6 +58,7 @@ export default function ShippingQueuePage() {
   const [shipping, setShipping] = useState(false)
 
   // Edit panel
+  const [userEmail, setUserEmail] = useState('')
   const [editItem, setEditItem] = useState<ShipQItem | null>(null)
   const [editForm, setEditForm] = useState({ carrier: '', tracking_number: '', scheduled_ship_date: '', notes: '' })
   const [saving, setSaving] = useState(false)
@@ -89,7 +91,10 @@ export default function ShippingQueuePage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, []) // eslint-disable-line
+  useEffect(() => {
+    load()
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, []) // eslint-disable-line
 
   const filtered = rows.filter(r => {
     const order = r.sales_order_id ? orderMap[r.sales_order_id] : null
@@ -495,6 +500,9 @@ export default function ShippingQueuePage() {
                 <label className="block text-xs text-gray-400 mb-1.5">Notes</label>
                 <textarea rows={2} value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} className={inp + ' resize-none'}/>
               </div>
+            </div>
+            <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
+              <Comments recordId={editItem.id} recordType="shipping_queue" currentUserEmail={userEmail}/>
             </div>
             <div className="px-6 pb-5 flex gap-3">
               <button onClick={() => setEditItem(null)} className="flex-1 text-sm border border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E] py-2.5 rounded-xl transition-colors">Cancel</button>

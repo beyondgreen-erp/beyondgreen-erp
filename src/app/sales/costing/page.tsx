@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { generateCustomerCostingPDF, generateInternalCostingPDF } from '@/lib/generateCostingQuotePDF'
+import Comments from '@/components/Comments'
 
 // ─────────────────────────────────────────────
 // Types
@@ -879,6 +880,12 @@ export default function QuoteCostingPage() {
               <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Internal Notes <span className="ml-1 text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded text-xs">Internal Only</span></label>
               <textarea rows={3} value={quoteForm.internal_notes} onChange={e => setQuoteForm(p => ({ ...p, internal_notes: e.target.value }))} placeholder="Internal notes (not on customer PDF)…" className={inp + ' resize-none'} />
             </div>
+
+            {editingQuote && (
+              <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
+                <Comments recordId={editingQuote.id} recordType="quick_quote" currentUserEmail={userEmail}/>
+              </div>
+            )}
           </div>
         </div>
 

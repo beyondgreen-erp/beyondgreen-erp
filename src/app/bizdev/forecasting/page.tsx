@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import Comments from '@/components/Comments'
 
 interface Order {
   id: string
@@ -143,6 +144,7 @@ export default function ForecastingPage() {
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState('')
 
   async function load() {
     setLoading(true)
@@ -160,7 +162,10 @@ export default function ForecastingPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, []) // eslint-disable-line
+  useEffect(() => {
+    load()
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, []) // eslint-disable-line
 
   const { monthly, customerForecasts } = useMemo(() => buildForecast(orders), [orders])
 
@@ -315,6 +320,11 @@ export default function ForecastingPage() {
           </div>
         </section>
       )}
+
+      {/* Forecast Comments */}
+      <section className="bg-white border border-[#E4E6EE] rounded-2xl p-6">
+        <Comments recordId="forecasting" recordType="forecast" currentUserEmail={userEmail} title="Forecast Notes & Comments"/>
+      </section>
     </div>
   )
 }

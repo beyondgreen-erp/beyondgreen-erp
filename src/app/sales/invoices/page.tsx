@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
-import CommentSection from '@/components/CommentSection'
+import Comments from '@/components/Comments'
 import { generateInvoicePDF } from '@/lib/generateInvoice'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
@@ -744,7 +744,7 @@ export default function InvoicesPage() {
 
                 {/* Comments */}
                 <div className="border-t border-[#E4E6EE] pt-5 pb-6">
-                  <CommentSection recordType="invoices" recordId={sel.id} currentUserEmail={userEmail}/>
+                  <Comments recordType="invoice" recordId={sel.id} currentUserEmail={userEmail}/>
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import Comments from '@/components/Comments'
 
 interface LotCode {
   id: string
@@ -46,6 +47,7 @@ export default function LotsPage() {
   const [tab, setTab] = useState('All')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<LotCode | null>(null)
+  const [userEmail, setUserEmail] = useState('')
   const [children, setChildren] = useState<LotCode[]>([])
   const [parent, setParent] = useState<LotCode | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -64,7 +66,10 @@ export default function LotsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, []) // eslint-disable-line
+  useEffect(() => {
+    load()
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, []) // eslint-disable-line
 
   async function openLot(lot: LotCode) {
     setSelected(lot)
@@ -409,6 +414,10 @@ export default function LotsPage() {
                   )}
                 </div>
               </section>
+            </div>
+
+            <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
+              <Comments recordId={selected.id} recordType="lot_code" currentUserEmail={userEmail}/>
             </div>
 
             <div className="px-6 py-4 border-t border-[#E4E6EE] shrink-0 flex gap-3">

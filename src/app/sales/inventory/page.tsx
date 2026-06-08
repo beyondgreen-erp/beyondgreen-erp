@@ -7,6 +7,7 @@ import BomEditor from './BomEditor'
 import CaseLabel from './CaseLabel'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import Comments from '@/components/Comments'
 
 interface Product {
   id: string
@@ -85,7 +86,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string;
 // ── Edit panel (memo'd so typing doesn't re-render table) ────
 const EditPanel = memo(function EditPanel({
   open, editing, form, setForm, err, saving, busy,
-  onClose, onSave, onDelete, onToggleActive,
+  onClose, onSave, onDelete, onToggleActive, userEmail,
 }: {
   open: boolean
   editing: Product | null
@@ -98,6 +99,7 @@ const EditPanel = memo(function EditPanel({
   onSave: () => void
   onDelete: () => void
   onToggleActive: () => void
+  userEmail: string
 }) {
   const liveValue = (parseFloat(form.on_hand_qty) || 0) * (parseFloat(form.unit_cost) || 0)
 
@@ -231,6 +233,13 @@ const EditPanel = memo(function EditPanel({
             <textarea rows={2} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className={inp + ' resize-none'}/>
           </div>
 
+          {/* Comments */}
+          {editing && (
+            <div className="border-t border-[#E4E6EE] pt-4">
+              <Comments recordId={editing.id} recordType="product" currentUserEmail={userEmail}/>
+            </div>
+          )}
+
           {/* Toggles */}
           <div className="space-y-2">
             {([
@@ -297,6 +306,7 @@ export default function InventoryPage() {
   const [bomProduct, setBomProduct] = useState<Product | null>(null)
   const [labelProduct, setLabelProduct] = useState<Product | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [userEmail, setUserEmail] = useState('')
   const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
@@ -316,7 +326,10 @@ export default function InventoryPage() {
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+  }, [load, sb])
 
   // Tab-filtered pool (before search)
   const tabPool = useMemo(() =>
@@ -611,6 +624,7 @@ export default function InventoryPage() {
         onClose={closeEdit} onSave={save}
         onDelete={() => { if (editing) handleDelete(editing.id, editing.sku).then(closeEdit) }}
         onToggleActive={toggleActive}
+        userEmail={userEmail}
       />
 
       {bomProduct && (

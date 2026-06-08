@@ -6,7 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
-import CommentSection from '@/components/CommentSection'
+import Comments from '@/components/Comments'
 
 type PaymentTerms = 'Net 15' | 'Net 30' | 'Net 45' | 'COD'
 
@@ -431,7 +431,7 @@ export default function VendorsPage() {
           <TagInput ref={tagRef} value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} page="Vendors" className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none" />
           {editing && (<>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={supabase} recordType="vendors" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-[#E4E6EE] pt-4"><CommentSection recordType="vendors" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="vendor" recordId={editing.id} currentUserEmail={userEmail}/></div>
           </>)}
         </div>
 
