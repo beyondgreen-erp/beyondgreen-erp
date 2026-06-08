@@ -8,7 +8,7 @@ import BulkActionBar from '@/components/BulkActionBar'
 import WorkflowMover, { WorkflowProgressBar } from '@/components/WorkflowMover'
 import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
-import CommentSection from '@/components/CommentSection'
+import Comments from '@/components/Comments'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -1004,9 +1004,8 @@ export default function OrdersPage() {
                                 </tbody>
                               </table>
                             </div>
-                            <div className="ml-8 mr-2 mb-3 mt-2 border-t border-[#E4E6EE] pt-3">
-                              <p className="text-xs font-semibold text-gray-500 mb-2">Activity Log</p>
-                              <CommentSection recordType="sales_order" recordId={order.id} currentUserEmail={userEmail}/>
+                            <div className="ml-8 mr-2 mb-4 mt-2 border-t border-[#E4E6EE] pt-4">
+                              <Comments recordType="sales_order" recordId={order.id} currentUserEmail={userEmail ?? ''} title="Activity Log"/>
                             </div>
                           </td>
                         </tr>
@@ -1102,9 +1101,8 @@ export default function OrdersPage() {
                                   </tbody>
                                 </table>
                               </div>
-                              <div className="ml-6 mr-2 mb-3 mt-2 border-t border-[#E4E6EE] pt-3">
-                                <p className="text-xs font-semibold text-gray-500 mb-2">Activity Log</p>
-                                <CommentSection recordType="sales_order" recordId={order.id} currentUserEmail={userEmail}/>
+                              <div className="ml-6 mr-2 mb-4 mt-2 border-t border-[#E4E6EE] pt-4">
+                                <Comments recordType="sales_order" recordId={order.id} currentUserEmail={userEmail ?? ''} title="Activity Log"/>
                               </div>
                             </td>
                           </tr>
