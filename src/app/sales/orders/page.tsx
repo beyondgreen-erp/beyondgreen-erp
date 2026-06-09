@@ -10,6 +10,7 @@ import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
+import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder } from '@/lib/pdfHelpers'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -668,6 +669,49 @@ export default function OrdersPage() {
     })
   }
 
+  async function fetchOrderLinesForPdf(orderId: string): Promise<PDFLine[]> {
+    const { data } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', orderId).order('line_number')
+    return ((data ?? []) as OrderLine[]).map((l, i) => ({
+      line_number: l.line_number ?? i + 1,
+      sku: l.sku,
+      description: l.description ?? l.added_details ?? '',
+      quantity: l.quantity,
+      quantity_shipped: l.quantity_shipped ?? undefined,
+      unit_of_measure: l.unit_of_measure,
+      unit_price: l.unit_price,
+      discount_pct: 0,
+    }))
+  }
+
+  function buildPdfOrder(order: SalesOrder): PDFOrder {
+    const val = orderValue(order)
+    return {
+      order_number: order.order_number,
+      order_date: order.order_date,
+      required_ship_date: order.required_ship_date ?? order.ship_date,
+      status: order.status,
+      po_number: order.po_number,
+      shipping_address: order.shipping_address,
+      carrier: order.carrier,
+      subtotal: val,
+      tax_pct: 0,
+      total: val,
+      notes: order.notes,
+    }
+  }
+
+  async function handleDownloadOrderPdf(order: SalesOrder) {
+    const lines = await fetchOrderLinesForPdf(order.id)
+    const customer = order.customer ? { company_name: order.customer.company_name, email: order.customer.email, phone: order.customer.phone } : null
+    generateOrderPDF(buildPdfOrder(order), lines, customer)
+  }
+
+  async function handleDownloadPackingListPdf(order: SalesOrder) {
+    const lines = await fetchOrderLinesForPdf(order.id)
+    const customer = order.customer ? { company_name: order.customer.company_name, email: order.customer.email, phone: order.customer.phone } : null
+    generatePackingSlip(buildPdfOrder(order), lines, customer)
+  }
+
   // Form helpers
   function openAdd() {
     setEditingOrder(null); setForm(emptyForm); setEditLines([]); setErr(''); setEditOpen(true)
@@ -1004,6 +1048,24 @@ export default function OrdersPage() {
                                 </tbody>
                               </table>
                             </div>
+                            <div className="ml-8 mr-2 mt-2 mb-1 flex items-center gap-2">
+                              <button
+                                onClick={e => { e.stopPropagation(); handleDownloadOrderPdf(order) }}
+                                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
+                                style={{ borderColor: '#1A2035', color: '#1A2035' }}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                                Sales Order PDF
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); handleDownloadPackingListPdf(order) }}
+                                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
+                                style={{ borderColor: '#3B6FE0', color: '#3B6FE0' }}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                                Packing List PDF
+                              </button>
+                            </div>
                             <div className="ml-8 mr-2 mb-4 mt-2 border-t border-[#E4E6EE] pt-4">
                               <Comments recordType="sales_order" recordId={order.id} currentUserEmail={userEmail ?? ''} title="Activity Log"/>
                             </div>
@@ -1100,6 +1162,24 @@ export default function OrdersPage() {
                                     <LinesTable orderId={order.id} onLineUpdated={load}/>
                                   </tbody>
                                 </table>
+                              </div>
+                              <div className="ml-6 mr-2 mt-2 mb-1 flex items-center gap-2">
+                                <button
+                                  onClick={e => { e.stopPropagation(); handleDownloadOrderPdf(order) }}
+                                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
+                                  style={{ borderColor: '#1A2035', color: '#1A2035' }}
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                                  Sales Order PDF
+                                </button>
+                                <button
+                                  onClick={e => { e.stopPropagation(); handleDownloadPackingListPdf(order) }}
+                                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
+                                  style={{ borderColor: '#3B6FE0', color: '#3B6FE0' }}
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                                  Packing List PDF
+                                </button>
                               </div>
                               <div className="ml-6 mr-2 mb-4 mt-2 border-t border-[#E4E6EE] pt-4">
                                 <Comments recordType="sales_order" recordId={order.id} currentUserEmail={userEmail ?? ''} title="Activity Log"/>

@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import { generateQuotePDF, type PDFLine } from '@/lib/pdfHelpers'
 
 interface Quote {
   id: string
@@ -280,7 +281,7 @@ export default function QuotationsPage() {
       }
 
       if (quoteId && lines.length > 0) {
-        const validLines = lines.filter(l => l.product_name || l.sku || l.description || l.unit_price > 0)
+        const validLines = lines.filter(l => l.product_name || l.sku || l.description || (l.unit_price ?? 0) > 0)
         if (validLines.length > 0) {
           const { error: linesErr } = await supabase.from('quotation_lines').insert(
             validLines.map(l => ({
@@ -305,6 +306,34 @@ export default function QuotationsPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  function handleDownloadPdf() {
+    if (!editing) return
+    const customer = customers.find(c => c.id === form.customer_id)
+    const pdfLines: PDFLine[] = lines.map((l, i) => ({
+      line_number: i + 1,
+      sku: l.sku ?? null,
+      description: l.product_name ?? l.description ?? '',
+      quantity: l.quantity ?? 1,
+      unit_of_measure: null,
+      unit_price: l.unit_price ?? 0,
+      discount_pct: 0,
+    }))
+    generateQuotePDF(
+      {
+        quote_number: editing.quote_number,
+        quote_date: form.quote_date || null,
+        expiry_date: form.expiry_date || null,
+        status: form.status,
+        tax_pct: taxRate,
+        subtotal,
+        total,
+        notes: form.notes || null,
+      },
+      pdfLines,
+      customer ? { company_name: customer.company_name } : null
+    )
   }
 
   async function handleDelete(id: string) {
@@ -880,6 +909,17 @@ export default function QuotationsPage() {
             <button onClick={closePanel} className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>
               Cancel
             </button>
+            {editing && (
+              <button
+                onClick={handleDownloadPdf}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50"
+                style={{ borderColor: '#1A2035', color: '#1A2035' }}
+                title="Download PDF"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                Download PDF
+              </button>
+            )}
             <button
               onClick={handleSave}
               disabled={saving}
