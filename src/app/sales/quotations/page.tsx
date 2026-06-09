@@ -280,7 +280,7 @@ export default function QuotationsPage() {
       }
 
       if (quoteId && lines.length > 0) {
-        const validLines = lines.filter(l => l.product_name || l.sku || l.description)
+        const validLines = lines.filter(l => l.product_name || l.sku || l.description || l.unit_price > 0)
         if (validLines.length > 0) {
           const { error: linesErr } = await supabase.from('quotation_lines').insert(
             validLines.map(l => ({
