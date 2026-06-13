@@ -51,8 +51,8 @@ export interface SkuItem {
   notes: string | null;
 }
 
-export const ENGINE: EngineRates = (raw as any).engine;
-export const ITEMS: SkuItem[] = (raw as any).items;
+export const ENGINE: EngineRates = (raw as unknown as { engine: EngineRates }).engine;
+export const ITEMS: SkuItem[] = (raw as unknown as { items: SkuItem[] }).items;
 
 export interface LandedBreakdown {
   fob: number;

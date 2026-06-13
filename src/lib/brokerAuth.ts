@@ -7,7 +7,7 @@ const TTL_MS = 1000 * 60 * 60 * 12; // 12-hour session
 function b64url(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let s = "";
-  for (const b of arr) s += String.fromCharCode(b);
+  for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 

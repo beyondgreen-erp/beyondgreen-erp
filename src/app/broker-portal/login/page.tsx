@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function BrokerLoginPage() {
+function BrokerLoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -80,3 +80,11 @@ const styles: Record<string, React.CSSProperties> = {
   btn: { marginTop: 16, width: "100%", padding: "12px", borderRadius: 9, border: "none", background: "#1F4E2C", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" },
   foot: { marginTop: 22, fontSize: 11, color: "#90a096", lineHeight: 1.5 },
 };
+
+export default function BrokerLoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <BrokerLoginForm />
+    </Suspense>
+  );
+}
