@@ -8,6 +8,7 @@ import UndoToast from '@/components/UndoToast'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import Comments from '@/components/Comments'
+import LabelWizard from '@/components/LabelWizard'
 
 interface ShipQItem {
   id: string
@@ -56,6 +57,10 @@ export default function ShippingQueuePage() {
   const [shipModal, setShipModal] = useState<ShipQItem | null>(null)
   const [shipForm, setShipForm] = useState({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '' })
   const [shipping, setShipping] = useState(false)
+
+  // Label Wizard
+  const [labelOrderId, setLabelOrderId] = useState<string | null>(null)
+  const [labelCarrier, setLabelCarrier] = useState<string | null>(null)
 
   // Edit panel
   const [userEmail, setUserEmail] = useState('')
@@ -344,6 +349,17 @@ export default function ShippingQueuePage() {
                           >
                             Edit
                           </button>
+                          {row.sales_order_id && (
+                            <button
+                              onClick={() => { setLabelOrderId(row.sales_order_id); setLabelCarrier(row.carrier ?? null) }}
+                              className="flex items-center gap-1 text-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 px-2.5 py-1.5 rounded-lg transition-colors font-medium whitespace-nowrap"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                              </svg>
+                              Labels
+                            </button>
+                          )}
                           <button
                             onClick={() => removeFromQueue(row)}
                             className="text-xs text-gray-600 hover:text-red-400 px-2 py-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
@@ -512,6 +528,14 @@ export default function ShippingQueuePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {labelOrderId && (
+        <LabelWizard
+          orderId={labelOrderId}
+          initialCarrier={labelCarrier}
+          onClose={() => { setLabelOrderId(null); setLabelCarrier(null) }}
+        />
       )}
 
       {toast && (
