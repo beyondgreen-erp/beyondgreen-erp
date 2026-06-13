@@ -34,7 +34,7 @@ export default function OverviewPage() {
       const now=new Date(); now.setHours(0,0,0,0)
 
       const [{data:wos},{data:machines},{data:plans},{data:products}]=await Promise.all([
-        sb.from('work_orders').select('status,due_date').eq('is_active',true),
+        sb.from('work_orders').select('status,due_date'),
         sb.from('machines').select('status').eq('is_active',true),
         sb.from('daily_plan').select('status,plan_date').eq('is_active',true).eq('plan_date',today),
         sb.from('products').select('on_hand_qty,reorder_point').eq('is_active',true),
