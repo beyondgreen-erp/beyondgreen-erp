@@ -52,17 +52,46 @@ export default function PortalClient() {
     router.refresh();
   }
 
+  function exportCSV() {
+    const data = ITEMS as unknown as Array<Record<string, unknown>>;
+    if (!data.length) return;
+    const keys = Array.from(
+      data.reduce((set: Set<string>, it) => {
+        Object.keys(it).forEach((k) => set.add(k));
+        return set;
+      }, new Set<string>())
+    );
+    const esc = (v: unknown) => {
+      const s =
+        v === null || v === undefined
+          ? ""
+          : typeof v === "object"
+          ? JSON.stringify(v)
+          : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [keys.join(",")];
+    for (const it of data) lines.push(keys.map((k) => esc(it[k])).join(","));
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `beyondGREEN-Professional-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div style={S.page}>
       <header style={S.header}>
         <div style={S.brandRow}>
           <span style={S.leaf}>‹/›</span>
           <div>
-            <div style={S.brand}>beyondGREEN — Broker &amp; Sales Portal</div>
+      <div style={S.brand}>beyondGREEN Professional</div>
             <div style={S.tagline}>Landed cost &amp; bid pricing · {ITEMS.length} SKUs · rates as of {ENGINE.asOf}</div>
           </div>
         </div>
-        <button onClick={logout} style={S.logout}>Sign out</button>
+        <div style={{ display: "flex", gap: 8 }}><button onClick={exportCSV} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#2E7D32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Export CSV</button><button onClick={logout} style={S.logout}>Sign out</button></div>
       </header>
 
       <div style={S.statRow}>

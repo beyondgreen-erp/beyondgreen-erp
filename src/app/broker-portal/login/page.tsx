@@ -42,7 +42,7 @@ function BrokerLoginForm() {
           <span style={styles.leaf}>‹/›</span>
           <span style={styles.brand}>beyondGREEN</span>
         </div>
-        <h1 style={styles.h1}>Broker &amp; Sales Portal</h1>
+        <h1 style={styles.h1}>beyondGREEN Professional</h1>
         <p style={styles.sub}>Internal pricing tool. Enter your access password to continue.</p>
         <form onSubmit={submit}>
           <label style={styles.label} htmlFor="pw">Access password</label>
