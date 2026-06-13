@@ -12,14 +12,13 @@ import LabelWizard from '@/components/LabelWizard'
 
 interface ShipQItem {
   id: string
-  sales_order_id: string | null
+  order_id: string | null
   carrier: string | null
   tracking_number: string | null
   scheduled_ship_date: string | null
   actual_ship_date: string | null
   status: string
   notes: string | null
-  is_active: boolean
 }
 interface SalesOrder {
   id: string
@@ -75,13 +74,12 @@ export default function ShippingQueuePage() {
     const { data: q } = await sb
       .from('shipping_queue')
       .select('*')
-      .eq('is_active', true)
       .order('created_at', { ascending: false })
     if (!q) { setLoading(false); return }
     setRows(q as ShipQItem[])
 
     // Load linked orders
-    const orderIds = Array.from(new Set(q.map((r: ShipQItem) => r.sales_order_id).filter(Boolean))) as string[]
+    const orderIds = Array.from(new Set(q.map((r: ShipQItem) => r.order_id).filter(Boolean))) as string[]
     if (orderIds.length > 0) {
       const { data: orders } = await sb
         .from('sales_orders')
@@ -102,7 +100,7 @@ export default function ShippingQueuePage() {
   }, []) // eslint-disable-line
 
   const filtered = rows.filter(r => {
-    const order = r.sales_order_id ? orderMap[r.sales_order_id] : null
+    const order = r.order_id ? orderMap[r.order_id] : null
     const custName = (order?.customers as any)?.company_name ?? (order?.notes ?? '').split('|')[0]
     if (statusFilter !== 'all' && r.status !== statusFilter) return false
     if (!search) return true
@@ -128,9 +126,9 @@ export default function ShippingQueuePage() {
   }
 
   async function confirmShip() {
-    if (!shipModal?.sales_order_id) return
+    if (!shipModal?.order_id) return
     setShipping(true)
-    const orderId = shipModal.sales_order_id
+    const orderId = shipModal.order_id
 
     // Get current order status for undo
     const { data: order } = await sb.from('sales_orders').select('status').eq('id', orderId).single()
@@ -166,7 +164,7 @@ export default function ShippingQueuePage() {
 
   async function removeFromQueue(item: ShipQItem) {
     if (!confirm('Remove this order from the shipping queue?')) return
-    await sb.from('shipping_queue').update({ is_active: false }).eq('id', item.id)
+    await sb.from('shipping_queue').delete().eq('id', item.id)
     load()
   }
 
@@ -188,7 +186,7 @@ export default function ShippingQueuePage() {
   async function bulkDelete() {
     if (!confirm(`Remove ${ms.count} items from the shipping queue?`)) return
     setDeleting(true)
-    await sb.from('shipping_queue').update({ is_active: false }).in('id', Array.from(ms.selected))
+    await sb.from('shipping_queue').delete().in('id', Array.from(ms.selected))
     ms.clear(); setDeleting(false); load()
   }
 
@@ -296,7 +294,7 @@ export default function ShippingQueuePage() {
               </thead>
               <tbody>
                 {filtered.map((row, i) => {
-                  const order = row.sales_order_id ? orderMap[row.sales_order_id] : null
+                  const order = row.order_id ? orderMap[row.order_id] : null
                   const custName = (order?.customers as any)?.company_name ?? (order?.notes ?? '').split('|')[0].trim() ?? '—'
                   return (
                     <tr key={row.id}
@@ -349,9 +347,9 @@ export default function ShippingQueuePage() {
                           >
                             Edit
                           </button>
-                          {row.sales_order_id && (
+                          {row.order_id && (
                             <button
-                              onClick={() => { setLabelOrderId(row.sales_order_id); setLabelCarrier(row.carrier ?? null) }}
+                              onClick={() => { setLabelOrderId(row.order_id); setLabelCarrier(row.carrier ?? null) }}
                               className="flex items-center gap-1 text-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 px-2.5 py-1.5 rounded-lg transition-colors font-medium whitespace-nowrap"
                             >
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -396,9 +394,9 @@ export default function ShippingQueuePage() {
             <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE]">
               <div>
                 <h2 className="text-[#1A1D2E] font-semibold">Confirm Shipment</h2>
-                {shipModal.sales_order_id && orderMap[shipModal.sales_order_id] && (
+                {shipModal.order_id && orderMap[shipModal.order_id] && (
                   <p className="text-gray-500 text-xs mt-0.5">
-                    {orderMap[shipModal.sales_order_id].order_number} · {(orderMap[shipModal.sales_order_id].customers as any)?.company_name ?? (orderMap[shipModal.sales_order_id].notes ?? '').split('|')[0].trim()}
+                    {orderMap[shipModal.order_id].order_number} · {(orderMap[shipModal.order_id].customers as any)?.company_name ?? (orderMap[shipModal.order_id].notes ?? '').split('|')[0].trim()}
                   </p>
                 )}
               </div>

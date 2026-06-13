@@ -218,7 +218,7 @@ export async function addToShippingQueue(orderId: string): Promise<void> {
   const { data: existing } = await sb
     .from('shipping_queue')
     .select('id')
-    .eq('sales_order_id', orderId)
+    .eq('order_id', orderId)
     .maybeSingle()
   if (existing) return
 
@@ -233,14 +233,13 @@ export async function addToShippingQueue(orderId: string): Promise<void> {
     (order?.notes ?? '').split('|')[0].trim() || ''
 
   await sb.from('shipping_queue').insert({
-    sales_order_id: orderId,
+    order_id: orderId,
     carrier: null,
     tracking_number: null,
     scheduled_ship_date: null,
     actual_ship_date: null,
     status: 'Pending',
     notes: `Auto-added: ${customerName} — ${(order as any)?.order_number ?? ''}`,
-    is_active: true,
   })
 }
 
@@ -265,7 +264,7 @@ export async function onStatusChange(
     const { data: existing } = await sb
       .from('shipping_queue')
       .select('id')
-      .eq('sales_order_id', orderId)
+      .eq('order_id', orderId)
       .maybeSingle()
 
     if (!existing) {
@@ -280,14 +279,13 @@ export async function onStatusChange(
         (order?.notes ?? '').split('|')[0].trim() || ''
 
       await sb.from('shipping_queue').insert({
-        sales_order_id: orderId,
+        order_id: orderId,
         carrier: null,
         tracking_number: null,
         scheduled_ship_date: null,
         actual_ship_date: null,
         status: 'Pending',
         notes: `Auto-added: ${customerName} — ${order?.order_number ?? ''}`,
-        is_active: true,
       })
     }
 
@@ -388,7 +386,7 @@ export async function onStatusChange(
     await sb.from('sales_orders')
       .update({ ship_date: shipDetails?.shipDate ?? today })
       .eq('id', orderId)
-    await sb.from('shipping_queue').delete().eq('sales_order_id', orderId)
+    await sb.from('shipping_queue').delete().eq('order_id', orderId)
 
     return {
       success: true,
@@ -425,7 +423,7 @@ export async function undoFlow(undoData: any): Promise<FlowResult> {
   const sb = createSupabaseBrowserClient()
 
   if (undoData.action === 'remove_from_queue') {
-    await sb.from('shipping_queue').delete().eq('sales_order_id', undoData.orderId)
+    await sb.from('shipping_queue').delete().eq('order_id', undoData.orderId)
     await sb.from('sales_orders')
       .update({ status: undoData.prevStatus, updated_at: new Date().toISOString() })
       .eq('id', undoData.orderId)
