@@ -12,40 +12,39 @@ const NAV: NavSection[] = [
   { label: 'Overview', items: [
     { href: '/', label: 'Dashboard', icon: 'ti-layout-dashboard' },
   ]},
-  { label: 'Sales', items: [
+  { label: 'CRM', items: [
     { href: '/sales/customers', label: 'Customers', icon: 'ti-users' },
+  ]},
+  { label: 'Sales', items: [
     { href: '/sales/quotations', label: 'Quotations', icon: 'ti-file-invoice' },
     { href: '/sales/costing', label: 'Quick Quote', icon: 'ti-calculator' },
     { href: '/sales/orders', label: 'Sales Orders', icon: 'ti-shopping-cart' },
+    { href: '/sales/purchase-orders', label: 'Purchase Orders', icon: 'ti-clipboard-list' },
+    { href: '/sales/vendors', label: 'Vendors', icon: 'ti-building-store' },
     { href: '/sales/invoices', label: 'Invoices', icon: 'ti-receipt', badgeKey: 'invoices' },
+  ]},
+  { label: 'Production', items: [
+    { href: '/production', label: 'Work Orders', icon: 'ti-tool', badgeKey: 'workOrders' },
+    { href: '/production/qc', label: 'Quality Control', icon: 'ti-checkup-list' },
+    { href: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode' },
+    { href: '/production/machine-status', label: 'Machine Status', icon: 'ti-settings-cog' },
+    { href: '/production/daily-plan', label: 'Daily Plan', icon: 'ti-calendar-week' },
+    { href: '/production/capacity-plan', label: 'Capacity Plan', icon: 'ti-chart-bar' },
   ]},
   { label: 'Fulfillment', items: [
     { href: '/sales/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', badgeKey: 'shippingQueue' },
     { href: '/sales/shipments', label: 'Shipments', icon: 'ti-package-export' },
   ]},
   { label: 'Inventory', items: [
-    { href: '/sales/inventory', label: 'Products', icon: 'ti-box' },
+    { href: '/sales/inventory', label: 'Products & Inventory', icon: 'ti-box' },
     { href: '/imports', label: 'Import Tracker', icon: 'ti-ship' },
-  ]},
-  { label: 'Production', items: [
-    { href: '/production', label: 'Work Orders', icon: 'ti-tool', badgeKey: 'workOrders' },
-    { href: '/production/qc', label: 'Quality Control', icon: 'ti-checkup-list' },
-    { href: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode' },
-  ]},
-  { label: 'Purchasing', items: [
-    { href: '/sales/purchase-orders', label: 'Purchase Orders', icon: 'ti-clipboard-list' },
-    { href: '/sales/vendors', label: 'Vendors', icon: 'ti-building-store' },
   ]},
   { label: 'Business', items: [
     { href: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox' },
     { href: '/bizdev/forecasting', label: 'Forecasting', icon: 'ti-trending-up' },
     { href: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette' },
     { href: '/bizdev/documents', label: 'Documents', icon: 'ti-folder' },
-  ]},
-  { label: 'Walmart', items: [
     { href: '/walmart', label: 'Walmart Portal', icon: 'ti-building' },
-  ]},
-  { label: 'System', items: [
     { href: '/settings', label: 'Settings', icon: 'ti-settings' },
   ]},
 ]
@@ -78,7 +77,7 @@ export default function Sidebar() {
       const today = new Date().toISOString().split('T')[0]
       const [wo, sq, inv] = await Promise.all([
         sb.from('work_orders').select('id', { count: 'exact', head: true }).eq('status', 'Queued'),
-        sb.from('shipping_queue').select('id', { count: 'exact', head: true }).eq('is_active', true),
+        sb.from('shipping_queue').select('id', { count: 'exact', head: true }).eq('status', 'Pending'),
         sb.from('invoices').select('id', { count: 'exact', head: true }).neq('status', 'paid').neq('status', 'void').lt('due_date', today),
       ])
       setBadges({
