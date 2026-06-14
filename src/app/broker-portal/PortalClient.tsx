@@ -18,14 +18,14 @@ function winColor(label: string | null): { bg: string; fg: string } {
   return { bg: "#eceff1", fg: "#546e7a" };
 }
 
-export default function PortalClient() {
+export default function PortalClient({ initialItems }: { initialItems: Row[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("All");
   const [origin, setOrigin] = useState("All");
   const [win, setWin] = useState("All");
   const [selected, setSelected] = useState<SkuItem | null>(null);
-  const [items, setItems] = useState<Row[]>(ITEMS);
+  const [items, setItems] = useState<Row[]>(initialItems);
   const [canEdit, setCanEdit] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [adding, setAdding] = useState(false);
