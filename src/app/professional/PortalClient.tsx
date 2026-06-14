@@ -66,8 +66,8 @@ export default function PortalClient({ initialItems }: { initialItems: Row[] }) 
   const strong = useMemo(() => ITEMS.filter((i) => (i.winLikelihood || "").toUpperCase().startsWith("STRONG")).length, []);
 
   async function logout() {
-    await fetch("/api/broker-portal/logout", { method: "POST" });
-    router.push("/broker-portal/login");
+    await fetch("/api/professional/logout", { method: "POST" });
+    router.push("/professional/login");
     router.refresh();
   }
 

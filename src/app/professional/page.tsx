@@ -40,7 +40,7 @@ export default async function ProfessionalPortalPage() {
     hasErp = false;
   }
 
-  if (!hasPassword && !hasErp) redirect("/broker-portal/login");
+  if (!hasPassword && !hasErp) redirect("/professional/login");
 
   // Read the catalog server-side with the service-role key (bypasses RLS),
   // only after the session is verified. The public/anon key cannot read this table.

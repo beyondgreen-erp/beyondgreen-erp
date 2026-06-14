@@ -1,4 +1,4 @@
-// POST /api/broker-portal/login  { password }  -> sets signed session cookie
+// POST /api/professional/login  { password }  -> sets signed session cookie
 import { NextRequest, NextResponse } from "next/server";
 import { createToken, SESSION_COOKIE } from "@/lib/brokerAuth";
 

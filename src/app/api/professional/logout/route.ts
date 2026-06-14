@@ -1,4 +1,4 @@
-// POST /api/broker-portal/logout -> clears session cookie
+// POST /api/professional/logout -> clears session cookie
 import { NextResponse } from "next/server";
 import { SESSION_COOKIE } from "@/lib/brokerAuth";
 

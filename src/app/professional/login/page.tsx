@@ -9,14 +9,14 @@ function BrokerLoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const params = useSearchParams();
-  const from = params.get("from") || "/broker-portal";
+  const from = params.get("from") || "/professional";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/broker-portal/login", {
+      const res = await fetch("/api/professional/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
