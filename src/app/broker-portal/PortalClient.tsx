@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ITEMS, ENGINE, MARGIN_TIERS, computeLanded, competitorChinaLanded,
   sellAtMargin, marginAtPrice, bidToWin, fmtUSD, type SkuItem, type Origin,
 } from "@/lib/brokerEngine";
+import EditDrawer, { loadCatalogItems, type Row } from "./EditDrawer";
 
 const ORIGINS: Origin[] = ["USA", "INDIA", "CHINA"];
 
@@ -24,6 +25,24 @@ export default function PortalClient() {
   const [origin, setOrigin] = useState("All");
   const [win, setWin] = useState("All");
   const [selected, setSelected] = useState<SkuItem | null>(null);
+  const [items, setItems] = useState<Row[]>(ITEMS);
+  const [canEdit, setCanEdit] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [bump, setBump] = useState(0);
+  useEffect(() => {
+    let active = true;
+    loadCatalogItems()
+      .then(({ items: rows, canEdit: ce }) => {
+        if (!active) return;
+        setCanEdit(ce);
+        if (rows.length) setItems(rows);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [bump]);
 
   const categories = useMemo(
     () => ["All", ...Array.from(new Set(ITEMS.map((i) => i.category))).sort()],
@@ -32,7 +51,7 @@ export default function PortalClient() {
 
   const rows = useMemo(() => {
     const ql = q.trim().toLowerCase();
-    return ITEMS.filter((i) => {
+    return items.filter((i) => {
       if (cat !== "All" && i.category !== cat) return false;
       if (origin !== "All" && i.origin !== origin) return false;
       if (win !== "All" && !(i.winLikelihood || "").toUpperCase().startsWith(win)) return false;
@@ -42,7 +61,7 @@ export default function PortalClient() {
       }
       return true;
     }).slice(0, 600);
-  }, [q, cat, origin, win]);
+  }, [items, q, cat, origin, win]);
 
   const strong = useMemo(() => ITEMS.filter((i) => (i.winLikelihood || "").toUpperCase().startsWith("STRONG")).length, []);
 
@@ -53,7 +72,7 @@ export default function PortalClient() {
   }
 
   function exportCSV() {
-    const data = ITEMS as unknown as Array<Record<string, unknown>>;
+    const data = items as unknown as Array<Record<string, unknown>>;
     if (!data.length) return;
     const keys = Array.from(
       data.reduce((set: Set<string>, it) => {
@@ -88,10 +107,10 @@ export default function PortalClient() {
           <span style={S.leaf}>‹/›</span>
           <div>
       <div style={S.brand}>beyondGREEN Professional</div>
-            <div style={S.tagline}>Landed cost &amp; bid pricing · {ITEMS.length} SKUs · rates as of {ENGINE.asOf}</div>
+            <div style={S.tagline}>Landed cost &amp; bid pricing · {items.length} SKUs · rates as of {ENGINE.asOf}</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}><button onClick={exportCSV} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#2E7D32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Export CSV</button><button onClick={logout} style={S.logout}>Sign out</button></div>
+        <div style={{ display: "flex", gap: 8 }}>{canEdit && (<button onClick={() => setAdding(true)} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#1565c0", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add product</button>)}<button onClick={exportCSV} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#2E7D32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Export CSV</button><button onClick={logout} style={S.logout}>Sign out</button></div>
       </header>
 
       <div style={S.statRow}>
@@ -142,7 +161,7 @@ export default function PortalClient() {
                     <span style={{ ...S.badge, background: wc.bg, color: wc.fg }}>{i.winLikelihood || "—"}</span>
                   </td>
                   <td style={S.td}>
-                    <button style={S.calcBtn} onClick={() => setSelected(i)}>Price it →</button>
+                    <button style={S.calcBtn} onClick={() => setSelected(i)}>Price it →</button>{canEdit && <button style={{ ...S.calcBtn, background: "#37474f", marginLeft: 6 }} onClick={() => setEditing(i)}>Edit</button>}
                   </td>
                 </tr>
               );
@@ -155,6 +174,9 @@ export default function PortalClient() {
       </div>
 
       {selected && <CalculatorDrawer item={selected} onClose={() => setSelected(null)} />}
+      {(adding || editing) && (
+        <EditDrawer item={editing} onClose={() => { setAdding(false); setEditing(null); }} onSaved={() => { setAdding(false); setEditing(null); setBump((b) => b + 1); }} />
+      )}
       <footer style={S.footer}>
         Confidential — internal pricing. AD/CVD rates are producer-specific; confirm beyondGREEN Paras&apos;s exact India rate and all tariffs with the customs broker before quoting.
       </footer>
