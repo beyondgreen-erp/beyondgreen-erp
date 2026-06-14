@@ -44,7 +44,8 @@ const NAV: NavSection[] = [
     { href: '/bizdev/forecasting', label: 'Forecasting', icon: 'ti-trending-up' },
     { href: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette' },
     { href: '/bizdev/documents', label: 'Documents', icon: 'ti-folder' },
-    { href: '/walmart', label: 'Walmart Portal', icon: 'ti-building' },
+      { href: '/walmart', label: 'Walmart Portal', icon: 'ti-building' },
+      { href: '/broker-portal', label: 'Professional', icon: 'ti-tag' },
     { href: '/settings', label: 'Settings', icon: 'ti-settings' },
   ]},
 ]
