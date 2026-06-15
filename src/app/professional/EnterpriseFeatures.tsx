@@ -86,8 +86,7 @@ export default function EnterpriseFeatures({ onConfirmSaved }: { onConfirmSaved?
               </div>
             </div>
           )}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          {ccResult?.error&&<div style={{marginTop:"12px",color:"#b71c1c"}}>{String(ccResult.error as string)}</div>}
+          {!!ccResult?.error&&<div style={{marginTop:"12px",color:"#b71c1c"}}>{String(ccResult.error as string)}</div>}
         </div>
       )}
 
@@ -104,7 +103,7 @@ export default function EnterpriseFeatures({ onConfirmSaved }: { onConfirmSaved?
               <div style={{fontSize:"13px",color:"#64748b",marginBottom:"4px"}}>HTS: <strong>{String(dutyResult.hts||"")}</strong></div>
               <div style={{fontSize:"28px",fontWeight:900,color:"#16a34a"}}>{String(dutyResult.rate||"No rate found")}</div>
               <div style={{fontSize:"11px",color:"#64748b",marginTop:"4px"}}>Source: {String(dutyResult.source||"USITC")}</div>
-              {dutyResult.error&&<div style={{color:"#b71c1c",fontSize:"12px",marginTop:"6px"}}>{String(dutyResult.error as string)}</div>}
+              {!!(dutyResult.error as string)&&<div style={{color:"#b71c1c",fontSize:"12px",marginTop:"6px"}}>{String(dutyResult.error as string)}</div>}
             </div>
           )}
         </div>

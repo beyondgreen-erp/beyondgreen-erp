@@ -135,6 +135,7 @@ export default function PortalClient({ initialItems }: { initialItems: Row[] }) 
         <span style={S.count}>{rows.length} shown</span>
       </div>
 
+      <EnterpriseFeatures onConfirmSaved={()=>setBump(b=>b+1)} />
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
@@ -296,7 +297,6 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
     <div style={S.stat}>
       <div style={{ ...S.statVal, color: accent || "#15331F" }}>{value}</div>
       <div style={S.statLabel}>{label}</div>
-      <EnterpriseFeatures onConfirmSaved={()=>setBump(b=>b+1)} />
     </div>
   );
 }
