@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/utils/supabase/client'
+import { supabase } from '@/lib/supabase'
 
 interface Contact { full_name: string; title: string; email: string; phone: string; is_primary: boolean }
 interface EmailLog { subject: string; body: string; direction: string }
@@ -16,7 +16,7 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
   const [parsing, setParsing] = useState(false)
   const [parsed, setParsed] = useState<ParsedData | null>(null)
   const [error, setError] = useState('')
-  const supabase = createClient()
+  
 
   async function handleParse() {
     if (!emailThread.trim()) return
