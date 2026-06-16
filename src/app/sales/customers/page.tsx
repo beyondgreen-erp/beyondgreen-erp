@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
+import QuickAddModal from '@/components/QuickAddModal'
 export const dynamic = 'force-dynamic'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -116,6 +117,7 @@ export default function CustomersPage() {
   const [archiving, setArchiving] = useState(false)
   const [formError, setFormError] = useState('')
   const [userEmail, setUserEmail] = useState('')
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
 
   // Contacts
@@ -676,7 +678,11 @@ export default function CustomersPage() {
             </button>
           </div>
           <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Customer
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Customer</button>
+              <button onClick={() => setShowQuickAdd(true)} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+                ✨ Quick Add
+              </button>
+              
           </button>
         </div>
       </div>
