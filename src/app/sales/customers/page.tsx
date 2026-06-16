@@ -12,7 +12,7 @@ import ConversationLog from '@/components/ConversationLog'
 import BulkActionBar from '@/components/BulkActionBar'
 import OutreachDrawer from '@/components/OutreachDrawer'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 interface Customer {
   id: string; company_name: string; contact_name: string | null; email: string | null
