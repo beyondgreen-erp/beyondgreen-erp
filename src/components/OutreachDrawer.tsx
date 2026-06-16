@@ -60,7 +60,7 @@ export default function OutreachDrawer({ customerId, companyName, customerEmail,
     await fetch('/api/outreach', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'send', customer_id: customerId, subject, body, sent_by: userEmail, follow_up_days: followUpDays })
+      body: JSON.stringify({ action: 'send', customer_id: customerId, subject, body, sent_by: userEmail, follow_up_days: followUpDays, customer_email: customerEmail, company_name: companyName })
     })
     setSubject(''); setBody(''); setFollowUpDays(7); setComposing(false); setSending(false)
     loadHistory()

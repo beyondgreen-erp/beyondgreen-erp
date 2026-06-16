@@ -1,72 +1,110 @@
-import { createClient } from '@supabase/supabase-js'
-import { NextRequest, NextResponse } from 'next/server'
-const sb = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { Resend } from 'resend';
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url)
-  const customerId = searchParams.get('customer_id')
-  if (!customerId) return NextResponse.json({ error: 'customer_id required' }, { status: 400 })
-  const { data, error } = await sb().from('customer_outreach').select('*').eq('customer_id', customerId).order('sent_at', { ascending: false })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// Map ERP login emails → beyondgreenbiotech.com sending addresses
+function getSenderEmail(userEmail: string): string {
+  const map: Record<string, string> = {
+    'rudyp@beyondgreenbiotech.com': 'rudyp@beyondgreenbiotech.com',
+    'rperrier171991@gmail.com': 'rudyp@beyondgreenbiotech.com',
+    'veejay@beyondgreenbiotech.com': 'veejay@beyondgreenbiotech.com',
+    'ameer@beyondgreenbiotech.com': 'ameer@beyondgreenbiotech.com',
+  };
+  return map[userEmail?.toLowerCase()] || 'outreach@beyondgreenbiotech.com';
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { action } = body
-  const supabase = sb()
-
-  if (action === 'init_schema') {
-    // Create table if not exists via raw SQL
-    const sql = `CREATE TABLE IF NOT EXISTS public.customer_outreach (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      customer_id uuid NOT NULL,
-      sent_at timestamptz NOT NULL DEFAULT now(),
-      sent_by text NOT NULL DEFAULT '',
-      subject text NOT NULL DEFAULT '',
-      body text NOT NULL DEFAULT '',
-      response_received boolean DEFAULT false,
-      response_at timestamptz,
-      response_notes text,
-      follow_up_days integer DEFAULT 7,
-      follow_up_due timestamptz,
-      follow_up_approved boolean DEFAULT false,
-      follow_up_sent_at timestamptz,
-      status text DEFAULT 'sent',
-      created_at timestamptz DEFAULT now()
-    );`
-    // We'll just try inserting — table will be created by migration
-    return NextResponse.json({ ok: true })
-  }
+  const body = await req.json();
+  const { action } = body;
 
   if (action === 'send') {
-    const { customer_id, subject, body: emailBody, sent_by, follow_up_days = 7 } = body
-    const follow_up_due = new Date(Date.now() + follow_up_days * 24 * 60 * 60 * 1000).toISOString()
-    const { data, error } = await supabase.from('customer_outreach').insert({
-      customer_id, subject, body: emailBody, sent_by, follow_up_days, follow_up_due, status: 'sent'
-    }).select().single()
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+    const { customer_id, subject, body: emailBody, sent_by, follow_up_days = 7, customer_email, company_name } = body;
+    const follow_up_due = new Date(Date.now() + follow_up_days * 24 * 60 * 60 * 1000).toISOString();
+
+    // 1. Log to DB first
+    const { data, error } = await supabase
+      .from('customer_outreach')
+      .insert({ customer_id, subject, body: emailBody, sent_by, follow_up_days, follow_up_due, status: 'sent' })
+      .select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // 2. Send actual email via Resend (if API key set and customer has email)
+    if (process.env.RESEND_API_KEY && customer_email) {
+      try {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const fromEmail = getSenderEmail(sent_by || '');
+        const fromName = fromEmail.split('@')[0].replace(/[^a-zA-Z]/g, ' ').trim() || 'beyondGREEN';
+        await resend.emails.send({
+          from: `${fromName} <${fromEmail}>`,
+          to: [customer_email],
+          reply_to: fromEmail,
+          subject: subject,
+          text: emailBody,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>`,
+        });
+      } catch (emailErr) {
+        console.error('Resend error:', emailErr);
+        // Don't fail the request — log was saved, email delivery failed
+      }
+    }
+
+    return NextResponse.json(data);
   }
 
   if (action === 'mark_responded') {
-    const { id, response_notes } = body
-    const { data, error } = await supabase.from('customer_outreach').update({
-      response_received: true, response_at: new Date().toISOString(),
-      response_notes, status: 'responded'
-    }).eq('id', id).select().single()
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+    const { id, response_notes } = body;
+    const { data, error } = await supabase
+      .from('customer_outreach')
+      .update({ response_received: true, response_at: new Date().toISOString(), response_notes, status: 'responded' })
+      .eq('id', id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
   }
 
   if (action === 'approve_followup') {
-    const { id } = body
-    const { data, error } = await supabase.from('customer_outreach').update({
-      follow_up_approved: true, follow_up_sent_at: new Date().toISOString(), status: 'follow_up_sent'
-    }).eq('id', id).select().single()
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+    const { id } = body;
+    const { data, error } = await supabase
+      .from('customer_outreach')
+      .update({ follow_up_approved: true, follow_up_sent_at: new Date().toISOString(), status: 'follow_up_sent' })
+      .eq('id', id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
   }
 
-  return NextResponse.json({ error: 'unknown action' }, { status: 400 })
+  return NextResponse.json({ error: 'unknown action' }, { status: 400 });
+}
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const customer_id = searchParams.get('customer_id');
+  const pending = searchParams.get('pending_followups');
+
+  if (pending) {
+    const { data, error } = await supabase
+      .from('customer_outreach')
+      .select('*, customers(id,company_name,email)')
+      .eq('status', 'sent')
+      .lte('follow_up_due', new Date().toISOString())
+      .eq('follow_up_approved', false)
+      .order('follow_up_due', { ascending: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ data });
+  }
+
+  if (customer_id) {
+    const { data, error } = await supabase
+      .from('customer_outreach')
+      .select('*')
+      .eq('customer_id', customer_id)
+      .order('created_at', { ascending: false });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ data });
+  }
+
+  return NextResponse.json({ error: 'Missing params' }, { status: 400 });
 }
