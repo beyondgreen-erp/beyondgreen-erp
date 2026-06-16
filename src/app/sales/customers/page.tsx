@@ -798,7 +798,7 @@ export default function CustomersPage() {
                   {ch.customer_status==='Lead'||ch.customer_status==='Prospect' ? <span className="text-red-500 font-semibold">Never purchased</span> : ch.last_shipment_date ? <span className="text-green-700">{fmtD(ch.last_shipment_date)}</span> : <span className="text-gray-400">—</span>}
                 </td>
                 <td className="px-4 py-2.5">
-                  <button onClick={()=>setOutreachCustomer(ch)} className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-2 py-1 font-medium">✉ Email</button>
+                  {!userEmail.endsWith('@byndgrn.com') && <button onClick={()=>setOutreachCustomer(ch)} className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-2 py-1 font-medium">✉ Email</button>}
                 </td>
                   </tr>
                 }) : [])

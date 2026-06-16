@@ -32,7 +32,12 @@ export async function POST(req: NextRequest) {
       .select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // 2. Send actual email via Resend (if API key set and customer has email)
+    // Block byndgrn.com users from outbound email (domain not verified in Resend)
+  if (sent_by && sent_by.toLowerCase().endsWith('@byndgrn.com')) {
+    return NextResponse.json({ error: 'Outbound email not available for byndgrn.com accounts' }, { status: 403 })
+  }
+
+  // 2. Send actual email via Resend (if API key set and customer has email)
     if (process.env.RESEND_API_KEY && customer_email) {
       try {
         const resend = new Resend(process.env.RESEND_API_KEY);
