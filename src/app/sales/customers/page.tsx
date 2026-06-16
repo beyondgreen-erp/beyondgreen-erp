@@ -345,10 +345,11 @@ export default function CustomersPage() {
       const { error } = await supabase.from('customers').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editing.id)
       if (error) { setFormError(error.message); setSaving(false); return }
     } else {
-      const { error } = await supabase.from('customers').insert({ ...payload, is_active: true, is_merged: false })
+      const { data: newCust, error } = await supabase.from('customers').insert({ ...payload, is_active: true, is_merged: false }).select().single()
       if (error) { setFormError(error.message); setSaving(false); return }
     }
-    setSaving(false); closePanel(); fetchCustomers()
+            setEditing(newCust)
+    setSaving(false); fetchCustomers()
   }
 
   async function handleArchive() {
@@ -360,7 +361,9 @@ export default function CustomersPage() {
 
   // ── Contacts ──────────────────────────────────────────────
   async function saveContact() {
-    if (!contactForm.full_name.trim() || !editing) return
+    if (!contactForm.full_name.trim()) return
+    const customerId = editing?.id
+    if (!customerId) return
     setSavingContact(true)
     if (contactForm.is_primary) {
       await supabase.from('customer_contacts').update({ is_primary: false }).eq('customer_id', editing.id)
@@ -369,9 +372,9 @@ export default function CustomersPage() {
       await supabase.from('customer_contacts').update({ ...contactForm, updated_at: new Date().toISOString() }).eq('id', editingContact.id)
     } else {
       const isPrimary = contactForm.is_primary || contacts.length === 0
-      await supabase.from('customer_contacts').insert({ ...contactForm, customer_id: editing.id, is_primary: isPrimary })
+      await supabase.from('customer_contacts').insert({ ...contactForm, customer_id: customerId, is_primary: isPrimary })
     }
-    const { data } = await supabase.from('customer_contacts').select('*').eq('customer_id', editing.id).order('is_primary', { ascending: false })
+    const { data } = await supabase.from('customer_contacts').select('*').eq('customer_id', customerId).order('is_primary', { ascending: false })
     setContacts((data as Contact[]) ?? [])
     const pc = (data as Contact[])?.find(c => c.is_primary)
     if (pc) setPrimaryContacts(prev => ({ ...prev, [editing.id]: pc }))
@@ -382,7 +385,7 @@ export default function CustomersPage() {
     if (!confirm('Delete this contact?') || !editing) return
     setDeletingContact(id)
     await supabase.from('customer_contacts').delete().eq('id', id)
-    const { data } = await supabase.from('customer_contacts').select('*').eq('customer_id', editing.id).order('is_primary', { ascending: false })
+    const { data } = await supabase.from('customer_contacts').select('*').eq('customer_id', customerId).order('is_primary', { ascending: false })
     setContacts((data as Contact[]) ?? [])
     const pc = (data as Contact[])?.find(c => c.is_primary)
     if (pc) setPrimaryContacts(prev => ({ ...prev, [editing.id]: pc }))
@@ -394,7 +397,7 @@ export default function CustomersPage() {
     if (!editing) return
     await supabase.from('customer_contacts').update({ is_primary: false }).eq('customer_id', editing.id)
     await supabase.from('customer_contacts').update({ is_primary: true }).eq('id', contact.id)
-    const { data } = await supabase.from('customer_contacts').select('*').eq('customer_id', editing.id).order('is_primary', { ascending: false })
+    const { data } = await supabase.from('customer_contacts').select('*').eq('customer_id', customerId).order('is_primary', { ascending: false })
     setContacts((data as Contact[]) ?? [])
     const pc = (data as Contact[])?.find(c => c.is_primary)
     if (pc) setPrimaryContacts(prev => ({ ...prev, [editing.id]: pc }))
@@ -413,7 +416,7 @@ export default function CustomersPage() {
       const isDefault = locForm.is_default || shipLocs.length === 0
       await supabase.from('customer_ship_locations').insert({ ...locForm, customer_id: editing.id, is_default: isDefault })
     }
-    const { data } = await supabase.from('customer_ship_locations').select('*').eq('customer_id', editing.id).order('is_default', { ascending: false })
+    const { data } = await supabase.from('customer_ship_locations').select('*').eq('customer_id', customerId).order('is_default', { ascending: false })
     setShipLocs((data as ShipLocation[]) ?? [])
     setSavingLoc(false); setAddingLoc(false); setEditingLoc(null); setLocForm(emptyLoc)
   }
@@ -429,7 +432,7 @@ export default function CustomersPage() {
     if (!confirm('Delete this location?') || !editing) return
     setDeletingLoc(id)
     await supabase.from('customer_ship_locations').delete().eq('id', id)
-    const { data } = await supabase.from('customer_ship_locations').select('*').eq('customer_id', editing.id).order('is_default', { ascending: false })
+    const { data } = await supabase.from('customer_ship_locations').select('*').eq('customer_id', customerId).order('is_default', { ascending: false })
     setShipLocs((data as ShipLocation[]) ?? [])
     setDeletingLoc(null)
   }
@@ -438,7 +441,7 @@ export default function CustomersPage() {
     if (!editing) return
     await supabase.from('customer_ship_locations').update({ is_default: false }).eq('customer_id', editing.id)
     await supabase.from('customer_ship_locations').update({ is_default: true }).eq('id', loc.id)
-    const { data } = await supabase.from('customer_ship_locations').select('*').eq('customer_id', editing.id).order('is_default', { ascending: false })
+    const { data } = await supabase.from('customer_ship_locations').select('*').eq('customer_id', customerId).order('is_default', { ascending: false })
     setShipLocs((data as ShipLocation[]) ?? [])
   }
 
@@ -679,7 +682,7 @@ export default function CustomersPage() {
           </div>
           <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Customer</button>
-              <button onClick={() => setShowQuickAdd(true)} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+              <button onClick={() => setShowQuickAdd(true)} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors" onClick={() => setShowQuickAdd(true)}>
                 ✨ Quick Add
               </button>
         </div>
@@ -1466,6 +1469,13 @@ export default function CustomersPage() {
         </div>
       )}
       {outreachCustomer && (
+        {showQuickAdd && (
+          <QuickAddModal
+            onClose={() => setShowQuickAdd(false)}
+            onSaved={() => { fetchCustomers(); setShowQuickAdd(false) }}
+            userEmail={userEmail}
+          />
+        )}
         <OutreachDrawer
           customerId={outreachCustomer.id}
           companyName={outreachCustomer.company_name}
@@ -1475,6 +1485,7 @@ export default function CustomersPage() {
           onClose={() => setOutreachCustomer(null)}
         />
       )}
-    </div>
-  )
-}
+    
+            </div>
+    )
+  }
