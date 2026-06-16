@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +10,7 @@ import RichTextEditor from '@/components/RichTextEditor'
 import LinkedTasks from '@/components/LinkedTasks'
 import ConversationLog from '@/components/ConversationLog'
 import BulkActionBar from '@/components/BulkActionBar'
+import OutreachDrawer from '@/components/OutreachDrawer'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -102,6 +104,7 @@ export default function CustomersPage() {
   const [showArchived, setShowArchived] = useState(false)
   const [showMerged, setShowMerged] = useState(false)
   const [viewMode, setViewMode] = useState<'table'|'pipeline'>('table')
+  const [outreachCustomer, setOutreachCustomer] = useState<Customer | null>(null)
 
   // Panel
   const [panelOpen, setPanelOpen] = useState(false)
@@ -717,7 +720,7 @@ export default function CustomersPage() {
           :<table className="w-full min-w-[1080px] text-sm">
             <thead><tr className="border-b border-[#E4E6EE]">
               <th className="w-8 px-3 py-3"><span className="sr-only">Select</span></th>
-              {['Company','Primary Contact','Email','Status','Total Spent','Shipments','Last Ship'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}
+              {['Company','Primary Contact','Email','Status','Total Spent','Shipments','Last Purchase','Outreach'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}
             </tr></thead>
             <tbody>{filtered.map((c,i)=>{
               const pc=primaryContacts[c.id]
@@ -752,6 +755,16 @@ export default function CustomersPage() {
                       </div>
                     </div>
                   </td>
+              <td className="px-4 py-3.5">
+                {(c.customer_status === 'Lead' || c.customer_status === 'Prospect') && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setOutreachCustomer(c) }}
+                    className="px-3 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors whitespace-nowrap"
+                  >
+                    ✉ Email
+                  </button>
+                )}
+              </td>
                   <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.full_name||'—'}</td>
                   <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.email||c.email||'—'}</td>
                   <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${STATUS_BADGE[c.customer_status||'Lead']||STATUS_BADGE.Lead}`}>{c.customer_status||'Lead'}</span></td>
@@ -781,6 +794,12 @@ export default function CustomersPage() {
                     <td className="px-4 py-2.5 text-emerald-400 text-xs">{ch.lifetime_spend!=null?fmt$2(ch.lifetime_spend):'—'}</td>
                     <td className="px-4 py-2.5 text-blue-400 text-xs">{ch.total_shipments!=null?ch.total_shipments:'—'}</td>
                     <td className="px-4 py-2.5 text-gray-500 text-xs">{fmtD(ch.last_shipment_date)}</td>
+                <td className="px-4 py-2.5 text-xs">
+                  {ch.customer_status==='Lead'||ch.customer_status==='Prospect' ? <span className="text-red-500 font-semibold">Never purchased</span> : ch.last_shipment_date ? <span className="text-green-700">{fmtD(ch.last_shipment_date)}</span> : <span className="text-gray-400">—</span>}
+                </td>
+                <td className="px-4 py-2.5">
+                  <button onClick={()=>openOutreach(ch)} className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-2 py-1 font-medium">✉ Email</button>
+                </td>
                   </tr>
                 }) : [])
               ]
@@ -1441,6 +1460,16 @@ export default function CustomersPage() {
             </div>
           </div>
         </div>
+      )}
+      {outreachCustomer && (
+        <OutreachDrawer
+          customerId={outreachCustomer.id}
+          companyName={outreachCustomer.company_name}
+          customerEmail={outreachCustomer.email || ''}
+          userEmail={userEmail}
+          isLead={outreachCustomer.customer_status === 'Lead'}
+          onClose={() => setOutreachCustomer(null)}
+        />
       )}
     </div>
   )
