@@ -11,9 +11,9 @@ const supabase = createClient(
 function getSenderEmail(userEmail: string): string {
   if (!userEmail) return 'outreach@beyondgreenbiotech.com'
   const email = userEmail.toLowerCase().trim()
-  // If it's already a beyondgreenbiotech.com address, use it directly
-  if (email.endsWith('@beyondgreenbiotech.com')) return email
-  // External login (e.g. rperrier171991@gmail.com) — fall back to outreach
+  // ERP accounts on either company domain - use directly
+  if (email.endsWith('@beyondgreenbiotech.com') || email.endsWith('@byndgrn.com')) return email
+  // Unknown/external login - fall back to generic outreach address
   return 'outreach@beyondgreenbiotech.com'
 }
 
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
         await resend.emails.send({
           from: `${fromName} <${fromEmail}>`,
           to: [customer_email],
-          reply_to: fromEmail,
+          replyTo: fromEmail,
           subject: subject,
           text: emailBody,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>`,
