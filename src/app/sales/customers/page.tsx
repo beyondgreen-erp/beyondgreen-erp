@@ -635,8 +635,8 @@ export default function CustomersPage() {
   const sel = inp + ' cursor-pointer'
   const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
-    { key: 'contacts', label: `Contacts${contacts.length ? ` (${contacts.length})` : ''}` },
-    { key: 'conversations', label: `Conversations${convoCount > 0 ? ` (${convoCount})` : ''}` },
+    { key: 'contacts', label: contacts.length ? 'Contacts (' + contacts.length + ')' : 'Contacts' },
+    { key: 'conversations', label: convoCount > 0 ? 'Conversations (' + convoCount + ')' : 'Conversations' },
     { key: 'activity', label: 'Activity' },
     { key: 'feed', label: 'Activity Feed' },
     { key: 'files', label: 'Files & Notes' },
