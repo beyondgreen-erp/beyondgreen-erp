@@ -7,15 +7,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Map ERP login emails → beyondgreenbiotech.com sending addresses
+// Send from the user's own ERP login email
 function getSenderEmail(userEmail: string): string {
-  const map: Record<string, string> = {
-    'rudyp@beyondgreenbiotech.com': 'rudyp@beyondgreenbiotech.com',
-    'rperrier171991@gmail.com': 'rudyp@beyondgreenbiotech.com',
-    'veejay@beyondgreenbiotech.com': 'veejay@beyondgreenbiotech.com',
-    'ameer@beyondgreenbiotech.com': 'ameer@beyondgreenbiotech.com',
-  };
-  return map[userEmail?.toLowerCase()] || 'outreach@beyondgreenbiotech.com';
+  if (!userEmail) return 'outreach@beyondgreenbiotech.com'
+  const email = userEmail.toLowerCase().trim()
+  // If it's already a beyondgreenbiotech.com address, use it directly
+  if (email.endsWith('@beyondgreenbiotech.com')) return email
+  // External login (e.g. rperrier171991@gmail.com) — fall back to outreach
+  return 'outreach@beyondgreenbiotech.com'
 }
 
 export async function POST(req: NextRequest) {
