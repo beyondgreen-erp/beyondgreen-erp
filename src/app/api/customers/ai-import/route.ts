@@ -47,10 +47,13 @@ Return this exact JSON structure:
   })
 
   try {
-    const text = msg.content[0].type === 'text' ? msg.content[0].text : '{}'
+    const rawText = msg.content[0].type === 'text' ? msg.content[0].text : '{}'
+    // Strip markdown code fences if present
+    const text = rawText.replace(/^```(?:json)?s*/i, '').replace(/s*```s*$/, '').trim()
     const data = JSON.parse(text)
     return NextResponse.json(data)
-  } catch {
+  } catch (e) {
+    console.error('AI parse error:', e)
     return NextResponse.json({ error: 'Failed to parse AI response' }, { status: 500 })
   }
 }

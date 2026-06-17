@@ -38,17 +38,33 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
     if (!parsed) return
     setStep('saving')
     try {
-      // 1. Create customer
-      const { data: cust, error: ce } = await supabase.from('customers').insert({
-        company_name: parsed.company_name,
-        email: parsed.email,
-        phone: parsed.phone,
-        notes: parsed.notes,
-        pipeline_stage: parsed.pipeline_stage || 'Lead',
-        customer_status: parsed.customer_status || 'Lead',
-        is_active: true,
-      }).select().single()
-      if (ce) throw new Error(ce.message)
+      // 1. Check for existing customer with same company name
+      let cust: { id: string } | null = null
+      const { data: existing } = await supabase
+        .from('customers')
+        .select('id, company_name')
+        .ilike('company_name', parsed.company_name?.trim() || '')
+        .limit(1)
+        .maybeSingle()
+
+      if (existing) {
+        // Company already exists - just add the contact
+        cust = existing
+        setWasExisting(true)
+      } else {
+        // Create new customer
+        const { data: newCust, error: ce } = await supabase.from('customers').insert({
+          company_name: parsed.company_name,
+          email: parsed.email,
+          phone: parsed.phone,
+          notes: parsed.notes,
+          pipeline_stage: parsed.pipeline_stage || 'Lead',
+          customer_status: parsed.customer_status || 'Lead',
+          is_active: true,
+        }).select().single()
+        if (ce) throw new Error(ce.message)
+        cust = newCust
+      }
 
       // 2. Create contacts
       if (parsed.contacts?.length > 0) {
@@ -192,8 +208,8 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
         {step === 'done' && (
           <div className="p-10 text-center">
             <div className="text-5xl">✅</div>
-            <p className="mt-3 font-semibold text-gray-900">{parsed?.company_name} added!</p>
-            <p className="text-sm text-gray-500">Contacts and email history logged.</p>
+            <p className="mt-3 font-semibold text-gray-900">{wasExisting ? "Contact added to " : ""}{parsed?.company_name}{wasExisting ? "!" : " added!"}</p>
+            <p className="text-sm text-gray-500">{wasExisting ? "Contact and email history added to existing customer." : "Contacts and email history logged."}</p>
           </div>
         )}
       </div>
