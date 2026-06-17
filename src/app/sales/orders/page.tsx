@@ -881,6 +881,12 @@ export default function OrdersPage() {
       setConfirmDeleteId(null); setEditOpen(false); load()
     }
 
+    async function executeDelete(id: string) {
+      await sb.from('sales_order_lines').delete().eq('sales_order_id', id)
+      await sb.from('sales_orders').delete().eq('id', id)
+      setConfirmDeleteId(null); setEditOpen(false); load()
+    }
+
     async function bulkDelete() {
       if (ms.count === 0) return
       setConfirmBulkDelete(true)
