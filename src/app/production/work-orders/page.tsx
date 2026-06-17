@@ -1,6 +1,8 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useEffect, useState } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
+
+const sb = createSupabaseBrowserClient()
 
 interface WO {
   id: string
@@ -12,18 +14,11 @@ interface WO {
   sales_orders?: { order_number: string; customers?: { company_name: string } }
 }
 
-const STATS = [
-  { label: 'Queued', filter: (o: WO) => o.status === 'Queued', cls: 'bg-yellow-50 border-yellow-200 text-yellow-700' },
-  { label: 'In Progress', filter: (o: WO) => o.status === 'In Progress', cls: 'bg-blue-50 border-blue-200 text-blue-700' },
-  { label: 'Complete', filter: (o: WO) => ['Complete','QC Passed'].includes(o.status), cls: 'bg-green-50 border-green-200 text-green-700' },
-]
-
 export default function WorkOrdersPage() {
   const [orders, setOrders] = useState<WO[]>([])
   const [loading, setLoading] = useState(true)
-  const sb = createClient()
 
-  const load = useCallback(async () => {
+  async function load() {
     setLoading(true)
     const { data } = await sb
       .from('work_orders')
@@ -31,24 +26,32 @@ export default function WorkOrdersPage() {
       .order('created_at', { ascending: false })
     setOrders(data || [])
     setLoading(false)
-  }, [sb])
+  }
 
   async function upd(id: string, status: string) {
     await sb.from('work_orders').update({ status }).eq('id', id)
     load()
   }
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [])
+
+  const q = orders.filter(o => o.status === 'Queued')
+  const ip = orders.filter(o => o.status === 'In Progress')
+  const done = orders.filter(o => ['Complete', 'QC Passed'].includes(o.status))
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
       <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">PRODUCTION</p>
       <h1 className="text-3xl font-bold text-gray-900 mb-6">Work Orders</h1>
       <div className="grid grid-cols-3 gap-4 mb-8">
-        {STATS.map(s => (
+        {[
+          { label: 'Queued', count: q.length, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700' },
+          { label: 'In Progress', count: ip.length, cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+          { label: 'Complete', count: done.length, cls: 'bg-green-50 border-green-200 text-green-700' },
+        ].map(s => (
           <div key={s.label} className={`rounded-xl border p-5 ${s.cls}`}>
             <p className="text-sm font-medium">{s.label}</p>
-            <p className="text-3xl font-bold mt-1">{orders.filter(s.filter).length}</p>
+            <p className="text-3xl font-bold mt-1">{s.count}</p>
           </div>
         ))}
       </div>
@@ -66,7 +69,7 @@ export default function WorkOrdersPage() {
                     wo.status === 'In Progress' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
                   }`}>{wo.status}</span>
                 </div>
-                <p className="text-sm text-gray-500">SO: {wo.sales_orders?.order_number} · {wo.sales_orders?.customers?.company_name}</p>
+                <p className="text-sm text-gray-500">SO: {wo.sales_orders?.order_number} &middot; {wo.sales_orders?.customers?.company_name}</p>
                 {wo.notes && <p className="text-xs text-gray-400 mt-1">{wo.notes}</p>}
               </div>
               <div className="flex gap-2">
