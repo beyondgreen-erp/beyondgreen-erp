@@ -979,6 +979,7 @@ export default function OrdersPage() {
                       {/* Checkbox */}
                       <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
                         <input type="checkbox" checked={ms.isSelected(order.id)} onChange={()=>ms.toggle(order.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
+                  <button onClick={e => { e.stopPropagation(); handleDelete(order.id) }} className="mt-1 text-xs text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity">del</button>
                       </td>
                       {/* Expand toggle */}
                       <td className="px-3 py-3.5 cursor-pointer" onClick={() => toggleExpand(order.id)}>
