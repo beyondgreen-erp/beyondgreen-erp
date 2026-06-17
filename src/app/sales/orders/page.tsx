@@ -540,6 +540,8 @@ export default function OrdersPage() {
   const [userEmail, setUserEmail] = useState('')
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string|null>(null)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   const [flowToast, setFlowToast] = useState<{message:string; undoData?:any} | null>(null)
   const [inventoryCheckOrder, setInventoryCheckOrder] = useState<SalesOrder | null>(null)
   const ms = useMultiSelect<SalesOrder>()
@@ -870,20 +872,27 @@ export default function OrdersPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this order and all line items?')) return
-    await sb.from('sales_order_lines').delete().eq('sales_order_id', id)
-    await sb.from('sales_orders').delete().eq('id', id)
-    setEditOpen(false); load()
-  }
+      setConfirmDeleteId(id)
+    }
 
-  async function bulkDelete() {
-    if (!confirm(`Delete ${ms.count} orders and all their line items? This cannot be undone.`)) return
-    setDeleting(true)
-    const ids = Array.from(ms.selected)
-    await sb.from('sales_order_lines').delete().in('sales_order_id', ids)
-    await sb.from('sales_orders').delete().in('id', ids)
-    ms.clear(); setDeleting(false); load()
-  }
+    async function executeDelete(id: string) {
+      await sb.from('sales_order_lines').delete().eq('sales_order_id', id)
+      await sb.from('sales_orders').delete().eq('id', id)
+      setConfirmDeleteId(null); setEditOpen(false); load()
+    }
+
+    async function bulkDelete() {
+      if (ms.count === 0) return
+      setConfirmBulkDelete(true)
+    }
+
+    async function executeBulkDelete() {
+      setDeleting(true)
+      const ids = Array.from(ms.selected)
+      await sb.from('sales_order_lines').delete().in('sales_order_id', ids)
+      await sb.from('sales_orders').delete().in('id', ids)
+      ms.clear(); setDeleting(false); setConfirmBulkDelete(false); load()
+    }
 
   return (
     <div className="min-h-screen" style={{background:"#F5F6FA"}}>
@@ -1235,6 +1244,30 @@ export default function OrdersPage() {
         onSave={save}
         onDelete={() => editingOrder && handleDelete(editingOrder.id)}
       />
+      {confirmDeleteId && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-[#1A1D2E] mb-2">Delete Order?</h3>
+            <p className="text-sm text-gray-500 mb-5">This will permanently delete this order and all its line items.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmDeleteId(null)} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button onClick={() => executeDelete(confirmDeleteId)} className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-[#1A1D2E] mb-2">Delete {ms.count} Orders?</h3>
+            <p className="text-sm text-gray-500 mb-5">This will permanently delete all selected orders and their line items.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmBulkDelete(false)} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button onClick={executeBulkDelete} className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium">Delete All</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
