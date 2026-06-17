@@ -1023,6 +1023,12 @@ export default function OrdersPage() {
                           <button onClick={() => openEdit(order)}
                             className="text-xs px-2 py-1 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-300 transition-colors">Edit</button>
                           <WorkflowMover recordId={order.id} recordType="sales_order" currentStatus={order.status} orderNumber={order.order_number} customerId={order.customer_id} onMoved={load}/>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDelete(order.id) }}
+                        className="text-xs px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-medium transition-colors"
+                        title="Delete order">
+                        Delete
+                      </button>
                           <button
                             onClick={e => { e.stopPropagation(); setInventoryCheckOrder(order) }}
                             className="text-xs px-2 py-1 rounded transition-colors"
