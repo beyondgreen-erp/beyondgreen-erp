@@ -68,7 +68,7 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
       }
 
       // 2. Create contacts
-      if (parsed.contacts?.length > 0) {
+      if (cust && parsed.contacts?.length > 0) {
         await supabase.from('customer_contacts').insert(
           parsed.contacts.map((c, i) => ({ ...c, customer_id: cust.id, is_primary: i === 0 }))
         )
@@ -78,7 +78,7 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
       if (parsed.email_log?.length > 0) {
         await supabase.from('customer_outreach').insert(
           parsed.email_log.map(e => ({
-            customer_id: cust.id,
+            customer_id: (cust as {id:string}).id,
             subject: e.subject,
             body: e.body,
             sent_by: userEmail,
