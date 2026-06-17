@@ -891,6 +891,8 @@ export default function OrdersPage() {
     async function executeBulkDelete() {
       setDeleting(true)
       const ids = Array.from(ms.selected)
+        await sb.from('work_orders').delete().in('sales_order_id', ids)
+        await sb.from('shipments').delete().in('sales_order_id', ids)
       await sb.from('sales_order_lines').delete().in('sales_order_id', ids)
       await sb.from('sales_orders').delete().in('id', ids)
       ms.clear(); setDeleting(false); setConfirmBulkDelete(false); load()
