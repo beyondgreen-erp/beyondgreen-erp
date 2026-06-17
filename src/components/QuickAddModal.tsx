@@ -31,7 +31,18 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
       if (data.error) throw new Error(data.error)
       setParsed(data); setStep('preview')
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Parse failed')
+      // Retry once on failure
+      try {
+        const res2 = await fetch('/api/customers/ai-import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emailThread })
+        })
+        const data2 = await res2.json()
+        if (data2.error) throw new Error(data2.error)
+        setParsed(data2); setStep('preview')
+      } catch (e2: unknown) {
+        setError(e2 instanceof Error ? e2.message : 'AI extraction failed. Please try again.')
+      }
     } finally { setParsing(false) }
   }
 
