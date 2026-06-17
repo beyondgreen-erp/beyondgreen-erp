@@ -1465,17 +1465,17 @@ export default function CustomersPage() {
               <button onClick={()=>setDupesModal(false)} className="w-full text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Close</button>
             </div>
           </div>
-        </div>
+        {showQuickAdd && (
+        <QuickAddModal
+          onClose={() => setShowQuickAdd(false)}
+          onSaved={() => { fetchCustomers(); setShowQuickAdd(false) }}
+          userEmail={userEmail}
+        />
+      )}
+            </div>
       )}
       {outreachCustomer && (
-        {showQuickAdd && (
-          <QuickAddModal
-            onClose={() => setShowQuickAdd(false)}
-            onSaved={() => { fetchCustomers(); setShowQuickAdd(false) }}
-            userEmail={userEmail}
-          />
-        )}
-        <OutreachDrawer
+                <OutreachDrawer
           customerId={outreachCustomer.id}
           companyName={outreachCustomer.company_name}
           customerEmail={outreachCustomer.email || ''}
