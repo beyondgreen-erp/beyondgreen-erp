@@ -1474,7 +1474,7 @@ export default function CustomersPage() {
       )}
             </div>
       )}
-            {showQuickAdd&&(<QuickAddModal onClose={()=>setShowQuickAdd(false)} onSaved={()=>{fetchCustomers();setShowQuickAdd(false)}} userEmail={userEmail}/>)}
+            {showQuickAdd&&(<QuickAddModal key={String(showQuickAdd)} onClose={()=>setShowQuickAdd(false)} onSaved={()=>{fetchCustomers();setShowQuickAdd(false)}} userEmail={userEmail}/>)}
       {outreachCustomer && (
                 <OutreachDrawer
           customerId={outreachCustomer.id}
