@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   if (!emailThread?.trim()) return NextResponse.json({ error: 'No email thread provided' }, { status: 400 })
 
   const msg = await anthropic.messages.create({
-    system: 'You are a JSON-only API. Respond with ONLY a raw JSON object. No markdown, no backticks, no explanation. Your entire response must be valid JSON starting with { and ending with }.
+    system: 'Output raw JSON only.',
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 2048,
     messages: [{
