@@ -48,8 +48,10 @@ Return this exact JSON structure:
 
   try {
     const rawText = msg.content[0].type === 'text' ? msg.content[0].text : '{}'
-    // Strip markdown code fences if present
-    const text = rawText.replace(/^```(?:json)?s*/i, '').replace(/s*```s*$/, '').trim()
+    // Extract JSON: find outermost { } to handle any wrapping text or fences
+    const start = rawText.indexOf('{')
+    const end = rawText.lastIndexOf('}')
+    const text = (start >= 0 && end > start) ? rawText.slice(start, end + 1) : rawText.trim()
     const data = JSON.parse(text)
     return NextResponse.json(data)
   } catch (e) {
