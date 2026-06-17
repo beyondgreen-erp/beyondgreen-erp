@@ -635,13 +635,12 @@ export default function CustomersPage() {
   const sel = inp + ' cursor-pointer'
   const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
-    { key: 'contacts', label: `Contacts${contacts.length ? ` (${contacts.length})` : ''}` },
-    { key: 'conversations', label: `Conversations${convoCount > 0 ? ` (${convoCount})` : ''}` },
+    { key: 'contacts', label: contacts.length ? 'Contacts (' + contacts.length + ')' : 'Contacts' },
+    { key: 'conversations', label: convoCount > 0 ? 'Conversations (' + convoCount + ')' : 'Conversations' },
     { key: 'activity', label: 'Activity' },
     { key: 'feed', label: 'Activity Feed' },
     { key: 'files', label: 'Files & Notes' },
   ]
-
   const STATUS_FILTERS = ['all','Lead','Prospect','Active Customer','Inactive']
   const selectedArr = Array.from(selectedIds)
   const selectedCustomers = customers.filter(c => selectedIds.has(c.id))
@@ -1466,17 +1465,18 @@ export default function CustomersPage() {
               <button onClick={()=>setDupesModal(false)} className="w-full text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Close</button>
             </div>
           </div>
-        </div>
-      )}
-      {outreachCustomer && (
         {showQuickAdd && (
-          <QuickAddModal
-            onClose={() => setShowQuickAdd(false)}
-            onSaved={() => { fetchCustomers(); setShowQuickAdd(false) }}
-            userEmail={userEmail}
-          />
-        )}
-        <OutreachDrawer
+        <QuickAddModal
+          onClose={() => setShowQuickAdd(false)}
+          onSaved={() => { fetchCustomers(); setShowQuickAdd(false) }}
+          userEmail={userEmail}
+        />
+      )}
+            </div>
+      )}
+            {showQuickAdd&&(<QuickAddModal onClose={()=>setShowQuickAdd(false)} onSaved={()=>{fetchCustomers();setShowQuickAdd(false)}} userEmail={userEmail}/>)}
+      {outreachCustomer && (
+                <OutreachDrawer
           customerId={outreachCustomer.id}
           companyName={outreachCustomer.company_name}
           customerEmail={outreachCustomer.email || ''}
