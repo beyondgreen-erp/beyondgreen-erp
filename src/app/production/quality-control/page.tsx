@@ -1,11 +1,67 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
-interface WO { id:string;wo_number:string;status:string;sales_order_id:string;sales_orders?:{order_number:string;customers?:{company_name:string}} }
+import { useEffect, useState } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
+
+const sb = createSupabaseBrowserClient()
+
+interface WO {
+  id: string
+  wo_number: string
+  status: string
+  sales_order_id: string
+  sales_orders?: { order_number: string; customers?: { company_name: string } }
+}
+
 export default function QCPage() {
-  const [items,setItems]=useState<WO[]>([]);const [loading,setLoading]=useState(true);const sb=createClient()
-  const load=useCallback(async()=>{setLoading(true);const{data}=await sb.from('work_orders').select('*,sales_orders(order_number,customers(company_name))').eq('status','Complete').order('created_at',{ascending:false});setItems(data||[]);setLoading(false)},[])
-  async function passQC(id:string,soId:string){await sb.from('work_orders').update({status:'QC Passed'}).eq('id',id);await sb.from('shipping_queue').upsert({sales_order_id:soId,status:'Pending'},{onConflict:'sales_order_id'});await sb.from('sales_orders').update({status:'Ready to Ship'}).eq('id',soId);load()}
-  useEffect(()=>{load()},[load])
-  return(<div className="min-h-screen p-8 bg-gray-50"><p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">PRODUCTION</p><h1 className="text-3xl font-bold text-gray-900 mb-6">Quality Control</h1><p className="text-gray-500 mb-6">{items.length} items awaiting QC</p>{loading?<div className="text-center py-20 text-gray-400">Loading...</div>:<div className="space-y-3">{items.map(item=><div key={item.id} className="bg-white rounded-xl border border-gray-100 p-5 flex items-center justify-between shadow-sm"><div><div className="flex items-center gap-3 mb-1"><span className="font-bold text-gray-900">{item.wo_number}</span><span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">Ready for QC</span></div><p className="text-sm text-gray-500">SO: {item.sales_orders?.order_number} - {item.sales_orders?.customers?.company_name}</p></div><button onClick={()=>passQC(item.id,item.sales_order_id)} className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700">Pass QC - Ship Queue</button></div>)}{!items.length&&<div className="text-center py-20 text-gray-400">No items awaiting QC.</div>}</div>}</div>)
+  const [items, setItems] = useState<WO[]>([])
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    setLoading(true)
+    const { data } = await sb
+      .from('work_orders')
+      .select('*, sales_orders(order_number, customers(company_name))')
+      .eq('status', 'Complete')
+      .order('created_at', { ascending: false })
+    setItems(data || [])
+    setLoading(false)
+  }
+
+  async function passQC(id: string, soId: string) {
+    await sb.from('work_orders').update({ status: 'QC Passed' }).eq('id', id)
+    await sb.from('shipping_queue').upsert({ sales_order_id: soId, status: 'Pending' }, { onConflict: 'sales_order_id' })
+    await sb.from('sales_orders').update({ status: 'Ready to Ship' }).eq('id', soId)
+    load()
+  }
+
+  useEffect(() => { load() }, [])
+
+  return (
+    <div className="min-h-screen p-8 bg-gray-50">
+      <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">PRODUCTION</p>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">Quality Control</h1>
+      <p className="text-gray-500 mb-6">{items.length} items awaiting QC</p>
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">Loading...</div>
+      ) : (
+        <div className="space-y-3">
+          {items.map(item => (
+            <div key={item.id} className="bg-white rounded-xl border border-gray-100 p-5 flex items-center justify-between shadow-sm">
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <span className="font-bold text-gray-900">{item.wo_number}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">Ready for QC</span>
+                </div>
+                <p className="text-sm text-gray-500">SO: {item.sales_orders?.order_number} &mdash; {item.sales_orders?.customers?.company_name}</p>
+              </div>
+              <button onClick={() => passQC(item.id, item.sales_order_id)} className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700">
+                Pass QC &rarr; Ship Queue
+              </button>
+            </div>
+          ))}
+          {items.length === 0 && <div className="text-center py-20 text-gray-400">No items awaiting QC.</div>}
+        </div>
+      )}
+    </div>
+  )
 }
