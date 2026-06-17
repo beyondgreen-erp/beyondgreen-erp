@@ -16,6 +16,7 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
   const [parsing, setParsing] = useState(false)
   const [parsed, setParsed] = useState<ParsedData | null>(null)
   const [error, setError] = useState('')
+  const [wasExisting, setWasExisting] = useState(false)
   
 
   async function handleParse() {
