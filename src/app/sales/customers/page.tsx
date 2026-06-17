@@ -641,7 +641,6 @@ export default function CustomersPage() {
     { key: 'feed', label: 'Activity Feed' },
     { key: 'files', label: 'Files & Notes' },
   ]
-
   const STATUS_FILTERS = ['all','Lead','Prospect','Active Customer','Inactive']
   const selectedArr = Array.from(selectedIds)
   const selectedCustomers = customers.filter(c => selectedIds.has(c.id))
