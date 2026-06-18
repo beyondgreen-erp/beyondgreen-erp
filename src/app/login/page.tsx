@@ -1,205 +1,181 @@
 'use client'
-export const dynamic = 'force-dynamic'
-
-import { Suspense, useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
-const ALLOWED_DOMAINS = ['beyondgreenbiotech.com', 'byndgrn.com']
+const sb = createSupabaseBrowserClient()
 
-function validateDomain(email: string) {
-  const domain = email.split('@')[1]?.toLowerCase()
-  return ALLOWED_DOMAINS.includes(domain ?? '')
-}
-
-export default function LoginPageWrapper() {
-  return <Suspense><LoginPage /></Suspense>
-}
-
-function LoginPage() {
-  const router = useRouter()
-  const params = useSearchParams()
+export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [mode, setMode] = useState<'login' | 'reset'>('login')
   const [resetSent, setResetSent] = useState(false)
-  const [sessionExpired, setSessionExpired] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetError, setResetError] = useState('')
 
-  useEffect(() => {
-    if (params.get('expired') === '1') setSessionExpired(true)
-    if (params.get('error') === 'unauthorized') setError('Your email domain is not authorized to access this system.')
-  }, [params])
-
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleLogin() {
     setError('')
-
-    if (!validateDomain(email)) {
-      setError('Access restricted to beyondgreenbiotech.com and byndgrn.com email addresses only.')
-      return
-    }
-
+    if (!email || !password) { setError('Please enter your email and password.'); return }
     setLoading(true)
-    const supabase = createSupabaseBrowserClient()
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    const { error: e } = await sb.auth.signInWithPassword({ email: email.trim().toLowerCase(), password })
     setLoading(false)
-
-    if (authError) {
-      setError(authError.message === 'Invalid login credentials'
-        ? 'Invalid email or password. Please try again.'
-        : authError.message)
+    if (e) {
+      if (e.message.includes('Invalid login')) setError('Incorrect email or password. Please try again.')
+      else setError(e.message)
       return
     }
-
-    router.push('/')
-    router.refresh()
+    window.location.href = '/'
   }
 
-  async function handleReset(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-
-    if (!validateDomain(email)) {
-      setError('Access restricted to beyondgreenbiotech.com and byndgrn.com email addresses only.')
-      return
+  async function handleReset() {
+    setResetError('')
+    if (!email || !email.includes('@')) { setResetError('Please enter your email address above.'); return }
+    setResetLoading(true)
+    try {
+      const res = await fetch('/api/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setResetError(data.error || 'Failed to send reset email.'); }
+      else { setResetSent(true) }
+    } catch {
+      setResetError('Network error — please try again.')
     }
-
-    setLoading(true)
-    const supabase = createSupabaseBrowserClient()
-    const { error: authError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/login?reset=true`,
-    })
-    setLoading(false)
-
-    if (authError) { setError(authError.message); return }
-    setResetSent(true)
+    setResetLoading(false)
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div style={{ minHeight: '100vh', background: '#1A2035', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+      <div style={{ background: 'white', borderRadius: 16, padding: '40px', width: '100%', maxWidth: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.3)' }}>
 
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-4">
-            <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <span className="text-white font-bold text-lg">bG</span>
-            </div>
-            <span className="text-[#1A1D2E] font-bold text-xl">beyondGREEN ERP</span>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 36 }}>
+          <div style={{ background: '#3B6FE0', borderRadius: 10, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <span style={{ color: 'white', fontWeight: 800, fontSize: 16 }}>bG</span>
           </div>
-          <p className="text-[#6B7280] text-sm">Restricted access — authorized personnel only</p>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: '#0F1C2E' }}>beyondGREEN ERP</div>
+            <div style={{ fontSize: 11, color: '#8A9FC0', marginTop: 1 }}>Internal Operations Platform</div>
+          </div>
         </div>
 
-        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-8 shadow-sm">
-          {mode === 'login' ? (
-            <>
-              <h1 className="text-[#1A1D2E] font-semibold text-lg mb-6">Sign in</h1>
+        {mode === 'login' ? (
+          <>
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#8A9FC0', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+              Restricted access — authorized personnel only
+            </p>
+            <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: '#0F1C2E', marginBottom: 28 }}>Sign in</h1>
 
-              {sessionExpired && (
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4">
-                  <p className="text-amber-400 text-sm font-medium">Session expired — please sign in again.</p>
-                </div>
-              )}
+            {error && (
+              <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 20 }}>
+                {error}
+              </div>
+            )}
 
-              {resetSent && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-4">
-                  <p className="text-emerald-400 text-sm">Password reset email sent. Check your inbox.</p>
-                </div>
-              )}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#5A6E8A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                Email
+              </label>
+              <input
+                type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@beyondgreenbiotech.com"
+                style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '11px 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box', color: '#0F1C2E' }}
+              />
+            </div>
 
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4">
-                  <p className="text-red-400 text-sm">{error}</p>
-                </div>
-              )}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#5A6E8A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                Password
+              </label>
+              <input
+                type="password" value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Your password"
+                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '11px 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box', color: '#0F1C2E' }}
+              />
+            </div>
 
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label className="text-xs text-[#6B7280] uppercase tracking-wider block mb-1.5">Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="you@beyondgreenbiotech.com"
-                    required
-                    className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-3 text-[#1A1D2E] placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-[#6B7280] uppercase tracking-wider block mb-1.5">Password</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-3 text-[#1A1D2E] placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors text-sm"
-                >
-                  {loading ? 'Signing in…' : 'Sign in'}
-                </button>
-              </form>
+            <button
+              onClick={handleLogin} disabled={loading}
+              style={{ width: '100%', background: loading ? '#93B4FF' : '#3B6FE0', color: 'white', border: 'none', borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', marginBottom: 16 }}
+            >
+              {loading ? 'Signing in...' : 'Sign in'}
+            </button>
 
+            <p style={{ textAlign: 'center', fontSize: 13 }}>
               <button
-                onClick={() => { setMode('reset'); setError('') }}
-                className="w-full text-center text-[#6B7280] hover:text-[#1A1D2E] text-sm mt-4 transition-colors"
+                onClick={() => { setMode('reset'); setError(''); setResetSent(false); setResetError(''); }}
+                style={{ background: 'none', border: 'none', color: '#3B6FE0', cursor: 'pointer', fontSize: 13, textDecoration: 'underline', padding: 0 }}
               >
                 Forgot password?
               </button>
-            </>
-          ) : (
-            <>
-              <h1 className="text-[#1A1D2E] font-semibold text-lg mb-2">Reset password</h1>
-              <p className="text-[#6B7280] text-sm mb-6">Enter your work email and we&apos;ll send a reset link.</p>
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: '#0F1C2E', marginBottom: 12 }}>
+              Reset password
+            </h1>
 
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4">
-                  <p className="text-red-400 text-sm">{error}</p>
+            {resetSent ? (
+              <div>
+                <div style={{ background: '#D1FAE5', color: '#065F46', padding: '16px', borderRadius: 10, fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
+                  ✅ <strong>Check your inbox.</strong> A password reset link has been sent to <strong>{email}</strong>. It expires in 1 hour. Check your spam folder if you don&apos;t see it.
                 </div>
-              )}
+                <button
+                  onClick={() => { setMode('login'); setResetSent(false); }}
+                  style={{ background: 'none', border: '1px solid #E2E8F0', borderRadius: 8, padding: '10px 20px', fontSize: 14, color: '#5A6E8A', cursor: 'pointer', width: '100%' }}
+                >
+                  ← Back to login
+                </button>
+              </div>
+            ) : (
+              <>
+                <p style={{ color: '#5A6E8A', fontSize: 14, lineHeight: 1.6, marginBottom: 24 }}>
+                  Enter your email address and we&apos;ll send you a link to reset your password.
+                </p>
 
-              {resetSent ? (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center">
-                  <p className="text-emerald-400 text-sm">Reset link sent to {email}</p>
-                </div>
-              ) : (
-                <form onSubmit={handleReset} className="space-y-4">
+                {resetError && (
+                  <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+                    {resetError}
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#5A6E8A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    Email
+                  </label>
                   <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
+                    type="email" value={email} onChange={e => setEmail(e.target.value)}
                     placeholder="you@beyondgreenbiotech.com"
-                    required
-                    className="w-full bg-white border border-[#E4E6EE] rounded-xl px-4 py-3 text-[#1A1D2E] placeholder-gray-400 focus:outline-none focus:border-emerald-500 text-sm transition-colors"
+                    onKeyDown={e => e.key === 'Enter' && handleReset()}
+                    style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '11px 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box', color: '#0F1C2E' }}
                   />
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors text-sm"
-                  >
-                    {loading ? 'Sending…' : 'Send reset link'}
-                  </button>
-                </form>
-              )}
+                </div>
 
-              <button
-                onClick={() => { setMode('login'); setError('') }}
-                className="w-full text-center text-[#6B7280] hover:text-[#1A1D2E] text-sm mt-4 transition-colors"
-              >
-                ← Back to sign in
-              </button>
-            </>
-          )}
-        </div>
+                <button
+                  onClick={handleReset} disabled={resetLoading}
+                  style={{ width: '100%', background: resetLoading ? '#93B4FF' : '#3B6FE0', color: 'white', border: 'none', borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 700, cursor: resetLoading ? 'not-allowed' : 'pointer', marginBottom: 12 }}
+                >
+                  {resetLoading ? 'Sending...' : 'Send reset link'}
+                </button>
 
-        <p className="text-center text-[#9CA3AF] text-xs mt-6">
-          beyondGREEN biotech, Inc. · Internal ERP System
+                <button
+                  onClick={() => { setMode('login'); setResetError(''); }}
+                  style={{ background: 'none', border: 'none', color: '#8A9FC0', cursor: 'pointer', fontSize: 13, width: '100%', padding: '8px 0' }}
+                >
+                  ← Back to login
+                </button>
+              </>
+            )}
+          </>
+        )}
+
+        <p style={{ textAlign: 'center', color: '#8A9FC0', fontSize: 11, marginTop: 28 }}>
+          beyondGREEN Biotech, Inc. · Internal ERP System
         </p>
       </div>
     </div>
