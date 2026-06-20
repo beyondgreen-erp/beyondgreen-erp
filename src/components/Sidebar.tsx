@@ -40,6 +40,7 @@ const NAV: NavSection[] = [
 { href: '/imports', label: 'Import Tracker', icon: 'ti-ship' },
 ]},
 { label: 'Business', items: [
+{ href: '/inbox', label: 'Inbox', icon: 'ti-mail' },
 { href: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox' },
 { href: '/bizdev/forecasting', label: 'Forecasting', icon: 'ti-trending-up' },
 { href: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette' },
