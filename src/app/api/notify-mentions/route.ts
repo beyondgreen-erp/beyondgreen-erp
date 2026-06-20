@@ -1,13 +1,15 @@
-import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+const RESEND_API_KEY = process.env.RESEND_API_KEY
+const FROM_EMAIL = process.env.FROM_EMAIL || 'erp@beyondgreenbiotech.com'
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://beyondgreen-erp.vercel.app'
 
 function getSb() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !key) throw new Error('Supabase env vars not configured')
-  return createClient(url, key)
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
 }
 
 export async function POST(req: Request) {
@@ -20,7 +22,7 @@ export async function POST(req: Request) {
 
     const sb = getSb()
 
-    // Look up all user profiles to match mention tokens to real users
+    // Look up user profiles to resolve @mentions to real emails
     const { data: profiles } = await sb
       .from('user_profiles')
       .select('email, full_name')
@@ -28,107 +30,89 @@ export async function POST(req: Request) {
 
     if (!profiles?.length) return Response.json({ ok: true, notified: 0 })
 
-    // Build name→email lookup (normalized)
+    // Build name -> email lookup
     const nameToEmail: Record<string, string> = {}
     for (const p of profiles) {
       if (!p.email || !p.full_name) continue
       const normalized = p.full_name.toLowerCase().replace(/\s+/g, '')
       nameToEmail[normalized] = p.email
-      // Also map first name alone for single-word matches
       const first = p.full_name.split(' ')[0].toLowerCase()
       if (!nameToEmail[first]) nameToEmail[first] = p.email
     }
 
-    // Resolve mention tokens to emails (skip self-mentions)
+    // Resolve mention tokens to recipient emails (skip self-mentions)
     const recipientEmails = new Set<string>()
     for (const token of mentions) {
       const normalized = token.toLowerCase().replace(/\s+/g, '')
-      const email = nameToEmail[normalized]
-      if (email && email !== authorEmail) {
-        recipientEmails.add(email)
+      const recipEmail = nameToEmail[normalized]
+      if (recipEmail && recipEmail !== authorEmail) {
+        recipientEmails.add(recipEmail)
       }
     }
 
     if (recipientEmails.size === 0) return Response.json({ ok: true, notified: 0 })
 
-    const year = new Date().getFullYear()
-    const pageLabel = recordType.charAt(0).toUpperCase() + recordType.slice(1)
-    const bodyEscaped = body
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      // Highlight @mentions
-      .replace(/@(\w+)/g, '<strong style="color:#3B6FE0">@$1</strong>')
+    const pageLabel = recordType ? (recordType.charAt(0).toUpperCase() + recordType.slice(1).replace(/_/g, ' ')) : 'ERP'
+    const contextUrl = recordUrl || `${SITE_URL}/${recordType || ''}`
+    const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
 
-    const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f5f6fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-  <div style="max-width:520px;margin:40px auto;background:#fff;border:1px solid #e4e6ee;border-radius:16px;overflow:hidden">
-    <div style="background:#1a1d2e;padding:24px 32px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:32px;height:32px;background:#3B6FE0;border-radius:8px;display:flex;align-items:center;justify-content:center">
-          <span style="color:#fff;font-weight:700;font-size:13px">bG</span>
-        </div>
-        <div>
-          <p style="margin:0;color:#fff;font-weight:700;font-size:16px">beyondGREEN ERP</p>
-          <p style="margin:0;color:#9ca3af;font-size:11px">Mention notification</p>
-        </div>
-      </div>
-    </div>
-    <div style="padding:32px">
-      <p style="color:#6b7280;font-size:13px;margin:0 0 6px">New mention</p>
-      <h2 style="color:#1a1d2e;font-size:18px;font-weight:600;margin:0 0 20px">
-        <span style="color:#3B6FE0">${authorName}</span> mentioned you in a ${pageLabel} comment
-      </h2>
-      <div style="background:#f5f6fa;border:1px solid #e4e6ee;border-radius:12px;padding:16px;margin-bottom:24px">
-        <p style="color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:0 0 8px">${pageLabel} · ${recordId}</p>
-        <p style="color:#374151;font-size:15px;margin:0;line-height:1.6">${bodyEscaped}</p>
-      </div>
-      ${recordUrl ? `<a href="${recordUrl}" style="display:inline-block;background:#3B6FE0;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:10px">View comment →</a>` : ''}
-    </div>
-    <div style="padding:16px 32px;border-top:1px solid #f0f2f7">
-      <p style="color:#9ca3af;font-size:11px;margin:0">beyondGREEN ERP &copy; ${year} · You received this because you were @mentioned</p>
-    </div>
+    let notified = 0
+    for (const recipEmail of recipientEmails) {
+      // 1. Write to notifications table (shows in bell)
+      await sb.from('notifications').insert({
+        recipient_email: recipEmail,
+        sender_email: authorEmail,
+        message: snippet,
+        page: pageLabel,
+        is_read: false,
+        context_url: contextUrl,
+      }).single()
+
+      // 2. Send email via Resend
+      if (RESEND_API_KEY) {
+        const html = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F7F8FA;margin:0;padding:32px 16px">
+<div style="max-width:500px;margin:0 auto">
+  <div style="background:#1A2035;border-radius:14px 14px 0 0;padding:24px 28px;display:flex;align-items:center;gap:12px">
+    <div style="background:#3B6FE0;border-radius:8px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:13px;text-align:center">bG</div>
+    <span style="color:rgba(255,255,255,0.85);font-size:14px;font-weight:600">beyondGREEN ERP</span>
   </div>
-</body>
-</html>`
+  <div style="background:white;border-radius:0 0 14px 14px;padding:32px 28px;border:1px solid #E2E8F0;border-top:none">
+    <p style="font-size:16px;font-weight:700;color:#0F1C2E;margin:0 0 6px">
+      ${authorName || authorEmail.split('@')[0]} mentioned you
+    </p>
+    <p style="font-size:13px;color:#5A6E8A;margin:0 0 20px">
+      in <strong style="color:#0F1C2E">${pageLabel}</strong>
+    </p>
+    ${snippet ? `<div style="background:#F7F8FA;border-left:3px solid #3B6FE0;padding:12px 16px;border-radius:0 8px 8px 0;font-size:13px;color:#0F1C2E;margin-bottom:24px;line-height:1.6">${snippet}</div>` : ''}
+    <a href="${contextUrl}" style="display:inline-block;background:#3B6FE0;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700">
+      View in ERP
+    </a>
+  </div>
+  <p style="text-align:center;font-size:11px;color:#8A9FC0;margin-top:20px">beyondGREEN Biotech &middot; Internal ERP</p>
+</div>
+</body></html>`
 
-    // Send notifications concurrently
-    const results = await Promise.allSettled(
-      Array.from(recipientEmails).map(async (recipientEmail) => {
-        // Insert notification row
-        await sb.from('notifications').insert({
-          recipient_email: recipientEmail,
-          sender_email: authorEmail,
-          message: body,
-          page: pageLabel,
-          record_id: recordId,
-          record_type: recordType,
-          is_read: false,
-          type: 'mention',
-          title: `${authorName} mentioned you`,
-          link: recordUrl ?? null,
-          user_email: authorEmail,
-        }).then(() => {})
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${RESEND_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: `beyondGREEN ERP <${FROM_EMAIL}>`,
+            to: [recipEmail],
+            subject: `${authorName || authorEmail.split('@')[0]} mentioned you in ${pageLabel}`,
+            html,
+          }),
+        })
+      }
 
-        // Send email
-        if (resend) {
-          await resend.emails.send({
-            from: 'beyondGREEN ERP <onboarding@resend.dev>',
-            to: recipientEmail,
-            subject: `${authorName} mentioned you in ${pageLabel}`,
-            html: emailHtml,
-          })
-        }
-      })
-    )
+      notified++
+    }
 
-    const succeeded = results.filter(r => r.status === 'fulfilled').length
-    return Response.json({ ok: true, notified: succeeded })
+    return Response.json({ ok: true, notified })
   } catch (err) {
-    console.error('notify-mentions error', err)
-    return Response.json({ error: 'Failed to send mention notifications' }, { status: 500 })
+    console.error('[notify-mentions]', err)
+    return Response.json({ error: 'Failed to send notifications' }, { status: 500 })
   }
 }
