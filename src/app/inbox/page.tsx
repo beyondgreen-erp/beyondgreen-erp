@@ -93,7 +93,8 @@ export default function InboxPage() {
     const labelCol = labelMap[type]
     if (!table) return
     const { data } = await sb.from(table).select('id,' + labelCol).limit(50)
-    setLogRecords(((data || []) as Array<Record<string, unknown>>).map((r) => ({ id: r.id as string, name: r[labelCol] as string })))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setLogRecords(((data || []) as any[]).map((r: any) => ({ id: r.id as string, name: r[labelCol] as string })))
   }
 
   async function logEmail() {
