@@ -127,12 +127,28 @@ export default function InboxPage() {
             <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Generated from account.microsoft.com/security" className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm outline-none" />
           </div>
         </div>
-        <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700 mb-5">
-          <strong>How to get your App Password:</strong><br/>
-          1. Go to <strong>account.microsoft.com/security</strong><br/>
-          2. Click &ldquo;Advanced security options&rdquo;<br/>
-          3. Under &ldquo;App passwords&rdquo; click Create<br/>
-          4. Name it &ldquo;beyondGREEN ERP&rdquo; and copy the password shown
+        <div style={{background:'#F0F9FF',border:'1px solid #BAE6FD',borderRadius:10,padding:16,marginBottom:20}}>
+          <p style={{fontSize:12,fontWeight:700,color:'#0369A1',marginBottom:10,textTransform:'uppercase',letterSpacing:'0.05em'}}>📋 How to get your App Password</p>
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+            {[
+              {n:'1',text:'Open Microsoft Security settings',sub:'Click the button below — it opens in a new tab'},
+              {n:'2',text:'Click "Advanced security options"',sub:'Scroll down if you don't see it right away'},
+              {n:'3',text:'Under "App passwords" click Create',sub:'You may need to enable 2-step verification first'},
+              {n:'4',text:'Name it "beyondGREEN ERP"',sub:'Then click Next and copy the password shown'},
+            ].map(step => (
+              <div key={step.n} style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                <div style={{width:22,height:22,borderRadius:'50%',background:'#0EA5E9',color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0,marginTop:1}}>{step.n}</div>
+                <div>
+                  <p style={{fontSize:12,fontWeight:700,color:'#0C4A6E',margin:0}}>{step.text}</p>
+                  <p style={{fontSize:11,color:'#0369A1',margin:'2px 0 0',opacity:0.8}}>{step.sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <a href="https://account.microsoft.com/security" target="_blank" rel="noopener noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,background:'#0EA5E9',color:'white',borderRadius:8,padding:'10px 16px',textDecoration:'none',fontSize:13,fontWeight:700}}>
+            🔐 Open Microsoft Security Settings →
+          </a>
+          <p style={{fontSize:10,color:'#0369A1',textAlign:'center',marginTop:8,opacity:0.7}}>Opens account.microsoft.com/security in a new tab</p>
         </div>
         <button onClick={connect} disabled={loading || !email || !password} className="w-full bg-[#3B6FE0] text-white rounded-xl py-3 font-bold text-sm disabled:opacity-50">
           {loading ? 'Connecting...' : 'Connect Inbox'}
