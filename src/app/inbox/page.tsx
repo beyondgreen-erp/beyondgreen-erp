@@ -123,8 +123,8 @@ export default function InboxPage() {
             <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@beyondgreenbiotech.com" style={{...{}}} className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm outline-none" />
           </div>
           <div>
-            <label className="block text-xs font-bold text-[#5A6E8A] uppercase tracking-wide mb-1">App Password</label>
-            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Generated from account.microsoft.com/security" className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm outline-none" />
+            <label className="block text-xs font-bold text-[#5A6E8A] uppercase tracking-wide mb-1">Password or App Password</label>
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your Microsoft 365 password, or App Password if MFA is on" className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm outline-none" />
           </div>
         </div>
         <div style={{background:'#F0F9FF',border:'1px solid #BAE6FD',borderRadius:10,padding:16,marginBottom:20}}>
