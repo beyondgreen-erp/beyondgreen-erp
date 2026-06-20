@@ -6,25 +6,26 @@ import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import RemindersWidget from '@/components/RemindersWidget'
 
+const sb = createSupabaseBrowserClient()
+
+// Only these statuses count as "open" — matches what Sales Orders page shows
+const OPEN_STATUSES = [
+  'New', 'Confirmed', 'Awaiting BOM Components', 'Awaiting Production',
+  'Production Queue', 'In Production', 'QC', 'Ready to Ship', 'Partially Shipped', 'On Hold'
+]
+
 interface KPI { openOrders: number; revenueMTD: number; shipmentsMTD: number; invoicesDue: number; openTasks: number; lowStock: number; openWorkOrders: number; overdueInvoices: number; overdueAmount: number; totalCustomers: number }
 const INIT: KPI = { openOrders:0, revenueMTD:0, shipmentsMTD:0, invoicesDue:0, openTasks:0, lowStock:0, openWorkOrders:0, overdueInvoices:0, overdueAmount:0, totalCustomers:0 }
 
 const fmt$ = (n: number) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n)
 const fmtD = (d: string|null|undefined) => d ? new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'
 
-function greeting() {
-  const h = new Date().getHours()
-  if (h < 12) return 'Good morning'
-  if (h < 17) return 'Good afternoon'
-  return 'Good evening'
-}
-
-const STATUS_PIPELINE = [
-  { label: 'New', color: '#3B82F6', href: '/sales/orders' },
-  { label: 'In Production', color: '#F59E0B', href: '/production' },
-  { label: 'QC', color: '#8B5CF6', href: '/production/qc' },
-  { label: 'Ready to Ship', color: '#F97316', href: '/sales/shipping-queue' },
-  { label: 'Shipped', color: '#14B8A6', href: '/sales/shipments' },
+const PIPELINE = [
+  { label: 'New', color: '#6366F1', href: '/sales/orders' },
+  { label: 'In Production', color: '#F59E0B', href: '/sales/orders' },
+  { label: 'QC', color: '#8B5CF6', href: '/production/quality-control' },
+  { label: 'Ready to Ship', color: '#F97316', href: '/production/shipping-queue' },
+  { label: 'Shipped', color: '#14B8A6', href: '/shipments' },
   { label: 'Invoiced', color: '#00C896', href: '/sales/invoices' },
 ]
 
@@ -38,334 +39,219 @@ function SkeletonRow() {
   )
 }
 
-interface KpiCardProps { label: string; value: string | number; icon: string; iconColor: string; iconBg: string; href: string; alert?: boolean }
-function KpiCard({ label, value, icon, iconColor, iconBg, href, alert }: KpiCardProps) {
-  return (
-    <Link href={href} className="stat-card bg-white border border-[#E4E6EE] rounded-2xl p-5 hover:border-[#D0D3E0] transition-all group cursor-pointer block">
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${iconBg}`}>
-          <svg className={`${iconColor}`} style={{width:'18px',height:'18px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={icon} />
-          </svg>
-        </div>
-        {alert && <span className="w-2 h-2 rounded-full bg-red-500 alert-pulse mt-1" />}
-      </div>
-      <p className="text-2xl font-bold tracking-tight transition-colors" style={{ color: alert ? '#DC2626' : '#1A1D2E' }}>{value}</p>
-      <p className="text-[#9CA3AF] text-xs mt-1">{label}</p>
-    </Link>
-  )
-}
-
-const SO_STATUS: Record<string,string> = {
-  New:'bg-blue-500/15 text-blue-400 border-blue-500/25',
-  'In Production':'bg-amber-500/15 text-amber-400 border-amber-500/25',
-  'QC':'bg-violet-500/15 text-violet-400 border-violet-500/25',
-  'Ready to Ship':'bg-orange-500/15 text-orange-400 border-orange-500/25',
-  Shipped:'bg-teal-500/15 text-teal-400 border-teal-500/25',
-  Invoiced:'bg-[#00C89615] text-[#00C896] border-[#00C89630]',
-  Closed:'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]',
-}
-
 export default function DashboardPage() {
-  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
-  const [loading, setLoading] = useState(true)
   const [kpi, setKpi] = useState<KPI>(INIT)
+  const [loading, setLoading] = useState(true)
   const [recentOrders, setRecentOrders] = useState<any[]>([])
-  const [recentTasks, setRecentTasks] = useState<any[]>([])
-  const [overdueInvoiceList, setOverdueInvoiceList] = useState<any[]>([])
+  const [tasks, setTasks] = useState<any[]>([])
+  const [overdueInvoicesList, setOverdueInvoicesList] = useState<any[]>([])
+  const [greeting, setGreeting] = useState('')
+  const [userName, setUserName] = useState('')
   const [pipelineCounts, setPipelineCounts] = useState<Record<string,number>>({})
-  const [userName, setUserName] = useState('there')
-  const today = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    const h = new Date().getHours()
+    setGreeting(h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening')
+    sb.auth.getUser().then(({ data }) => {
       if (data.user?.email) {
-        supabase.from('user_profiles').select('full_name').eq('email', data.user.email).single()
-          .then(({ data: p }) => { if (p?.full_name) setUserName(p.full_name.split(' ')[0]) })
+        sb.from('user_profiles').select('full_name').eq('email', data.user.email).single()
+          .then(({ data: p }) => setUserName(p?.full_name || data.user!.email!.split('@')[0]))
       }
     })
-    loadData()
-  }, []) // eslint-disable-line
+  }, [])
 
-  async function loadData() {
-    setLoading(true)
-    const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10)
-    const todayStr = now.toISOString().slice(0,10)
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      const today = new Date().toISOString().split('T')[0]
+      const monthStart = today.substring(0,7) + '-01'
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const settle = (p: PromiseLike<any>) => Promise.resolve(p).catch(() => ({ data: null, error: null, count: null }))
+      const [
+        { count: openOrders },
+        { data: soData },
+        { count: openTasks },
+        { count: openWorkOrders },
+        { count: totalCustomers },
+        { data: invoiceData },
+        { data: recentSO },
+        { data: taskData },
+      ] = await Promise.all([
+        // OPEN ORDERS: only count statuses that are genuinely open
+        sb.from('sales_orders').select('id', { count: 'exact', head: true }).in('status', OPEN_STATUSES),
+        // Revenue MTD: from shipped/invoiced orders this month
+        sb.from('sales_orders').select('total_amount').in('status', ['Shipped','Closed']).gte('updated_at', monthStart),
+        sb.from('tasks').select('id', { count: 'exact', head: true }).not('status', 'in', '("Done","Archived","Cancelled")'),
+        sb.from('work_orders').select('id', { count: 'exact', head: true }).eq('status', 'Queued'),
+        sb.from('customers').select('id', { count: 'exact', head: true }),
+        sb.from('invoices').select('id,total_amount,due_date,status,customers(company_name)').neq('status','paid').neq('status','void').neq('status','Paid'),
+        sb.from('sales_orders').select('id,order_number,status,total_amount,customers(company_name),updated_at').order('updated_at',{ascending:false}).limit(5),
+        sb.from('tasks').select('id,name,status,priority,assigned_to,due_date').not('status','in','("Done","Archived")').order('due_date',{ascending:true}).limit(5),
+      ])
 
-    const [
-      ordersRes, shipmentsCountRes, invoicesRes, tasksRes,
-      productsRes, workOrdersRes, customersRes,
-      recentOrdersRes, recentTasksRes, overdueRes,
-      paidRes,
-    ] = await Promise.all([
-      settle(supabase.from('sales_orders').select('id,status').not('status','in','("Closed","Cancelled")')),
-      settle(supabase.from('shipments').select('id',{count:'exact',head:true}).gte('ship_date', monthStart)),
-      settle(supabase.from('invoices').select('id,status,total_amount,due_date').not('status','in','("paid","void")')),
-      settle(supabase.from('tasks').select('id',{count:'exact',head:true}).not('status','in','("Done","Cancelled")')),
-      settle(supabase.from('products').select('id,on_hand_qty,reorder_point')),
-      settle(supabase.from('work_orders').select('id',{count:'exact',head:true}).not('status','in','("Complete","Cancelled")')),
-      settle(supabase.from('customers').select('id',{count:'exact',head:true})),
-      settle(supabase.from('sales_orders').select('id,order_number,status,total,created_at,customer_id,customers(company_name)').order('created_at',{ascending:false}).limit(5)),
-      settle(supabase.from('tasks').select('id,task_name,status,due_date,assigned_to').order('created_at',{ascending:false}).limit(5)),
-      settle(supabase.from('invoices').select('id,invoice_number_display,total_amount,due_date,customers(company_name)').in('status',['overdue','pending']).lte('due_date', todayStr).order('due_date').limit(5)),
-      settle(supabase.from('invoices').select('total_amount').eq('status','paid').gte('invoice_date', monthStart)),
-    ])
+      const revenueMTD = (soData || []).reduce((s:number, r:any) => s + (r.total_amount || 0), 0)
+      const overdue = (invoiceData || []).filter((i:any) => i.due_date && i.due_date < today)
+      const overdueAmount = overdue.reduce((s:number, i:any) => s + (i.total_amount || 0), 0)
+      const invoicesDue = (invoiceData || []).length
 
-    const orders = ordersRes.data ?? []
-    const invs = invoicesRes.data ?? []
-    const prods = productsRes.data ?? []
+      // Pipeline counts
+      const pCounts: Record<string,number> = {}
+      for (const stage of PIPELINE) {
+        const { count } = await sb.from('sales_orders').select('id',{count:'exact',head:true}).eq('status', stage.label)
+        pCounts[stage.label] = count || 0
+      }
+      setPipelineCounts(pCounts)
 
-    const overdueInvs = invs.filter((i: any) => i.status === 'overdue' || (i.due_date && i.due_date < todayStr))
-    const invoicesDue = invs.filter((i: any) => ['pending','partial','overdue'].includes(i.status)).length
-    const lowStock = prods.filter((p: any) => p.reorder_point != null && (p.on_hand_qty ?? 0) <= p.reorder_point).length
-    const revenueMTD = (paidRes.data ?? []).reduce((a: number, r: any) => a + (r.total_amount ?? 0), 0)
+      setKpi({ openOrders: openOrders || 0, revenueMTD, shipmentsMTD: 0, invoicesDue, openTasks: openTasks || 0, lowStock: 0, openWorkOrders: openWorkOrders || 0, overdueInvoices: overdue.length, overdueAmount, totalCustomers: totalCustomers || 0 })
+      setRecentOrders(recentSO || [])
+      setTasks(taskData || [])
+      setOverdueInvoicesList(overdue)
+      setLoading(false)
+    }
+    load()
+  }, [])
 
-    const pipeline: Record<string,number> = {}
-    for (const o of orders) pipeline[(o as any).status] = (pipeline[(o as any).status] ?? 0) + 1
+  const totalPipeline = useMemo(() => Object.values(pipelineCounts).reduce((a,b) => a+b, 0) || 1, [pipelineCounts])
 
-    setKpi({
-      openOrders: orders.length,
-      revenueMTD,
-      shipmentsMTD: shipmentsCountRes.count ?? 0,
-      invoicesDue,
-      openTasks: tasksRes.count ?? 0,
-      lowStock,
-      openWorkOrders: workOrdersRes.count ?? 0,
-      overdueInvoices: overdueInvs.length,
-      overdueAmount: overdueInvs.reduce((a: number, r: any) => a + (r.total_amount ?? 0), 0),
-      totalCustomers: customersRes.count ?? 0,
-    })
-    setPipelineCounts(pipeline)
-    setRecentOrders(recentOrdersRes.data ?? [])
-    setRecentTasks(recentTasksRes.data ?? [])
-    setOverdueInvoiceList(overdueRes.data ?? [])
-    setLoading(false)
+  const priorityColor = (p: string) => ({ Critical:'text-red-600', High:'text-orange-500', Medium:'text-yellow-600', Low:'text-gray-400' }[p] || 'text-gray-400')
+  const statusChip = (s: string) => {
+    const map: Record<string,string> = { Shipped:'bg-teal-100 text-teal-700', 'Ready to Ship':'bg-orange-100 text-orange-700', 'In Production':'bg-blue-100 text-blue-700', QC:'bg-purple-100 text-purple-700', New:'bg-indigo-100 text-indigo-700', Confirmed:'bg-indigo-100 text-indigo-700' }
+    return (map[s] || 'bg-gray-100 text-gray-600') + ' text-xs px-2 py-0.5 rounded-full font-medium'
   }
 
-  const kpiCards: KpiCardProps[] = [
-    { label: 'Open Orders', value: kpi.openOrders, href: '/sales/orders', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z', iconColor: 'text-blue-400', iconBg: 'bg-blue-500/15' },
-    { label: 'Revenue MTD', value: fmt$(kpi.revenueMTD), href: '/sales/invoices', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 8v1m0-9V5m0 12v2m6-2a9 9 0 11-18 0 9 9 0 0118 0z', iconColor: 'text-[#00C896]', iconBg: 'bg-[#00C89615]' },
-    { label: 'Shipping Queue', value: pipelineCounts['Ready to Ship'] ?? 0, href: '/sales/shipping-queue', icon: 'M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0', iconColor: 'text-teal-400', iconBg: 'bg-teal-500/15', alert: (pipelineCounts['Ready to Ship'] ?? 0) > 0 },
-    { label: 'Overdue Invoices', value: kpi.overdueInvoices, href: '/sales/invoices', icon: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z', iconColor: kpi.overdueInvoices > 0 ? 'text-red-400' : 'text-[#9CA3AF]', iconBg: kpi.overdueInvoices > 0 ? 'bg-red-500/15' : 'bg-[#1E1E24]', alert: kpi.overdueInvoices > 0 },
-    { label: 'Invoices Due', value: kpi.invoicesDue, href: '/sales/invoices', icon: 'M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z', iconColor: 'text-amber-400', iconBg: 'bg-amber-500/15' },
-    { label: 'Open Tasks', value: kpi.openTasks, href: '/bizdev/tasks', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', iconColor: 'text-violet-400', iconBg: 'bg-violet-500/15' },
-    { label: 'Low Stock Items', value: kpi.lowStock, href: '/sales/inventory', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', iconColor: kpi.lowStock > 0 ? 'text-orange-400' : 'text-[#9CA3AF]', iconBg: kpi.lowStock > 0 ? 'bg-orange-500/15' : 'bg-[#1E1E24]', alert: kpi.lowStock > 0 },
-    { label: 'Active Work Orders', value: kpi.openWorkOrders, href: '/production', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z', iconColor: 'text-sky-400', iconBg: 'bg-sky-500/15' },
-  ]
-
   return (
-    <div className="p-5 md:p-8 space-y-6 max-w-[1600px] mx-auto">
-      {/* Welcome bar */}
-      <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-[#F7F8FA] p-6">
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight" style={{color:"#1A1D2E"}}>{greeting()}, {userName} 👋</h1>
-          <p className="text-[#9CA3AF] text-sm mt-0.5">{today}</p>
+          <p className="text-sm text-[#8A9FC0]">{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</p>
+          <h1 className="text-2xl font-bold text-[#0F1C2E]">{greeting}{userName ? ', ' + userName : ''} 👋</h1>
         </div>
-        <button onClick={loadData} className="p-2 rounded-xl bg-white border border-[#E4E6EE] text-[#9CA3AF] hover:text-[#1A1D2E] hover:bg-[#F5F6FA] transition-all" title="Refresh">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        </button>
+        <div className="flex gap-2">
+          <Link href="/sales/orders?new=1" className="px-4 py-2 bg-[#3B6FE0] text-white text-sm rounded-lg font-semibold hover:bg-[#2D5CC8]">+ New Order</Link>
+          <Link href="/sales/quotations?new=1" className="px-4 py-2 bg-white border border-[#E2E8F0] text-[#0F1C2E] text-sm rounded-lg font-semibold hover:bg-[#F1F4F9]">+ New Quote</Link>
+        </div>
       </div>
-
-      {/* Quick Actions */}
-      <div className="flex flex-wrap gap-2">
-        <Link href="/sales/orders" className="flex items-center gap-1.5 bg-[#00C896] hover:bg-[#00B085] text-black font-semibold text-xs px-3.5 py-2 rounded-xl transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/></svg>
-          New Order
-        </Link>
-        <Link href="/sales/quotations" className="flex items-center gap-1.5 bg-white border border-[#E4E6EE] hover:border-[#D0D3E0] text-[#374151] hover:text-[#1A1D2E] text-xs px-3.5 py-2 rounded-xl transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-          New Quote
-        </Link>
-        <Link href="/sales/shipping-queue" className="flex items-center gap-1.5 bg-white border border-[#E4E6EE] hover:border-[#D0D3E0] text-[#374151] hover:text-[#1A1D2E] text-xs px-3.5 py-2 rounded-xl transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1"/></svg>
-          Shipping Queue
-          {(pipelineCounts['Ready to Ship'] ?? 0) > 0 && (
-            <span className="bg-teal-500/20 text-teal-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pipelineCounts['Ready to Ship']}</span>
-          )}
-        </Link>
-        <Link href="/sales/inventory" className="flex items-center gap-1.5 bg-white border border-[#E4E6EE] hover:border-[#D0D3E0] text-[#374151] hover:text-[#1A1D2E] text-xs px-3.5 py-2 rounded-xl transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-          Inventory
-        </Link>
-        <Link href="/production" className="flex items-center gap-1.5 bg-white border border-[#E4E6EE] hover:border-[#D0D3E0] text-[#374151] hover:text-[#1A1D2E] text-xs px-3.5 py-2 rounded-xl transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-          Production
-        </Link>
-      </div>
-
-      {/* Production approval alert */}
-      {!loading && kpi.openWorkOrders > 0 && (
-        <div className="rounded-2xl px-5 py-3.5 flex items-center gap-4"
-          style={{ background: '#FFFBEB', border: '1px solid #FDE68A' }}>
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-          <div className="flex-1">
-            <span className="text-amber-700 font-semibold text-sm">{kpi.openWorkOrders} open work order{kpi.openWorkOrders !== 1 ? 's' : ''}</span>
-            <span className="text-amber-600 text-sm"> — some may need approval from Shea or Veejay</span>
-          </div>
-          <Link href="/production" className="text-xs text-amber-700 hover:text-amber-600 font-medium border border-amber-400 px-3 py-1.5 rounded-lg transition-colors">Go to Production</Link>
-        </div>
-      )}
-
-      {/* Overdue invoice alert */}
-      {!loading && kpi.overdueInvoices > 0 && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded-2xl px-5 py-3.5 flex items-center gap-4">
-          <span className="w-2 h-2 rounded-full bg-red-500 alert-pulse shrink-0" />
-          <div className="flex-1">
-            <span className="text-red-400 font-semibold text-sm">{kpi.overdueInvoices} overdue invoice{kpi.overdueInvoices !== 1 ? 's' : ''}</span>
-            <span className="text-[#6B7280] text-sm"> — {fmt$(kpi.overdueAmount)} outstanding</span>
-          </div>
-          <Link href="/sales/invoices" className="text-xs text-red-400 hover:text-red-300 font-medium border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors">View Invoices</Link>
-        </div>
-      )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {loading
-          ? Array.from({length:8}).map((_,i) => <div key={i} className="skeleton h-[110px] rounded-2xl" />)
-          : kpiCards.map(c => <KpiCard key={c.label} {...c} />)
-        }
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        {[
+          { label: 'Open Orders', value: kpi.openOrders, fmt: (v:number) => v.toString(), color: 'text-indigo-600', bg: 'bg-indigo-50', href: '/sales/orders' },
+          { label: 'Revenue MTD', value: kpi.revenueMTD, fmt: fmt$, color: 'text-emerald-600', bg: 'bg-emerald-50', href: '/sales/invoices' },
+          { label: 'Shipping Queue', value: kpi.openWorkOrders, fmt: (v:number) => v.toString(), color: 'text-orange-600', bg: 'bg-orange-50', href: '/production/shipping-queue' },
+          { label: 'Overdue Invoices', value: kpi.overdueInvoices, fmt: (v:number) => v > 0 ? `${v} (${fmt$(kpi.overdueAmount)})` : '0', color: kpi.overdueInvoices > 0 ? 'text-red-600' : 'text-gray-600', bg: kpi.overdueInvoices > 0 ? 'bg-red-50' : 'bg-gray-50', href: '/sales/invoices' },
+        ].map(card => (
+          <Link key={card.label} href={card.href} className={`block rounded-xl border border-[#E2E8F0] bg-white p-5 hover:shadow-sm transition-shadow`}>
+            <p className="text-xs font-semibold text-[#8A9FC0] uppercase tracking-wide mb-2">{card.label}</p>
+            {loading ? <div className="skeleton h-7 w-16 rounded" /> : <p className={`text-2xl font-bold ${card.color}`}>{card.fmt(card.value)}</p>}
+          </Link>
+        ))}
       </div>
 
-      {/* Pipeline + Recent Orders */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Order Pipeline */}
-        <div className="lg:col-span-3 bg-white border border-[#E4E6EE] rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-[#1A1D2E] font-semibold">Order Pipeline</h2>
-            <Link href="/sales/orders" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        {/* Pipeline */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-[#E2E8F0] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-[#0F1C2E]">Order Pipeline</h2>
+            <Link href="/sales/orders" className="text-xs text-[#3B6FE0] font-semibold hover:underline">View all →</Link>
           </div>
-          <div className="flex gap-2 items-end" style={{height:'120px'}}>
-            {STATUS_PIPELINE.map(stage => {
-              const count = pipelineCounts[stage.label] ?? 0
-              const max = Math.max(...STATUS_PIPELINE.map(s => pipelineCounts[s.label] ?? 0), 1)
-              const pct = count > 0 ? Math.max(8, Math.round((count / max) * 100)) : 4
-              return (
-                <Link key={stage.label} href={stage.href} className="flex-1 flex flex-col items-center gap-1.5 group cursor-pointer h-full">
-                  <span className="text-[#1A1D2E] font-bold text-base group-hover:scale-110 transition-transform">{count}</span>
-                  <div className="w-full flex-1 bg-[#F5F6FA] rounded-lg overflow-hidden flex items-end">
-                    <div className="w-full rounded-lg transition-all duration-700 group-hover:brightness-110" style={{ height: `${pct}%`, background: stage.color, opacity: 0.85 }} />
-                  </div>
-                  <span className="text-[10px] text-[#9CA3AF] group-hover:text-[#6B7280] transition-colors text-center leading-tight">{stage.label}</span>
-                </Link>
-              )
-            })}
+          <div className="flex h-3 rounded-full overflow-hidden mb-4 gap-0.5">
+            {PIPELINE.map(s => (
+              <div key={s.label} style={{ width: `${((pipelineCounts[s.label]||0)/totalPipeline)*100}%`, background: s.color, minWidth: pipelineCounts[s.label] ? 4 : 0 }} title={`${s.label}: ${pipelineCounts[s.label]||0}`} />
+            ))}
           </div>
-        </div>
-
-        {/* Recent Orders */}
-        <div className="lg:col-span-2 bg-white border border-[#E4E6EE] rounded-2xl">
-          <div className="flex items-center justify-between px-5 pt-5 pb-3">
-            <h2 className="text-[#1A1D2E] font-semibold">Recent Orders</h2>
-            <Link href="/sales/orders" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
-          </div>
-          <div>
-            {loading
-              ? Array.from({length:5}).map((_,i) => <SkeletonRow key={i} />)
-              : recentOrders.length === 0
-                ? <p className="text-[#9CA3AF] text-sm py-8 text-center">No orders yet</p>
-                : recentOrders.map(o => (
-                  <Link key={o.id} href="/sales/orders" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#F5F6FA] transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[#1A1D2E] text-xs font-mono font-medium">{o.order_number}</p>
-                      <p className="text-[#9CA3AF] text-[11px] truncate">{(o.customers as any)?.company_name ?? '—'}</p>
-                    </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${SO_STATUS[o.status] ?? 'bg-[#1E1E24] text-[#6B7280] border-[#E4E6EE]'}`}>{o.status}</span>
-                  </Link>
-                ))
-            }
-          </div>
-        </div>
-      </div>
-
-      {/* Reminders */}
-      <RemindersWidget />
-
-      {/* Bottom row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Tasks */}
-        <div className="bg-white border border-[#E4E6EE] rounded-2xl">
-          <div className="flex items-center justify-between px-5 pt-5 pb-3">
-            <h2 className="text-[#1A1D2E] font-semibold text-sm">Open Tasks</h2>
-            <Link href="/bizdev/tasks" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
-          </div>
-          {loading
-            ? Array.from({length:4}).map((_,i) => <SkeletonRow key={i} />)
-            : recentTasks.length === 0
-              ? <p className="text-[#9CA3AF] text-sm py-8 text-center">No open tasks</p>
-              : recentTasks.map(t => (
-                <Link key={t.id} href="/bizdev/tasks" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#F5F6FA] transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[#1A1D2E] text-xs truncate">{t.task_name}</p>
-                    <p className="text-[#9CA3AF] text-[11px]">{t.assigned_to ? t.assigned_to.split('@')[0] : '—'}{t.due_date ? ` · ${fmtD(t.due_date)}` : ''}</p>
-                  </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${t.status === 'Done' ? 'bg-[#00C89615] text-[#00C896] border-[#00C89630]' : 'bg-[#1E1E24] text-[#6B7280] border-[#E4E6EE]'}`}>{t.status}</span>
-                </Link>
-              ))
-          }
-        </div>
-
-        {/* Overdue Invoices */}
-        <div className="bg-white border border-[#E4E6EE] rounded-2xl">
-          <div className="flex items-center justify-between px-5 pt-5 pb-3">
-            <h2 className="text-[#1A1D2E] font-semibold text-sm">Overdue Invoices</h2>
-            <Link href="/sales/invoices" className="text-xs text-[#00C896] hover:text-[#00B085] transition-colors">View all →</Link>
-          </div>
-          {loading
-            ? Array.from({length:4}).map((_,i) => <SkeletonRow key={i} />)
-            : overdueInvoiceList.length === 0
-              ? <p className="text-[#9CA3AF] text-sm py-8 text-center">None overdue ✓</p>
-              : overdueInvoiceList.map(inv => (
-                <Link key={inv.id} href="/sales/invoices" className="flex items-center gap-3 px-5 py-3 border-t border-[#E4E6EE] hover:bg-[#F5F6FA] transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[#1A1D2E] text-xs font-mono">{inv.invoice_number_display ?? inv.id?.slice(0,8)}</p>
-                    <p className="text-[#9CA3AF] text-[11px] truncate">{(inv.customers as any)?.company_name ?? '—'}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-red-400 text-xs font-semibold">{fmt$(inv.total_amount ?? 0)}</p>
-                    <p className="text-[#9CA3AF] text-[11px]">{fmtD(inv.due_date)}</p>
-                  </div>
-                </Link>
-              ))
-          }
-        </div>
-
-        {/* Quick Actions */}
-        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-5">
-          <h2 className="text-[#1A1D2E] font-semibold text-sm mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: 'Quotations', href: '/sales/quotations', color: 'text-violet-400', bg: 'bg-violet-500/10 hover:bg-violet-500/15' },
-              { label: 'Sales Orders', href: '/sales/orders', color: 'text-blue-400', bg: 'bg-blue-500/10 hover:bg-blue-500/15' },
-              { label: 'Production', href: '/production', color: 'text-amber-400', bg: 'bg-amber-500/10 hover:bg-amber-500/15' },
-              { label: 'Quality Control', href: '/production/qc', color: 'text-[#00C896]', bg: 'bg-[#00C89610] hover:bg-[#00C89620]' },
-              { label: 'Shipping', href: '/sales/shipping-queue', color: 'text-teal-400', bg: 'bg-teal-500/10 hover:bg-teal-500/15' },
-              { label: 'Customers', href: '/sales/customers', color: 'text-sky-400', bg: 'bg-sky-500/10 hover:bg-sky-500/15' },
-            ].map(a => (
-              <Link key={a.label} href={a.href} className={`${a.bg} border border-[#E4E6EE] rounded-xl p-3 text-center hover:border-[#D0D3E0] transition-all`}>
-                <p className={`text-xs font-medium ${a.color}`}>{a.label}</p>
+          <div className="flex flex-wrap gap-3">
+            {PIPELINE.map(s => (
+              <Link key={s.label} href={s.href} className="flex items-center gap-1.5 text-xs text-[#5A6E8A] hover:text-[#3B6FE0]">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{background:s.color}} />
+                {s.label} <span className="font-bold text-[#0F1C2E]">{pipelineCounts[s.label]||0}</span>
               </Link>
             ))}
           </div>
-          <div className="mt-4 pt-4 border-t border-[#E4E6EE] grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-[#1A1D2E] text-xl font-bold">{kpi.totalCustomers}</p>
-              <p className="text-[#9CA3AF] text-[10px] mt-0.5">Customers</p>
-            </div>
-            <div>
-              <p className="text-[#1A1D2E] text-xl font-bold">{kpi.openWorkOrders}</p>
-              <p className="text-[#9CA3AF] text-[10px] mt-0.5">Work Orders</p>
-            </div>
-            <div>
-              <p className="text-[#1A1D2E] text-xl font-bold">{kpi.openTasks}</p>
-              <p className="text-[#9CA3AF] text-[10px] mt-0.5">Open Tasks</p>
-            </div>
+        </div>
+
+        {/* Quick Stats */}
+        <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+          <h2 className="font-bold text-[#0F1C2E] mb-4">Quick Stats</h2>
+          <div className="space-y-3">
+            {[
+              { label: 'Total Customers', value: kpi.totalCustomers, href: '/sales/customers' },
+              { label: 'Active Work Orders', value: kpi.openWorkOrders, href: '/production/work-orders' },
+              { label: 'Open Tasks', value: kpi.openTasks, href: '/bizdev/tasks' },
+              { label: 'Invoices Outstanding', value: kpi.invoicesDue, href: '/sales/invoices' },
+            ].map(item => (
+              <Link key={item.label} href={item.href} className="flex items-center justify-between py-1.5 border-b border-[#F1F4F9] last:border-0 hover:text-[#3B6FE0] group">
+                <span className="text-sm text-[#5A6E8A] group-hover:text-[#3B6FE0]">{item.label}</span>
+                {loading ? <div className="skeleton h-4 w-8 rounded" /> : <span className="text-sm font-bold text-[#0F1C2E]">{item.value}</span>}
+              </Link>
+            ))}
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Recent Orders */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
+            <h2 className="font-bold text-[#0F1C2E]">Recent Orders</h2>
+            <Link href="/sales/orders" className="text-xs text-[#3B6FE0] font-semibold hover:underline">View all →</Link>
+          </div>
+          {loading ? [1,2,3].map(i => <SkeletonRow key={i} />) : (
+            recentOrders.length === 0
+              ? <p className="text-center py-10 text-sm text-[#8A9FC0]">No orders yet</p>
+              : recentOrders.map((o:any) => (
+                <Link key={o.id} href={`/sales/orders/${o.id}`} className="flex items-center justify-between px-5 py-3 border-b border-[#E4E6EE] last:border-0 hover:bg-[#F7F8FA]">
+                  <div>
+                    <p className="text-sm font-semibold text-[#0F1C2E]">{o.order_number || o.id.substring(0,8)}</p>
+                    <p className="text-xs text-[#8A9FC0]">{o.customers?.company_name || '—'}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className={statusChip(o.status)}>{o.status}</span>
+                    <p className="text-xs text-[#8A9FC0] mt-1">{fmtD(o.updated_at?.split('T')[0])}</p>
+                  </div>
+                </Link>
+              ))
+          )}
+        </div>
+
+        {/* Right column: Tasks + Reminders + Overdue */}
+        <div className="space-y-4">
+          {/* Tasks */}
+          <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
+              <h2 className="font-bold text-[#0F1C2E]">Open Tasks</h2>
+              <Link href="/bizdev/tasks" className="text-xs text-[#3B6FE0] font-semibold hover:underline">View all →</Link>
+            </div>
+            {loading ? [1,2,3].map(i => <SkeletonRow key={i} />) : (
+              tasks.length === 0
+                ? <p className="text-center py-6 text-sm text-[#8A9FC0]">All caught up ✓</p>
+                : tasks.map((t:any) => (
+                  <div key={t.id} className="flex items-center justify-between px-4 py-3 border-b border-[#E4E6EE] last:border-0">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-[#0F1C2E] truncate">{t.name}</p>
+                      <p className="text-xs text-[#8A9FC0]">{t.due_date ? fmtD(t.due_date) : 'No due date'}</p>
+                    </div>
+                    <span className={`text-xs font-bold ml-2 ${priorityColor(t.priority)}`}>{t.priority}</span>
+                  </div>
+                ))
+            )}
+          </div>
+
+          {/* Reminders */}
+          <RemindersWidget />
+
+          {/* Overdue Invoices */}
+          {kpi.overdueInvoices > 0 && (
+            <div className="bg-red-50 rounded-xl border border-red-200 p-4">
+              <h3 className="font-bold text-red-700 mb-2 text-sm">⚠ Overdue Invoices ({kpi.overdueInvoices})</h3>
+              {overdueInvoicesList.slice(0,3).map((inv:any) => (
+                <div key={inv.id} className="flex justify-between text-xs py-1">
+                  <span className="text-red-600 truncate">{inv.customers?.company_name || '—'}</span>
+                  <span className="text-red-700 font-bold ml-2">{fmt$(inv.total_amount || 0)}</span>
+                </div>
+              ))}
+              <Link href="/sales/invoices" className="text-xs text-red-600 font-semibold hover:underline mt-2 block">View all overdue →</Link>
+            </div>
+          )}
         </div>
       </div>
     </div>
