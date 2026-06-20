@@ -2,35 +2,34 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
   try {
-    const { accessToken, to, subject, body, replyToId } = await req.json()
-    if (!accessToken || !to || !subject) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-
-    const toArr = (Array.isArray(to) ? to : [to]).map((email: string) => ({ emailAddress: { address: email.trim() } }))
-
-    let url: string
-    let payload: Record<string, unknown>
-
-    if (replyToId) {
-      url = 'https://graph.microsoft.com/v1.0/me/messages/' + replyToId + '/reply'
-      payload = { message: { body: { contentType: 'HTML', content: body || '' } } }
-    } else {
-      url = 'https://graph.microsoft.com/v1.0/me/sendMail'
-      payload = { message: { subject, body: { contentType: 'HTML', content: body || '' }, toRecipients: toArr }, saveToSentItems: true }
+    const { email, password, to, subject, body, replyTo } = await req.json()
+    if (!email || !password || !to || !subject) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    const nodemailer = await import('nodemailer')
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.office365.com',
+      port: 587,
+      secure: false,
+      auth: { user: email, pass: password },
+      tls: { ciphers: 'SSLv3', rejectUnauthorized: false },
     })
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      return NextResponse.json({ error: err.error?.message || 'Failed to send' }, { status: res.status })
+    const mailOptions: Record<string, unknown> = {
+      from: email,
+      to: Array.isArray(to) ? to.join(', ') : to,
+      subject,
+      html: body || '',
     }
+    if (replyTo) mailOptions.inReplyTo = replyTo
+
+    await transporter.sendMail(mailOptions)
     return NextResponse.json({ success: true })
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('[inbox/send]', err)
-    return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: 'Failed to send: ' + msg }, { status: 500 })
   }
 }
