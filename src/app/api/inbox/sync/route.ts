@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Dynamically import imap-simple (server-side only)
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
     const imaps = await import('imap-simple')
 
     const config = {
