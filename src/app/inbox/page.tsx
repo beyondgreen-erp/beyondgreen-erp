@@ -113,7 +113,7 @@ export default function InboxPage() {
     <div className="min-h-screen bg-[#F7F8FA] flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 w-full max-w-md shadow-sm">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-[#3B6FE0] flex items-center justify-center text-white font-bold text-sm">✉</div>
+          <div className="w-10 h-10 rounded-xl bg-[#3B6FE0] flex items-center justify-center text-white font-bold text-sm text-center">@</div>
           <div><div className="font-bold text-[#0F1C2E]">Connect Your Inbox</div><div className="text-xs text-[#8A9FC0]">Private to you only — no one else can see your emails</div></div>
         </div>
         {error && <div className="bg-red-50 text-red-600 rounded-lg p-3 text-sm mb-4">{error}</div>}
@@ -162,7 +162,7 @@ export default function InboxPage() {
       {/* Header */}
       <div className="bg-white border-b border-[#E2E8F0] px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-lg font-bold text-[#0F1C2E]">✉ Inbox</span>
+          <span className="text-lg font-bold text-[#0F1C2E]">@ Inbox</span>
           <span className="text-xs text-[#8A9FC0] bg-[#F1F4F9] px-2 py-0.5 rounded-full">{email}</span>
           <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">● Private</span>
         </div>
@@ -193,7 +193,7 @@ export default function InboxPage() {
         <div className="flex-1 overflow-y-auto p-6">
           {!selected ? (
             <div className="flex flex-col items-center justify-center h-full text-[#8A9FC0]">
-              <div className="text-4xl mb-3">✉</div>
+              <div className="text-4xl mb-3">@</div>
               <p className="text-sm">Select a message to read</p>
             </div>
           ) : (
@@ -278,7 +278,7 @@ export default function InboxPage() {
       {composing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl">
-            <h3 className="font-bold text-[#0F1C2E] text-lg mb-4">✉ New Email</h3>
+            <h3 className="font-bold text-[#0F1C2E] text-lg mb-4">New Email</h3>
             <div className="space-y-3 mb-4">
               <input value={composeTo} onChange={e=>setComposeTo(e.target.value)} placeholder="To: email@example.com" className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm outline-none" />
               <input value={composeSubject} onChange={e=>setComposeSubject(e.target.value)} placeholder="Subject" className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm outline-none" />
