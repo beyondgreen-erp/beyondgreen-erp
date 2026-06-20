@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
 
     let notified = 0
-    for (const recipEmail of recipientEmails) {
+    for (const recipEmail of Array.from(recipientEmails)) {
       // 1. Write to notifications table (shows in bell)
       await sb.from('notifications').insert({
         recipient_email: recipEmail,
