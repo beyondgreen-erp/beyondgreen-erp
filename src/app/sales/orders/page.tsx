@@ -11,6 +11,7 @@ import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
 import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder } from '@/lib/pdfHelpers'
+import PoExtractUpload from '@/components/PoExtractUpload'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -430,6 +431,18 @@ function EditPanel({
                 <label className="block text-xs text-gray-400 mb-1.5">PO Document URL</label>
                 <input value={form.purchase_order_url} onChange={e => setForm(p => ({ ...p, purchase_order_url: e.target.value }))} className={inp} placeholder="https://…"/>
               </div>
+              {editing && (
+                <PoExtractUpload salesOrderId={editing.id} onExtracted={(d, p) => setForm(prev => ({
+                  ...prev,
+                  purchase_order_url: p || prev.purchase_order_url,
+                  order_number: d.po_number || prev.order_number,
+                  customer_email: d.customer_email || prev.customer_email,
+                  shipping_address: d.ship_to_address || prev.shipping_address,
+                  order_date: d.order_date || prev.order_date,
+                  ship_date: d.ship_date || prev.ship_date,
+                  total_amount: (d.total != null ? String(d.total) : prev.total_amount),
+                }))}/>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Packing Slip URL</label>

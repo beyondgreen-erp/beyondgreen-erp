@@ -34,13 +34,16 @@ const NAV: NavSection[] = [
 { label: 'Fulfillment', items: [
 { href: '/production/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', badgeKey: 'shippingQueue' },
 { href: '/shipments', label: 'Shipments', icon: 'ti-package-export' },
+{ href: '/operations/fba', label: 'FBA / WFS', icon: 'ti-brand-amazon' },
 ]},
 { label: 'Inventory', items: [
 { href: '/sales/inventory', label: 'Products & Inventory', icon: 'ti-box' },
+{ href: '/operations/private-label-stock', label: 'Private Label Stock', icon: 'ti-tag' },
 { href: '/imports', label: 'Import Tracker', icon: 'ti-ship' },
 ]},
 { label: 'Business', items: [
 { href: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox' },
+{ href: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask' },
 { href: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette' },
 { href: '/bizdev/documents', label: 'Documents', icon: 'ti-folder' },
 { href: '/settings', label: 'Settings', icon: 'ti-settings' },
