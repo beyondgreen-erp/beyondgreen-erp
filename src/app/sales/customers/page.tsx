@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 import QuickAddModal from '@/components/QuickAddModal'
+import QuickUpdateModal from '@/components/QuickUpdateModal'
 export const dynamic = 'force-dynamic'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -118,6 +119,7 @@ export default function CustomersPage() {
   const [formError, setFormError] = useState('')
   const [userEmail, setUserEmail] = useState('')
   const [showQuickAdd, setShowQuickAdd] = useState(false)
+  const [showQuickUpdate, setShowQuickUpdate] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
 
   // Contacts
@@ -683,6 +685,9 @@ export default function CustomersPage() {
           </button>
               <button onClick={()=>setShowQuickAdd(true)} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
                 ✨ Quick Add
+              </button>
+              <button onClick={()=>setShowQuickUpdate(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+                ✨ Quick Update
               </button>
         </div>
       </div>
@@ -1475,6 +1480,7 @@ export default function CustomersPage() {
             </div>
       )}
             {showQuickAdd&&(<QuickAddModal key={String(showQuickAdd)} onClose={()=>setShowQuickAdd(false)} onSaved={()=>{fetchCustomers();setShowQuickAdd(false)}} userEmail={userEmail}/>)}
+            {showQuickUpdate&&(<QuickUpdateModal key={String(showQuickUpdate)} onClose={()=>setShowQuickUpdate(false)} onSaved={()=>{fetchCustomers();setShowQuickUpdate(false)}} userEmail={userEmail}/>)}
       {outreachCustomer && (
                 <OutreachDrawer
           customerId={outreachCustomer.id}
