@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import QuickReminderModal from './QuickReminderModal'
 
 interface Reminder {
   id: string
@@ -13,6 +14,7 @@ interface Reminder {
   is_completed: boolean
   color: string
   reminder_type: string
+  daily_email?: boolean
 }
 
 const TYPE_ICONS: Record<string, string> = {
@@ -38,6 +40,7 @@ export default function RemindersWidget() {
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [userEmail, setUserEmail] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [showFromEmail, setShowFromEmail] = useState(false)
   const [loading, setLoading] = useState(true)
   const [tableExists, setTableExists] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -165,6 +168,7 @@ export default function RemindersWidget() {
   const upcoming = reminders.filter(r => !r.due_date || r.due_date > today)
 
   return (
+    <>
     <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
@@ -180,13 +184,22 @@ export default function RemindersWidget() {
             <span className="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full animate-pulse">{overdue.length} overdue</span>
           )}
         </div>
-        <button
-          onClick={() => setShowAdd(v => !v)}
-          className="flex items-center gap-1.5 bg-[#00C896] hover:bg-[#00B085] text-black text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
-          Add
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFromEmail(true)}
+            className="flex items-center gap-1.5 bg-[#EAF2FF] hover:bg-[#D9E8FF] text-[#2563EB] text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            title="Paste an email — AI makes a daily email reminder"
+          >
+            ✨ From Email
+          </button>
+          <button
+            onClick={() => setShowAdd(v => !v)}
+            className="flex items-center gap-1.5 bg-[#00C896] hover:bg-[#00B085] text-black text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+            Add
+          </button>
+        </div>
       </div>
 
       {/* Error display */}
@@ -285,6 +298,8 @@ export default function RemindersWidget() {
         {upcoming.map(r => <ReminderRow key={r.id} reminder={r} onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} />)}
       </div>
     </div>
+    {showFromEmail && <QuickReminderModal userEmail={userEmail} onClose={() => setShowFromEmail(false)} onSaved={() => { if (userEmail) fetchReminders(userEmail) }} />}
+    </>
   )
 }
 
@@ -312,6 +327,7 @@ function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={typeIcons[r.reminder_type] ?? typeIcons.other} />
           </svg>
           <p className={`text-sm font-medium truncate ${isOverdue ? 'text-red-500' : 'text-[#1A1D2E]'}`}>{r.title}</p>
+          {r.daily_email && <span className="text-[10px] px-1 py-0.5 bg-emerald-100 text-emerald-700 rounded shrink-0 font-semibold" title="You get a daily email about this">📧</span>}
         </div>
         {r.notes && <p className="text-xs text-[#9CA3AF] mt-0.5 truncate">{r.notes}</p>}
         {r.due_date && (
