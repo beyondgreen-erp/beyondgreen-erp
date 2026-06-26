@@ -11,6 +11,7 @@ interface NavSection { label: string; items: NavItem[] }
 const NAV: NavSection[] = [
 { label: 'Overview', items: [
 { href: '/', label: 'Dashboard', icon: 'ti-layout-dashboard' },
+{ href: '/beyondworld', label: 'beyondWorld', icon: 'ti-device-gamepad-2' },
 ]},
 { label: 'CRM', items: [
 { href: '/sales/customers', label: 'Customers', icon: 'ti-users' },
