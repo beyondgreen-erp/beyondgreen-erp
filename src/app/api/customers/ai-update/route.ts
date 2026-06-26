@@ -43,7 +43,7 @@ ${current}
 LATEST CONVERSATION / EMAIL THREAD:
 ${emailThread}
 
-Return ONLY this exact JSON structure (omit any key inside "updates" that has no new info; use null where a value cannot be determined):
+Also list every distinct person who appears in the thread (senders/recipients/signatures) under "contacts". Return ONLY this exact JSON structure (omit any key inside "updates" that has no new info; use null where a value cannot be determined):
 {
   "conversation": {
     "conversation_type": "email | call | meeting | text | note | other",
@@ -53,6 +53,9 @@ Return ONLY this exact JSON structure (omit any key inside "updates" that has no
     "outcome": "Brief outcome / current state, or empty string",
     "follow_up_date": "YYYY-MM-DD or null"
   },
+  "contacts": [
+    { "full_name": "Person mentioned in the thread", "title": "Job title or empty string", "email": "Email or empty string", "phone": "Phone or empty string" }
+  ],
   "updates": {
     "customer_status": "Lead | Prospect | Active | Inactive",
     "pipeline_stage": "string",

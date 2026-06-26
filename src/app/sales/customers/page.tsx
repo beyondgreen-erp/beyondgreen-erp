@@ -37,7 +37,7 @@ interface ActivityEntry {
 }
 interface Contact {
   id: string; customer_id: string; full_name: string; title: string | null
-  email: string | null; phone: string | null; is_primary: boolean; notes: string | null
+  email: string | null; phone: string | null; is_primary: boolean; notes: string | null; is_duplicate?: boolean
 }
 interface ShipLocation {
   id: string; customer_id: string; location_name: string; address: string | null
@@ -1091,6 +1091,7 @@ export default function CustomersPage() {
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-[#1A1D2E] font-medium">{ct.full_name}</p>
                           {ct.is_primary&&<span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-medium">Primary</span>}
+                          {ct.is_duplicate&&<span className="text-xs px-1.5 py-0.5 bg-amber-500/20 text-amber-600 border border-amber-500/40 rounded font-medium" title="Auto-detected possible duplicate — review/merge">Duplicate</span>}
                         </div>
                         {ct.title&&<p className="text-xs text-gray-500 mt-0.5">{ct.title}</p>}
                         {ct.email&&<a href={`mailto:${ct.email}`} onClick={e=>e.stopPropagation()} className="text-xs text-blue-400 hover:underline mt-1 block">{ct.email}</a>}
