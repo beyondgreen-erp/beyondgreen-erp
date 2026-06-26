@@ -1,11 +1,13 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 interface Parsed { title: string; notes: string; reminder_type: string; priority: string }
+interface Member { full_name: string; email: string }
 const TYPES = ['follow_up','call','meeting','deadline','personal','other']
 const PRIORITIES = ['urgent','high','medium','low']
+const PRIORITY_TITLE: Record<string,string> = { urgent:'Urgent', high:'High', medium:'Medium', low:'Low' }
 
 export default function QuickReminderModal({ userEmail, onClose, onSaved }: { userEmail: string; onClose: () => void; onSaved: () => void }) {
   const [step, setStep] = useState<'paste'|'preview'|'saving'|'done'>('paste')
@@ -13,6 +15,16 @@ export default function QuickReminderModal({ userEmail, onClose, onSaved }: { us
   const [parsing, setParsing] = useState(false)
   const [error, setError] = useState('')
   const [parsed, setParsed] = useState<Parsed | null>(null)
+  // optional task
+  const [makeTask, setMakeTask] = useState(false)
+  const [assignee, setAssignee] = useState('')
+  const [members, setMembers] = useState<Member[]>([])
+  const [doneMsg, setDoneMsg] = useState('')
+
+  useEffect(() => {
+    supabase.from('user_profiles').select('full_name,email,notification_email').eq('is_active', true).order('full_name')
+      .then(({ data }) => { if (data) setMembers((data as any[]).map((m) => ({ full_name: m.full_name || m.email, email: m.email })).filter((m) => m.email)) })
+  }, [])
 
   async function handleParse() {
     if (!emailThread.trim()) return
@@ -33,6 +45,7 @@ export default function QuickReminderModal({ userEmail, onClose, onSaved }: { us
 
   async function handleSave() {
     if (!parsed || !parsed.title.trim() || !userEmail) return
+    if (makeTask && !assignee) { setError('Pick someone to assign the task to (or uncheck the task option).'); return }
     setStep('saving'); setError('')
     try {
       const { error: ie } = await supabase.from('user_reminders').insert({
@@ -48,8 +61,26 @@ export default function QuickReminderModal({ userEmail, onClose, onSaved }: { us
         color: '#1D9E75',
       })
       if (ie) throw new Error(ie.message)
+
+      let taskNote = ''
+      if (makeTask && assignee) {
+        const { error: te } = await supabase.from('tasks').insert({
+          task_name: parsed.title.trim(),
+          notes: parsed.notes.trim() || null,
+          assigned_to: assignee,
+          status: 'Backlog',
+          priority: PRIORITY_TITLE[parsed.priority] || 'Medium',
+          group_name: 'Current',
+          due_date: null,
+          is_active: true,
+        })
+        if (te) throw new Error('Reminder saved, but task failed: ' + te.message)
+        const who = members.find((m) => m.email === assignee)?.full_name || assignee
+        taskNote = ` Task assigned to ${who}.`
+      }
+      setDoneMsg('Daily reminder set!' + taskNote)
       setStep('done')
-      setTimeout(() => { onSaved(); onClose() }, 1200)
+      setTimeout(() => { onSaved(); onClose() }, 1400)
     } catch (e: any) {
       setError(e?.message || 'Save failed'); setStep('preview')
     }
@@ -57,7 +88,7 @@ export default function QuickReminderModal({ userEmail, onClose, onSaved }: { us
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
           <div>
             <h2 className="text-lg font-bold text-gray-900">✨ Reminder from Email</h2>
@@ -109,16 +140,35 @@ export default function QuickReminderModal({ userEmail, onClose, onSaved }: { us
                 </select>
               </div>
             </div>
+
+            {/* Optional: also create a task and assign it */}
+            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={makeTask} onChange={e => setMakeTask(e.target.checked)} className="w-4 h-4 accent-blue-600" />
+                <span className="text-sm font-medium text-gray-800">Also create a task and assign it to someone</span>
+              </label>
+              {makeTask && (
+                <div className="mt-3">
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Assign to</label>
+                  <select value={assignee} onChange={e => setAssignee(e.target.value)} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="">— Select team member —</option>
+                    {members.map(m => <option key={m.email} value={m.email}>{m.full_name}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1.5">Creates a Backlog task on the Tasks board for them. Your daily reminder still goes to you.</p>
+                </div>
+              )}
+            </div>
+
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <div className="flex gap-3 justify-between pt-2 border-t">
               <button onClick={() => setStep('paste')} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">← Back</button>
-              <button onClick={handleSave} className="px-6 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-semibold">✓ Save Daily Reminder</button>
+              <button onClick={handleSave} className="px-6 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-semibold">{makeTask ? '✓ Save Reminder + Task' : '✓ Save Daily Reminder'}</button>
             </div>
           </div>
         )}
 
         {step === 'saving' && <div className="p-10 text-center"><div className="text-4xl animate-spin inline-block">⏳</div><p className="mt-3 text-gray-600">Saving…</p></div>}
-        {step === 'done' && <div className="p-10 text-center"><div className="text-5xl">✅</div><p className="mt-3 font-semibold text-gray-900">Daily reminder set!</p><p className="text-sm text-gray-500">You&apos;ll be emailed each morning until you complete it.</p></div>}
+        {step === 'done' && <div className="p-10 text-center"><div className="text-5xl">✅</div><p className="mt-3 font-semibold text-gray-900">{doneMsg || 'Daily reminder set!'}</p><p className="text-sm text-gray-500">You&apos;ll be emailed each morning until you complete it.</p></div>}
       </div>
     </div>
   )
