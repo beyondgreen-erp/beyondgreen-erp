@@ -37,10 +37,23 @@ const SC: Record<string, { bg: string; text: string }> = {
   'On Hold':    { bg: '#FFFBEB', text: '#92400E' },
   Archived:     { bg: '#F9FAFB', text: '#9CA3AF' },
 }
-// Left-border colour per priority
-const PRIORITY_BORDER: Record<string, string> = {
-  Critical: '#EF4444', High: '#F97316', Medium: '#3B82F6', Low: '#E4E6EE',
+// Kanban columns and how statuses map into them
+const COLUMNS = [
+  { key: 'todo',  label: 'To-Do', color: '#6B7280' },
+  { key: 'doing', label: 'Doing', color: '#2563EB' },
+  { key: 'done',  label: 'Done',  color: '#059669' },
+] as const
+const COLUMN_DEFAULT: Record<string, string> = { todo: 'Backlog', doing: 'In Progress', done: 'Done' }
+const STATUS_COLUMN: Record<string, string> = { Backlog: 'todo', 'On Hold': 'todo', External: 'todo', Blocked: 'todo', 'In Progress': 'doing', Review: 'doing', Done: 'done' }
+function statusColumn(s: string) { return STATUS_COLUMN[s] || 'todo' }
+// Sticky-note colours by priority
+const NOTE: Record<string, { bg: string; bar: string }> = {
+  Critical: { bg: '#FEE2E2', bar: '#EF4444' },
+  High:     { bg: '#FFEDD5', bar: '#F97316' },
+  Medium:   { bg: '#FEF9C3', bar: '#CA8A04' },
+  Low:      { bg: '#DCFCE7', bar: '#16A34A' },
 }
+function rot(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 7; return (h - 3) * 0.5 }
 
 const empty = { task_name: '', assigned_to: '', due_date: '', priority: 'Medium', status: 'Backlog', customer_id: '', notes: '', group_name: 'Current' }
 type F = typeof empty
@@ -58,13 +71,6 @@ function fmtDue(d: string | null) {
   }
 }
 
-// Section accent colours
-const GROUP_COLOR: Record<string, { accent: string; lightBg: string }> = {
-  'Current':                  { accent: '#3B6FE0', lightBg: '#EEF2FF' },
-  'Waiting Final Approval':   { accent: '#D97706', lightBg: '#FFFBEB' },
-  'On-Going':                 { accent: '#059669', lightBg: '#ECFDF5' },
-  'Completed':                { accent: '#6B7280', lightBg: '#F9FAFB' },
-}
 
 export default function TasksPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
@@ -83,7 +89,8 @@ export default function TasksPage() {
   const [err,     setErr]     = useState('')
   const [deleting,setDeleting]= useState(false)
   const [assigneeOpen, setAssigneeOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set(['Completed']))
+  const [draggingId, setDraggingId] = useState('')
+  const [dragOver,   setDragOver]   = useState('')
   const [userEmail, setUserEmail] = useState('')
   const ms     = useMultiSelect<Task>()
   const tagRef = useRef<TagInputHandle>(null)
@@ -105,7 +112,6 @@ export default function TasksPage() {
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, []) // eslint-disable-line
 
-  const memberMap = useMemo(() => Object.fromEntries(teamMembers.map(m => [m.email, m])), [teamMembers])
 
   const filtered = useMemo(() => rows.filter(r => {
     if (filterStatus   && r.status       !== filterStatus)   return false
@@ -119,18 +125,42 @@ export default function TasksPage() {
     return true
   }), [rows, filterStatus, filterAssignee, search])
 
-  const grouped = useMemo(() => {
-    const g: Record<string, Task[]> = {}
-    for (const n of GROUPS) g[n] = []
-    for (const r of filtered) {
-      const key = r.group_name && GROUPS.includes(r.group_name) ? r.group_name : 'Current'
-      g[key].push(r)
+  const lanes = useMemo(() => {
+    const byKey: Record<string, TeamMember> = {}
+    for (const m of teamMembers) { byKey[m.email.toLowerCase()] = m; byKey[m.full_name.toLowerCase()] = m }
+    const laneOf: Record<string, { key: string; label: string; member: TeamMember | null; tasks: Task[] }> = {}
+    const order: string[] = []
+    const ensure = (key: string, label: string, member: TeamMember | null) => {
+      if (!laneOf[key]) { laneOf[key] = { key, label, member, tasks: [] }; order.push(key) }
+      return laneOf[key]
     }
-    return g
-  }, [filtered])
+    for (const m of teamMembers) ensure('m:' + m.email, m.full_name, m)
+    for (const t of filtered) {
+      if (t.status === 'Archived') continue
+      const raw = (t.assigned_to || '').trim()
+      const tokens = raw ? raw.split(',').map(x => x.trim()).filter(Boolean) : []
+      if (tokens.length === 0) { ensure('__un__', 'Unassigned', null).tasks.push(t); continue }
+      for (const tok of tokens) {
+        const m = byKey[tok.toLowerCase()]
+        if (m) ensure('m:' + m.email, m.full_name, m).tasks.push(t)
+        else   ensure('o:' + tok.toLowerCase(), tok, null).tasks.push(t)
+      }
+    }
+    const members = order.filter(k => k.startsWith('m:') && laneOf[k].tasks.length)
+    const others  = order.filter(k => k.startsWith('o:') && laneOf[k].tasks.length)
+    const un      = laneOf['__un__'] && laneOf['__un__'].tasks.length ? ['__un__'] : []
+    return [...members, ...others, ...un].map(k => laneOf[k])
+  }, [filtered, teamMembers])
 
-  function toggleGroup(g: string) {
-    setCollapsed(prev => { const n = new Set(prev); if (n.has(g)) { n.delete(g) } else { n.add(g) } return n })
+  async function onDropTask(id: string, colKey: string) {
+    setDragOver(''); setDraggingId('')
+    if (!id) return
+    const task = rows.find(t => t.id === id); if (!task) return
+    if (statusColumn(task.status) === colKey) return
+    const newStatus = COLUMN_DEFAULT[colKey]
+    setRows(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t))
+    const { error } = await sb.from('tasks').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', id)
+    if (error) load()
   }
   function openAdd()       { setEditing(null); setForm(empty); setErr(''); setOpen(true) }
   function openEdit(r: Task) {
@@ -176,7 +206,7 @@ export default function TasksPage() {
 
   return (
     <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-6 py-8">
 
         {/* ── Header ── */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
@@ -287,167 +317,72 @@ export default function TasksPage() {
           )}
         </div>
 
-        {/* ── Task groups ── */}
+        {/* ── Task board: rows = people, columns = status ── */}
         {loading ? (
-          <div className="flex justify-center py-24">
-            <svg className="w-6 h-6 animate-spin text-[#D0D3E0]" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-            </svg>
-          </div>
+          <div className="flex justify-center py-24"><i className="ti ti-loader-2 animate-spin text-[#D0D3E0] text-2xl"/></div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-[#F0F1F5] flex items-center justify-center">
-              <svg className="w-8 h-8 text-[#D0D3E0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-              </svg>
-            </div>
             <p className="text-[#6B7280] font-medium">{hasFilters ? 'No tasks match your filters.' : 'No tasks yet — add one to get started.'}</p>
-            {hasFilters && (
-              <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee('') }} className="text-[#3B6FE0] hover:underline text-sm">
-                Clear filters
-              </button>
-            )}
+            {hasFilters && <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee('') }} className="text-[#3B6FE0] hover:underline text-sm">Clear filters</button>}
           </div>
         ) : (
-          <div className="space-y-4">
-            {GROUPS.map(groupName => {
-              const tasks = grouped[groupName]
-              if (!tasks || tasks.length === 0) return null
-              const isCollapsed = collapsed.has(groupName)
-              const gc = GROUP_COLOR[groupName] ?? { accent: '#6B7280', lightBg: '#F9FAFB' }
-              const doneCount = tasks.filter(t => t.status === 'Done').length
-              const activeCount = tasks.length - doneCount
-
-              return (
-                <div key={groupName} className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
-
-                  {/* Section header */}
-                  <button
-                    onClick={() => toggleGroup(groupName)}
-                    className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#FAFAFA] transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: gc.accent }}/>
-                      <span className="text-[#1A1D2E] font-semibold text-base">{groupName}</span>
-                      <span
-                        className="text-xs font-semibold px-2.5 py-1 rounded-full"
-                        style={{ background: gc.lightBg, color: gc.accent }}
-                      >
-                        {tasks.length}
-                      </span>
-                      {activeCount > 0 && doneCount > 0 && (
-                        <span className="text-xs text-[#9CA3AF] hidden sm:block">
-                          {activeCount} active · {doneCount} done
-                        </span>
-                      )}
+          <div className="overflow-x-auto pb-6">
+            <div className="min-w-[820px]">
+              <div className="grid mb-2" style={{ gridTemplateColumns: '180px repeat(3, minmax(200px, 1fr))', gap: '0.5rem' }}>
+                <div/>
+                {COLUMNS.map(col => (
+                  <div key={col.key} className="px-2 py-2 text-center rounded-xl bg-white border border-[#E4E6EE]">
+                    <span className="text-xs font-bold tracking-widest uppercase" style={{ color: col.color }}>{col.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                {lanes.map(lane => (
+                  <div key={lane.key} className="grid items-stretch" style={{ gridTemplateColumns: '180px repeat(3, minmax(200px, 1fr))', gap: '0.5rem' }}>
+                    <div className="flex items-center gap-2.5 px-3 py-3 rounded-xl bg-white border border-[#E4E6EE] self-start">
+                      {lane.member
+                        ? <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: lane.member.avatar_color }}>{lane.member.avatar_initials || lane.member.full_name[0]}</span>
+                        : <span className="w-8 h-8 rounded-full flex items-center justify-center text-[#9CA3AF] bg-[#F0F1F5] text-xs font-bold shrink-0"><i className="ti ti-user"/></span>}
+                      <span className="text-sm font-semibold text-[#1A1D2E] truncate flex-1">{lane.label.split(' ')[0]}</span>
+                      <span className="text-xs text-[#9CA3AF]">{lane.tasks.length}</span>
                     </div>
-                    <svg
-                      className="w-5 h-5 text-[#9CA3AF] transition-transform duration-200 shrink-0"
-                      style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
-                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
-                    </svg>
-                  </button>
-
-                  {/* Task list */}
-                  {!isCollapsed && (
-                    <div className="border-t border-[#F0F1F5]">
-                      {tasks.map((task, idx) => {
-                        const member = task.assigned_to ? memberMap[task.assigned_to] : null
-                        const due    = fmtDue(task.due_date)
-                        const pc     = PC[task.priority] ?? PC.Medium
-                        const sc     = SC[task.status]   ?? SC.Backlog
-                        const isDone = task.status === 'Done'
-                        const borderColor = PRIORITY_BORDER[task.priority] ?? '#E4E6EE'
-
-                        return (
-                          <div
-                            key={task.id}
-                            onClick={() => openEdit(task)}
-                            className={`flex items-center gap-4 px-6 py-4 cursor-pointer transition-colors ${idx !== tasks.length - 1 ? 'border-b border-[#F0F1F5]' : ''} ${ms.isSelected(task.id) ? 'bg-blue-50' : 'hover:bg-[#FAFAFA]'}`}
-                            style={{ borderLeft: `3px solid ${borderColor}` }}
-                          >
-                            {/* Checkbox */}
-                            <div onClick={e => { e.stopPropagation(); ms.toggle(task.id) }}>
-                              <input
-                                type="checkbox"
-                                checked={ms.isSelected(task.id)}
-                                onChange={() => ms.toggle(task.id)}
-                                className="w-4 h-4 accent-blue-600 cursor-pointer shrink-0"
-                              />
-                            </div>
-
-                            {/* Task name + description */}
-                            <div className="flex-1 min-w-0">
-                              <p className={`font-medium text-sm leading-snug ${isDone ? 'line-through text-[#9CA3AF]' : 'text-[#1A1D2E]'}`}>
-                                {task.task_name}
-                              </p>
-                              {task.description && (
-                                <p className="text-xs text-[#9CA3AF] mt-0.5 truncate">{task.description}</p>
-                              )}
-                            </div>
-
-                            {/* Assignee */}
-                            <div className="hidden sm:flex items-center gap-2 shrink-0 w-32">
-                              {member ? (
-                                <>
-                                  <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: member.avatar_color }}>
-                                    {member.avatar_initials || member.full_name[0]}
-                                  </span>
-                                  <span className="text-sm text-[#6B7280] truncate">{member.full_name.split(' ')[0]}</span>
-                                </>
-                              ) : (
-                                <span className="text-sm text-[#D0D3E0]">—</span>
-                              )}
-                            </div>
-
-                            {/* Status */}
-                            <div className="hidden md:block shrink-0">
-                              <span
-                                className="text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap"
-                                style={{ background: sc.bg, color: sc.text }}
-                              >
-                                {task.status}
-                              </span>
-                            </div>
-
-                            {/* Priority dot */}
-                            <div className="hidden lg:flex items-center gap-1.5 shrink-0 w-20">
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pc.dot }}/>
-                              <span className="text-xs font-medium" style={{ color: pc.text }}>{task.priority}</span>
-                            </div>
-
-                            {/* Due date */}
-                            <div className="shrink-0 text-right w-20">
-                              {due ? (
-                                <span className={`text-xs font-medium ${due.overdue && !isDone ? 'text-red-500' : due.today && !isDone ? 'text-amber-500' : due.soon && !isDone ? 'text-orange-400' : 'text-[#9CA3AF]'}`}>
-                                  {due.overdue && !isDone ? '⚠ ' : ''}{due.str}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-[#D0D3E0]">No date</span>
-                              )}
-                            </div>
+                    {COLUMNS.map(col => {
+                      const cellTasks = lane.tasks.filter(t => statusColumn(t.status) === col.key)
+                      const over = dragOver === lane.key + '|' + col.key
+                      return (
+                        <div key={col.key}
+                          onDragOver={e => { e.preventDefault(); if (!over) setDragOver(lane.key + '|' + col.key) }}
+                          onDragLeave={() => setDragOver(d => d === lane.key + '|' + col.key ? '' : d)}
+                          onDrop={e => { e.preventDefault(); onDropTask(e.dataTransfer.getData('text/plain'), col.key) }}
+                          className={`rounded-xl border-2 border-dashed p-2 transition-colors ${over ? 'border-violet-400 bg-violet-50' : 'border-[#EAEBF0] bg-[#FBFBFC]'}`}
+                          style={{ minHeight: 84, maxHeight: 380, overflowY: 'auto' }}>
+                          <div className="space-y-2">
+                            {cellTasks.map(task => {
+                              const due = fmtDue(task.due_date)
+                              const note = NOTE[task.priority] ?? NOTE.Medium
+                              return (
+                                <div key={task.id} draggable
+                                  onDragStart={e => { e.dataTransfer.setData('text/plain', task.id); e.dataTransfer.effectAllowed = 'move'; setDraggingId(task.id) }}
+                                  onDragEnd={() => { setDraggingId(''); setDragOver('') }}
+                                  onClick={() => openEdit(task)}
+                                  className="rounded-lg px-3 py-2.5 cursor-pointer shadow-sm hover:shadow-md transition-all select-none"
+                                  style={{ background: note.bg, borderLeft: `4px solid ${note.bar}`, transform: `rotate(${rot(task.id)}deg)`, opacity: draggingId === task.id ? 0.4 : 1 }}>
+                                  <p className={`text-sm font-medium leading-snug break-words ${task.status === 'Done' ? 'line-through text-[#6B7280]' : 'text-[#1A1D2E]'}`}>{task.task_name}</p>
+                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.06)', color: note.bar }}>{task.priority}</span>
+                                    {due && <span className={`text-[10px] font-semibold ${due.overdue && task.status !== 'Done' ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-[#6B7280]'}`}>{due.overdue && task.status !== 'Done' ? '⚠ ' : ''}{due.str}</span>}
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
-
-                      {/* Add task inline shortcut */}
-                      <button
-                        onClick={() => { setForm(p => ({ ...p, group_name: groupName })); openAdd() }}
-                        className="w-full flex items-center gap-2 px-6 py-3 text-sm text-[#9CA3AF] hover:text-[#3B6FE0] hover:bg-[#F5F7FF] transition-colors border-t border-[#F0F1F5]"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/>
-                        </svg>
-                        Add task to {groupName}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
