@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 import QuickAddModal from '@/components/QuickAddModal'
 import QuickUpdateModal from '@/components/QuickUpdateModal'
 export const dynamic = 'force-dynamic'
@@ -99,6 +101,7 @@ function avatarColor(str:string){ let h=0; for(let i=0;i<str.length;i++)h=str.ch
 export default function CustomersPage() {
   const supabase = useMemo(()=>createSupabaseBrowserClient(),[])
   const [customers, setCustomers] = useState<Customer[]>([])
+  useItemDeepLink(customers, openEdit)
   const [primaryContacts, setPrimaryContacts] = useState<Record<string,Contact>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -879,6 +882,7 @@ export default function CustomersPage() {
               </p>
             </div>
           </div>
+          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
           <button onClick={closePanel} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
         </div>
 
