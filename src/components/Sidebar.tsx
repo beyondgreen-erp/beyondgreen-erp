@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import UserAvatar from '@/components/UserAvatar'
 import { ChatTrigger } from './Chat'
 
 interface NavItem { href: string; label: string; icon: string; badgeKey?: string }
@@ -12,44 +11,44 @@ interface NavSection { label: string; items: NavItem[] }
 const NAV: NavSection[] = [
 { label: 'Overview', items: [
 { href: '/', label: 'Dashboard', icon: 'ti-layout-dashboard' },
-{ href: '/beyondworld', label: 'beyondWorld', icon: 'ti-device-gamepad-2' },
 ]},
 { label: 'CRM', items: [
 { href: '/sales/customers', label: 'Customers', icon: 'ti-users' },
+{ href: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask' },
 ]},
 { label: 'Sales', items: [
-{ href: '/sales/quotations', label: 'Quotations', icon: 'ti-file-invoice' },
 { href: '/sales/costing', label: 'Quick Quote', icon: 'ti-calculator' },
+{ href: '/sales/quotations', label: 'Quotations', icon: 'ti-file-invoice' },
 { href: '/sales/orders', label: 'Sales Orders', icon: 'ti-shopping-cart' },
-{ href: '/sales/purchase-orders', label: 'Purchase Orders', icon: 'ti-clipboard-list' },
-{ href: '/sales/vendors', label: 'Vendors', icon: 'ti-building-store' },
-{ href: '/sales/invoices', label: 'Invoices', icon: 'ti-receipt', badgeKey: 'invoices' },
-]},
-{ label: 'Production', items: [
-{ href: '/production/work-orders', label: 'Work Orders', icon: 'ti-tool', badgeKey: 'workOrders' },
-{ href: '/production/quality-control', label: 'Quality Control', icon: 'ti-checkup-list' },
-{ href: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode' },
-{ href: '/production/machine-status', label: 'Machine Status', icon: 'ti-settings-cog' },
-{ href: '/production/daily-plan', label: 'Daily Plan', icon: 'ti-calendar-week' },
-{ href: '/production/capacity-plan', label: 'Capacity Plan', icon: 'ti-chart-bar' },
-]},
-{ label: 'Fulfillment', items: [
 { href: '/production/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', badgeKey: 'shippingQueue' },
 { href: '/shipments', label: 'Shipments', icon: 'ti-package-export' },
 { href: '/operations/fba', label: 'FBA / WFS', icon: 'ti-brand-amazon' },
 ]},
+{ label: 'Production', items: [
+{ href: '/production/daily-plan', label: 'Daily Plan', icon: 'ti-calendar-week' },
+{ href: '/production/work-orders', label: 'Work Orders', icon: 'ti-tool', badgeKey: 'workOrders' },
+{ href: '/production/quality-control', label: 'Quality Control', icon: 'ti-checkup-list' },
+{ href: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode' },
+{ href: '/production/machine-status', label: 'Machine Status', icon: 'ti-settings-cog' },
+{ href: '/production/capacity-plan', label: 'Capacity Plan', icon: 'ti-chart-bar' },
+]},
 { label: 'Inventory', items: [
 { href: '/sales/inventory', label: 'Products & Inventory', icon: 'ti-box' },
-{ href: '/operations/private-label-stock', label: 'Private Label Stock', icon: 'ti-tag' },
+{ href: '/operations/private-label-stock', label: 'Warehouse Stock', icon: 'ti-tag' },
 { href: '/imports', label: 'Import Tracker', icon: 'ti-ship' },
+{ href: '/sales/purchase-orders', label: 'Purchase Order Request', icon: 'ti-clipboard-list' },
 ]},
 { label: 'Business', items: [
 { href: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox' },
-{ href: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask' },
 { href: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette' },
 { href: '/bizdev/documents', label: 'Documents & Knowledge', icon: 'ti-folder' },
 { href: '/bizdev/university', label: 'beyondGREEN University', icon: 'ti-school' },
+{ href: '/beyondworld', label: 'beyondWorld', icon: 'ti-device-gamepad-2' },
 { href: '/settings', label: 'Settings', icon: 'ti-settings' },
+]},
+{ label: 'Finance', items: [
+{ href: '/sales/vendors', label: 'Vendors', icon: 'ti-building-store' },
+{ href: '/sales/invoices', label: 'Invoices', icon: 'ti-receipt', badgeKey: 'invoices' },
 ]},
 ]
 
@@ -179,7 +178,7 @@ onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.backg
 {!collapsed ? (
 <div className="rounded-xl p-3 mb-2" style={{ background: 'rgba(255,255,255,0.05)' }}>
 <div className="flex items-center gap-3">
-<UserAvatar email={userEmail} initials={initials} color={avatarColor} size={36} />
+<div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold text-white" style={{ background: avatarColor }}>{initials}</div>
 <div className="flex-1 min-w-0">
 <p className="text-sm font-semibold text-white truncate">{displayName}</p>
 <p className="text-xs truncate" style={{ color: '#5A6E8A' }}>{userEmail}</p>
@@ -187,7 +186,7 @@ onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.backg
 </div>
 </div>
 ) : (
-<UserAvatar email={userEmail} initials={initials} color={avatarColor} size={36} className="mx-auto mb-2" />
+<div className="w-9 h-9 rounded-full flex items-center justify-center mx-auto mb-2 text-sm font-bold text-white" style={{ background: avatarColor }}>{initials}</div>
 )}
 <button
 onClick={async () => { await sb.auth.signOut(); window.location.href = '/login' }}
