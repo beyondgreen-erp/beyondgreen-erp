@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import RemindersWidget from '@/components/RemindersWidget'
+import TeamPresenceStrip from '@/components/TeamPresenceStrip'
 
 const sb = createSupabaseBrowserClient()
 
@@ -146,6 +147,8 @@ export default function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      <TeamPresenceStrip />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         {/* Pipeline */}
