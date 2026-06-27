@@ -8,6 +8,7 @@ import RemindersWidget from '@/components/RemindersWidget'
 import TeamPresenceStrip from '@/components/TeamPresenceStrip'
 import RawMaterialsPanel from '@/components/RawMaterialsPanel'
 import InventoryLinkGaps from '@/components/InventoryLinkGaps'
+import RecycleBin from '@/components/RecycleBin'
 
 const sb = createSupabaseBrowserClient()
 
@@ -129,7 +130,8 @@ export default function DashboardPage() {
           <p className="text-sm text-[#8A9FC0]">{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</p>
           <h1 className="text-2xl font-bold text-[#0F1C2E]">{greeting}{userName ? ', ' + userName : ''} 👋</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <RecycleBin />
           <Link href="/sales/orders?new=1" className="px-4 py-2 bg-[#3B6FE0] text-white text-sm rounded-lg font-semibold hover:bg-[#2D5CC8]">+ New Order</Link>
           <Link href="/sales/quotations?new=1" className="px-4 py-2 bg-white border border-[#E2E8F0] text-[#0F1C2E] text-sm rounded-lg font-semibold hover:bg-[#F1F4F9]">+ New Quote</Link>
         </div>
