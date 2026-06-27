@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -57,6 +59,7 @@ export default function DailyPlanPage() {
   function openAdd(){setEditing(null);setForm({...empty,plan_date:new Date().toISOString().slice(0,10)});setErr('');setOpen(true)}
   function openEdit(r:DailyPlan){setEditing(r);setForm({plan_date:r.plan_date??'',work_order_id:r.work_order_id??'',machine_id:r.machine_id??'',target_qty:String(r.target_qty),actual_qty:String(r.actual_qty),status:r.status,notes:r.notes??''});setErr('');setOpen(true)}
   function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
+  useItemDeepLink(rows, openEdit)
 
   async function save(){
     setErr('');setSaving(true)
@@ -116,7 +119,7 @@ export default function DailyPlanPage() {
       </div>
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
       <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit Plan':'Add Plan'}</h2><button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit Plan':'Add Plan'}</h2><div className="flex items-center gap-2">{editing && <ShareLink id={editing.id} />}<button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">Plan Date</label><input type="date" value={form.plan_date} onChange={e=>setForm(p=>({...p,plan_date:e.target.value}))} className={inp}/></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Work Order</label><select value={form.work_order_id} onChange={e=>setForm(p=>({...p,work_order_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{workOrders.map(w=><option key={w.id} value={w.id}>{w.wo_number}</option>)}</select></div>
