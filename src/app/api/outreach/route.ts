@@ -45,7 +45,7 @@ function categoriesFor(industry: string): string[] {
     ['Trash Liners', 'Restroom Essentials'].forEach((c) => out.add(c))
   if (has('hygiene', 'hygine', 'restroom', 'cleaning')) ['Restroom Essentials', 'Trash Liners'].forEach((c) => out.add(c))
   if (out.size === 0) ['Paper Bags', 'Takeout Containers', 'Cutlery', 'Trash Liners'].forEach((c) => out.add(c))
-  return [...out]
+  return Array.from(out)
 }
 
 export async function POST(req: NextRequest) {
