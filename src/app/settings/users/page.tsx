@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -48,6 +50,7 @@ function fmtDate(d: string) {
 export default function UsersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  useItemDeepLink(profiles, openEdit)
   const [presence, setPresence] = useState<Record<string, Presence>>({})
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Profile | null>(null)
@@ -209,6 +212,7 @@ export default function UsersPage() {
           <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 w-full max-w-lg space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-[#1A1D2E] font-semibold">Edit User</h2>
+              {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
               <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-gray-700">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
