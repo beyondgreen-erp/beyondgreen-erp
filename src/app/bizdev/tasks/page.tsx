@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -75,6 +77,7 @@ function fmtDue(d: string | null) {
 export default function TasksPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows,        setRows]        = useState<Task[]>([])
+  useItemDeepLink(rows, openEdit)
   const [customers,   setCustomers]   = useState<Customer[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [loading,     setLoading]     = useState(true)
@@ -478,6 +481,7 @@ export default function TasksPage() {
             <h2 className="text-[#1A1D2E] font-bold text-lg">{editing ? 'Edit Task' : 'New Task'}</h2>
             {editing && <p className="text-[#9CA3AF] text-sm mt-0.5 truncate max-w-[300px]">{editing.task_name}</p>}
           </div>
+          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
           <button onClick={close} className="w-9 h-9 flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-[#1A1D2E] hover:bg-[#F5F6FA] transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
