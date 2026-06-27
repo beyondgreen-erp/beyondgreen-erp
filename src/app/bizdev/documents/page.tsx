@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -99,6 +101,7 @@ export default function DocumentsPage() {
   function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
   function openEdit(r:Doc){setEditing(r);setForm({title:r.title,category:r.category,version:r.version??'',effective_date:r.effective_date??'',review_date:r.review_date??'',status:r.status,owner:r.owner??'',customer_id:r.customer_id??'',vendor_id:r.vendor_id??'',order_id:r.order_id??'',certification_id:r.certification_id??'',notes:r.notes??''});setErr('');setOpen(true)}
   function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
+  useItemDeepLink(rows, openEdit)
 
   async function save(){
     if(!form.title.trim()){setErr('Document Title is required.');return}
@@ -188,7 +191,7 @@ export default function DocumentsPage() {
       })}</div>}
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
       <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit Document':'Add Document'}</h2><button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><i className="ti ti-x text-lg"/></button></div>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit Document':'Add Document'}</h2><div className="flex items-center gap-2">{editing && <ShareLink id={editing.id} />}<button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><i className="ti ti-x text-lg"/></button></div></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           {editing&&hasFile(editing)&&(
             <div className="flex items-center gap-2 bg-[#F9FAFB] border border-[#E4E6EE] rounded-lg px-3 py-2.5">
