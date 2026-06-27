@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -75,6 +77,7 @@ function daysOverdue(dueDate: string | null): number {
 export default function InvoicesPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Invoice[]>([])
+  useItemDeepLink(rows, openPanel)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('all')
@@ -500,6 +503,7 @@ export default function InvoicesPage() {
                 <h2 className="text-[#1A1D2E] font-semibold text-lg font-mono">{displayNum(sel)}</h2>
                 <p className="text-gray-500 text-sm">{getCustomerName(sel)}</p>
               </div>
+              {sel && <ShareLink id={sel.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
               <button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA] transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
