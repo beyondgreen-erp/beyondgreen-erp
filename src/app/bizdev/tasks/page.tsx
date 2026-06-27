@@ -53,7 +53,6 @@ const NOTE: Record<string, { bg: string; bar: string }> = {
   Medium:   { bg: '#FEF9C3', bar: '#CA8A04' },
   Low:      { bg: '#DCFCE7', bar: '#16A34A' },
 }
-function rot(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 7; return (h - 3) * 0.5 }
 
 const empty = { task_name: '', assigned_to: '', due_date: '', priority: 'Medium', status: 'Backlog', customer_id: '', notes: '', group_name: 'Current' }
 type F = typeof empty
@@ -115,7 +114,12 @@ export default function TasksPage() {
 
   const filtered = useMemo(() => rows.filter(r => {
     if (filterStatus   && r.status       !== filterStatus)   return false
-    if (filterAssignee && r.assigned_to  !== filterAssignee) return false
+    if (filterAssignee) {
+      const m = teamMembers.find(x => x.email === filterAssignee)
+      const toks = (r.assigned_to || '').toLowerCase().split(',').map(s => s.trim())
+      const ok = m ? toks.some(t => t === m.email.toLowerCase() || t === m.full_name.toLowerCase()) : toks.includes(filterAssignee.toLowerCase())
+      if (!ok) return false
+    }
     if (search) {
       const q = search.toLowerCase()
       return r.task_name.toLowerCase().includes(q) ||
@@ -123,7 +127,7 @@ export default function TasksPage() {
              (r.description ?? '').toLowerCase().includes(q)
     }
     return true
-  }), [rows, filterStatus, filterAssignee, search])
+  }), [rows, filterStatus, filterAssignee, search, teamMembers])
 
   const lanes = useMemo(() => {
     const byKey: Record<string, TeamMember> = {}
@@ -327,36 +331,36 @@ export default function TasksPage() {
           </div>
         ) : (
           <div className="overflow-x-auto pb-6">
-            <div className="min-w-[820px]">
-              <div className="grid mb-2" style={{ gridTemplateColumns: '180px repeat(3, minmax(200px, 1fr))', gap: '0.5rem' }}>
+            <div className="min-w-[860px]">
+              <div className="grid mb-2 px-1" style={{ gridTemplateColumns: '170px repeat(3, minmax(210px, 1fr))' }}>
                 <div/>
                 {COLUMNS.map(col => (
-                  <div key={col.key} className="px-2 py-2 text-center rounded-xl bg-white border border-[#E4E6EE]">
+                  <div key={col.key} className="px-3 py-1.5 text-center">
                     <span className="text-xs font-bold tracking-widest uppercase" style={{ color: col.color }}>{col.label}</span>
                   </div>
                 ))}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {lanes.map(lane => (
-                  <div key={lane.key} className="grid items-stretch" style={{ gridTemplateColumns: '180px repeat(3, minmax(200px, 1fr))', gap: '0.5rem' }}>
-                    <div className="flex items-center gap-2.5 px-3 py-3 rounded-xl bg-white border border-[#E4E6EE] self-start">
-                      {lane.member
-                        ? <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: lane.member.avatar_color }}>{lane.member.avatar_initials || lane.member.full_name[0]}</span>
-                        : <span className="w-8 h-8 rounded-full flex items-center justify-center text-[#9CA3AF] bg-[#F0F1F5] text-xs font-bold shrink-0"><i className="ti ti-user"/></span>}
-                      <span className="text-sm font-semibold text-[#1A1D2E] truncate flex-1">{lane.label.split(' ')[0]}</span>
-                      <span className="text-xs text-[#9CA3AF]">{lane.tasks.length}</span>
-                    </div>
-                    {COLUMNS.map(col => {
-                      const cellTasks = lane.tasks.filter(t => statusColumn(t.status) === col.key)
-                      const over = dragOver === lane.key + '|' + col.key
-                      return (
-                        <div key={col.key}
-                          onDragOver={e => { e.preventDefault(); if (!over) setDragOver(lane.key + '|' + col.key) }}
-                          onDragLeave={() => setDragOver(d => d === lane.key + '|' + col.key ? '' : d)}
-                          onDrop={e => { e.preventDefault(); onDropTask(e.dataTransfer.getData('text/plain'), col.key) }}
-                          className={`rounded-xl border-2 border-dashed p-2 transition-colors ${over ? 'border-violet-400 bg-violet-50' : 'border-[#EAEBF0] bg-[#FBFBFC]'}`}
-                          style={{ minHeight: 84, maxHeight: 380, overflowY: 'auto' }}>
-                          <div className="space-y-2">
+                  <div key={lane.key} className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
+                    <div className="grid items-stretch" style={{ gridTemplateColumns: '170px repeat(3, minmax(210px, 1fr))' }}>
+                      <div className="flex items-center gap-2.5 px-4 py-3 bg-[#FAFBFC] border-r border-[#EEF0F4]">
+                        {lane.member
+                          ? <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: lane.member.avatar_color }}>{lane.member.avatar_initials || lane.member.full_name[0]}</span>
+                          : <span className="w-8 h-8 rounded-full flex items-center justify-center text-[#9CA3AF] bg-[#F0F1F5] text-xs font-bold shrink-0"><i className="ti ti-user"/></span>}
+                        <span className="text-sm font-semibold text-[#1A1D2E] truncate flex-1">{lane.label.split(' ')[0]}</span>
+                        <span className="text-xs font-medium text-[#9CA3AF]">{lane.tasks.length}</span>
+                      </div>
+                      {COLUMNS.map((col, ci) => {
+                        const cellTasks = lane.tasks.filter(t => statusColumn(t.status) === col.key)
+                        const over = dragOver === lane.key + '|' + col.key
+                        return (
+                          <div key={col.key}
+                            onDragOver={e => { e.preventDefault(); if (!over) setDragOver(lane.key + '|' + col.key) }}
+                            onDragLeave={() => setDragOver(d => d === lane.key + '|' + col.key ? '' : d)}
+                            onDrop={e => { e.preventDefault(); onDropTask(e.dataTransfer.getData('text/plain'), col.key) }}
+                            className={`p-2 space-y-2 transition-colors ${ci < 2 ? 'border-r border-[#EEF0F4]' : ''} ${over ? 'bg-violet-50' : ''}`}
+                            style={{ maxHeight: 300, overflowY: 'auto' }}>
                             {cellTasks.map(task => {
                               const due = fmtDue(task.due_date)
                               const note = NOTE[task.priority] ?? NOTE.Medium
@@ -365,20 +369,22 @@ export default function TasksPage() {
                                   onDragStart={e => { e.dataTransfer.setData('text/plain', task.id); e.dataTransfer.effectAllowed = 'move'; setDraggingId(task.id) }}
                                   onDragEnd={() => { setDraggingId(''); setDragOver('') }}
                                   onClick={() => openEdit(task)}
-                                  className="rounded-lg px-3 py-2.5 cursor-pointer shadow-sm hover:shadow-md transition-all select-none"
-                                  style={{ background: note.bg, borderLeft: `4px solid ${note.bar}`, transform: `rotate(${rot(task.id)}deg)`, opacity: draggingId === task.id ? 0.4 : 1 }}>
-                                  <p className={`text-sm font-medium leading-snug break-words ${task.status === 'Done' ? 'line-through text-[#6B7280]' : 'text-[#1A1D2E]'}`}>{task.task_name}</p>
-                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.06)', color: note.bar }}>{task.priority}</span>
-                                    {due && <span className={`text-[10px] font-semibold ${due.overdue && task.status !== 'Done' ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-[#6B7280]'}`}>{due.overdue && task.status !== 'Done' ? '⚠ ' : ''}{due.str}</span>}
+                                  title={task.task_name}
+                                  className="rounded-lg px-2.5 py-2 cursor-pointer shadow-[0_1px_2px_rgba(16,24,40,0.08)] hover:shadow-md transition-shadow select-none"
+                                  style={{ background: note.bg, borderLeft: `3px solid ${note.bar}`, opacity: draggingId === task.id ? 0.4 : 1 }}>
+                                  <p className={`text-[13px] font-medium leading-snug line-clamp-2 ${task.status === 'Done' ? 'line-through text-[#8A93A3]' : 'text-[#1A1D2E]'}`}>{task.task_name}</p>
+                                  <div className="flex items-center gap-2 mt-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: note.bar }}/>
+                                    {due && <span className={`text-[10px] font-semibold ml-auto ${due.overdue && task.status !== 'Done' ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-[#9CA3AF]'}`}>{due.overdue && task.status !== 'Done' ? '⚠ ' : ''}{due.str}</span>}
                                   </div>
                                 </div>
                               )
                             })}
+                            {cellTasks.length === 0 && <div className="text-center text-[11px] text-[#D0D3E0] py-3 select-none">—</div>}
                           </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>
