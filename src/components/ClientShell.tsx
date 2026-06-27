@@ -5,6 +5,7 @@ import Sidebar from './Sidebar'
 import PresenceTracker from './PresenceTracker'
 import NotificationBell from './NotificationBell'
 import Chat from './Chat'
+import DirectMessages from './DirectMessages'
 import MobileNav from './MobileNav'
 import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
@@ -143,6 +144,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
       </div>
 
       <Chat />
+      <DirectMessages />
       <PresenceTracker />
       <div className="md:hidden">
         <MobileNav />
