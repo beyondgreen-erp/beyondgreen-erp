@@ -9,8 +9,181 @@ interface Sample {
   customer_type: string | null; product: string | null; status: string | null; ship_due_date: string | null; sample_date: string | null
   ship_cost: number | null; shipped_via: string | null; tracking_number: string | null; ship_to_address: string | null; group_name: string | null
 }
+
 const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 const sc = (s: string | null) => /sent|ship|complet|done|deliver/i.test(s || '') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : /hold|cancel|reject/i.test(s || '') ? 'bg-red-50 text-red-700 border-red-200' : /progress|prep|work|request/i.test(s || '') ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'
+
+interface ModalState {
+  showAdd?: boolean
+  loadingCreate?: boolean
+  formData?: {
+    name: string
+    recipient_email: string
+    ship_to_address: string
+    note: string
+    is_custom_request: boolean
+    selected_items: string[]
+    tagged_people: string[]
+    files: File[]
+  }
+  error?: string
+}
+
+function AddSampleModal({ open, onClose, onCreated, sb }: { open: boolean; onClose: () => void; onCreated: () => void; sb: ReturnType<typeof createSupabaseBrowserClient> }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [catalog, setCatalog] = useState<any[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [form, setForm] = useState({
+    name: '',
+    recipient_email: '',
+    ship_to_address: '',
+    note: '',
+    is_custom_request: false,
+    selected_items: [] as string[],
+    tagged_people: [] as string[],
+    files: [] as File[]
+  })
+
+  useEffect(() => {
+    if (open) {
+      setCatalogLoading(true)
+      sb.from('sample_catalog').select('id,name,sku').then(({ data }) => {
+        setCatalog(data || [])
+        setCatalogLoading(false)
+      })
+    }
+  }, [open, sb])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setForm(prev => ({ ...prev, files: Array.from(e.target.files as FileList) }))
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
+    try {
+      // Convert files to base64
+      const files_inline: any[] = []
+      for (const file of form.files) {
+        const data = await file.arrayBuffer()
+        files_inline.push({
+          filename: file.name,
+          mimetype: file.type,
+          data: Buffer.from(data).toString('base64')
+        })
+      }
+
+      // Call edge function
+      const result = await sb.functions.invoke('sample-submission-create', {
+        body: {
+          name: form.name,
+          recipient_email: form.recipient_email,
+          ship_to_address: form.ship_to_address,
+          note: form.note,
+          is_custom_request: form.is_custom_request,
+          sample_items: form.selected_items.map((id, idx) => ({ line_number: idx + 1, catalog_id: id })),
+          tagged_people: form.tagged_people,
+          files_inline: files_inline
+        }
+      })
+
+      if (result.error) throw new Error(result.error)
+
+      setForm({ name: '', recipient_email: '', ship_to_address: '', note: '', is_custom_request: false, selected_items: [], tagged_people: [], files: [] })
+      onClose()
+      onCreated()
+    } catch (err: any) {
+      setError(err.message || 'Failed to create sample submission')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Add Sample Submission</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">{error}</div>}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Request Name</label>
+            <input type="text" required value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g., Q3 Product Line" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"/>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Email</label>
+            <input type="email" required value={form.recipient_email} onChange={e => setForm(prev => ({ ...prev, recipient_email: e.target.value }))} placeholder="customer@example.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"/>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Ship-To Address</label>
+            <textarea value={form.ship_to_address} onChange={e => setForm(prev => ({ ...prev, ship_to_address: e.target.value }))} placeholder="Full shipping address" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" rows={2}/>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Note</label>
+            <textarea value={form.note} onChange={e => setForm(prev => ({ ...prev, note: e.target.value }))} placeholder="Any special instructions or notes…" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" rows={2}/>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="custom" checked={form.is_custom_request} onChange={e => setForm(prev => ({ ...prev, is_custom_request: e.target.checked, selected_items: e.target.checked ? [] : prev.selected_items }))} className="w-4 h-4 text-blue-600 rounded"/>
+            <label htmlFor="custom" className="text-sm font-medium text-gray-700">Custom Request (no catalog items)</label>
+          </div>
+
+          {!form.is_custom_request && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Sample Items</label>
+              {catalogLoading ? <p className="text-sm text-gray-500">Loading catalog…</p>
+              : catalog.length === 0 ? <p className="text-sm text-gray-500">No catalog items available</p>
+              : <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                  {catalog.map(item => (
+                    <label key={item.id} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={form.selected_items.includes(item.id)} onChange={e => {
+                        setForm(prev => ({
+                          ...prev,
+                          selected_items: e.target.checked ? [...prev.selected_items, item.id] : prev.selected_items.filter(id => id !== item.id)
+                        }))
+                      }} className="w-4 h-4 text-blue-600 rounded"/>
+                      <span className="text-gray-700">{item.name} ({item.sku})</span>
+                    </label>
+                  ))}
+                </div>}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tag Team Members</label>
+            <input type="text" placeholder="Enter emails, comma-separated" value={form.tagged_people.join(', ')} onChange={e => setForm(prev => ({ ...prev, tagged_people: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"/>
+            {form.tagged_people.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{form.tagged_people.map(email => <span key={email} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">{email}</span>)}</div>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Attachments</label>
+            <input type="file" multiple onChange={handleFileChange} className="w-full"/>
+            {form.files.length > 0 && <div className="mt-2 text-sm text-gray-600">{form.files.length} file(s) selected</div>}
+          </div>
+
+          <div className="flex gap-2 pt-4 border-t border-gray-200">
+            <button type="submit" disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg transition">{loading ? 'Creating…' : 'Create Submission'}</button>
+            <button type="button" onClick={onClose} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900 font-medium py-2 rounded-lg transition">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 export default function SamplesPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
@@ -20,6 +193,7 @@ export default function SamplesPage() {
   const [status, setStatus] = useState('All')
   const [open, setOpen] = useState<string | null>(null)
   const [lines, setLines] = useState<Record<string, Line[]>>({})
+  const [showAddModal, setShowAddModal] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -27,6 +201,7 @@ export default function SamplesPage() {
     setRows((data as Sample[]) || [])
     setLoading(false)
   }, [sb])
+
   useEffect(() => { load() }, [load])
 
   async function toggle(id: string) {
@@ -48,9 +223,17 @@ export default function SamplesPage() {
 
   return (
     <div className="min-h-screen p-8" style={{ background: '#F5F6FA' }}>
-      <p className="text-xs font-semibold text-pink-600 uppercase tracking-widest mb-1">SAMPLES</p>
-      <h1 className="text-3xl font-bold text-gray-900 mb-1">Sample Submissions</h1>
-      <p className="text-gray-500 text-sm mb-6">{loading ? 'Loading…' : `${filtered.length} submission${filtered.length !== 1 ? 's' : ''}`}</p>
+      <div className="flex justify-between items-start mb-6">
+        <div>
+          <p className="text-xs font-semibold text-pink-600 uppercase tracking-widest mb-1">SAMPLES</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-1">Sample Submissions</h1>
+          <p className="text-gray-500 text-sm">{loading ? 'Loading…' : `${filtered.length} submission${filtered.length !== 1 ? 's' : ''}`}</p>
+        </div>
+        <button onClick={() => setShowAddModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-lg transition flex items-center gap-2">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+          Add Sample Submission
+        </button>
+      </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
@@ -106,6 +289,8 @@ export default function SamplesPage() {
             </tbody>
           </table>}
       </div>
+
+      <AddSampleModal open={showAddModal} onClose={() => setShowAddModal(false)} onCreated={load} sb={sb} />
     </div>
   )
 }
