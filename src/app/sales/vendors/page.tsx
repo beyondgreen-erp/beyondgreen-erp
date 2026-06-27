@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -52,6 +54,7 @@ export default function VendorsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
 
   const [vendors, setVendors] = useState<Vendor[]>([])
+  useItemDeepLink(vendors, openEdit)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -410,6 +413,7 @@ export default function VendorsPage() {
           <h2 className="text-[#1A1D2E] font-semibold">
             {editing ? 'Edit Vendor' : 'Add Vendor'}
           </h2>
+          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
           <button
             onClick={closePanel}
             className="text-gray-500 hover:text-gray-700 transition-colors p-1 rounded-lg hover:bg-[#F5F6FA]"
