@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -42,6 +44,7 @@ const STATUS_CFG: Record<string, string> = {
 export default function LotsPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<LotCode[]>([])
+  useItemDeepLink(rows, openLot)
   const [loading, setLoading] = useState(true)
   const [tableExists, setTableExists] = useState(true)
   const [tab, setTab] = useState('All')
@@ -287,6 +290,7 @@ export default function LotsPage() {
           <>
             <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
               <h2 className="text-[#1A1D2E] font-semibold">{adding ? 'Add Lot Code' : 'Edit Lot Code'}</h2>
+              {selected && <ShareLink id={selected.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
               <button onClick={close} className="p-2 rounded-xl text-[#5A5A6A] hover:text-gray-700 hover:bg-[#F5F6FA] transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
