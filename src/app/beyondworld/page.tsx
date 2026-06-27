@@ -38,7 +38,7 @@ function avatarUrl(cfg: any, equipped: any, itemsById: Record<string, Item>, siz
     clothing: cfg.clothing || 'shirtCrewNeck', clothesColor: cfg.clothesColor || '5199e4',
     backgroundColor: cfg.backgroundColor || 'b6e3f4', facialHair: cfg.facialHair || '',
   }
-  let hatColor: string | null = null, accessories: string | null = null, facialHair = base.facialHair, graphic: string | null = null
+  let hatColor: string | null = null, accessories: string | null = null, facialHair = base.facialHair, graphic: string | null = null, bgGrad: string | null = null
   for (const slot of ['top','accessories','clothing','facialHair','background']) {
     const id = equipped?.[slot]; if (!id) continue; const it = itemsById[id]; if (!it) continue; const a = it.asset || {}
     if (a.kind === 'avatar') {
@@ -46,11 +46,12 @@ function avatarUrl(cfg: any, equipped: any, itemsById: Record<string, Item>, siz
       else if (a.param === 'accessories') accessories = a.value
       else if (a.param === 'clothing') { base.clothing = a.value; if (a.graphic) graphic = a.graphic }
       else if (a.param === 'facialHair') facialHair = a.value
-    } else if (a.kind === 'bg' && slot === 'background') base.backgroundColor = a.value
+    } else if (a.kind === 'bg' && slot === 'background') { base.backgroundColor = a.value; if (a.value2) bgGrad = a.value2 }
   }
   const p = new URLSearchParams()
   p.set('seed', cfg.seed || 'beyondGREEN')
   for (const k of ['skinColor','top','hairColor','eyes','eyebrows','mouth','clothing','clothesColor','backgroundColor']) p.set(k, base[k])
+  if (bgGrad) { p.set('backgroundColor', base.backgroundColor + ',' + bgGrad); p.set('backgroundType', 'gradientLinear') }
   if (hatColor) p.set('hatColor', hatColor)
   if (graphic) p.set('clothingGraphic', graphic)
   if (facialHair) { p.set('facialHair', facialHair); p.set('facialHairProbability','100') } else p.set('facialHairProbability','0')
@@ -63,10 +64,45 @@ function equippedTitle(equipped: any, itemsById: Record<string, Item>) {
   if (!it || it.asset?.kind !== 'title') return null
   return { text: it.asset.text as string, color: it.asset.color as string }
 }
-function equippedNameColor(equipped: any, itemsById: Record<string, Item>) {
-  const id = equipped?.nameColor; if (!id) return null; const it = itemsById[id]
-  if (!it || it.asset?.kind !== 'nameColor') return null
-  return it.asset.value as string
+function equippedNameStyle(equipped: any, itemsById: Record<string, Item>): React.CSSProperties | null {
+  const id = equipped?.nameColor; if (!id) return null; const a = itemsById[id]?.asset
+  if (!a) return null
+  if (a.kind === 'nameColor') return { color: a.value }
+  if (a.kind === 'nameGradient') return { background: `linear-gradient(90deg, ${a.from}, ${a.to})`, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', WebkitTextFillColor: 'transparent' }
+  return null
+}
+function equippedFrame(equipped: any, itemsById: Record<string, Item>): string | null {
+  const id = equipped?.frame; if (!id) return null; const it = itemsById[id]
+  if (!it || it.asset?.kind !== 'frame') return null
+  return it.asset.style as string
+}
+function equippedBadge(equipped: any, itemsById: Record<string, Item>): string | null {
+  const id = equipped?.badge; if (!id) return null; const it = itemsById[id]
+  if (!it || it.asset?.kind !== 'badge') return null
+  return it.asset.emoji as string
+}
+const FRAME_DECO: Record<string, { bg: string; glow?: string; anim?: string }> = {
+  bronze: { bg: '#cd7f32' }, silver: { bg: '#cfd4da' },
+  gold: { bg: '#f5c518', glow: '0 0 6px 1px rgba(245,197,24,.6)' },
+  emerald: { bg: '#34d399', glow: '0 0 8px 1px rgba(52,211,153,.7)' },
+  sapphire: { bg: '#3b82f6', glow: '0 0 8px 1px rgba(59,130,246,.7)' },
+  ruby: { bg: '#ef4444', glow: '0 0 9px 1px rgba(239,68,68,.7)' },
+  neon: { bg: '#22d3ee', glow: '0 0 12px 2px rgba(34,211,238,.85)', anim: 'bw-pulse' },
+  rainbow: { bg: 'conic-gradient(from 0deg,#ff0000,#ff8800,#ffee00,#00cc44,#0088ff,#8800ff,#ff0066,#ff0000)', anim: 'bw-spin' },
+  diamond: { bg: 'linear-gradient(135deg,#ffffff,#a5f3fc,#3b82f6,#ffffff)', glow: '0 0 10px 2px rgba(165,243,252,.85)', anim: 'bw-pulse' },
+  mythic: { bg: 'conic-gradient(from 0deg,#a855f7,#ec4899,#f59e0b,#a855f7)', glow: '0 0 14px 2px rgba(168,85,247,.85)', anim: 'bw-spin' },
+}
+const BW_KEYFRAMES = '@keyframes bw-spin{to{transform:rotate(1turn)}}@keyframes bw-pulse{0%,100%{opacity:1}50%{opacity:.45}}.bw-spin{animation:bw-spin 5s linear infinite}.bw-pulse{animation:bw-pulse 1.6s ease-in-out infinite}'
+function FramedAvatar({ url, frame, badge, size }: { url: string; frame?: string | null; badge?: string | null; size: number }) {
+  const f = frame ? FRAME_DECO[frame] : null
+  const pad = f ? Math.max(2, Math.round(size * 0.06)) : 0
+  return (
+    <div style={{ position: 'relative', width: size, height: size }}>
+      {f && <div className={f.anim || ''} style={{ position: 'absolute', inset: 0, borderRadius: '9999px', background: f.bg, boxShadow: f.glow }} />}
+      <img src={url} alt="" style={{ position: 'absolute', inset: pad, width: size - 2 * pad, height: size - 2 * pad, borderRadius: '9999px', background: '#e6edf5', objectFit: 'cover' }} />
+      {badge && <span style={{ position: 'absolute', right: -1, bottom: -1, fontSize: Math.round(size * 0.36), lineHeight: 1, filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.45))' }}>{badge}</span>}
+    </div>
+  )
 }
 
 export default function BeyondWorldPage() {
@@ -136,7 +172,9 @@ export default function BeyondWorldPage() {
   const equipped = me.equipped || {}
   const myUrl = avatarUrl(me.avatar_config, equipped, itemsById)
   const myTitle = equippedTitle(equipped, itemsById)
-  const myNameColor = equippedNameColor(equipped, itemsById)
+  const myNameStyle = equippedNameStyle(equipped, itemsById)
+  const myFrame = equippedFrame(equipped, itemsById)
+  const myBadge = equippedBadge(equipped, itemsById)
   const previewUrl = avatarUrl(draft, equipped, itemsById)
   const cats = Array.from(new Set(items.map(i => i.category)))
   const today = new Date().toISOString().slice(0, 10)
@@ -161,17 +199,18 @@ export default function BeyondWorldPage() {
   return (
     <div className="min-h-screen" style={{ background: 'radial-gradient(1200px 600px at 50% -10%, #20264f 0%, #0f1226 60%)' }}>
       <div className="max-w-5xl mx-auto px-6 py-8 text-white">
+        <style>{BW_KEYFRAMES}</style>
         {/* Header / hero */}
         <div className="flex items-center gap-2 mb-1"><span className="text-2xl">🎮</span><h1 className="text-3xl font-extrabold tracking-tight">beyond<span className="text-emerald-400">World</span></h1></div>
         <p className="text-white/50 text-sm mb-6">Do real work, earn beyondDollars, level up, and flex your avatar in front of the whole team.</p>
 
         <div className="rounded-2xl p-5 mb-4 flex flex-col sm:flex-row items-center gap-5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="relative shrink-0">
-            <div className="w-28 h-28 rounded-2xl overflow-hidden ring-2 ring-emerald-400/40" style={{ background: '#fff2' }}><img src={myUrl} alt="avatar" className="w-full h-full" /></div>
+            <FramedAvatar url={myUrl} frame={myFrame} badge={myBadge} size={112} />
           </div>
           <div className="flex-1 w-full text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start flex-wrap">
-              <span className="text-lg font-bold" style={myNameColor ? { color: myNameColor } : undefined}>{nameOf(me)}</span>
+              <span className="text-lg font-bold" style={myNameStyle || undefined}>{nameOf(me)}</span>
               {myTitle && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${myTitle.color}22`, color: myTitle.color, border: `1px solid ${myTitle.color}55` }}>{myTitle.text}</span>}
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Lvl {li.level} {tierTitle(li.level)}</span>
             </div>
@@ -210,7 +249,7 @@ export default function BeyondWorldPage() {
         {tab === 'avatar' && (
           <div className="grid md:grid-cols-2 gap-6">
             <div className="rounded-2xl p-5 flex flex-col items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <div className="w-48 h-48 rounded-2xl overflow-hidden"><img src={previewUrl} alt="preview" className="w-full h-full" /></div>
+              <FramedAvatar url={previewUrl} frame={myFrame} badge={myBadge} size={192} />
               <p className="text-white/40 text-xs mt-3">Live preview — make it look like you</p>
               <button onClick={saveAvatar} disabled={busy === 'save'} className="mt-4 px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save Avatar'}</button>
             </div>
@@ -257,6 +296,9 @@ export default function BeyondWorldPage() {
                     let previewNode
                     if (a.kind === 'title') previewNode = <span className="text-sm font-bold px-2.5 py-1 rounded-full text-center" style={{ background: `${a.color}22`, color: a.color, border: `1px solid ${a.color}55` }}>{a.text}</span>
                     else if (a.kind === 'nameColor') previewNode = <span className="text-xl font-extrabold" style={{ color: a.value }}>{nameOf(me)}</span>
+                    else if (a.kind === 'nameGradient') previewNode = <span className="text-xl font-extrabold" style={{ background: `linear-gradient(90deg, ${a.from}, ${a.to})`, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', WebkitTextFillColor: 'transparent' }}>{nameOf(me)}</span>
+                    else if (a.kind === 'frame') previewNode = <FramedAvatar url={avatarUrl(me.avatar_config, equipped, itemsById)} frame={a.style} size={72} />
+                    else if (a.kind === 'badge') previewNode = <FramedAvatar url={avatarUrl(me.avatar_config, equipped, itemsById)} badge={a.emoji} size={72} />
                     else previewNode = <img src={avatarUrl(me.avatar_config, { [it.slot]: it.id }, itemsById)} alt={it.name} className="h-20 w-20 rounded-lg" />
                     return (
                       <div key={it.id} className="rounded-xl p-3 flex flex-col" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${isEquipped ? '#22c55e' : 'rgba(255,255,255,0.08)'}` }}>
@@ -291,15 +333,17 @@ export default function BeyondWorldPage() {
             {board.map((p, i) => {
               const pl = levelInfo(p.xp)
               const t = equippedTitle(p.equipped, itemsById)
-              const nc = equippedNameColor(p.equipped, itemsById)
+              const ns = equippedNameStyle(p.equipped, itemsById)
+              const fr = equippedFrame(p.equipped, itemsById)
+              const bd = equippedBadge(p.equipped, itemsById)
               const isMe = p.user_email === me.user_email
               return (
                 <div key={p.user_email} className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0" style={isMe ? { background: 'rgba(34,197,94,0.08)' } : undefined}>
                   <span className={`w-7 text-center font-extrabold ${i === 0 ? 'text-amber-300' : i === 1 ? 'text-gray-300' : i === 2 ? 'text-amber-600' : 'text-white/30'}`}>{i + 1}</span>
-                  <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0" style={{ background: '#fff2' }}><img src={avatarUrl(p.avatar_config, p.equipped, itemsById)} alt="" className="w-full h-full" /></div>
+                  <div className="shrink-0"><FramedAvatar url={avatarUrl(p.avatar_config, p.equipped, itemsById)} frame={fr} badge={bd} size={40} /></div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate flex items-center gap-1.5">
-                      <span style={nc ? { color: nc } : undefined}>{nameOf(p)}</span>
+                      <span style={ns || undefined}>{nameOf(p)}</span>
                       {t && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${t.color}22`, color: t.color, border: `1px solid ${t.color}55` }}>{t.text}</span>}
                     </p>
                     <p className="text-xs text-white/40">Lvl {pl.level} {tierTitle(pl.level)} · {p.xp} XP</p>
