@@ -1,35 +1,23 @@
 'use client'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import BeyondAvatar from '@/components/BeyondAvatar'
 
-interface Profile { user_email: string; display_name: string | null; avatar_config: any; beyond_dollars: number; xp: number; level: number }
+interface Profile { user_email: string; display_name: string | null; avatar_config: any; equipped: any; beyond_dollars: number; xp: number; level: number }
+interface Item { id: string; name: string; category: string; slot: string; price: number; rarity: string; level_req: number; asset: any; sort: number }
 
-const MODEL_VIEWER_SRC = 'https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js'
+const SKIN = ['ffdbb4', 'edb98a', 'fd9841', 'd08b5b', 'ae5d29', '614335']
+const HAIR = ['short', 'buzz', 'long', 'bun', 'afro', 'bald']
+const HAIRCOLOR = ['2c1b18', '4a312c', '724133', 'a55728', 'b58143', 'c93305', 'd6b370', 'e8e1e1']
+const EYES = ['default', 'happy', 'wink']
+const MOUTH = ['smile', 'grin', 'neutral']
+const SHIRT = ['5199e4', '25557c', '929598', 'a7ffc4', 'ff488e', 'ff5c5c', 'ffffff', '262e33', 'f4c20d']
+const PANTS = ['2f3b52', '16181d', '4b5320', '3b5bdb', '6b4a2b', '777777']
 
-// Stable, free, CORS-enabled 3D character models (Google model-viewer + three.js demo assets)
-const CHARACTERS = [
-  { key: 'astro', name: 'Astronaut', emoji: '🧑‍🚀', url: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb' },
-  { key: 'robot', name: 'Robo', emoji: '🤖', url: 'https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb' },
-  { key: 'soldier', name: 'Scout', emoji: '🪖', url: 'https://threejs.org/examples/models/gltf/Soldier.glb' },
-  { key: 'xbot', name: 'Agent', emoji: '🥷', url: 'https://threejs.org/examples/models/gltf/Xbot.glb' },
-  { key: 'fox', name: 'Fox', emoji: '🦊', url: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb' },
-  { key: 'parrot', name: 'Parrot', emoji: '🦜', url: 'https://threejs.org/examples/models/gltf/Parrot.glb' },
-]
-const charByKey: Record<string, typeof CHARACTERS[number]> = Object.fromEntries(CHARACTERS.map(c => [c.key, c]))
-const charUrl = (k?: string) => (charByKey[k || 'astro'] || CHARACTERS[0]).url
-const charEmoji = (k?: string) => (charByKey[k || 'astro'] || CHARACTERS[0]).emoji
-
-const TINTS: { key: string; name: string; bg: string; swatch: string }[] = [
-  { key: 'aurora', name: 'Aurora', bg: 'radial-gradient(120% 120% at 50% 8%, #2a3f6c 0%, #0c0f24 72%)', swatch: '#3b6ea5' },
-  { key: 'emerald', name: 'Emerald', bg: 'radial-gradient(120% 120% at 50% 8%, #1f5d49 0%, #07140f 72%)', swatch: '#22c55e' },
-  { key: 'sunset', name: 'Sunset', bg: 'radial-gradient(120% 120% at 50% 8%, #6b2f4f 0%, #1a0c16 72%)', swatch: '#ff6b81' },
-  { key: 'gold', name: 'Gold', bg: 'radial-gradient(120% 120% at 50% 8%, #6b5a1f 0%, #16120a 72%)', swatch: '#f4c20d' },
-  { key: 'violet', name: 'Violet', bg: 'radial-gradient(120% 120% at 50% 8%, #432f6b 0%, #100c1f 72%)', swatch: '#a855f7' },
-  { key: 'slate', name: 'Slate', bg: 'radial-gradient(120% 120% at 50% 8%, #33404f 0%, #0c1016 72%)', swatch: '#94a3b8' },
-]
-const tintBy = (k?: string) => (TINTS.find(t => t.key === k) || TINTS[0])
+const RARITY: Record<string, string> = { Common: '#9CA3AF', Uncommon: '#22c55e', Rare: '#3b82f6', Epic: '#a855f7', Legendary: '#f59e0b' }
+const SLOT_LABEL: Record<string, string> = { head: 'Helmet', body: 'Top', legs: 'Bottoms', feet: 'Footwear', hand_main: 'Right Hand', hand_off: 'Shield', face: 'Eyewear', vehicle: 'Vehicle' }
 
 function levelInfo(xp: number) {
   let lvl = 1, need = 100, lo = 0
@@ -42,64 +30,80 @@ function tierTitle(level: number) {
   if (level >= 2) return 'Coordinator'; return 'Rookie'
 }
 
-function Viewer({ url, style }: { url: string; style?: any }) {
-  return createElement('model-viewer', {
-    key: url, src: url, style, 'camera-controls': true, 'auto-rotate': true, autoplay: true,
-    'shadow-intensity': '1', 'rotation-per-second': '24deg', 'interaction-prompt': 'none',
-    'disable-zoom': true, exposure: '1.05', loading: 'eager', reveal: 'auto',
-  } as any)
-}
-
 export default function BeyondWorldPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [me, setMe] = useState<Profile | null>(null)
+  const [items, setItems] = useState<Item[]>([])
+  const [owned, setOwned] = useState<Set<string>>(new Set())
   const [board, setBoard] = useState<Profile[]>([])
-  const [tab, setTab] = useState<'character' | 'leaderboard'>('character')
-  const [mvReady, setMvReady] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<'avatar' | 'shop' | 'leaderboard'>('avatar')
+  const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
-  const [draft, setDraft] = useState<{ model3d: string; tint: string }>({ model3d: 'astro', tint: 'aurora' })
+  const [draft, setDraft] = useState<any>({})
 
-  useEffect(() => {
-    if ((window as any).customElements?.get('model-viewer')) { setMvReady(true); return }
-    const s = document.createElement('script'); s.type = 'module'; s.src = MODEL_VIEWER_SRC
-    s.onload = () => setMvReady(true); document.head.appendChild(s)
-  }, [])
+  const itemsById = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items])
 
   const load = useCallback(async () => {
     const { data: prof } = await sb.rpc('bw_me')
     const p = (Array.isArray(prof) ? prof[0] : prof) as Profile
-    setMe(p)
-    const cfg = p?.avatar_config || {}
-    setDraft({ model3d: cfg.model3d || 'astro', tint: cfg.tint || 'aurora' })
-    const { data: lb } = await sb.from('player_profiles').select('*').order('level', { ascending: false }).order('xp', { ascending: false }).limit(50)
+    setMe(p); setDraft({ ...(p?.avatar_config || {}) })
+    const [{ data: its }, { data: pis }, { data: lb }] = await Promise.all([
+      sb.from('shop_items').select('*').eq('is_active', true).order('sort'),
+      p ? sb.from('player_items').select('item_id').eq('user_email', p.user_email) : Promise.resolve({ data: [] as any }),
+      sb.from('player_profiles').select('*').order('level', { ascending: false }).order('xp', { ascending: false }).limit(50),
+    ])
+    setItems((its as Item[]) || [])
+    setOwned(new Set(((pis as any[]) || []).map(r => r.item_id)))
     setBoard((lb as Profile[]) || [])
   }, [sb])
   useEffect(() => { load() }, [load])
 
-  async function save() {
-    setBusy(true); setMsg('')
+  async function saveAvatar() {
+    setBusy('save'); setMsg('')
     const { error } = await sb.rpc('bw_save_avatar', { p_config: draft })
-    setBusy(false); if (error) setMsg(error.message); else { setMsg('Character saved!'); load() }
+    setBusy(''); if (error) setMsg(error.message); else { setMsg('Avatar saved!'); load() }
+  }
+  async function buy(it: Item) {
+    setBusy(it.id); setMsg('')
+    const { error } = await sb.rpc('bw_buy', { p_item: it.id })
+    setBusy(''); if (error) setMsg(error.message.replace('P0001:', '').trim() || 'Could not buy'); else { setMsg(`Bought ${it.name}!`); load() }
+  }
+  async function equip(slot: string, itemId: string | null) {
+    setBusy('eq' + (itemId || slot)); setMsg('')
+    const { error } = await sb.rpc('bw_equip', { p_slot: slot, p_item: itemId || '' })
+    setBusy(''); if (error) setMsg(error.message); else load()
   }
 
   if (!me) return <div className="min-h-screen p-8" style={{ background: '#0f1226' }}><p className="text-white/70">Loading beyondWorld…</p></div>
 
   const li = levelInfo(me.xp)
-  const myCfg = me.avatar_config || {}
-  const heroTint = tintBy(myCfg.tint).bg
-  const draftTint = tintBy(draft.tint).bg
+  const equipped = me.equipped || {}
+  const cats = Array.from(new Set(items.sort((a, b) => a.sort - b.sort).map(i => i.category)))
+  const frame = '#0c0f24'
+
+  const swatch = (val: string, cur: string, on: () => void) => (
+    <button key={val} onClick={on} title={val} className="w-7 h-7 rounded-full border-2 shrink-0" style={{ background: `#${val}`, borderColor: cur === val ? '#22c55e' : 'rgba(255,255,255,0.25)' }} />
+  )
+  const optRow = (label: string, opts: string[], field: string, isColor = false) => (
+    <div className="mb-3">
+      <p className="text-xs font-semibold text-white/50 uppercase mb-1.5">{label}</p>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {opts.map(o => isColor ? swatch(o, draft[field], () => setDraft({ ...draft, [field]: o }))
+          : <button key={o} onClick={() => setDraft({ ...draft, [field]: o })} className={`px-2.5 py-1 rounded-lg text-xs whitespace-nowrap border capitalize ${draft[field] === o || (!draft[field] && field === 'hair' && o === 'short') ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'}`}>{o}</button>)}
+      </div>
+    </div>
+  )
 
   return (
     <div className="min-h-screen" style={{ background: 'radial-gradient(1200px 600px at 50% -10%, #20264f 0%, #0f1226 60%)' }}>
       <div className="max-w-5xl mx-auto px-6 py-8 text-white">
         <div className="flex items-center gap-2 mb-1"><span className="text-2xl">🎮</span><h1 className="text-3xl font-extrabold tracking-tight">beyond<span className="text-emerald-400">World</span></h1></div>
-        <p className="text-white/50 text-sm mb-6">Do real work, earn beyondDollars, level up, and pick your 3D character.</p>
+        <p className="text-white/50 text-sm mb-6">Do real work, earn beyondDollars, level up, and gear out your character.</p>
 
         {/* hero */}
         <div className="rounded-2xl p-5 mb-6 flex flex-col sm:flex-row items-center gap-5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="w-28 h-40 rounded-2xl overflow-hidden ring-2 ring-emerald-400/40 shrink-0" style={{ background: heroTint }}>
-            {mvReady ? <Viewer url={charUrl(myCfg.model3d)} style={{ width: '100%', height: '100%' }} /> : <div className="w-full h-full flex items-center justify-center text-3xl">{charEmoji(myCfg.model3d)}</div>}
+          <div className="w-28 h-40 rounded-2xl overflow-hidden ring-2 ring-emerald-400/40 shrink-0 flex items-end justify-center" style={{ background: frame }}>
+            <BeyondAvatar config={me.avatar_config} equipped={equipped} itemsById={itemsById} className="w-full h-full" />
           </div>
           <div className="flex-1 w-full text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start">
@@ -119,43 +123,73 @@ export default function BeyondWorldPage() {
 
         {/* tabs */}
         <div className="flex gap-2 mb-5">
-          {([['character', 'My Character'], ['leaderboard', 'Leaderboard']] as const).map(([k, lbl]) => (
+          {([['avatar', 'My Character'], ['shop', 'beyondShop'], ['leaderboard', 'Leaderboard']] as const).map(([k, lbl]) => (
             <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 rounded-xl text-sm font-semibold ${tab === k ? 'bg-emerald-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>{lbl}</button>
           ))}
         </div>
         {msg && <div className="mb-4 text-sm px-3 py-2 rounded-lg bg-white/10 border border-white/10">{msg}</div>}
 
-        {tab === 'character' && (
+        {tab === 'avatar' && (
           <div className="grid md:grid-cols-2 gap-6">
             <div className="rounded-2xl p-5 flex flex-col items-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <div className="w-full max-w-sm h-[440px] rounded-2xl overflow-hidden" style={{ background: draftTint }}>
-                {mvReady
-                  ? <Viewer url={charUrl(draft.model3d)} style={{ width: '100%', height: '100%' }} />
-                  : <div className="w-full h-full flex items-center justify-center text-6xl">{charEmoji(draft.model3d)}</div>}
+              <div className="w-52 h-72 rounded-2xl overflow-hidden flex items-end justify-center" style={{ background: frame }}>
+                <BeyondAvatar config={draft} equipped={equipped} itemsById={itemsById} className="w-full h-full" />
               </div>
-              <button onClick={save} disabled={busy} className="mt-4 px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold disabled:opacity-50">{busy ? 'Saving…' : 'Save Character'}</button>
-              <p className="text-white/40 text-xs mt-3">Drag to spin your character around.</p>
+              <p className="text-white/40 text-xs mt-3">Live preview — gear from the beyondShop shows here too</p>
+              <button onClick={saveAvatar} disabled={busy === 'save'} className="mt-4 px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save Character'}</button>
             </div>
             <div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <p className="text-xs font-semibold text-white/50 uppercase mb-2">Character</p>
-              <div className="grid grid-cols-3 gap-2 mb-5">
-                {CHARACTERS.map(c => (
-                  <button key={c.key} onClick={() => setDraft(d => ({ ...d, model3d: c.key }))}
-                    className={`flex flex-col items-center gap-1 py-3 rounded-xl border ${draft.model3d === c.key ? 'bg-emerald-500/20 border-emerald-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-                    <span className="text-2xl">{c.emoji}</span>
-                    <span className="text-xs">{c.name}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs font-semibold text-white/50 uppercase mb-2">Scene Color</p>
-              <div className="flex gap-2 flex-wrap">
-                {TINTS.map(t => (
-                  <button key={t.key} onClick={() => setDraft(d => ({ ...d, tint: t.key }))} title={t.name}
-                    className="w-9 h-9 rounded-full border-2 shrink-0" style={{ background: t.swatch, borderColor: draft.tint === t.key ? '#fff' : 'rgba(255,255,255,0.25)' }} />
-                ))}
-              </div>
-              <p className="text-white/40 text-xs mt-4">More characters and outfits coming soon — these load as real 3D models you can spin.</p>
+              {optRow('Skin', SKIN, 'skinColor', true)}
+              {optRow('Hair', HAIR, 'hair')}
+              {optRow('Hair Color', HAIRCOLOR, 'hairColor', true)}
+              {optRow('Eyes', EYES, 'eyes')}
+              {optRow('Mouth', MOUTH, 'mouth')}
+              {optRow('Default Shirt', SHIRT, 'shirtColor', true)}
+              {optRow('Default Pants', PANTS, 'pantsColor', true)}
+              <p className="text-white/40 text-xs mt-2">Designer outfits, armor, vehicles & more are in the beyondShop.</p>
             </div>
+          </div>
+        )}
+
+        {tab === 'shop' && (
+          <div className="space-y-6">
+            {cats.map(cat => (
+              <div key={cat}>
+                <h3 className="text-sm font-bold text-white/70 uppercase tracking-wide mb-2">{cat}</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {items.filter(i => i.category === cat).map(it => {
+                    const isOwned = owned.has(it.id)
+                    const isEquipped = equipped[it.slot] === it.id
+                    const tooLow = li.level < it.level_req
+                    const canAfford = me.beyond_dollars >= it.price
+                    return (
+                      <div key={it.id} className="rounded-xl p-3 flex flex-col" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${isEquipped ? '#22c55e' : 'rgba(255,255,255,0.08)'}` }}>
+                        <div className="h-28 rounded-lg overflow-hidden mb-2 flex items-end justify-center" style={{ background: frame }}>
+                          <BeyondAvatar config={me.avatar_config} equipped={{ [it.slot]: it.id }} itemsById={itemsById} className="h-full" />
+                        </div>
+                        <div className="flex items-center gap-1.5"><span className="text-sm font-semibold truncate">{it.name}</span></div>
+                        <div className="flex items-center gap-2 mt-0.5 mb-2">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: `${RARITY[it.rarity]}22`, color: RARITY[it.rarity] }}>{it.rarity}</span>
+                          <span className="text-[10px] text-white/40">{SLOT_LABEL[it.slot] || it.slot}</span>
+                          {it.level_req > 1 && <span className="text-[10px] text-white/40">Lvl {it.level_req}+</span>}
+                        </div>
+                        {!isOwned ? (
+                          <button onClick={() => buy(it)} disabled={busy === it.id || tooLow || !canAfford}
+                            className="mt-auto text-xs font-semibold py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40 disabled:cursor-not-allowed">
+                            {tooLow ? `Reach Lvl ${it.level_req}` : busy === it.id ? '…' : `฿${it.price}`}
+                          </button>
+                        ) : (
+                          <button onClick={() => equip(it.slot, isEquipped ? null : it.id)} disabled={busy === 'eq' + it.id}
+                            className={`mt-auto text-xs font-semibold py-1.5 rounded-lg ${isEquipped ? 'bg-white/10 text-white/70' : 'bg-emerald-500 hover:bg-emerald-400 text-white'}`}>
+                            {isEquipped ? 'Unequip' : 'Equip'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -163,11 +197,10 @@ export default function BeyondWorldPage() {
           <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {board.map((p, i) => {
               const pl = levelInfo(p.xp)
-              const cfg = p.avatar_config || {}
               return (
                 <div key={p.user_email} className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0">
                   <span className={`w-7 text-center font-extrabold ${i === 0 ? 'text-amber-300' : i === 1 ? 'text-gray-300' : i === 2 ? 'text-amber-600' : 'text-white/30'}`}>{i + 1}</span>
-                  <div className="w-10 h-12 rounded-lg overflow-hidden shrink-0 flex items-center justify-center text-xl" style={{ background: tintBy(cfg.tint).bg }}>{charEmoji(cfg.model3d)}</div>
+                  <div className="w-10 h-14 rounded-lg overflow-hidden shrink-0 flex items-end justify-center" style={{ background: frame }}><BeyondAvatar config={p.avatar_config} equipped={p.equipped} itemsById={itemsById} className="h-full" /></div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{p.display_name || p.user_email}</p>
                     <p className="text-xs text-white/40">Lvl {pl.level} {tierTitle(pl.level)} · {p.xp} XP</p>
