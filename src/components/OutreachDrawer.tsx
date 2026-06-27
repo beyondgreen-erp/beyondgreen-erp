@@ -53,7 +53,8 @@ export default function OutreachDrawer({ customerId, companyName, customerEmail,
     setLoading(true)
     const r = await fetch(`/api/outreach?customer_id=${customerId}`)
     const d = await r.json()
-    setHistory(Array.isArray(d) ? d : [])
+    // GET returns { data: [...] }; older callers expected a bare array — handle both.
+    setHistory(Array.isArray(d) ? d : (d?.data || []))
     setLoading(false)
   }
 
