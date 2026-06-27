@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -68,6 +70,7 @@ export default function PurchaseOrdersPage() {
   function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
   function openEdit(r:PO){setEditing(r);setForm({po_number:r.po_number,vendor_id:r.vendor_id??'',product_id:r.product_id??'',qty_ordered:String(r.qty_ordered),unit_cost:String(r.unit_cost),order_date:r.order_date??'',expected_receipt_date:r.expected_receipt_date??'',status:r.status,notes:r.notes??''});setErr('');setOpen(true)}
   function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
+  useItemDeepLink(rows, openEdit)
 
   async function save(){
     if(!form.po_number.trim()){setErr('PO Number is required.');return}
@@ -133,7 +136,7 @@ export default function PurchaseOrdersPage() {
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
       <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
       <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`} style={{ background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit PO':'Add PO'}</h2><button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit PO':'Add PO'}</h2><div className="flex items-center gap-2">{editing && <ShareLink id={editing.id} />}<button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div><label className="block text-xs text-gray-400 mb-1.5">PO Number <span className="text-red-400">*</span></label><input value={form.po_number} onChange={e=>setForm(p=>({...p,po_number:e.target.value}))} className={inp}/></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Vendor</label><select value={form.vendor_id} onChange={e=>setForm(p=>({...p,vendor_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.company_name}</option>)}</select></div>
