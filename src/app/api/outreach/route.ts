@@ -15,6 +15,31 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // Only these users may generate AI drafts. Everyone else is logged and refused.
 const AI_ALLOWED = ['rudyp@beyondgreenbiotech.com'];
 
+// Per-user email signatures, appended automatically on send. Keyed by login email (lowercase).
+const SIGNATURES: Record<string, { text: string; html: string }> = {
+  'rudyp@beyondgreenbiotech.com': {
+    text: `Rudy Patel
+Chief Business Development Officer
+beyondGREEN biotech, Inc.
+(866) 364-9466 | (949) 606-4667
+rudyp@beyondGREENbiotech.com
+1202 E. Wakeham Ave., Santa Ana, CA 92705
+beyondgreenbiotech.com`,
+    html: `<div style="margin-top:18px;padding-top:12px;border-top:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#374151;line-height:1.5">
+<div style="font-weight:700;color:#1a2e1a">Rudy Patel</div>
+<div>Chief Business Development Officer</div>
+<div style="font-weight:600;color:#2E7D32">beyondGREEN biotech, Inc.</div>
+<div>(866) 364-9466 | (949) 606-4667</div>
+<div><a href="mailto:rudyp@beyondGREENbiotech.com" style="color:#2563EB;text-decoration:none">rudyp@beyondGREENbiotech.com</a></div>
+<div>1202 E. Wakeham Ave., Santa Ana, CA 92705</div>
+<div><a href="https://beyondgreenbiotech.com" style="color:#2563EB;text-decoration:none">beyondgreenbiotech.com</a></div>
+</div>`,
+  },
+};
+function signatureFor(email: string): { text: string; html: string } | null {
+  return SIGNATURES[(email || '').toLowerCase().trim()] || null;
+}
+
 // Send from the user's own ERP login email
 function getSenderEmail(userEmail: string): string {
   if (!userEmail) return 'outreach@beyondgreenbiotech.com'
@@ -76,7 +101,6 @@ export async function POST(req: NextRequest) {
       .select('sku, category, description, material, moq')
       .in('category', cats).not('description', 'is', null).limit(12);
 
-    const senderName = String(sent_by).split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase());
     const spent = Number(cust.lifetime_spend || 0) > 0;
     const last = cust.last_shipment_date ? new Date(cust.last_shipment_date) : null;
     const dormant = last ? (Date.now() - last.getTime()) / 86400000 > 180 : false;
@@ -88,7 +112,7 @@ export async function POST(req: NextRequest) {
 
     const catalog = (products || []).map((p: any) => `- [${p.sku}] ${p.description} (${p.category}; ${p.material || ''}${p.moq ? '; MOQ ' + p.moq : ''})`).join('\n');
 
-    const system = `You write B2B sales emails for beyondGREEN, a manufacturer of certified-compostable foodservice and packaging products. Keep it warm, concise (120-180 words), specific, and not hype-y. Reference the customer's field, name 2-4 chosen products, and end with a low-friction call to action (samples or a quick call). Sign as "${senderName}" then a new line "beyondGREEN".
+    const system = `You write B2B sales emails for beyondGREEN, a manufacturer of certified-compostable foodservice and packaging products. Keep it warm, concise (120-180 words), specific, and not hype-y. Reference the customer's field, name 2-4 chosen products, and end with a low-friction call to action (samples or a quick call) followed by a brief closing like "Best," on its own line. Do NOT add a sender name, title, contact details, or signature block — a signature is appended automatically.
 Return ONLY a JSON object: {"subject": string, "body": string}.`;
 
     const userMsg = mode === 'followup'
@@ -134,13 +158,17 @@ Return ONLY a JSON object: {"subject": string, "body": string}.`;
         const resend = new Resend(process.env.RESEND_API_KEY);
         const fromEmail = getSenderEmail(sent_by || '');
         const fromName = fromEmail.split('@')[0].replace(/[^a-zA-Z]/g, ' ').trim() || 'beyondGREEN';
+        // Append the sender's signature (text + HTML) automatically.
+        const sig = signatureFor(sent_by || '');
+        const textBody = sig ? `${emailBody}\n\n${sig.text}` : emailBody;
+        const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>${sig ? sig.html : ''}`;
         await resend.emails.send({
           from: `${fromName} <${fromEmail}>`,
           to: [customer_email],
           replyTo: fromEmail,
           subject: subject,
-          text: emailBody,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>`,
+          text: textBody,
+          html: htmlBody,
         });
       } catch (emailErr) {
         console.error('Resend error:', emailErr);
