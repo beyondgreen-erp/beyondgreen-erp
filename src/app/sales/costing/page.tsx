@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -154,6 +156,7 @@ export default function QuoteCostingPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
 
   const [quotes, setQuotes] = useState<QuoteCosting[]>([])
+  useItemDeepLink(quotes, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -668,6 +671,7 @@ export default function QuoteCostingPage() {
           </button>
           <div>
             <h2 className="text-[#1A1D2E] font-semibold text-sm">{editingQuote ? `Edit ${editingQuote.quote_number}` : 'New Costing Quote'}</h2>
+            {editingQuote && <ShareLink id={editingQuote.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
             <p className="text-gray-500 text-xs">{lines.length} line item{lines.length !== 1 ? 's' : ''}</p>
           </div>
         </div>
