@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useState, memo } from 'react'
@@ -113,6 +115,7 @@ const EditPanel = memo(function EditPanel({
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <div>
             <h2 className="text-[#1A1D2E] font-semibold">{editing ? 'Edit Product' : 'Add Product'}</h2>
+            {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
             {editing && <p className="text-xs text-gray-500 mt-0.5">SKU: {editing.sku}</p>}
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]">
@@ -292,6 +295,7 @@ const EditPanel = memo(function EditPanel({
 export default function InventoryPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Product[]>([])
+  useItemDeepLink(rows, openEdit)
   const [bomMap, setBomMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
