@@ -81,6 +81,10 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
   "summary": "3-6 sentence plain-English summary of what this document is and why it matters to beyondGREEN",
   "category": "one of: ${CATEGORIES.join(', ')}",
   "key_facts": ["5-10 short, specific, factual bullet points pulled from the document (dates, parties, specs, obligations, certifications, numbers)"],
+  "linked_company": "the primary external company or organization this document is from or about (a customer or supplier name), else empty string",
+  "company_role": "customer | vendor | unknown",
+  "order_reference": "any sales order number or PO number referenced in the document, else empty string",
+  "certification_name": "if this is a certification, compliance, or lab/test document, the certification or standard name (e.g. BPI, FDA, ASTM D6400), else empty string",
   "full_text": "the full readable text content of the document, transcribed as faithfully as possible (omit page furniture). If you cannot read the file, return an empty string."
 }`
 
@@ -106,6 +110,41 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
     const applyTitle = ((autotitle || titleLooksAuto) && aiTitle) ? aiTitle : doc.title
     const knowledgeText = [summary, keyFacts.map(f => `• ${f}`).join('\n')].filter(Boolean).join('\n\n')
 
+    // AI-suggested cross-board links — only fill what isn't already set
+    const norm = (x: unknown) => (x || '').toString().trim()
+    const linkedCompany = norm(parsed.linked_company)
+    const companyRole = norm(parsed.company_role).toLowerCase()
+    const orderRef = norm(parsed.order_reference)
+    const certName = norm(parsed.certification_name)
+    const matchId = async (table: string, col: string, term: string): Promise<string | null> => {
+      if (!term || term.length < 3) return null
+      const esc = term.replace(/[%_]/g, '')
+      let r = await sb.from(table).select('id').ilike(col, esc).limit(1)
+      if (r.data?.length) return r.data[0].id as string
+      if (esc.length >= 4) {
+        r = await sb.from(table).select('id').ilike(col, `%${esc}%`).limit(1)
+        if (r.data?.length) return r.data[0].id as string
+      }
+      return null
+    }
+    let newCustomer: string | null = doc.customer_id
+    let newVendor: string | null = doc.vendor_id
+    if (linkedCompany) {
+      if (companyRole === 'vendor') {
+        if (!newVendor) newVendor = await matchId('vendors', 'company_name', linkedCompany)
+      } else {
+        if (!newCustomer) newCustomer = await matchId('customers', 'company_name', linkedCompany)
+        if (!newCustomer && !newVendor) newVendor = await matchId('vendors', 'company_name', linkedCompany)
+      }
+    }
+    let newOrder: string | null = doc.order_id
+    if (orderRef && !newOrder) {
+      newOrder = await matchId('sales_orders', 'order_number', orderRef)
+      if (!newOrder) newOrder = await matchId('sales_orders', 'po_number', orderRef)
+    }
+    let newCert: string | null = doc.certification_id
+    if (certName && !newCert) newCert = await matchId('certifications', 'cert_name', certName)
+
     // Update the document. Auto-apply category only when it was unset/Other.
     const applyCategory = (!doc.category || doc.category === 'Other') ? category : doc.category
     await sb.from('documents').update({
@@ -116,6 +155,10 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
       category: applyCategory,
       extracted_text: fullText || null,
       source_file_path: file?.storage_path || null,
+      customer_id: newCustomer,
+      vendor_id: newVendor,
+      order_id: newOrder,
+      certification_id: newCert,
       ai_processed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq('id', documentId)
@@ -145,7 +188,7 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
       else await sb.from('university_entries').insert(entry)
     }
 
-    return NextResponse.json({ ok: true, title: applyTitle, summary, category: applyCategory, suggested_category: category, key_facts: keyFacts, chunks: chunks.length })
+    return NextResponse.json({ ok: true, title: applyTitle, summary, category: applyCategory, suggested_category: category, key_facts: keyFacts, chunks: chunks.length, links: { customer_id: newCustomer, vendor_id: newVendor, order_id: newOrder, certification_id: newCert } })
   } catch (err) {
     console.error('documents/process error:', err)
     return NextResponse.json({ error: (err as Error).message || 'Processing failed' }, { status: 500 })
