@@ -4,10 +4,11 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
-interface Profile { user_email: string; display_name: string | null; avatar_config: any; equipped: any; beyond_dollars: number; xp: number; level: number }
+interface Profile { user_email: string; display_name: string | null; avatar_config: any; equipped: any; beyond_dollars: number; xp: number; level: number; last_daily?: string | null; daily_streak?: number }
 interface Item { id: string; name: string; category: string; slot: string; price: number; rarity: string; level_req: number; asset: any; sort: number }
 
 const DICEBEAR = 'https://api.dicebear.com/9.x/avataaars/svg'
+const BOX_COST = 120
 const SKIN = ['ffdbb4','edb98a','fd9841','d08b5b','ae5d29','614335']
 const TOP = ['shortFlat','shortWaved','shortCurly','shortRound','theCaesar','sides','dreads01','curly','bun','bob','longButNotTooLong','straight01','straight02','frizzle','shaggy','fro','bigHair','miaWallace']
 const HAIRCOLOR = ['2c1b18','4a312c','724133','a55728','b58143','c93305','d6b370','e8e1e1','f59797']
@@ -18,7 +19,6 @@ const CLOTHES = ['shirtCrewNeck','shirtVNeck','shirtScoopNeck','collarAndSweater
 const CLOTHESCOLOR = ['262e33','5199e4','25557c','929598','a7ffc4','b1e2ff','e6e6e6','ff488e','ff5c5c','ffafb9','ffffb1','ffffff','65c9ff','3c4f5c']
 const BGCOLOR = ['b6e3f4','c0aede','d1d4f9','ffd5dc','ffdfbf','transparent']
 const RARITY: Record<string,string> = { Common:'#9CA3AF', Uncommon:'#22c55e', Rare:'#3b82f6', Epic:'#a855f7', Legendary:'#f59e0b' }
-const SLOT_LABEL: Record<string,string> = { top:'Hat/Hair', accessories:'Glasses', clothing:'Outfit', facialHair:'Facial Hair', background:'Background', ride:'Ride', gear:'Gear' }
 
 function levelInfo(xp: number) {
   let lvl = 1, need = 100, lo = 0
@@ -38,13 +38,13 @@ function avatarUrl(cfg: any, equipped: any, itemsById: Record<string, Item>, siz
     clothing: cfg.clothing || 'shirtCrewNeck', clothesColor: cfg.clothesColor || '5199e4',
     backgroundColor: cfg.backgroundColor || 'b6e3f4', facialHair: cfg.facialHair || '',
   }
-  let hatColor: string | null = null, accessories: string | null = null, facialHair = base.facialHair
+  let hatColor: string | null = null, accessories: string | null = null, facialHair = base.facialHair, graphic: string | null = null
   for (const slot of ['top','accessories','clothing','facialHair','background']) {
     const id = equipped?.[slot]; if (!id) continue; const it = itemsById[id]; if (!it) continue; const a = it.asset || {}
     if (a.kind === 'avatar') {
       if (a.param === 'top') { base.top = a.value; if (a.hatColor) hatColor = a.hatColor }
       else if (a.param === 'accessories') accessories = a.value
-      else if (a.param === 'clothing') base.clothing = a.value
+      else if (a.param === 'clothing') { base.clothing = a.value; if (a.graphic) graphic = a.graphic }
       else if (a.param === 'facialHair') facialHair = a.value
     } else if (a.kind === 'bg' && slot === 'background') base.backgroundColor = a.value
   }
@@ -52,15 +52,21 @@ function avatarUrl(cfg: any, equipped: any, itemsById: Record<string, Item>, siz
   p.set('seed', cfg.seed || 'beyondGREEN')
   for (const k of ['skinColor','top','hairColor','eyes','eyebrows','mouth','clothing','clothesColor','backgroundColor']) p.set(k, base[k])
   if (hatColor) p.set('hatColor', hatColor)
+  if (graphic) p.set('clothingGraphic', graphic)
   if (facialHair) { p.set('facialHair', facialHair); p.set('facialHairProbability','100') } else p.set('facialHairProbability','0')
   if (accessories) { p.set('accessories', accessories); p.set('accessoriesProbability','100') } else p.set('accessoriesProbability','0')
   if (size) p.set('size', String(size))
   return `${DICEBEAR}?${p.toString()}`
 }
-function badgesFor(equipped: any, itemsById: Record<string, Item>) {
-  const out: string[] = []
-  for (const slot of ['ride','gear']) { const id = equipped?.[slot]; if (!id) continue; const it = itemsById[id]; if (it?.asset?.emoji) out.push(it.asset.emoji) }
-  return out
+function equippedTitle(equipped: any, itemsById: Record<string, Item>) {
+  const id = equipped?.title; if (!id) return null; const it = itemsById[id]
+  if (!it || it.asset?.kind !== 'title') return null
+  return { text: it.asset.text as string, color: it.asset.color as string }
+}
+function equippedNameColor(equipped: any, itemsById: Record<string, Item>) {
+  const id = equipped?.nameColor; if (!id) return null; const it = itemsById[id]
+  if (!it || it.asset?.kind !== 'nameColor') return null
+  return it.asset.value as string
 }
 
 export default function BeyondWorldPage() {
@@ -69,10 +75,11 @@ export default function BeyondWorldPage() {
   const [items, setItems] = useState<Item[]>([])
   const [owned, setOwned] = useState<Set<string>>(new Set())
   const [board, setBoard] = useState<Profile[]>([])
-  const [tab, setTab] = useState<'avatar'|'shop'|'leaderboard'>('avatar')
+  const [tab, setTab] = useState<'avatar'|'shop'|'leaderboard'>('shop')
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const [draft, setDraft] = useState<any>({})
+  const [boxResult, setBoxResult] = useState<any>(null)
 
   const itemsById = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items])
 
@@ -107,15 +114,35 @@ export default function BeyondWorldPage() {
     const { error } = await sb.rpc('bw_equip', { p_slot: slot, p_item: itemId || '' })
     setBusy(''); if (error) setMsg(error.message); else load()
   }
+  async function claimDaily() {
+    setBusy('daily'); setMsg('')
+    const { data, error } = await sb.rpc('bw_daily_bonus')
+    setBusy('')
+    if (error) { setMsg(error.message.replace('P0001:', '').trim()); return }
+    if (data?.ok) { setMsg(`Daily reward claimed: +฿${data.bonus}!  🔥 ${data.streak}-day streak`); load() }
+    else setMsg(data?.msg || 'Already claimed today — come back tomorrow!')
+  }
+  async function openBox() {
+    setBusy('box'); setMsg('')
+    const { data, error } = await sb.rpc('bw_open_box', { p_cost: BOX_COST })
+    setBusy('')
+    if (error) { setMsg(error.message.replace('P0001:', '').trim() || 'Could not open box'); return }
+    if (data?.ok) { setBoxResult(data.item); load() }
+  }
 
   if (!me) return <div className="min-h-screen p-8" style={{ background: '#0f1226' }}><p className="text-white/70">Loading beyondWorld…</p></div>
 
   const li = levelInfo(me.xp)
   const equipped = me.equipped || {}
   const myUrl = avatarUrl(me.avatar_config, equipped, itemsById)
-  const myBadges = badgesFor(equipped, itemsById)
+  const myTitle = equippedTitle(equipped, itemsById)
+  const myNameColor = equippedNameColor(equipped, itemsById)
   const previewUrl = avatarUrl(draft, equipped, itemsById)
   const cats = Array.from(new Set(items.map(i => i.category)))
+  const today = new Date().toISOString().slice(0, 10)
+  const claimedToday = me.last_daily === today
+  const streak = me.daily_streak || 0
+  const nextDaily = 40 + Math.min(streak + (claimedToday ? 0 : 1), 7) * 15
 
   const swatch = (val: string, cur: string, on: () => void) => (
     <button key={val} onClick={on} title={val} className="w-7 h-7 rounded-full border-2 shrink-0" style={{ background: val === 'transparent' ? 'repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 10px 10px' : `#${val}`, borderColor: cur === val ? '#22c55e' : 'rgba(255,255,255,0.25)' }} />
@@ -129,22 +156,23 @@ export default function BeyondWorldPage() {
       </div>
     </div>
   )
+  const nameOf = (p: Profile) => (p.display_name || p.user_email.split('@')[0])
 
   return (
     <div className="min-h-screen" style={{ background: 'radial-gradient(1200px 600px at 50% -10%, #20264f 0%, #0f1226 60%)' }}>
       <div className="max-w-5xl mx-auto px-6 py-8 text-white">
         {/* Header / hero */}
         <div className="flex items-center gap-2 mb-1"><span className="text-2xl">🎮</span><h1 className="text-3xl font-extrabold tracking-tight">beyond<span className="text-emerald-400">World</span></h1></div>
-        <p className="text-white/50 text-sm mb-6">Do real work, earn beyondDollars, level up, and deck out your avatar.</p>
+        <p className="text-white/50 text-sm mb-6">Do real work, earn beyondDollars, level up, and flex your avatar in front of the whole team.</p>
 
-        <div className="rounded-2xl p-5 mb-6 flex flex-col sm:flex-row items-center gap-5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="rounded-2xl p-5 mb-4 flex flex-col sm:flex-row items-center gap-5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="relative shrink-0">
             <div className="w-28 h-28 rounded-2xl overflow-hidden ring-2 ring-emerald-400/40" style={{ background: '#fff2' }}><img src={myUrl} alt="avatar" className="w-full h-full" /></div>
-            {myBadges.length > 0 && <div className="absolute -bottom-2 -right-2 bg-[#11152e] rounded-full px-2 py-1 text-lg shadow-lg border border-white/10">{myBadges.join(' ')}</div>}
           </div>
           <div className="flex-1 w-full text-center sm:text-left">
-            <div className="flex items-center gap-2 justify-center sm:justify-start">
-              <span className="text-lg font-bold">{me.display_name || me.user_email}</span>
+            <div className="flex items-center gap-2 justify-center sm:justify-start flex-wrap">
+              <span className="text-lg font-bold" style={myNameColor ? { color: myNameColor } : undefined}>{nameOf(me)}</span>
+              {myTitle && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${myTitle.color}22`, color: myTitle.color, border: `1px solid ${myTitle.color}55` }}>{myTitle.text}</span>}
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Lvl {li.level} {tierTitle(li.level)}</span>
             </div>
             <div className="mt-2">
@@ -158,9 +186,22 @@ export default function BeyondWorldPage() {
           </div>
         </div>
 
+        {/* Daily reward banner */}
+        <div className="rounded-2xl p-4 mb-6 flex items-center gap-4" style={{ background: claimedToday ? 'rgba(255,255,255,0.04)' : 'linear-gradient(90deg, rgba(245,158,11,0.18), rgba(34,197,94,0.12))', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <span className="text-3xl">{claimedToday ? '✅' : '🎁'}</span>
+          <div className="flex-1">
+            <p className="font-bold text-sm">{claimedToday ? `Daily reward claimed — 🔥 ${streak}-day streak` : 'Claim your daily reward'}</p>
+            <p className="text-xs text-white/55">{claimedToday ? 'Come back tomorrow to keep the streak alive and earn even more.' : `+฿${nextDaily} today · longer streaks pay more (up to +฿145/day)`}</p>
+          </div>
+          <button onClick={claimDaily} disabled={busy === 'daily' || claimedToday}
+            className="px-4 py-2 rounded-xl text-sm font-bold bg-amber-400 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40 disabled:cursor-not-allowed">
+            {claimedToday ? 'Claimed' : busy === 'daily' ? '…' : `Claim +฿${nextDaily}`}
+          </button>
+        </div>
+
         {/* Tabs */}
         <div className="flex gap-2 mb-5">
-          {([['avatar','My Avatar'],['shop','beyondShop'],['leaderboard','Leaderboard']] as const).map(([k, lbl]) => (
+          {([['shop','beyondShop'],['avatar','My Avatar'],['leaderboard','Leaderboard']] as const).map(([k, lbl]) => (
             <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 rounded-xl text-sm font-semibold ${tab === k ? 'bg-emerald-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>{lbl}</button>
           ))}
         </div>
@@ -183,13 +224,26 @@ export default function BeyondWorldPage() {
               {optRow('Outfit', CLOTHES, 'clothing')}
               {optRow('Outfit Color', CLOTHESCOLOR, 'clothesColor', true)}
               {optRow('Background', BGCOLOR, 'backgroundColor', true)}
-              <p className="text-white/40 text-xs mt-2">Want hats, glasses, beards & more? Earn beyondDollars and shop the beyondShop.</p>
+              <p className="text-white/40 text-xs mt-2">Want titles, graphic tees, hats, glasses, beards & more? Earn beyondDollars and hit the beyondShop.</p>
             </div>
           </div>
         )}
 
         {tab === 'shop' && (
           <div className="space-y-6">
+            {/* Mystery box */}
+            <div className="rounded-2xl p-5 flex flex-col sm:flex-row items-center gap-4" style={{ background: 'linear-gradient(100deg, rgba(168,85,247,0.22), rgba(59,130,246,0.16))', border: '1px solid rgba(168,85,247,0.4)' }}>
+              <span className="text-5xl">🎁</span>
+              <div className="flex-1 text-center sm:text-left">
+                <p className="font-extrabold text-lg">Mystery Box</p>
+                <p className="text-xs text-white/60">Open for a random item you don&apos;t own yet — rarer items have a small chance to drop. Great way to score something you can&apos;t afford outright.</p>
+              </div>
+              <button onClick={openBox} disabled={busy === 'box' || me.beyond_dollars < BOX_COST}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold bg-purple-500 hover:bg-purple-400 text-white disabled:opacity-40 disabled:cursor-not-allowed">
+                {busy === 'box' ? 'Opening…' : me.beyond_dollars < BOX_COST ? `Need ฿${BOX_COST}` : `Open Box — ฿${BOX_COST}`}
+              </button>
+            </div>
+
             {cats.map(cat => (
               <div key={cat}>
                 <h3 className="text-sm font-bold text-white/70 uppercase tracking-wide mb-2">{cat}</h3>
@@ -199,13 +253,14 @@ export default function BeyondWorldPage() {
                     const isEquipped = equipped[it.slot] === it.id
                     const tooLow = li.level < it.level_req
                     const canAfford = me.beyond_dollars >= it.price
-                    const isBadge = it.asset?.kind === 'badge'
-                    const preview = isBadge ? null : avatarUrl(me.avatar_config, { [it.slot]: it.id }, itemsById)
+                    const a = it.asset || {}
+                    let previewNode
+                    if (a.kind === 'title') previewNode = <span className="text-sm font-bold px-2.5 py-1 rounded-full text-center" style={{ background: `${a.color}22`, color: a.color, border: `1px solid ${a.color}55` }}>{a.text}</span>
+                    else if (a.kind === 'nameColor') previewNode = <span className="text-xl font-extrabold" style={{ color: a.value }}>{nameOf(me)}</span>
+                    else previewNode = <img src={avatarUrl(me.avatar_config, { [it.slot]: it.id }, itemsById)} alt={it.name} className="h-20 w-20 rounded-lg" />
                     return (
                       <div key={it.id} className="rounded-xl p-3 flex flex-col" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${isEquipped ? '#22c55e' : 'rgba(255,255,255,0.08)'}` }}>
-                        <div className="h-20 flex items-center justify-center mb-2">
-                          {isBadge ? <span className="text-5xl">{it.asset.emoji}</span> : <img src={preview!} alt={it.name} className="h-20 w-20 rounded-lg" />}
-                        </div>
+                        <div className="h-20 flex items-center justify-center mb-2">{previewNode}</div>
                         <div className="flex items-center gap-1.5"><span className="text-sm font-semibold truncate">{it.name}</span></div>
                         <div className="flex items-center gap-2 mt-0.5 mb-2">
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: `${RARITY[it.rarity]}22`, color: RARITY[it.rarity] }}>{it.rarity}</span>
@@ -235,12 +290,18 @@ export default function BeyondWorldPage() {
           <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {board.map((p, i) => {
               const pl = levelInfo(p.xp)
+              const t = equippedTitle(p.equipped, itemsById)
+              const nc = equippedNameColor(p.equipped, itemsById)
+              const isMe = p.user_email === me.user_email
               return (
-                <div key={p.user_email} className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0">
+                <div key={p.user_email} className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0" style={isMe ? { background: 'rgba(34,197,94,0.08)' } : undefined}>
                   <span className={`w-7 text-center font-extrabold ${i === 0 ? 'text-amber-300' : i === 1 ? 'text-gray-300' : i === 2 ? 'text-amber-600' : 'text-white/30'}`}>{i + 1}</span>
                   <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0" style={{ background: '#fff2' }}><img src={avatarUrl(p.avatar_config, p.equipped, itemsById)} alt="" className="w-full h-full" /></div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{p.display_name || p.user_email} {badgesFor(p.equipped, itemsById).join(' ')}</p>
+                    <p className="text-sm font-semibold truncate flex items-center gap-1.5">
+                      <span style={nc ? { color: nc } : undefined}>{nameOf(p)}</span>
+                      {t && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${t.color}22`, color: t.color, border: `1px solid ${t.color}55` }}>{t.text}</span>}
+                    </p>
                     <p className="text-xs text-white/40">Lvl {pl.level} {tierTitle(pl.level)} · {p.xp} XP</p>
                   </div>
                   <span className="text-amber-300 font-bold text-sm">฿{p.beyond_dollars.toLocaleString()}</span>
@@ -251,6 +312,23 @@ export default function BeyondWorldPage() {
           </div>
         )}
       </div>
+
+      {/* Mystery box result modal */}
+      {boxResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(5,7,20,0.75)' }} onClick={() => setBoxResult(null)}>
+          <div className="rounded-2xl p-6 max-w-xs w-full text-center" style={{ background: '#161a36', border: `2px solid ${RARITY[boxResult.rarity] || '#fff'}` }} onClick={e => e.stopPropagation()}>
+            <p className="text-sm text-white/60 mb-1">🎉 You unboxed</p>
+            <div className="h-24 flex items-center justify-center my-3">
+              {boxResult.asset?.kind === 'title' ? <span className="text-base font-bold px-3 py-1.5 rounded-full" style={{ background: `${boxResult.asset.color}22`, color: boxResult.asset.color, border: `1px solid ${boxResult.asset.color}55` }}>{boxResult.asset.text}</span>
+                : boxResult.asset?.kind === 'nameColor' ? <span className="text-2xl font-extrabold" style={{ color: boxResult.asset.value }}>{nameOf(me)}</span>
+                : <img src={avatarUrl(me.avatar_config, { [boxResult.slot]: boxResult.id }, itemsById)} alt={boxResult.name} className="h-24 w-24 rounded-xl" />}
+            </div>
+            <p className="text-lg font-extrabold">{boxResult.name}</p>
+            <span className="inline-block mt-1 text-xs font-bold px-2 py-0.5 rounded" style={{ background: `${RARITY[boxResult.rarity]}22`, color: RARITY[boxResult.rarity] }}>{boxResult.rarity}</span>
+            <button onClick={() => setBoxResult(null)} className="mt-5 w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold">Nice!</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
