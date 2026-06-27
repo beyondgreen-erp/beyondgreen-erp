@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -74,6 +76,7 @@ export default function QuotationsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
   const router = useRouter()
   const [quotes, setQuotes] = useState<Quote[]>([])
+  useItemDeepLink(quotes, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [lineCounts, setLineCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
@@ -627,6 +630,7 @@ export default function QuotationsPage() {
             </h2>
             {editing && <div className="mt-1"><StatusBadge status={editing.status ?? 'Draft'} /></div>}
           </div>
+          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
           <button
             onClick={closePanel}
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-gray-100"
