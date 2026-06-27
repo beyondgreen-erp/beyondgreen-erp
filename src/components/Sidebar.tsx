@@ -46,7 +46,8 @@ const NAV: NavSection[] = [
 { href: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox' },
 { href: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask' },
 { href: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette' },
-{ href: '/bizdev/documents', label: 'Documents', icon: 'ti-folder' },
+{ href: '/bizdev/documents', label: 'Documents & Knowledge', icon: 'ti-folder' },
+{ href: '/bizdev/university', label: 'beyondGREEN University', icon: 'ti-school' },
 { href: '/settings', label: 'Settings', icon: 'ti-settings' },
 ]},
 ]

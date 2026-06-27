@@ -6,10 +6,12 @@ import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
+import KnowledgeCenter from '@/components/KnowledgeCenter'
+import DocAI from '@/components/DocAI'
 
 interface Customer { id: string; company_name: string }
 interface Vendor { id: string; company_name: string }
-interface Doc { id: string; title: string; category: string; version: string | null; effective_date: string | null; review_date: string | null; status: string; owner: string | null; customer_id: string | null; vendor_id: string | null; notes: string | null; is_active: boolean }
+interface Doc { id: string; title: string; category: string; version: string | null; effective_date: string | null; review_date: string | null; status: string; owner: string | null; customer_id: string | null; vendor_id: string | null; notes: string | null; is_active: boolean; ai_summary: string | null; ai_key_facts: string[] | null; ai_suggested_category: string | null; ai_processed_at: string | null }
 const CATEGORIES = ['Contract','Spec Sheet','Certificate','SDS','Quality Record','Drawing','Policy','Other']
 const STATUSES = ['Active','Under Review','Archived']
 const SC: Record<string,string> = { Active:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'Under Review':'bg-amber-500/15 text-amber-400 border-amber-500/20', Archived:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]' }
@@ -87,7 +89,7 @@ export default function DocumentsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">BUSINESS DEV</span>
-          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Documents</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Documents &amp; Knowledge</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} document${filtered.length!==1?'s':''}`}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -106,6 +108,7 @@ export default function DocumentsPage() {
           <button onClick={openAdd} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Document</button>
         </div>
       </div>
+      <KnowledgeCenter />
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search documents…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"/></div>
         <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-violet-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Show Archived</span></label>
@@ -151,6 +154,7 @@ export default function DocumentsPage() {
           <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Documents" className={inp+' resize-none'}/>
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="documents" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <DocAI documentId={editing.id}/>
             <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="document" recordId={editing.id} currentUserEmail={userEmail}/></div>
           </>)}
         </div>
