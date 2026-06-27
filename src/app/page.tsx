@@ -150,6 +150,33 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Tasks + Reminders (moved to top) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        {/* Open Tasks */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
+            <h2 className="font-bold text-[#0F1C2E]">Open Tasks</h2>
+            <Link href="/bizdev/tasks" className="text-xs text-[#3B6FE0] font-semibold hover:underline">View all →</Link>
+          </div>
+          {loading ? [1,2,3].map(i => <SkeletonRow key={i} />) : (
+            tasks.length === 0
+              ? <p className="text-center py-6 text-sm text-[#8A9FC0]">All caught up ✓</p>
+              : tasks.map((t:any) => (
+                <div key={t.id} className="flex items-center justify-between px-4 py-3 border-b border-[#E4E6EE] last:border-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-[#0F1C2E] truncate">{t.name}</p>
+                    <p className="text-xs text-[#8A9FC0]">{t.due_date ? fmtD(t.due_date) : 'No due date'}</p>
+                  </div>
+                  <span className={`text-xs font-bold ml-2 ${priorityColor(t.priority)}`}>{t.priority}</span>
+                </div>
+              ))
+          )}
+        </div>
+
+        {/* Reminders */}
+        <RemindersWidget />
+      </div>
+
       <TeamPresenceStrip />
 
       <RawMaterialsPanel />
@@ -222,46 +249,19 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Right column: Tasks + Reminders + Overdue */}
-        <div className="space-y-4">
-          {/* Tasks */}
-          <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
-              <h2 className="font-bold text-[#0F1C2E]">Open Tasks</h2>
-              <Link href="/bizdev/tasks" className="text-xs text-[#3B6FE0] font-semibold hover:underline">View all →</Link>
-            </div>
-            {loading ? [1,2,3].map(i => <SkeletonRow key={i} />) : (
-              tasks.length === 0
-                ? <p className="text-center py-6 text-sm text-[#8A9FC0]">All caught up ✓</p>
-                : tasks.map((t:any) => (
-                  <div key={t.id} className="flex items-center justify-between px-4 py-3 border-b border-[#E4E6EE] last:border-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-[#0F1C2E] truncate">{t.name}</p>
-                      <p className="text-xs text-[#8A9FC0]">{t.due_date ? fmtD(t.due_date) : 'No due date'}</p>
-                    </div>
-                    <span className={`text-xs font-bold ml-2 ${priorityColor(t.priority)}`}>{t.priority}</span>
-                  </div>
-                ))
-            )}
+        {/* Overdue Invoices */}
+        {kpi.overdueInvoices > 0 && (
+          <div className="bg-red-50 rounded-xl border border-red-200 p-4">
+            <h3 className="font-bold text-red-700 mb-2 text-sm">⚠ Overdue Invoices ({kpi.overdueInvoices})</h3>
+            {overdueInvoicesList.slice(0,3).map((inv:any) => (
+              <div key={inv.id} className="flex justify-between text-xs py-1">
+                <span className="text-red-600 truncate">{inv.customers?.company_name || '—'}</span>
+                <span className="text-red-700 font-bold ml-2">{fmt$(inv.total_amount || 0)}</span>
+              </div>
+            ))}
+            <Link href="/sales/invoices" className="text-xs text-red-600 font-semibold hover:underline mt-2 block">View all overdue →</Link>
           </div>
-
-          {/* Reminders */}
-          <RemindersWidget />
-
-          {/* Overdue Invoices */}
-          {kpi.overdueInvoices > 0 && (
-            <div className="bg-red-50 rounded-xl border border-red-200 p-4">
-              <h3 className="font-bold text-red-700 mb-2 text-sm">⚠ Overdue Invoices ({kpi.overdueInvoices})</h3>
-              {overdueInvoicesList.slice(0,3).map((inv:any) => (
-                <div key={inv.id} className="flex justify-between text-xs py-1">
-                  <span className="text-red-600 truncate">{inv.customers?.company_name || '—'}</span>
-                  <span className="text-red-700 font-bold ml-2">{fmt$(inv.total_amount || 0)}</span>
-                </div>
-              ))}
-              <Link href="/sales/invoices" className="text-xs text-red-600 font-semibold hover:underline mt-2 block">View all overdue →</Link>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )
