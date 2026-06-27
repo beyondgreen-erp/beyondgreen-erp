@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -81,6 +83,7 @@ export default function QCPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const { toast } = useToast()
   const [rows, setRows] = useState<QCInspection[]>([])
+  useItemDeepLink(rows, openEdit)
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [params, setParams] = useState<QCParam[]>([])
@@ -579,6 +582,7 @@ ${form.corrective_action ? `<div class="row"><span class="lbl">Corrective Action
             <h2 className="text-[#1A1D2E] font-semibold">{editing ? 'QC Inspection' : 'New QC Inspection'}</h2>
             {editing && <p className="text-[#5A5A6A] text-xs mt-0.5">{editing.sku} — {editing.product_name}</p>}
           </div>
+          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
           <button onClick={close} className="p-2 rounded-xl text-[#6B7280] hover:text-[#1A1D2E] hover:bg-[#F5F6FA] transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
