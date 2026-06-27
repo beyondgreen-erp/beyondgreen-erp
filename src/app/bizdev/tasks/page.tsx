@@ -15,6 +15,7 @@ interface Task {
   id: string; task_name: string; assigned_to: string | null; due_date: string | null
   priority: string; status: string; customer_id: string | null; notes: string | null
   is_active: boolean; group_name: string | null; description: string | null
+  reviewed_at: string | null; reviewed_by: string | null
 }
 
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
@@ -80,6 +81,7 @@ export default function TasksPage() {
   const [search,      setSearch]      = useState('')
   const [filterStatus,   setFilterStatus]   = useState('')
   const [filterAssignee, setFilterAssignee] = useState('')
+  const [filterNew,      setFilterNew]      = useState(false)
   const [open,    setOpen]    = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
   const [form,    setForm]    = useState<F>(empty)
@@ -115,6 +117,7 @@ export default function TasksPage() {
 
 
   const filtered = useMemo(() => rows.filter(r => {
+    if (filterNew && r.reviewed_at) return false
     if (filterStatus   && r.status       !== filterStatus)   return false
     if (filterAssignee) {
       const m = teamMembers.find(x => x.email === filterAssignee)
@@ -129,7 +132,7 @@ export default function TasksPage() {
              (r.description ?? '').toLowerCase().includes(q)
     }
     return true
-  }), [rows, filterStatus, filterAssignee, search, teamMembers])
+  }), [rows, filterStatus, filterAssignee, filterNew, search, teamMembers])
 
   const lanes = useMemo(() => {
     const byKey: Record<string, TeamMember> = {}
@@ -192,6 +195,17 @@ export default function TasksPage() {
     setAiBusy(false)
   }
 
+  const meMember = useMemo(() => teamMembers.find(m => m.email.toLowerCase() === userEmail.toLowerCase()) || null, [teamMembers, userEmail])
+  const reviewerName = (val: string | null) => { const m = resolveMember(val); return m ? m.full_name : (val || '') }
+
+  async function markReviewed(task: Task) {
+    const now = new Date().toISOString()
+    const by  = userEmail || 'unknown'
+    setRows(prev => prev.map(t => t.id === task.id ? { ...t, reviewed_at: now, reviewed_by: by } : t))
+    if (editing && editing.id === task.id) setEditing({ ...editing, reviewed_at: now, reviewed_by: by } as Task)
+    await sb.from('tasks').update({ reviewed_at: now, reviewed_by: by, updated_at: now }).eq('id', task.id)
+  }
+
   async function onDropTask(id: string, lane: { key: string; label: string; member: TeamMember | null }, colKey: string) {
     setDragOver(''); setDraggingId('')
     if (!id) return
@@ -247,7 +261,8 @@ export default function TasksPage() {
 
   const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
   const sel = inp + ' cursor-pointer'
-  const hasFilters = !!(search || filterStatus || filterAssignee)
+  const hasFilters = !!(search || filterStatus || filterAssignee || filterNew)
+  const newCount = rows.filter(r => !r.reviewed_at && r.is_active && r.status !== 'Archived').length
   const totalActive = rows.filter(r => r.status !== 'Done' && r.status !== 'Archived').length
   const totalDone   = rows.filter(r => r.status === 'Done').length
 
@@ -262,6 +277,12 @@ export default function TasksPage() {
             <p className="text-[#6B7280] mt-1">
               {loading ? 'Loading…' : `${totalActive} active · ${totalDone} done · ${rows.length} total`}
             </p>
+            {!loading && newCount > 0 && (
+              <button onClick={() => setFilterNew(v => !v)}
+                className={`mt-2 inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full transition-colors ${filterNew ? 'bg-[#3B6FE0] text-white' : 'bg-[#EEF4FF] text-[#3B6FE0] hover:bg-[#E0EAFE]'}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-current"/>{newCount} New Task{newCount > 1 ? 's' : ''} to review
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <ImportExportBar table="tasks" filename="tasks" columns={[
@@ -353,7 +374,7 @@ export default function TasksPage() {
           </select>
           {hasFilters && (
             <button
-              onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee('') }}
+              onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee(''); setFilterNew(false) }}
               className="flex items-center gap-1.5 text-sm text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] bg-white px-4 py-2.5 rounded-xl transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -370,7 +391,7 @@ export default function TasksPage() {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 gap-3">
             <p className="text-[#6B7280] font-medium">{hasFilters ? 'No tasks match your filters.' : 'No tasks yet — add one to get started.'}</p>
-            {hasFilters && <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee('') }} className="text-[#3B6FE0] hover:underline text-sm">Clear filters</button>}
+            {hasFilters && <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterAssignee(''); setFilterNew(false) }} className="text-[#3B6FE0] hover:underline text-sm">Clear filters</button>}
           </div>
         ) : (
           <div className="overflow-x-auto pb-6">
@@ -384,7 +405,7 @@ export default function TasksPage() {
                 ))}
               </div>
               <div className="space-y-2.5">
-                {lanes.map(lane => (
+                {lanes.map(lane => { const laneNew = lane.tasks.filter(t => !t.reviewed_at).length; return (
                   <div key={lane.key} className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
                     <div className="grid items-stretch" style={{ gridTemplateColumns: '170px repeat(3, minmax(210px, 1fr))' }}>
                       <div className="flex items-center gap-2.5 px-4 py-3 bg-[#FAFBFC] border-r border-[#EEF0F4]">
@@ -392,10 +413,11 @@ export default function TasksPage() {
                           ? <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: lane.member.avatar_color }}>{lane.member.avatar_initials || lane.member.full_name[0]}</span>
                           : <span className="w-8 h-8 rounded-full flex items-center justify-center text-[#9CA3AF] bg-[#F0F1F5] text-xs font-bold shrink-0"><i className="ti ti-user"/></span>}
                         <span className="text-sm font-semibold text-[#1A1D2E] truncate flex-1">{lane.label.split(' ')[0]}</span>
+                        {laneNew > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#3B6FE0] text-white shrink-0">{laneNew} new</span>}
                         <span className="text-xs font-medium text-[#9CA3AF]">{lane.tasks.length}</span>
                       </div>
                       {COLUMNS.map((col, ci) => {
-                        const cellTasks = lane.tasks.filter(t => statusColumn(t.status) === col.key)
+                        const cellTasks = lane.tasks.filter(t => statusColumn(t.status) === col.key).slice().sort((a, b) => (a.reviewed_at ? 1 : 0) - (b.reviewed_at ? 1 : 0))
                         const over = dragOver === lane.key + '|' + col.key
                         return (
                           <div key={col.key}
@@ -413,10 +435,11 @@ export default function TasksPage() {
                                   onDragEnd={() => { setDraggingId(''); setDragOver('') }}
                                   onClick={() => openEdit(task)}
                                   title={task.task_name}
-                                  className="rounded-lg px-2.5 py-2 cursor-pointer shadow-[0_1px_2px_rgba(16,24,40,0.08)] hover:shadow-md transition-shadow select-none"
+                                  className={`rounded-lg px-2.5 py-2 cursor-pointer shadow-[0_1px_2px_rgba(16,24,40,0.08)] hover:shadow-md transition-shadow select-none ${!task.reviewed_at ? 'ring-2 ring-[#3B6FE0]/60' : ''}`}
                                   style={{ background: note.bg, borderLeft: `3px solid ${note.bar}`, opacity: draggingId === task.id ? 0.4 : 1 }}>
                                   <p className={`text-[13px] font-medium leading-snug line-clamp-2 ${task.status === 'Done' ? 'line-through text-[#8A93A3]' : 'text-[#1A1D2E]'}`}>{task.task_name}</p>
                                   <div className="flex items-center gap-2 mt-1.5">
+                                    {!task.reviewed_at && <span className="text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded bg-[#3B6FE0] text-white shrink-0">NEW</span>}
                                     <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: note.bar }}/>
                                     {due && <span className={`text-[10px] font-semibold ml-auto ${due.overdue && task.status !== 'Done' ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-[#9CA3AF]'}`}>{due.overdue && task.status !== 'Done' ? '⚠ ' : ''}{due.str}</span>}
                                   </div>
@@ -429,7 +452,7 @@ export default function TasksPage() {
                       })}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             </div>
           </div>
@@ -464,6 +487,25 @@ export default function TasksPage() {
 
         {/* Drawer body */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {editing && !editing.reviewed_at && (
+            <div className="rounded-xl border border-[#BFD3FA] bg-[#EEF4FF] p-3.5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded bg-[#3B6FE0] text-white">NEW</span>
+                <span className="text-sm font-semibold text-[#1A1D2E]">Not yet reviewed</span>
+              </div>
+              <p className="text-xs text-[#6B7280] mb-2.5">{resolveMember(editing.assigned_to) ? `Waiting on ${resolveMember(editing.assigned_to)!.full_name.split(' ')[0]} to review this task. Everyone sees it as new until then.` : 'This task is waiting to be reviewed.'}</p>
+              <button type="button" onClick={() => editing && markReviewed(editing)}
+                className="w-full flex items-center justify-center gap-2 bg-[#3B6FE0] hover:bg-[#2D5EC7] text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
+                <i className="ti ti-checks text-base"/>{meMember && resolveMember(editing.assigned_to)?.id === meMember.id ? 'Mark as reviewed' : 'Mark reviewed'}
+              </button>
+            </div>
+          )}
+          {editing && editing.reviewed_at && (
+            <div className="rounded-xl border border-[#CDEAD9] bg-[#F0FBF4] p-3 flex items-center gap-2">
+              <i className="ti ti-circle-check text-[#16A34A] text-lg"/>
+              <span className="text-sm text-[#15803D] font-medium">Reviewed{editing.reviewed_by ? ` by ${reviewerName(editing.reviewed_by).split(' ')[0]}` : ''}</span>
+            </div>
+          )}
           {!editing && (
             <div className="rounded-xl border border-[#D9E2FB] bg-[#F4F7FF] p-3.5">
               <div className="flex items-center gap-2 mb-2">
