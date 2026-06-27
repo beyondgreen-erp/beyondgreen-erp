@@ -1,4 +1,6 @@
 'use client'
+import ShareLink from '@/components/ShareLink'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import nextDynamic from 'next/dynamic'
@@ -62,6 +64,7 @@ function trackingUrl(carrier: string | null, tracking: string | null): string | 
 export default function ShipmentsPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Shipment[]>([])
+  useItemDeepLink(rows, openEdit)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'table' | 'map' | 'heatmap' | 'analytics'>('table')
   const [search, setSearch] = useState('')
@@ -485,6 +488,7 @@ export default function ShipmentsPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE] shrink-0">
               <div>
                 <h2 className="text-base font-semibold text-[#1A1D2E] truncate max-w-xs">{editing?.customer_name || 'Shipment'}</h2>
+                {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
                 <p className="text-xs text-gray-500 mt-0.5">{editing?.month_group}</p>
               </div>
               <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-700 p-1.5 rounded-lg hover:bg-[#F5F6FA] transition-colors">
