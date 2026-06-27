@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import Anthropic from '@anthropic-ai/sdk';
+import { getOutlookAccessToken, sendViaGraph } from '@/lib/outlook';
 
 export const maxDuration = 60;
 
@@ -143,25 +144,41 @@ Return ONLY a JSON object: {"subject": string, "body": string}.`;
     // 1. Log to DB first
     const { data, error } = await supabase
       .from('customer_outreach')
-      .insert({ customer_id, subject, body: emailBody, sent_by, follow_up_days, follow_up_due, status: 'sent' })
+      .insert({ customer_id, subject, body: emailBody, sent_by, follow_up_days, follow_up_due, status: 'sent', to_email: customer_email || null })
       .select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Block byndgrn.com users from outbound email (domain not verified in Resend)
-    if (sent_by && sent_by.toLowerCase().endsWith('@byndgrn.com')) {
-      return NextResponse.json({ error: 'Outbound email not available for byndgrn.com accounts' }, { status: 403 })
+    // Build the email body once, with the sender's signature appended.
+    const sig = signatureFor(sent_by || '');
+    const textBody = sig ? `${emailBody}\n\n${sig.text}` : emailBody;
+    const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>${sig ? sig.html : ''}`;
+
+    let deliveredVia = 'none';
+
+    // 2a. Prefer the user's own Outlook mailbox if connected (so it lands in their Sent folder).
+    if (customer_email) {
+      try {
+        const gToken = await getOutlookAccessToken(sent_by || '');
+        if (gToken) {
+          await sendViaGraph(gToken, { to: customer_email, subject, html: htmlBody });
+          deliveredVia = 'outlook';
+        }
+      } catch (e) {
+        console.error('Outlook send failed, will try Resend:', e);
+      }
     }
 
-    // 2. Send actual email via Resend (if API key set and customer has email)
-    if (process.env.RESEND_API_KEY && customer_email) {
+    // 2b. Fallback: Resend (not available for byndgrn.com senders — domain not verified there).
+    if (
+      deliveredVia === 'none' &&
+      customer_email &&
+      process.env.RESEND_API_KEY &&
+      !(sent_by && sent_by.toLowerCase().endsWith('@byndgrn.com'))
+    ) {
       try {
         const resend = new Resend(process.env.RESEND_API_KEY);
         const fromEmail = getSenderEmail(sent_by || '');
         const fromName = fromEmail.split('@')[0].replace(/[^a-zA-Z]/g, ' ').trim() || 'beyondGREEN';
-        // Append the sender's signature (text + HTML) automatically.
-        const sig = signatureFor(sent_by || '');
-        const textBody = sig ? `${emailBody}\n\n${sig.text}` : emailBody;
-        const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>${sig ? sig.html : ''}`;
         await resend.emails.send({
           from: `${fromName} <${fromEmail}>`,
           to: [customer_email],
@@ -170,13 +187,14 @@ Return ONLY a JSON object: {"subject": string, "body": string}.`;
           text: textBody,
           html: htmlBody,
         });
+        deliveredVia = 'resend';
       } catch (emailErr) {
         console.error('Resend error:', emailErr);
-        // Don't fail the request — log was saved, email delivery failed
       }
     }
 
-    return NextResponse.json(data);
+    await supabase.from('customer_outreach').update({ delivered_via: deliveredVia }).eq('id', data.id);
+    return NextResponse.json({ ...data, delivered_via: deliveredVia });
   }
 
   if (action === 'mark_responded') {

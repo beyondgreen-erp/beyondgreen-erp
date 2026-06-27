@@ -143,6 +143,13 @@ export default function OutreachDrawer({ customerId, companyName, customerEmail,
             <div style={{ fontSize:'13px', color:'#64748b', marginTop:'2px' }}>{companyName} {customerEmail && `· ${customerEmail}`}</div>
           </div>
           <div style={{ display:'flex', gap:'8px' }}>
+            <button
+              onClick={() => { window.location.href = '/api/outlook/connect' }}
+              title="Send from your own Outlook mailbox so emails appear in your Sent folder and replies are tracked automatically"
+              style={{ ...S.btn('#0F6CBD'), fontSize:'12px' }}
+            >
+              Connect Outlook
+            </button>
             <button onClick={() => openCompose('initial')} style={S.btn('#1a2e1a')}>✉ Compose</button>
             <button onClick={onClose} style={S.btn('#f1f5f9','#475569')}>Close</button>
           </div>
