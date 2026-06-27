@@ -192,6 +192,7 @@ export default function OutreachDrawer({ customerId, companyName, customerEmail,
                 onChange={e => setBody(e.target.value)}
                 placeholder={`Hi ${companyName.split(' ')[0]},\n\nClick “✨ AI Draft” above, or write your own…`}
               />
+              <div style={{ fontSize:'12px', color:'#64748b', marginBottom:'12px' }}>✍️ Your email signature is added automatically when the email is sent.</div>
               <label style={S.label}>Schedule follow-up reminder (days if no reply)</label>
               <div style={{ display:'flex', gap:'8px', marginBottom:'12px' }}>
                 {[3,5,7,14,30].map(d => (
