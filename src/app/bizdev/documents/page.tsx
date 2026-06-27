@@ -8,6 +8,7 @@ import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
 import KnowledgeCenter from '@/components/KnowledgeCenter'
 import DocAI from '@/components/DocAI'
+import QuickUpload from '@/components/QuickUpload'
 
 interface Customer { id: string; company_name: string }
 interface Vendor { id: string; company_name: string }
@@ -93,6 +94,7 @@ export default function DocumentsPage() {
           <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} document${filtered.length!==1?'s':''}`}</p>
         </div>
         <div className="flex items-center gap-2">
+          <QuickUpload sb={sb} userEmail={userEmail} onDone={load} />
           <ImportExportBar table="documents" filename="documents" columns={[
             { header: 'Title', dbKey: 'title', example: 'Quality Manual v3', required: true },
             { header: 'Category', dbKey: 'category', example: 'Quality Record' },

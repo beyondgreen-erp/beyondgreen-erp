@@ -26,7 +26,7 @@ function chunkText(text: string, size = 1500): string[] {
 
 export async function POST(req: NextRequest) {
   try {
-    const { documentId } = await req.json()
+    const { documentId, autotitle } = await req.json()
     if (!documentId) return NextResponse.json({ error: 'documentId required' }, { status: 400 })
 
     const sb = createSupabaseAdminClient()
@@ -77,6 +77,7 @@ Notes: ${doc.notes || 'n/a'}${fileNote}
 
 Return ONLY raw JSON (no markdown) in exactly this shape:
 {
+  "title": "a short, clean, human-readable document title based on the contents (e.g. 'Walmart Supplier Agreement 2024'), never the raw file name or extension",
   "summary": "3-6 sentence plain-English summary of what this document is and why it matters to beyondGREEN",
   "category": "one of: ${CATEGORIES.join(', ')}",
   "key_facts": ["5-10 short, specific, factual bullet points pulled from the document (dates, parties, specs, obligations, certifications, numbers)"],
@@ -99,11 +100,16 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
     const keyFacts: string[] = Array.isArray(parsed.key_facts) ? parsed.key_facts.map((f: unknown) => String(f)).filter(Boolean) : []
     const category: string = CATEGORIES.includes(parsed.category) ? parsed.category : (doc.category || 'Other')
     const fullText: string = (parsed.full_text || '').toString().trim()
+    const aiTitle: string = (parsed.title || '').toString().trim()
+    const fileBase = file ? file.file_name.replace(/\.[^.]+$/, '') : ''
+    const titleLooksAuto = !doc.title || doc.title === fileBase || doc.title === (file?.file_name || '') || /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|txt|csv|md)$/i.test(doc.title)
+    const applyTitle = ((autotitle || titleLooksAuto) && aiTitle) ? aiTitle : doc.title
     const knowledgeText = [summary, keyFacts.map(f => `• ${f}`).join('\n')].filter(Boolean).join('\n\n')
 
     // Update the document. Auto-apply category only when it was unset/Other.
     const applyCategory = (!doc.category || doc.category === 'Other') ? category : doc.category
     await sb.from('documents').update({
+      title: applyTitle,
       ai_summary: summary || null,
       ai_key_facts: keyFacts,
       ai_suggested_category: category,
@@ -117,7 +123,7 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
     // Rebuild chunks for retrieval. Fall back to summary+facts if no full text.
     await sb.from('document_chunks').delete().eq('document_id', documentId)
     const basis = fullText && fullText.length > 40 ? fullText : knowledgeText
-    const chunks = chunkText(`${doc.title}\n\n${basis}`)
+    const chunks = chunkText(`${applyTitle}\n\n${basis}`)
     if (chunks.length) {
       await sb.from('document_chunks').insert(chunks.map((content, i) => ({ document_id: documentId, chunk_index: i, content })))
     }
@@ -126,7 +132,7 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
     if (knowledgeText) {
       const { data: existing } = await sb.from('university_entries').select('id').eq('source_document_id', documentId).maybeSingle()
       const entry = {
-        title: doc.title,
+        title: applyTitle,
         content: knowledgeText,
         category: 'Documents',
         source: 'document',
@@ -139,7 +145,7 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
       else await sb.from('university_entries').insert(entry)
     }
 
-    return NextResponse.json({ ok: true, summary, category: applyCategory, suggested_category: category, key_facts: keyFacts, chunks: chunks.length })
+    return NextResponse.json({ ok: true, title: applyTitle, summary, category: applyCategory, suggested_category: category, key_facts: keyFacts, chunks: chunks.length })
   } catch (err) {
     console.error('documents/process error:', err)
     return NextResponse.json({ error: (err as Error).message || 'Processing failed' }, { status: 500 })
