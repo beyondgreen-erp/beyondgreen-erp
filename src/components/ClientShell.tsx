@@ -11,6 +11,7 @@ import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import AuthWatcher from './AuthWatcher'
+import UserAvatar from '@/components/UserAvatar'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -59,6 +60,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const [userInitials, setUserInitials] = useState('?')
   const [userName, setUserName] = useState('')
   const [avatarColor, setAvatarColor] = useState('#3B6FE0')
+  const [userEmail, setUserEmail] = useState('')
 
   // Auto-reload when a new service worker takes over, so stale cached JS never persists
   useEffect(() => {
@@ -75,6 +77,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     sb.auth.getUser().then(({ data }) => {
       const email = data.user?.email ?? ''
       if (!email) return
+      setUserEmail(email)
       setUserInitials(email[0].toUpperCase())
       setUserName(email.split('@')[0])
       sb.from('user_profiles').select('full_name,avatar_color,avatar_initials').eq('email', email).single()
@@ -129,7 +132,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA' }}
                 >
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: avatarColor }}>{userInitials}</div>
+                  <UserAvatar email={userEmail} initials={userInitials} color={avatarColor} size={32} />
                   {userName && <span className="text-sm font-semibold hidden sm:block" style={{ color: '#374151' }}>{userName}</span>}
                 </button>
               </div>

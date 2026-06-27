@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 import RichTextEditor from './RichTextEditor'
 
 interface Comment {
@@ -143,12 +144,7 @@ export default function CommentSection({ recordType, recordId, currentUserEmail 
 
           return (
             <div key={c.id} className="flex gap-2.5">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5"
-                style={{ backgroundColor: profile?.avatar_color || '#374151' }}
-              >
-                {profile?.avatar_initials || c.author_email[0].toUpperCase()}
-              </div>
+              <UserAvatar email={c.author_email} initials={profile?.avatar_initials || c.author_email[0].toUpperCase()} color={profile?.avatar_color || '#374151'} size={28} className="mt-0.5" />
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">

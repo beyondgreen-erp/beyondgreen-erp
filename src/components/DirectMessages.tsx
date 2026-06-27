@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 
 export interface DMPeer { email: string; name?: string; color?: string; initials?: string }
 interface DM { id: string; sender_email: string; sender_name: string | null; recipient_email: string; content: string; created_at: string }
@@ -232,7 +233,7 @@ function DMWindow({ me, win, sb, onClose, onToggleMin, onFocusRead }: {
         className="flex items-center gap-2 px-3 h-12 shrink-0 cursor-move select-none"
         style={{ background: color }}
       >
-        <div className="w-7 h-7 rounded-full bg-white/25 flex items-center justify-center text-white text-xs font-bold shrink-0">{initials}</div>
+        <UserAvatar email={peer.email} initials={initials} color={color} size={28} />
         <div className="flex-1 min-w-0" onClick={onFocusRead}>
           <p className="text-white text-sm font-semibold truncate leading-tight">{shortName(peer)}</p>
           <p className="text-white/70 text-[10px] truncate leading-tight">{peer.email}</p>

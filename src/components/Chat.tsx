@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 
 type Channel = 'general' | 'sales' | 'production' | 'bizdev'
 interface Msg { id: string; channel: string; sender_email: string; sender_name: string; content: string; created_at: string }
@@ -178,9 +179,7 @@ export default function Chat() {
             )}
             {msgs.map((m) => (
               <div key={m.id} className="flex gap-3">
-                <div className={`w-8 h-8 rounded-full ${avatarColor(m.sender_email)} flex items-center justify-center shrink-0 mt-0.5`}>
-                  <span className="text-white text-xs font-bold">{initials(m.sender_name || m.sender_email)}</span>
-                </div>
+                <UserAvatar email={m.sender_email} initials={initials(m.sender_name || m.sender_email)} color="#3B6FE0" size={32} className="mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="text-[#1A1D2E] text-sm font-medium">{m.sender_name || m.sender_email.split('@')[0]}</span>
@@ -204,9 +203,7 @@ export default function Chat() {
                   {filteredUsers.slice(0, 6).map((u, i) => (
                     <button key={u} type="button" onMouseDown={() => selectMention(u)}
                       className={`w-full text-left px-3 py-3 text-sm flex items-center gap-2 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-500 hover:bg-[#F5F6FA]'}`}>
-                      <div className={`w-7 h-7 rounded-full ${avatarColor(u)} flex items-center justify-center shrink-0`}>
-                        <span className="text-xs font-bold text-white">{u[0].toUpperCase()}</span>
-                      </div>
+                      <UserAvatar email={u} initials={u[0].toUpperCase()} color="#3B6FE0" size={28} />
                       <span className="truncate text-sm">{u}</span>
                     </button>
                   ))}

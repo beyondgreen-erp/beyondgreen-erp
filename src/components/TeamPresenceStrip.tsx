@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 import CollapsibleCard from '@/components/CollapsibleCard'
 
 interface Member { email: string; name: string; color: string; initials: string; role?: string; online: boolean; lastSeen?: string | null }
@@ -84,8 +85,7 @@ export default function TeamPresenceStrip() {
               title={isMe ? 'This is you' : `Message ${m.name} · ${m.online ? 'Active now' : lastSeenLabel(m.lastSeen)}`}
               className={`group flex flex-col items-center gap-1.5 w-16 ${isMe ? 'cursor-default' : 'cursor-pointer'}`}>
               <div className="relative">
-                <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold transition-transform group-hover:scale-105"
-                  style={{ backgroundColor: m.color }}>{m.initials}</div>
+                <UserAvatar email={m.email} initials={m.initials} color={m.color} size={48} className="transition-transform group-hover:scale-105" />
                 <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white ${m.online ? 'bg-emerald-500' : 'bg-gray-300'}`} />
               </div>
               <span className="text-[11px] text-gray-600 truncate w-full text-center leading-tight">{isMe ? 'You' : m.name.split(' ')[0]}</span>

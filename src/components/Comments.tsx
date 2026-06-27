@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 
 interface Comment {
   id: string
@@ -306,12 +307,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             return (
               <div key={c.id} className="flex gap-2.5">
                 {/* Avatar */}
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 mt-0.5"
-                  style={{ background: bgColor }}
-                >
-                  {initials}
-                </div>
+                <UserAvatar email={c.author_email} initials={initials} color={p?.avatar_color || '#374151'} size={28} className="mt-0.5" />
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 import { ChatTrigger } from './Chat'
 
 interface NavItem { href: string; label: string; icon: string; badgeKey?: string }
@@ -178,7 +179,7 @@ onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.backg
 {!collapsed ? (
 <div className="rounded-xl p-3 mb-2" style={{ background: 'rgba(255,255,255,0.05)' }}>
 <div className="flex items-center gap-3">
-<div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold text-white" style={{ background: avatarColor }}>{initials}</div>
+<UserAvatar email={userEmail} initials={initials} color={avatarColor} size={36} />
 <div className="flex-1 min-w-0">
 <p className="text-sm font-semibold text-white truncate">{displayName}</p>
 <p className="text-xs truncate" style={{ color: '#5A6E8A' }}>{userEmail}</p>
@@ -186,7 +187,7 @@ onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.backg
 </div>
 </div>
 ) : (
-<div className="w-9 h-9 rounded-full flex items-center justify-center mx-auto mb-2 text-sm font-bold text-white" style={{ background: avatarColor }}>{initials}</div>
+<UserAvatar email={userEmail} initials={initials} color={avatarColor} size={36} className="mx-auto mb-2" />
 )}
 <button
 onClick={async () => { await sb.auth.signOut(); window.location.href = '/login' }}
