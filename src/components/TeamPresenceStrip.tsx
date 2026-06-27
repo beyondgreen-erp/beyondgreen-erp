@@ -2,17 +2,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import CollapsibleCard from '@/components/CollapsibleCard'
 
-interface Member {
-  email: string
-  name: string
-  color: string
-  initials: string
-  role?: string
-  online: boolean
-  lastSeen?: string | null
-}
-
+interface Member { email: string; name: string; color: string; initials: string; role?: string; online: boolean; lastSeen?: string | null }
 const FALLBACK_COLORS = ['#059669', '#2563EB', '#7C3AED', '#D97706', '#DC2626', '#0D9488', '#DB2777']
 function colorFor(email: string) { return FALLBACK_COLORS[email.charCodeAt(0) % FALLBACK_COLORS.length] }
 function initialsFor(name?: string, email?: string) {
@@ -21,8 +13,7 @@ function initialsFor(name?: string, email?: string) {
 }
 const ONLINE_WINDOW_MS = 90 * 1000
 function isOnline(p: { is_online?: boolean; last_seen?: string | null }) {
-  if (!p?.is_online) return false
-  if (!p.last_seen) return false
+  if (!p?.is_online || !p.last_seen) return false
   return Date.now() - new Date(p.last_seen).getTime() < ONLINE_WINDOW_MS
 }
 function lastSeenLabel(iso?: string | null) {
@@ -53,13 +44,10 @@ export default function TeamPresenceStrip() {
         const pres = pmap.get(p.email)
         const name = p.display_name || p.full_name || p.email.split('@')[0]
         return {
-          email: p.email,
-          name,
-          role: p.role,
+          email: p.email, name, role: p.role,
           color: p.avatar_color || colorFor(p.email),
           initials: p.avatar_initials || initialsFor(name, p.email),
-          online: isOnline(pres || {}),
-          lastSeen: pres?.last_seen ?? null,
+          online: isOnline(pres || {}), lastSeen: pres?.last_seen ?? null,
         }
       })
       .sort((a, b) => (Number(b.online) - Number(a.online)) || a.name.localeCompare(b.name))
@@ -72,7 +60,7 @@ export default function TeamPresenceStrip() {
     const ch = sb.channel('presence_strip')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_presence' }, () => refresh())
       .subscribe()
-    const tick = setInterval(() => force(n => n + 1), 30_000) // re-evaluate "online" window
+    const tick = setInterval(() => force(n => n + 1), 30_000)
     const poll = setInterval(refresh, 60_000)
     return () => { sb.removeChannel(ch); clearInterval(tick); clearInterval(poll) }
   }, []) // eslint-disable-line
@@ -84,39 +72,27 @@ export default function TeamPresenceStrip() {
 
   if (members.length === 0) return null
   const onlineCount = members.filter(m => m.online).length
+  const headerRight = <span className="text-xs text-gray-500">{onlineCount} online · click to message</span>
 
   return (
-    <div className="bg-white rounded-2xl border border-[#E4E6EE] p-5 mb-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-[#1A1D2E]">Team</h2>
-        <span className="text-xs text-gray-500">{onlineCount} online · click to message</span>
-      </div>
+    <CollapsibleCard title="Team" storageKey="team" headerRight={headerRight}>
       <div className="flex flex-wrap gap-4">
         {members.map(m => {
           const isMe = m.email === myEmail
           return (
-            <button
-              key={m.email}
-              onClick={() => openDM(m)}
-              disabled={isMe}
+            <button key={m.email} onClick={() => openDM(m)} disabled={isMe}
               title={isMe ? 'This is you' : `Message ${m.name} · ${m.online ? 'Active now' : lastSeenLabel(m.lastSeen)}`}
-              className={`group flex flex-col items-center gap-1.5 w-16 ${isMe ? 'cursor-default' : 'cursor-pointer'}`}
-            >
+              className={`group flex flex-col items-center gap-1.5 w-16 ${isMe ? 'cursor-default' : 'cursor-pointer'}`}>
               <div className="relative">
                 <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold transition-transform group-hover:scale-105"
-                  style={{ backgroundColor: m.color }}>
-                  {m.initials}
-                </div>
-                <span
-                  className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white ${m.online ? 'bg-emerald-500' : 'bg-gray-300'}`}
-                  title={m.online ? 'Online' : 'Offline'}
-                />
+                  style={{ backgroundColor: m.color }}>{m.initials}</div>
+                <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white ${m.online ? 'bg-emerald-500' : 'bg-gray-300'}`} />
               </div>
               <span className="text-[11px] text-gray-600 truncate w-full text-center leading-tight">{isMe ? 'You' : m.name.split(' ')[0]}</span>
             </button>
           )
         })}
       </div>
-    </div>
+    </CollapsibleCard>
   )
 }

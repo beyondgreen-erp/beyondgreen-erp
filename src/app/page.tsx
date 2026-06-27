@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import RemindersWidget from '@/components/RemindersWidget'
 import TeamPresenceStrip from '@/components/TeamPresenceStrip'
 import RawMaterialsPanel from '@/components/RawMaterialsPanel'
+import InventoryLinkGaps from '@/components/InventoryLinkGaps'
 
 const sb = createSupabaseBrowserClient()
 
@@ -152,6 +153,8 @@ export default function DashboardPage() {
       <TeamPresenceStrip />
 
       <RawMaterialsPanel />
+
+      <InventoryLinkGaps />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         {/* Pipeline */}

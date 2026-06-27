@@ -2,15 +2,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import CollapsibleCard from '@/components/CollapsibleCard'
 
-interface Material {
-  sku: string
-  name: string
-  uom: string
-  onHand: number | null
-  reorder: number | null
-}
-
+interface Material { sku: string; name: string; uom: string; onHand: number | null; reorder: number | null }
 type Status = 'out' | 'low' | 'ok'
 function statusOf(m: Material): Status {
   if (m.onHand === null || m.onHand <= 0) return 'out'
@@ -18,12 +12,7 @@ function statusOf(m: Material): Status {
   return 'ok'
 }
 const RANK: Record<Status, number> = { out: 0, low: 1, ok: 2 }
-
-function fmtQty(n: number | null) {
-  if (n === null) return '—'
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
-}
-
+function fmtQty(n: number | null) { return n === null ? '—' : new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n) }
 const STYLE: Record<Status, { bar: string; chip: string; label: string }> = {
   out: { bar: '#DC2626', chip: 'bg-red-100 text-red-700', label: 'OUT' },
   low: { bar: '#F59E0B', chip: 'bg-amber-100 text-amber-700', label: 'LOW' },
@@ -41,7 +30,6 @@ export default function RawMaterialsPanel() {
       .or('product_category.eq.RAW MATERIAL,category.eq.Raw Material')
     const rows: Material[] = (data || [])
       .filter((p: any) => p.is_active !== false && p.is_discontinued !== true)
-      // keep true raw materials, exclude colorant additives
       .filter((p: any) => p.product_category !== 'ADDITIVES' && p.category !== 'Additives')
       .map((p: any) => ({
         sku: p.sku,
@@ -55,34 +43,23 @@ export default function RawMaterialsPanel() {
     setLoading(false)
   }
 
-  useEffect(() => {
-    load()
-    const poll = setInterval(load, 60_000)
-    return () => clearInterval(poll)
-  }, []) // eslint-disable-line
+  useEffect(() => { load(); const t = setInterval(load, 60_000); return () => clearInterval(t) }, []) // eslint-disable-line
 
   const outCount = materials.filter(m => statusOf(m) === 'out').length
   const lowCount = materials.filter(m => statusOf(m) === 'low').length
+  const cleanName = (n: string) => n.length > 42 ? n.slice(0, 41).trimEnd() + '…' : n
 
-  function cleanName(name: string) {
-    // trim long descriptive suffixes for compact display
-    return name.length > 42 ? name.slice(0, 41).trimEnd() + '…' : name
-  }
+  const headerRight = (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-gray-500">{materials.length} tracked</span>
+      {outCount > 0 && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">{outCount} out</span>}
+      {lowCount > 0 && <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{lowCount} low</span>}
+      {outCount === 0 && lowCount === 0 && !loading && <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold">All stocked</span>}
+    </div>
+  )
 
   return (
-    <div className="bg-white rounded-2xl border border-[#E4E6EE] p-5 mb-5">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="font-semibold text-[#1A1D2E]">Raw Materials</h2>
-          <span className="text-xs text-gray-500">{materials.length} tracked</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          {outCount > 0 && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">{outCount} out of stock</span>}
-          {lowCount > 0 && <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{lowCount} low</span>}
-          {outCount === 0 && lowCount === 0 && !loading && <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold">All stocked</span>}
-        </div>
-      </div>
-
+    <CollapsibleCard title="Raw Materials" storageKey="raw_materials" headerRight={headerRight}>
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {Array.from({ length: 8 }).map((_, i) => <div key={i} className="skeleton h-16 rounded-xl" />)}
@@ -90,8 +67,7 @@ export default function RawMaterialsPanel() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {materials.map(m => {
-            const s = statusOf(m)
-            const st = STYLE[s]
+            const s = statusOf(m); const st = STYLE[s]
             return (
               <div key={m.sku} title={`${m.name} (${m.sku})`}
                 className="relative rounded-xl border border-[#E4E6EE] bg-[#FBFCFE] pl-3 pr-2.5 py-2.5 overflow-hidden">
@@ -110,6 +86,6 @@ export default function RawMaterialsPanel() {
           })}
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   )
 }
