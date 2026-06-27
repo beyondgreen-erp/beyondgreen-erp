@@ -32,7 +32,7 @@ const EVENING_QUOTES = [
 
 export async function GET(request: NextRequest) {
   try {
-    const sb = createSupabaseServerClient()
+    const sb = await createSupabaseServerClient()
 
     // Fetch today's data
     const todayStart = new Date()

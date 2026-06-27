@@ -32,7 +32,7 @@ const MORNING_QUOTES = [
 
 export async function GET(request: NextRequest) {
   try {
-    const sb = createSupabaseServerClient()
+    const sb = await createSupabaseServerClient()
 
     // Fetch data for the email
     const yesterday5pm = new Date()
