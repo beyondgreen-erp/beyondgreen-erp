@@ -89,6 +89,8 @@ export default function TasksPage() {
   const [deleting,setDeleting]= useState(false)
   const [assigneeOpen, setAssigneeOpen] = useState(false)
   const [draggingId, setDraggingId] = useState('')
+  const [aiText, setAiText] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
   const [dragOver,   setDragOver]   = useState('')
   const [userEmail, setUserEmail] = useState('')
   const ms     = useMultiSelect<Task>()
@@ -117,7 +119,7 @@ export default function TasksPage() {
     if (filterAssignee) {
       const m = teamMembers.find(x => x.email === filterAssignee)
       const toks = (r.assigned_to || '').toLowerCase().split(',').map(s => s.trim())
-      const ok = m ? toks.some(t => t === m.email.toLowerCase() || t === m.full_name.toLowerCase()) : toks.includes(filterAssignee.toLowerCase())
+      const ok = m ? toks.some(t => t === m.email.toLowerCase() || t === m.full_name.toLowerCase() || t === m.full_name.split(' ')[0].toLowerCase()) : toks.includes(filterAssignee.toLowerCase())
       if (!ok) return false
     }
     if (search) {
@@ -132,6 +134,10 @@ export default function TasksPage() {
   const lanes = useMemo(() => {
     const byKey: Record<string, TeamMember> = {}
     for (const m of teamMembers) { byKey[m.email.toLowerCase()] = m; byKey[m.full_name.toLowerCase()] = m }
+    // Fold unambiguous first names (e.g. "Dhanush" -> Dhanush Kenchanna) into the member lane
+    const firstCount: Record<string, number> = {}
+    for (const m of teamMembers) { const f = m.full_name.split(' ')[0].toLowerCase(); firstCount[f] = (firstCount[f] || 0) + 1 }
+    for (const m of teamMembers) { const f = m.full_name.split(' ')[0].toLowerCase(); if (firstCount[f] === 1 && !byKey[f]) byKey[f] = m }
     const laneOf: Record<string, { key: string; label: string; member: TeamMember | null; tasks: Task[] }> = {}
     const order: string[] = []
     const ensure = (key: string, label: string, member: TeamMember | null) => {
@@ -156,17 +162,54 @@ export default function TasksPage() {
     return [...members, ...others, ...un].map(k => laneOf[k])
   }, [filtered, teamMembers])
 
-  async function onDropTask(id: string, colKey: string) {
+  // Resolve an assigned_to string (full name / email / first name) back to a team member
+  const resolveMember = (val: string | null) => {
+    if (!val) return null
+    const v = val.trim().toLowerCase()
+    return teamMembers.find(m => m.full_name.toLowerCase() === v || m.email.toLowerCase() === v)
+        || teamMembers.find(m => m.full_name.split(' ')[0].toLowerCase() === v) || null
+  }
+
+  async function aiFill() {
+    if (!aiText.trim()) return
+    setAiBusy(true); setErr('')
+    try {
+      const res = await fetch('/api/tasks/parse', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: aiText, members: teamMembers.map(m => ({ full_name: m.full_name, email: m.email })) }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error || 'AI could not parse that.')
+      setForm(p => ({
+        ...p,
+        task_name:   j.task_name || p.task_name,
+        assigned_to: j.assignee  || p.assigned_to,
+        priority:    j.priority  || p.priority,
+        due_date:    j.due_date  || p.due_date,
+        notes:       j.notes ? (p.notes ? p.notes + '\n' + j.notes : j.notes) : p.notes,
+      }))
+    } catch (e) { setErr((e as Error).message) }
+    setAiBusy(false)
+  }
+
+  async function onDropTask(id: string, lane: { key: string; label: string; member: TeamMember | null }, colKey: string) {
     setDragOver(''); setDraggingId('')
     if (!id) return
     const task = rows.find(t => t.id === id); if (!task) return
-    if (statusColumn(task.status) === colKey) return
-    const newStatus = COLUMN_DEFAULT[colKey]
-    setRows(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t))
-    const { error } = await sb.from('tasks').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', id)
+    // Target person = the lane it was dropped into; unassigned lane clears the assignee
+    const targetAssignee = lane.key === '__un__' ? null : (lane.member ? lane.member.full_name : lane.label)
+    const newStatus = statusColumn(task.status) === colKey ? task.status : COLUMN_DEFAULT[colKey]
+    const sameStatus   = newStatus === task.status
+    const sameAssignee = (task.assigned_to || null) === (targetAssignee || null)
+    if (sameStatus && sameAssignee) return
+    const patch: { status?: string; assigned_to?: string | null } = {}
+    if (!sameStatus)   patch.status = newStatus
+    if (!sameAssignee) patch.assigned_to = targetAssignee
+    setRows(prev => prev.map(t => t.id === id ? ({ ...t, ...patch } as Task) : t))
+    const { error } = await sb.from('tasks').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id)
     if (error) load()
   }
-  function openAdd()       { setEditing(null); setForm(empty); setErr(''); setOpen(true) }
+  function openAdd()       { setEditing(null); setForm(empty); setAiText(''); setErr(''); setOpen(true) }
   function openEdit(r: Task) {
     setEditing(r)
     setForm({ task_name: r.task_name, assigned_to: r.assigned_to ?? '', due_date: r.due_date ?? '',
@@ -174,7 +217,7 @@ export default function TasksPage() {
               notes: r.notes ?? '', group_name: r.group_name ?? 'Current' })
     setErr(''); setOpen(true)
   }
-  function close() { setOpen(false); setAssigneeOpen(false); setTimeout(() => { setEditing(null); setForm(empty) }, 300) }
+  function close() { setOpen(false); setAssigneeOpen(false); setTimeout(() => { setEditing(null); setForm(empty); setAiText('') }, 300) }
 
   async function save() {
     if (!form.task_name.trim()) { setErr('Task name is required.'); return }
@@ -358,7 +401,7 @@ export default function TasksPage() {
                           <div key={col.key}
                             onDragOver={e => { e.preventDefault(); if (!over) setDragOver(lane.key + '|' + col.key) }}
                             onDragLeave={() => setDragOver(d => d === lane.key + '|' + col.key ? '' : d)}
-                            onDrop={e => { e.preventDefault(); onDropTask(e.dataTransfer.getData('text/plain'), col.key) }}
+                            onDrop={e => { e.preventDefault(); onDropTask(e.dataTransfer.getData('text/plain'), lane, col.key) }}
                             className={`p-2 space-y-2 transition-colors ${ci < 2 ? 'border-r border-[#EEF0F4]' : ''} ${over ? 'bg-violet-50' : ''}`}
                             style={{ maxHeight: 300, overflowY: 'auto' }}>
                             {cellTasks.map(task => {
@@ -421,6 +464,32 @@ export default function TasksPage() {
 
         {/* Drawer body */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {!editing && (
+            <div className="rounded-xl border border-[#D9E2FB] bg-[#F4F7FF] p-3.5">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-[#3B6FE0] text-white"><i className="ti ti-sparkles text-sm"/></span>
+                <span className="text-sm font-semibold text-[#1A1D2E]">Quick add with AI</span>
+              </div>
+              <p className="text-xs text-[#6B7280] mb-2">Paste an email or note — AI drafts the task and picks who it should go to.</p>
+              <textarea
+                value={aiText}
+                onChange={e => setAiText(e.target.value)}
+                placeholder="Paste email text here…"
+                rows={4}
+                className="w-full bg-white border border-[#D9E2FB] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+              <button
+                type="button"
+                onClick={aiFill}
+                disabled={aiBusy || !aiText.trim()}
+                className="mt-2 w-full flex items-center justify-center gap-2 bg-[#3B6FE0] hover:bg-[#2D5EC7] disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
+              >
+                {aiBusy
+                  ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Reading…</>
+                  : <><i className="ti ti-wand text-base"/>Fill task with AI</>}
+              </button>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-semibold text-[#374151] mb-2">Task Name <span className="text-red-500">*</span></label>
             <input
@@ -469,7 +538,7 @@ export default function TasksPage() {
               className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition flex items-center gap-2.5 text-left"
             >
               {form.assigned_to ? (() => {
-                const m = teamMembers.find(m => m.email === form.assigned_to)
+                const m = resolveMember(form.assigned_to)
                 return m ? (
                   <>
                     <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m.avatar_color }}>
@@ -491,8 +560,8 @@ export default function TasksPage() {
                 </button>
                 {teamMembers.map(m => (
                   <button key={m.id} type="button"
-                    onClick={() => { setForm(p => ({ ...p, assigned_to: m.email })); setAssigneeOpen(false) }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-[#F5F6FA] transition-colors text-left ${form.assigned_to === m.email ? 'bg-[#EEF2FF] text-[#3B6FE0]' : 'text-[#1A1D2E]'}`}
+                    onClick={() => { setForm(p => ({ ...p, assigned_to: m.full_name })); setAssigneeOpen(false) }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-[#F5F6FA] transition-colors text-left ${resolveMember(form.assigned_to)?.id === m.id ? 'bg-[#EEF2FF] text-[#3B6FE0]' : 'text-[#1A1D2E]'}`}
                   >
                     <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: m.avatar_color }}>
                       {m.avatar_initials || m.full_name[0]}
