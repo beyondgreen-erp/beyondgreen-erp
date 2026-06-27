@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import Anthropic from '@anthropic-ai/sdk';
+
+export const maxDuration = 60;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Only these users may generate AI drafts. Everyone else is logged and refused.
+const AI_ALLOWED = ['rudyp@beyondgreenbiotech.com'];
 
 // Send from the user's own ERP login email
 function getSenderEmail(userEmail: string): string {
@@ -17,9 +25,92 @@ function getSenderEmail(userEmail: string): string {
   return 'outreach@beyondgreenbiotech.com'
 }
 
+function firstJson(text: string): any {
+  const a = text.indexOf('{'); const b = text.lastIndexOf('}')
+  if (a === -1 || b === -1 || b < a) return {}
+  try { return JSON.parse(text.slice(a, b + 1)) } catch { return {} }
+}
+
+// Map a customer's industry/field to relevant beyondGREEN catalog categories.
+function categoriesFor(industry: string): string[] {
+  const s = (industry || '').toLowerCase()
+  const has = (...k: string[]) => k.some((x) => s.includes(x))
+  const out = new Set<string>()
+  if (has('restaurant', 'food', 'pizza', 'cafe', 'caterer', 'kitchen', 'hospitality', 'qsr'))
+    ['Takeout Containers', 'Cutlery', 'Cups / Lids', 'Drinking Straws', 'Food Paper Products', 'Cup Sleeves'].forEach((c) => out.add(c))
+  if (has('coffee', 'roaster', 'tea')) ['Coffee Bags', 'Cups / Lids', 'Cup Sleeves'].forEach((c) => out.add(c))
+  if (has('pet')) ['Trash Liners', 'Produce Bags', 'Grocery Bags'].forEach((c) => out.add(c))
+  if (has('retail', 'grocery', 'market', 'store')) ['Grocery Bags', 'Produce Bags', 'Paper Bags', 'Trash Liners'].forEach((c) => out.add(c))
+  if (has('hoa', 'multi-family', 'property', 'properties', 'facility', 'facilities', 'janitorial'))
+    ['Trash Liners', 'Restroom Essentials'].forEach((c) => out.add(c))
+  if (has('hygiene', 'hygine', 'restroom', 'cleaning')) ['Restroom Essentials', 'Trash Liners'].forEach((c) => out.add(c))
+  if (out.size === 0) ['Paper Bags', 'Takeout Containers', 'Cutlery', 'Trash Liners'].forEach((c) => out.add(c))
+  return [...out]
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { action } = body;
+
+  // ---- AI DRAFT (suggestion the user edits before sending) ----
+  if (action === 'ai_draft') {
+    const { customer_id, sent_by, mode = 'initial', prior_subject = '', prior_body = '' } = body;
+
+    // Access gate: only allowed users; others are logged and refused.
+    if (!sent_by || !AI_ALLOWED.includes(String(sent_by).toLowerCase())) {
+      await supabase.from('campaign_access_log').insert({
+        email: sent_by || null, function_name: 'ai_draft', allowed: false, reason: 'not on allow-list', customer_id: customer_id || null,
+      });
+      return NextResponse.json({ error: 'function logged, please ask your admin for access' }, { status: 403 });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: 'AI not configured (ANTHROPIC_API_KEY missing)' }, { status: 400 });
+    if (!customer_id) return NextResponse.json({ error: 'customer_id required' }, { status: 400 });
+
+    const { data: cust } = await supabase.from('customers')
+      .select('company_name, contact_name, industry, account_type, customer_status, pipeline_stage, lifetime_spend, last_shipment_date')
+      .eq('id', customer_id).single();
+    if (!cust) return NextResponse.json({ error: 'customer not found' }, { status: 404 });
+
+    const cats = categoriesFor(cust.industry || '');
+    const { data: products } = await supabase.from('professional_catalog')
+      .select('sku, category, description, material, moq')
+      .in('category', cats).not('description', 'is', null).limit(12);
+
+    const senderName = String(sent_by).split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase());
+    const spent = Number(cust.lifetime_spend || 0) > 0;
+    const last = cust.last_shipment_date ? new Date(cust.last_shipment_date) : null;
+    const dormant = last ? (Date.now() - last.getTime()) / 86400000 > 180 : false;
+    const type = mode === 'followup' ? 'follow-up'
+      : (cust.pipeline_stage || '').toLowerCase().includes('proposal') ? 'proposal nudge'
+      : (spent && dormant) ? 're-engagement'
+      : (spent || (cust.customer_status || '').toLowerCase().includes('active')) ? 'new-product cross-sell'
+      : 'intro';
+
+    const catalog = (products || []).map((p: any) => `- [${p.sku}] ${p.description} (${p.category}; ${p.material || ''}${p.moq ? '; MOQ ' + p.moq : ''})`).join('\n');
+
+    const system = `You write B2B sales emails for beyondGREEN, a manufacturer of certified-compostable foodservice and packaging products. Keep it warm, concise (120-180 words), specific, and not hype-y. Reference the customer's field, name 2-4 chosen products, and end with a low-friction call to action (samples or a quick call). Sign as "${senderName}" then a new line "beyondGREEN".
+Return ONLY a JSON object: {"subject": string, "body": string}.`;
+
+    const userMsg = mode === 'followup'
+      ? `Write a SHORT follow-up (3-4 sentences) because ${cust.company_name} hasn't replied to the email below. Do not be pushy.\n\nORIGINAL SUBJECT: ${prior_subject}\nORIGINAL BODY:\n${prior_body}`
+      : `Campaign type: ${type}.\nCustomer: ${cust.company_name}; contact: ${cust.contact_name || '(none — address generically)'}; field: ${cust.industry || 'unknown'}; status: ${cust.customer_status || ''}; lifetime spend: $${cust.lifetime_spend || 0}; last shipment: ${cust.last_shipment_date || 'none'}.\n\nChoose 2-4 best-fit products from:\n${catalog}`;
+
+    try {
+      const msg = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system,
+        messages: [{ role: 'user', content: userMsg }],
+      });
+      const raw = msg.content[0]?.type === 'text' ? msg.content[0].text : '';
+      const j = firstJson(raw);
+      const subject = (typeof j.subject === 'string' ? j.subject : '').trim();
+      const draftBody = (typeof j.body === 'string' ? j.body : '').trim();
+      if (!subject || !draftBody) return NextResponse.json({ error: 'AI draft failed' }, { status: 502 });
+      await supabase.from('campaign_access_log').insert({ email: sent_by, function_name: 'ai_draft', allowed: true, reason: type, customer_id });
+      return NextResponse.json({ subject, body: draftBody, campaign_type: type });
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message || 'AI draft failed' }, { status: 500 });
+    }
+  }
 
   if (action === 'send') {
     const { customer_id, subject, body: emailBody, sent_by, follow_up_days = 7, customer_email, company_name } = body;
@@ -33,11 +124,11 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // Block byndgrn.com users from outbound email (domain not verified in Resend)
-  if (sent_by && sent_by.toLowerCase().endsWith('@byndgrn.com')) {
-    return NextResponse.json({ error: 'Outbound email not available for byndgrn.com accounts' }, { status: 403 })
-  }
+    if (sent_by && sent_by.toLowerCase().endsWith('@byndgrn.com')) {
+      return NextResponse.json({ error: 'Outbound email not available for byndgrn.com accounts' }, { status: 403 })
+    }
 
-  // 2. Send actual email via Resend (if API key set and customer has email)
+    // 2. Send actual email via Resend (if API key set and customer has email)
     if (process.env.RESEND_API_KEY && customer_email) {
       try {
         const resend = new Resend(process.env.RESEND_API_KEY);
