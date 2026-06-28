@@ -444,7 +444,7 @@ function buildEmailHtml(
             invoiceData.overdue.length > 0
               ? '<p style="margin: 0 0 12px; color: #ef4444; font-weight: 600;">Overdue Invoices:</p>' +
                 invoiceData.overdue
-                  .map((inv) => {
+                  .map((inv: any) => {
                     const customer = Array.isArray(inv.customers)
                       ? inv.customers[0]?.company_name
                       : inv.customers?.company_name
