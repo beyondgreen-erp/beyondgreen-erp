@@ -18,9 +18,9 @@ export function formatNumber(value: number | undefined, decimals: number = 0): s
  * Format a delta (difference) value, showing if positive, negative, or zero
  * Returns string with appropriate color indicator prefix
  */
-export function formatDelta(value: number | undefined): { text: string; isShortage: boolean } {
+export function formatDelta(value: number | undefined): { text: string; isNegative: boolean } {
     if (value === undefined || value === null) {
-          return { text: '—', isShortage: false }
+          return { text: '—', isNegative: false }
     }
 
   const text = value.toLocaleString('en-US', {
