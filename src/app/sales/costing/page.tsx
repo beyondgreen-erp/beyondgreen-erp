@@ -265,6 +265,14 @@ export default function QuoteCostingPage() {
     setView('editor')
   }
 
+  async function deleteQuote() {
+    if (!editingQuote) return
+    if (!confirm(`Delete quote ${editingQuote.quote_number}? It will move to the Recycle Bin and can be restored.`)) return
+    await sb.from('quote_costing_lines').delete().eq('quote_costing_id', editingQuote.id)
+    const { error } = await sb.from('quote_costing').delete().eq('id', editingQuote.id)
+    if (error) { setErr(dbErr(error)); return }
+    await load(); backToList()
+  }
   function backToList() {
     setView('list')
     setEditingQuote(null)
@@ -692,6 +700,11 @@ export default function QuoteCostingPage() {
               </button>
             )}
           </>}
+          {editingQuote && (
+            <button onClick={deleteQuote} className="flex items-center gap-1.5 text-xs border border-red-300 text-red-600 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors">
+              <i className="ti ti-trash text-sm" />Delete
+            </button>
+          )}
           <button onClick={() => saveQuote()} disabled={saving} className="flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] font-medium px-4 py-2 rounded-lg transition-colors">
             {saving ? 'Saving…' : editingQuote ? 'Save' : 'Save Draft'}
           </button>
