@@ -187,6 +187,128 @@ function AddSampleModal({ open, onClose, onCreated, sb }: { open: boolean; onClo
   )
 }
 
+function escHtml(v: unknown): string {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: string; tracking: string; shipTo: string }): string {
+  const { sample, items, carrier, tracking, shipTo } = opts
+  const rows = items.map(i =>
+    `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td>` +
+    `<td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td>` +
+    `<td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td></tr>`).join('')
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
+  <h2 style="color:#16a34a;margin:0 0 8px">Your sample has shipped</h2>
+  <p style="margin:0 0 12px">Hi${sample.name ? ' ' + escHtml(sample.name) : ''},</p>
+  <p style="margin:0 0 12px">Good news — your beyondGREEN sample submission is on its way.</p>
+  <table style="border-collapse:collapse;width:100%;margin:8px 0 16px;font-size:14px">
+    <tr><td style="padding:4px 0;color:#6b7280;width:120px">Carrier</td><td style="padding:4px 0;font-weight:600">${escHtml(carrier || '—')}</td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280">Tracking #</td><td style="padding:4px 0;font-weight:600;font-family:monospace">${escHtml(tracking || '—')}</td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280">Ship to</td><td style="padding:4px 0">${escHtml(shipTo || '—')}</td></tr>
+    ${sample.product ? `<tr><td style="padding:4px 0;color:#6b7280">Product</td><td style="padding:4px 0">${escHtml(sample.product)}</td></tr>` : ''}
+  </table>
+  ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3>
+  <table style="border-collapse:collapse;width:100%;font-size:13px">
+    <thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th></tr></thead>
+    <tbody>${rows}</tbody></table>` : ''}
+  <p style="margin:20px 0 0">Thank you,<br/>The beyondGREEN Team</p>
+</div>`
+}
+
+function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: {
+  sample: Sample
+  lines?: Line[]
+  sb: ReturnType<typeof createSupabaseBrowserClient>
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [items, setItems] = useState<Line[]>(lines || [])
+  const [carrier, setCarrier] = useState(sample.shipped_via || '')
+  const [tracking, setTracking] = useState(sample.tracking_number || '')
+  const [shipTo, setShipTo] = useState(sample.ship_to_address || '')
+  const [recipient, setRecipient] = useState(sample.customer_email || '')
+  const [subject, setSubject] = useState(`Your beyondGREEN sample has shipped${sample.name ? ` — ${sample.name}` : ''}`)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const [sent, setSent] = useState(false)
+
+  useEffect(() => {
+    if (!lines || lines.length === 0) {
+      sb.from('sample_submission_lines').select('id,name,sku,quantity').eq('sample_id', sample.id).order('line_number')
+        .then(({ data }) => setItems((data as Line[]) || []))
+    }
+  }, [lines, sample.id, sb])
+
+  const html = useMemo(() => buildShippedEmail({ sample, items, carrier, tracking, shipTo }), [sample, items, carrier, tracking, shipTo])
+
+  async function sendAndMark() {
+    if (!recipient.trim()) { setError('A recipient email is required.'); return }
+    setSending(true); setError('')
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: recipient.trim(), subject, html }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Failed to send email')
+      const now = new Date().toISOString()
+      await sb.from('sample_submissions').update({
+        status: 'Shipped', shipped_via: carrier || null, tracking_number: tracking || null,
+        ship_to_address: shipTo || null, recipient_email: recipient.trim(),
+        shipped_at: now, shipped_email_sent_at: now, updated_at: now,
+      }).eq('id', sample.id)
+      setSent(true)
+      onDone()
+      setTimeout(onClose, 900)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+    setSending(false)
+  }
+
+  const inp = 'w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-[#1A1D2E]'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="font-bold text-lg text-[#1A1D2E]">Confirm Shipped</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Review the email, then send it to the recipient and mark this sample shipped.</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100"><i className="ti ti-x" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 gap-0">
+          {/* Shipment details */}
+          <div className="p-6 space-y-3 border-r border-[#E4E6EE]">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Shipment details</p>
+            <div><label className="text-xs font-medium text-gray-600 block mb-1">Carrier</label><input value={carrier} onChange={e => setCarrier(e.target.value)} placeholder="e.g., UPS, FedEx" className={inp} /></div>
+            <div><label className="text-xs font-medium text-gray-600 block mb-1">Tracking #</label><input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="1Z..." className={inp} /></div>
+            <div><label className="text-xs font-medium text-gray-600 block mb-1">Ship-to address</label><textarea value={shipTo} onChange={e => setShipTo(e.target.value)} rows={2} className={inp + ' resize-none'} /></div>
+            <div className="pt-2 border-t border-[#EEF0F4]"><label className="text-xs font-medium text-gray-600 block mb-1">Recipient email</label><input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="customer@email.com" className={inp} /></div>
+            <div><label className="text-xs font-medium text-gray-600 block mb-1">Subject</label><input value={subject} onChange={e => setSubject(e.target.value)} className={inp} /></div>
+          </div>
+          {/* Email preview */}
+          <div className="p-6 bg-[#F9FAFB]">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Email preview</p>
+            <div className="bg-white border border-[#E4E6EE] rounded-lg p-4 overflow-auto" style={{ maxHeight: 360 }} dangerouslySetInnerHTML={{ __html: html }} />
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-[#E4E6EE] flex items-center gap-3 justify-end shrink-0">
+          {error && <p className="text-sm text-red-600 mr-auto">{error}</p>}
+          {sent && <p className="text-sm text-emerald-600 mr-auto font-medium">Sent &amp; marked shipped ✓</p>}
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 font-medium rounded-lg hover:bg-gray-100">Cancel</button>
+          <button onClick={sendAndMark} disabled={sending || sent} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-lg flex items-center gap-2">
+            {sending ? 'Sending…' : <><i className="ti ti-send text-base" />Send &amp; Mark Shipped</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SamplesPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Sample[]>([])
@@ -197,6 +319,7 @@ export default function SamplesPage() {
   const [open, setOpen] = useState<string | null>(null)
   const [lines, setLines] = useState<Record<string, Line[]>>({})
   const [showAddModal, setShowAddModal] = useState(false)
+  const [shipSample, setShipSample] = useState<Sample | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -214,6 +337,14 @@ export default function SamplesPage() {
       const { data } = await sb.from('sample_submission_lines').select('id,name,sku,quantity').eq('sample_id', id).order('line_number')
       setLines(m => ({ ...m, [id]: (data as Line[]) || [] }))
     }
+  }
+
+  async function deleteSample(id: string, name: string | null) {
+    if (!confirm(`Delete sample submission${name ? ` "${name}"` : ''}? It will move to the Recycle Bin and can be restored.`)) return
+    await sb.from('sample_submission_lines').delete().eq('sample_id', id)
+    const { error } = await sb.from('sample_submissions').delete().eq('id', id)
+    if (error) { alert(error.message); return }
+    setOpen(null); load()
   }
 
   const statuses = ['All', ...Array.from(new Set(rows.map(r => r.status).filter(Boolean) as string[]))].slice(0, 14)
@@ -272,6 +403,14 @@ export default function SamplesPage() {
                     {isOpen && (
                       <tr key={r.id + '-d'} className="bg-[#F9FAFB]">
                         <td colSpan={8} className="px-8 py-3"><div className="mb-2" onClick={e => e.stopPropagation()}><ShareLink id={r.id} /></div>
+                          <div className="flex flex-wrap items-center gap-2 mb-3" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => setShipSample(r)} className="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg transition-colors">
+                              <i className="ti ti-truck-delivery text-sm" />Confirm Shipped &amp; Email
+                            </button>
+                            <button onClick={() => deleteSample(r.id, r.name)} className="inline-flex items-center gap-1.5 text-xs font-medium border border-red-300 text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors">
+                              <i className="ti ti-trash text-sm" />Delete
+                            </button>
+                          </div>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs mb-3">
                             <div><span className="text-gray-400">Facility: </span><span className="text-gray-700">{r.requesting_facility || '—'}</span></div>
                             <div><span className="text-gray-400">Type: </span><span className="text-gray-700">{r.customer_type || '—'}</span></div>
@@ -294,6 +433,7 @@ export default function SamplesPage() {
       </div>
 
       <AddSampleModal open={showAddModal} onClose={() => setShowAddModal(false)} onCreated={load} sb={sb} />
+      {shipSample && <ShipConfirmModal sample={shipSample} lines={lines[shipSample.id]} sb={sb} onClose={() => setShipSample(null)} onDone={load} />}
     </div>
   )
 }
