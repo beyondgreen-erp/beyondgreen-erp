@@ -16,6 +16,16 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // Only these users may generate AI drafts. Everyone else is logged and refused.
 const AI_ALLOWED = ['rudyp@beyondgreenbiotech.com'];
 
+// Distributors beyondGREEN already supplies — named for credibility when the recipient is NOT itself a distributor.
+const DISTRIBUTORS = [
+  'Sysco Corporation', 'US Foods', 'Performance Foodservice', 'Gordon Food Service (GFS)',
+  'Ben E. Keith Company', 'Shamrock Foods Company', 'Nicholas & Company', 'Bunzl North America',
+  'United Natural Foods (UNFI)', 'Vistar', 'Imperial Dade', 'Edward Don & Co', 'SSP America',
+];
+
+const LOGO_URL = 'https://beyondgreen-erp.vercel.app/email-logo.png';
+const CATALOG_URL = 'https://beyondgreen-erp.vercel.app/bG-catalog.pdf';
+
 // Per-user email signatures, appended automatically on send. Keyed by login email (lowercase).
 const SIGNATURES: Record<string, { text: string; html: string }> = {
   'rudyp@beyondgreenbiotech.com': {
@@ -26,7 +36,8 @@ beyondGREEN biotech, Inc.
 rudyp@beyondGREENbiotech.com
 1202 E. Wakeham Ave., Santa Ana, CA 92705
 beyondgreenbiotech.com`,
-    html: `<div style="margin-top:18px;padding-top:12px;border-top:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#374151;line-height:1.5">
+    html: `<div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#374151;line-height:1.5">
+<div style="margin-bottom:8px"><img src="${LOGO_URL}" alt="beyondGREEN biotech" width="180" style="width:180px;max-width:62%;height:auto;display:block" /></div>
 <div style="font-weight:700;color:#1a2e1a">Rudy Patel</div>
 <div>Chief Business Development Officer</div>
 <div style="font-weight:600;color:#2E7D32">beyondGREEN biotech, Inc.</div>
@@ -113,12 +124,28 @@ export async function POST(req: NextRequest) {
 
     const catalog = (products || []).map((p: any) => `- [${p.sku}] ${p.description} (${p.category}; ${p.material || ''}${p.moq ? '; MOQ ' + p.moq : ''})`).join('\n');
 
-    const system = `You write B2B sales emails for beyondGREEN, a manufacturer of certified-compostable foodservice and packaging products. Keep it warm, concise (120-180 words), specific, and not hype-y. Reference the customer's field, name 2-4 chosen products, and end with a low-friction call to action (samples or a quick call) followed by a brief closing like "Best," on its own line. Do NOT add a sender name, title, contact details, or signature block — a signature is appended automatically.
+    const isDistributor = /distribut/i.test(`${cust.account_type || ''} ${cust.industry || ''}`);
+
+    const system = `You write B2B sales emails for beyondGREEN biotech, a US manufacturer of certified-compostable foodservice and packaging products. Your goal is to make the reader WANT to reply and switch to beyondGREEN.
+
+Weave in the strongest switch arguments (pick the 2-3 most relevant to this customer; do not dump all of them as a list):
+- PRICE: we can beat their current pricing on comparable compostable items.
+- HYBRID SUPPLY (lead with this when it fits): beyondGREEN both manufactures in the USA and sources offshore. On many SKUs that means a customer can get Made-in-USA product shipping NOW while their offshore order is still in transit — no stockout, no gap in supply.
+- Certified compostable, with third-party certifications provided up front.
+- Quality, reliability, and private-label capability.
+
+Reference the customer's field and name 2-4 specific products from the list that fit them. End with a low-friction call to action (free samples + a pricing comparison, or a quick 15-minute call) and a brief closing like "Best," on its own line.
+
+DISTRIBUTOR RULE: ${isDistributor
+  ? 'This recipient IS a distributor — do NOT list other distributors. Focus on margins, fill rates, landed cost, and private-label/house-brand opportunity.'
+  : `This recipient is NOT a distributor (they are an operator/brand/retailer/etc.). Include ONE credibility line naming 4-6 (not all) of the major distributors beyondGREEN already supplies, drawn from: ${DISTRIBUTORS.join(', ')}.`}
+
+Keep it 130-200 words, warm and confident, never hype-y or spammy. Do NOT add a sender name, title, contact details, or signature block — a signature is appended automatically.
 Return ONLY a JSON object: {"subject": string, "body": string}.`;
 
     const userMsg = mode === 'followup'
-      ? `Write a SHORT follow-up (3-4 sentences) because ${cust.company_name} hasn't replied to the email below. Do not be pushy.\n\nORIGINAL SUBJECT: ${prior_subject}\nORIGINAL BODY:\n${prior_body}`
-      : `Campaign type: ${type}.\nCustomer: ${cust.company_name}; contact: ${cust.contact_name || '(none — address generically)'}; field: ${cust.industry || 'unknown'}; status: ${cust.customer_status || ''}; lifetime spend: $${cust.lifetime_spend || 0}; last shipment: ${cust.last_shipment_date || 'none'}.\n\nChoose 2-4 best-fit products from:\n${catalog}`;
+      ? `Write a SHORT, compelling follow-up (3-5 sentences) because ${cust.company_name} hasn't replied to the email below. Add one fresh reason to switch (price or the hybrid US/offshore supply angle). Do not be pushy.\n\nORIGINAL SUBJECT: ${prior_subject}\nORIGINAL BODY:\n${prior_body}`
+      : `Campaign type: ${type}.\nCustomer: ${cust.company_name}; contact: ${cust.contact_name || '(none — address generically)'}; field: ${cust.industry || 'unknown'}; account type: ${cust.account_type || 'unknown'}; is distributor: ${isDistributor}; status: ${cust.customer_status || ''}; lifetime spend: $${cust.lifetime_spend || 0}; last shipment: ${cust.last_shipment_date || 'none'}.\n\nChoose 2-4 best-fit products from:\n${catalog}`;
 
     try {
       const msg = await anthropic.messages.create({
@@ -148,10 +175,12 @@ Return ONLY a JSON object: {"subject": string, "body": string}.`;
       .select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Build the email body once, with the sender's signature appended.
+    // Build the email body once: message + catalog link + signature.
     const sig = signatureFor(sent_by || '');
-    const textBody = sig ? `${emailBody}\n\n${sig.text}` : emailBody;
-    const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>${sig ? sig.html : ''}`;
+    const catalogText = `\n\nView our full catalog: ${CATALOG_URL}`;
+    const catalogHtml = `<div style="margin-top:16px"><a href="${CATALOG_URL}" style="display:inline-block;background:#2E7D32;color:#ffffff;text-decoration:none;font-family:Arial,sans-serif;font-size:13px;font-weight:700;padding:10px 18px;border-radius:6px">View our full catalog (PDF)</a></div>`;
+    const textBody = `${emailBody}${catalogText}${sig ? `\n\n${sig.text}` : ''}`;
+    const htmlBody = `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${emailBody.replace(/\n/g, '<br>')}</div>${catalogHtml}${sig ? sig.html : ''}`;
 
     let deliveredVia = 'none';
 
@@ -195,6 +224,46 @@ Return ONLY a JSON object: {"subject": string, "body": string}.`;
 
     await supabase.from('customer_outreach').update({ delivered_via: deliveredVia }).eq('id', data.id);
     return NextResponse.json({ ...data, delivered_via: deliveredVia });
+  }
+
+  // ---- MASS BLAST: queue a sequence for many selected customers (the runner sends them) ----
+  if (action === 'campaign_send') {
+    const { customer_ids, sent_by, follow_up_days = 4, max_follow_ups = 5 } = body;
+    if (!sent_by || !AI_ALLOWED.includes(String(sent_by).toLowerCase())) {
+      await supabase.from('campaign_access_log').insert({ email: sent_by || null, function_name: 'campaign_send', allowed: false, reason: 'not on allow-list' });
+      return NextResponse.json({ error: 'function logged, please ask your admin for access' }, { status: 403 });
+    }
+    if (!Array.isArray(customer_ids) || customer_ids.length === 0) {
+      return NextResponse.json({ error: 'customer_ids required' }, { status: 400 });
+    }
+
+    const campaign_id = crypto.randomUUID();
+    const { data: custs } = await supabase.from('customers')
+      .select('id, company_name, email, customer_status, do_not_contact').in('id', customer_ids);
+    const { data: contacts } = await supabase.from('customer_contacts')
+      .select('customer_id, email, is_primary').in('customer_id', customer_ids);
+
+    const emailByCust: Record<string, string> = {};
+    for (const ct of (contacts || []) as any[]) {
+      if (ct.email && (ct.is_primary || !emailByCust[ct.customer_id])) emailByCust[ct.customer_id] = ct.email;
+    }
+    for (const c of (custs || []) as any[]) { if (c.email && !emailByCust[c.id]) emailByCust[c.id] = c.email; }
+
+    let queued = 0; let skipped = 0;
+    for (const c of (custs || []) as any[]) {
+      const email = emailByCust[c.id];
+      if (!email || c.do_not_contact) { skipped++; continue; }
+      await supabase.from('customer_outreach').insert({
+        customer_id: c.id, sent_by, to_email: email, status: 'queued',
+        sequence_active: true, sequence_step: 0, max_follow_ups, follow_up_days, campaign_id,
+        subject: 'Campaign (queued)', body: '',
+      });
+      // Seed a starting win-probability if none yet.
+      const base = (c.customer_status || '').toLowerCase().includes('active') ? 50 : 30;
+      await supabase.from('customers').update({ probability: base }).eq('id', c.id).is('probability', null);
+      queued++;
+    }
+    return NextResponse.json({ ok: true, campaign_id, queued, skipped });
   }
 
   if (action === 'mark_responded') {
