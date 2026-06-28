@@ -110,7 +110,7 @@ async function getInventoryShorts() {
     console.error('Error fetching walmart inventory:', walmartError)
   }
 
-  return (walmartLow || []).map((item) => ({
+  return (walmartLow || []).map((item: any) => ({
     sku: item.sku,
     product_name: item.product_name,
     quantity: item.srps_available,
@@ -357,7 +357,7 @@ function buildEmailHtml(
           ${
             pendingTasks.length > 0
               ? pendingTasks
-                  .map((task) => {
+                  .map((task: any) => {
                     const isOverdue =
                       task.due_date && new Date(task.due_date) < new Date()
                     return (
@@ -391,7 +391,7 @@ function buildEmailHtml(
           ${
             orderUpdates.length > 0
               ? orderUpdates
-                  .map((order) => {
+                  .map((order: any) => {
                     const customer = Array.isArray(order.customers)
                       ? order.customers[0]?.company_name
                       : order.customers?.company_name
@@ -444,7 +444,7 @@ function buildEmailHtml(
             invoiceData.overdue.length > 0
               ? '<p style="margin: 0 0 12px; color: #ef4444; font-weight: 600;">Overdue Invoices:</p>' +
                 invoiceData.overdue
-                  .map((inv) => {
+                  .map((inv: any) => {
                     const customer = Array.isArray(inv.customers)
                       ? inv.customers[0]?.company_name
                       : inv.customers?.company_name
@@ -465,7 +465,7 @@ function buildEmailHtml(
             invoiceData.recent.length > 0
               ? '<p style="margin: 16px 0 12px; color: #10b981; font-weight: 600;">Recently Created:</p>' +
                 invoiceData.recent
-                  .map((inv) => {
+                  .map((inv: any) => {
                     const customer = Array.isArray(inv.customers)
                       ? inv.customers[0]?.company_name
                       : inv.customers?.company_name
@@ -535,7 +535,7 @@ export async function GET() {
 
     // Send to all team members
     const sendResults = await Promise.allSettled(
-      TEAM_EMAILS.map((email) =>
+      TEAM_EMAILS.map((email: any) =>
         resend?.emails.send({
           from: 'beyondGREEN ERP <onboarding@resend.dev>',
           to: email,
@@ -545,8 +545,8 @@ export async function GET() {
       )
     )
 
-    const successful = sendResults.filter((r) => r.status === 'fulfilled').length
-    const failed = sendResults.filter((r) => r.status === 'rejected').length
+    const successful = sendResults.filter((r: any) => r.status === 'fulfilled').length
+    const failed = sendResults.filter((r: any) => r.status === 'rejected').length
 
     console.log(`Good morning emails: ${successful} sent, ${failed} failed`)
 
