@@ -17,8 +17,8 @@ const NAV: NavSection[] = [
 { href: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask' },
 ]},
 { label: 'Sales', items: [
-{ href: '/sales/costing', label: 'Quick Quote', icon: 'ti-calculator' },
 { href: '/sales/quotations', label: 'Quotations', icon: 'ti-file-invoice' },
+{ href: '/sales/costing', label: 'Quote Costing', icon: 'ti-calculator' },
 { href: '/sales/orders', label: 'Sales Orders', icon: 'ti-shopping-cart' },
 { href: '/production/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', badgeKey: 'shippingQueue' },
 { href: '/shipments', label: 'Shipments', icon: 'ti-package-export' },
