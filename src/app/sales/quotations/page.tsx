@@ -92,6 +92,9 @@ export default function QuotationsPage() {
   const [editing, setEditing] = useState<Quote | null>(null)
   const [panelTab, setPanelTab] = useState<'overview' | 'lines' | 'notes' | 'comments'>('overview')
   const [saving, setSaving] = useState(false)
+  const [rfqModalOpen, setRfqModalOpen] = useState(false)
+  const [rfqSending, setRfqSending] = useState(false)
+  const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set())
 
   // Form state
   const [form, setForm] = useState({
@@ -193,6 +196,37 @@ export default function QuotationsPage() {
     setProductSearch('')
     setProductResults([])
     setConfirmConvert(null)
+    setRfqModalOpen(false)
+    setSelectedRecipients(new Set())
+  }
+
+  async function handleSendRfq() {
+    if (!editing || selectedRecipients.size === 0) return
+    setRfqSending(true)
+    try {
+      const recipients = Array.from(selectedRecipients)
+      for (const recipient of recipients) {
+        const response = await fetch('/api/rfq/generate-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quote_costing_id: editing.id,
+            recipient: recipient,
+          }),
+        })
+        if (!response.ok) {
+          const err = await response.json()
+          throw new Error(err.error || 'Failed to generate RFQ token')
+        }
+      }
+      setRfqModalOpen(false)
+      setSelectedRecipients(new Set())
+      alert('RFQ sent successfully to ' + Array.from(selectedRecipients).join(' and '))
+    } catch (err: any) {
+      alert('Error sending RFQ: ' + err.message)
+    } finally {
+      setRfqSending(false)
+    }
   }
 
   function updateLine(i: number, field: string, value: any) {
@@ -408,14 +442,25 @@ export default function QuotationsPage() {
             {loading ? 'Loading…' : `${filtered.length} quotation${filtered.length !== 1 ? 's' : ''}${statusFilter !== 'All' ? ` · ${statusFilter}` : ''}`}
           </p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
-          style={{ background: '#3B6FE0' }}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          New Quote
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={openNew}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
+            style={{ background: '#3B6FE0' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            New Quote
+          </button>
+          <a
+            href="/sales/costing"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
+            style={{ background: '#8b5cf6' }}
+            title="Create quote with AI assistance"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            Create with AI
+          </a>
+        </div>
       </div>
 
       <div className="px-8 py-6">
@@ -874,7 +919,18 @@ export default function QuotationsPage() {
 
         {/* Panel Footer */}
         <div className="px-6 py-4 border-t flex items-center justify-between shrink-0" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
-          <div>
+          <div className="flex items-center gap-3">
+            {editing && (
+              <button
+                onClick={() => setRfqModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors text-white"
+                style={{ background: '#10b981' }}
+                title="Send RFQ to suppliers"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                Send RFQ
+              </button>
+            )}
             {editing && editing.status !== 'Converted' && (
               confirmConvert === editing.id ? (
                 <div className="flex items-center gap-2">
@@ -931,6 +987,71 @@ export default function QuotationsPage() {
               style={{ background: '#3B6FE0' }}
             >
               {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Quote'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* RFQ MODAL */}
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300"
+        style={{
+          background: 'rgba(0,0,0,0.5)',
+          opacity: rfqModalOpen ? 1 : 0,
+          pointerEvents: rfqModalOpen ? 'auto' : 'none',
+        }}
+        onClick={() => setRfqModalOpen(false)}
+      >
+        <div
+          className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4"
+          onClick={e => e.stopPropagation()}
+          style={{ background: '#FFFFFF' }}
+        >
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold mb-2" style={{ color: '#1A1D2E' }}>
+              Send RFQ
+            </h3>
+            <p className="text-sm" style={{ color: '#6B7280' }}>
+              Select suppliers to send pricing request for {editing?.quote_number}
+            </p>
+          </div>
+
+          <div className="space-y-3 mb-6">
+            {['Ameer', 'Veejay'].map(supplier => (
+              <label key={supplier} className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-blue-50" style={{ borderColor: '#E4E6EE' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedRecipients.has(supplier)}
+                  onChange={() => {
+                    const next = new Set(selectedRecipients)
+                    if (next.has(supplier)) next.delete(supplier)
+                    else next.add(supplier)
+                    setSelectedRecipients(next)
+                  }}
+                  className="w-4 h-4 rounded accent-blue-600"
+                />
+                <span className="text-sm font-medium" style={{ color: '#1A1D2E' }}>
+                  {supplier}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setRfqModalOpen(false)}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50"
+              style={{ borderColor: '#E4E6EE', color: '#6B7280' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSendRfq}
+              disabled={rfqSending || selectedRecipients.size === 0}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
+              style={{ background: '#10b981' }}
+            >
+              {rfqSending ? 'Sending…' : 'Send RFQ'}
             </button>
           </div>
         </div>
