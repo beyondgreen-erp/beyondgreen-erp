@@ -172,10 +172,10 @@ export default React.memo(function CurrentWeekReport({
                   )}
                 </td>
                 <td className={`px-4 py-3 text-center font-semibold ${mat1Delta.isNegative ? 'text-red-600' : 'text-green-600'}`}>
-                  {mat1Delta.value}
+                  {mat1Delta.text}
                 </td>
                 <td className={`px-4 py-3 text-center font-semibold ${unitPkgDelta.isNegative ? 'text-red-600' : 'text-green-600'}`}>
-                  {unitPkgDelta.value}
+                  {unitPkgDelta.text}
                 </td>
                 <td className="px-4 py-3 text-center space-x-2">
                   {isEditing ? (
