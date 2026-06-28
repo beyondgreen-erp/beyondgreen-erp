@@ -8,12 +8,10 @@ export function formatNumber(value: number | null | undefined): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 2 })
 }
 
-export function formatDelta(value: number | null | undefined): { value: string; isNegative: boolean } {
-  const n = Number(value ?? 0)
+export function formatDelta(value: number | null | undefined): { text: string; isNegative: boolean } {  const n = Number(value ?? 0)
   const isNegative = n < 0
   const sign = n > 0 ? '+' : ''
-  return { value: `${sign}${formatNumber(n)}`, isNegative }
-}
+    return { text: `${sign}${formatNumber(n)}`, isNegative }}
 
 export function useReportCalculations(items: ReportLineItem[]): ReportCalculations {
   return useMemo(() => {
