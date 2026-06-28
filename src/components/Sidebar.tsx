@@ -25,6 +25,7 @@ const NAV: NavSection[] = [
 { href: '/operations/fba', label: 'FBA / WFS', icon: 'ti-brand-amazon' },
 ]},
 { label: 'Production', items: [
+{ href: '/production/reports', label: 'Production Reports', icon: 'ti-chart-line' },
 { href: '/production/daily-plan', label: 'Daily Plan', icon: 'ti-calendar-week' },
 { href: '/production/work-orders', label: 'Work Orders', icon: 'ti-tool', badgeKey: 'workOrders' },
 { href: '/production/quality-control', label: 'Quality Control', icon: 'ti-checkup-list' },
