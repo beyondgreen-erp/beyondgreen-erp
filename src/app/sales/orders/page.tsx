@@ -147,7 +147,7 @@ function SkuAssign({ lineId, onAssigned }: { lineId: string; onAssigned: (sku: s
       const { data } = await sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
       setResults((data ?? []) as Product[])
       setOpen(true)
-    }, 200)Page_DownPage_DownPage_DownPage_DownPage_Dow
+    }, 200)
     return () => clearTimeout(t)
   }, [q, sb])
 
