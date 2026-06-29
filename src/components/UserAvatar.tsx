@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
-const DICEBEAR = 'https://api.dicebear.com/9.x/avataaars/svg'
+const DICEBEAR = '/api/avatar'
 
 const FRAME_DECO: Record<string, { bg: string; glow?: string; anim?: string }> = {
   bronze: { bg: '#cd7f32' }, silver: { bg: '#cfd4da' },
