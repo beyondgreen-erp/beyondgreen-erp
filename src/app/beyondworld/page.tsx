@@ -7,7 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 interface Profile { user_email: string; display_name: string | null; avatar_config: any; equipped: any; beyond_dollars: number; xp: number; level: number; last_daily?: string | null; daily_streak?: number }
 interface Item { id: string; name: string; category: string; slot: string; price: number; rarity: string; level_req: number; asset: any; sort: number }
 
-const DICEBEAR = 'https://api.dicebear.com/9.x/avataaars/svg'
+const DICEBEAR = '/api/avatar'
 const BOX_COST = 120
 const SKIN = ['ffdbb4','edb98a','fd9841','d08b5b','ae5d29','614335']
 const TOP = ['shortFlat','shortWaved','shortCurly','shortRound','theCaesar','sides','dreads01','curly','bun','bob','longButNotTooLong','straight01','straight02','frizzle','shaggy','fro','bigHair','miaWallace']
