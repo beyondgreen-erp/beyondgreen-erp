@@ -68,7 +68,7 @@ interface Product { id: string; sku: string; product_name: string; unit_cost: nu
 interface Customer { id: string; company_name: string }
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const SECTIONS = ['Make To Stock','Private Label','Straw Orders','Customer DropShip','Injection Molding','Paper Products','Outsourced']
+const SECTIONS = ['Walmart','Chewy','Make To Stock','Private Label','Straw Orders','Customer DropShip','Injection Molding','Paper Products','Outsourced']
 const SECTION_TABS = ['All', ...SECTIONS]
 const STATUSES = [
   'Pending','New','Confirmed',
