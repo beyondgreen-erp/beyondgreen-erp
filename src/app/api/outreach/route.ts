@@ -25,7 +25,7 @@ const DISTRIBUTORS = [
 
 const APP_URL = 'https://beyondgreen-erp.vercel.app';
 const LOGO_URL = `${APP_URL}/email-logo.png`;
-const CATALOG_URL = `${APP_URL}/bG-catalog.pdf`;
+const CATALOG_URL = 'https://beyondgreen-catalog.vercel.app';
 
 // Per-user email signatures, appended automatically on send. Keyed by login email (lowercase).
 const SIGNATURES: Record<string, { text: string; html: string }> = {
