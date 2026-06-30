@@ -16,7 +16,8 @@ export async function middleware(request: NextRequest) {
     pathname === '/sw.js' ||
     pathname === '/manifest.json' ||
     pathname.endsWith('.png') ||
-    pathname.endsWith('.ico')
+    pathname.endsWith('.ico') ||
+    /\.(?:pdf|jpg|jpeg|gif|svg|webp|txt|csv|xml|webmanifest|woff|woff2|ttf|otf|html)$/i.test(pathname)
   ) {
     return NextResponse.next()
   }
