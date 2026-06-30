@@ -95,6 +95,19 @@ export default function DocumentsPage() {
 
   function resolveFile(r:Doc){ const fa=fileMap[r.id]; if(fa) return fa; if(r.source_file_path) return {path:r.source_file_path,name:r.source_file_path.split('/').pop()||'file'}; return null }
   function hasFile(r:Doc){ return !!resolveFile(r) }
+  function fileIcon(r:Doc){
+    const f=resolveFile(r); const ext=(f?.name||'').split('.').pop()?.toLowerCase()||''
+    if(ext==='pdf') return {icon:'ti-file-type-pdf',color:'#DC2626'}
+    if(['doc','docx'].includes(ext)) return {icon:'ti-file-type-doc',color:'#2563EB'}
+    if(['xls','xlsx'].includes(ext)) return {icon:'ti-file-type-xls',color:'#16A34A'}
+    if(ext==='csv') return {icon:'ti-file-type-csv',color:'#16A34A'}
+    if(['ppt','pptx'].includes(ext)) return {icon:'ti-file-type-ppt',color:'#EA580C'}
+    if(['png','jpg','jpeg','gif','webp','svg','bmp','heic'].includes(ext)) return {icon:'ti-photo',color:'#7C3AED'}
+    if(['txt','md','rtf'].includes(ext)) return {icon:'ti-file-text',color:'#6B7280'}
+    if(['zip','rar','7z'].includes(ext)) return {icon:'ti-file-zip',color:'#CA8A04'}
+    if(!f) return {icon:'ti-file-description',color:'#9CA3AF'}
+    return {icon:'ti-file',color:'#6B7280'}
+  }
   async function viewFile(r:Doc){ const f=resolveFile(r); if(!f){alert('No file attached to this document.');return} const url=await getFileUrl(sb,f.path); if(url) window.open(url,'_blank'); else alert('Could not open the file.') }
   async function downloadDoc(r:Doc){ const f=resolveFile(r); if(!f){alert('No file attached to this document.');return} await downloadFile(sb,f.path,f.name) }
 
@@ -151,38 +164,40 @@ export default function DocumentsPage() {
       :groups.length===0?<div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived documents.':'No documents yet — drop a file with Quick Upload to get started.'}</p></div>
       :<div className="space-y-3">{groups.map(g=>{
         const isCol=collapsed.has(g.cat)
-        return <div key={g.cat} className="rounded-xl border border-[#E4E6EE] bg-white overflow-hidden">
+        return <div key={g.cat} className="rounded-xl border border-[#E4E6EE] bg-white">
           <button onClick={()=>toggleCat(g.cat)} className="w-full flex items-center gap-2.5 px-5 py-3 hover:bg-[#F9FAFB] transition-colors text-left">
             <i className={`ti ti-chevron-${isCol?'right':'down'} text-gray-400`}/>
             <span className={`text-xs px-2 py-1 rounded-full font-medium border ${CC[g.cat]||CC.Other}`}>{g.cat}</span>
             <span className="text-sm text-gray-500">{g.docs.length} document{g.docs.length!==1?'s':''}</span>
           </button>
-          {!isCol&&<div className="divide-y divide-[#E4E6EE]/60 border-t border-[#E4E6EE]">{g.docs.map(r=>{
+          {!isCol&&<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 p-4 border-t border-[#E4E6EE]">{g.docs.map(r=>{
             const reviewDue=isDueForReview(r.review_date,r.status)
-            return <div key={r.id} className={`px-5 py-3.5 transition-colors ${reviewDue?'bg-amber-500/[0.04] hover:bg-amber-500/10':'hover:bg-[#F9FAFB]'}`}>
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0 cursor-pointer" onClick={()=>openEdit(r)}>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[#1A1D2E] font-medium">{r.title}</span>
-                    {r.version&&<span className="text-xs text-gray-400 font-mono">v{r.version}</span>}
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${SC[r.status]||SC.Active}`}>{r.status}</span>
-                    {reviewDue&&<span className="text-xs text-amber-500 font-medium">Review due</span>}
-                    {r.ai_processed_at&&<span title="Analyzed by AI" className="text-violet-500"><i className="ti ti-sparkles text-xs"/></span>}
-                    {hasFile(r)&&<span title="File attached" className="text-gray-400"><i className="ti ti-paperclip text-xs"/></span>}
-                  </div>
-                  {r.ai_summary&&<p className="text-xs text-gray-500 mt-1 line-clamp-2 max-w-2xl">{r.ai_summary}</p>}
-                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                    {r.customer_id&&cmap[r.customer_id]&&<Chip icon="ti-user" text={cmap[r.customer_id]} cls="bg-blue-500/10 text-blue-600 border-blue-500/20"/>}
-                    {r.vendor_id&&vmap[r.vendor_id]&&<Chip icon="ti-building-store" text={vmap[r.vendor_id]} cls="bg-amber-500/10 text-amber-600 border-amber-500/20"/>}
-                    {r.order_id&&omap[r.order_id]&&<Chip icon="ti-shopping-cart" text={omap[r.order_id]} cls="bg-sky-500/10 text-sky-600 border-sky-500/20"/>}
-                    {r.certification_id&&cemap[r.certification_id]&&<Chip icon="ti-rosette" text={cemap[r.certification_id]} cls="bg-emerald-500/10 text-emerald-600 border-emerald-500/20"/>}
-                    {!(r.customer_id&&cmap[r.customer_id])&&!(r.vendor_id&&vmap[r.vendor_id])&&!(r.order_id&&omap[r.order_id])&&!(r.certification_id&&cemap[r.certification_id])&&<span className="text-xs text-gray-300">No links yet</span>}
-                  </div>
+            const fi=fileIcon(r); const f=resolveFile(r)
+            return <div key={r.id} id={'item-'+r.id} className="group relative">
+              <button onClick={()=>openEdit(r)} title={`${r.title}${r.version?` v${r.version}`:''} — ${r.category} · ${r.status}${r.owner?` · ${r.owner}`:''}`} className={`w-full flex flex-col items-center gap-2 p-3 rounded-xl border border-transparent hover:border-[#E4E6EE] hover:bg-[#F9FAFB] transition-colors text-center ${reviewDue?'bg-amber-500/[0.05]':''}`}>
+                <div className="relative"><i className={`ti ${fi.icon}`} style={{color:fi.color,fontSize:'2.6rem',lineHeight:1}}/>{r.ai_processed_at&&<i className="ti ti-sparkles text-[11px] text-violet-500 absolute -top-1 -right-2" title="Analyzed by AI"/>}</div>
+                <span className="text-xs font-medium text-[#1A1D2E] leading-tight line-clamp-2 break-words w-full">{r.title}</span>
+                <div className="flex items-center gap-1 flex-wrap justify-center">{r.version&&<span className="text-[10px] text-gray-400 font-mono">v{r.version}</span>}<span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${SC[r.status]||SC.Active}`}>{r.status}</span>{reviewDue&&<span className="text-[10px] text-amber-500 font-medium">Review</span>}</div>
+              </button>
+              <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                <button onClick={(e)=>{e.stopPropagation();viewFile(r)}} disabled={!f} title={f?'View file':'No file'} className="p-1 rounded-md bg-white border border-[#E4E6EE] text-gray-400 hover:text-violet-600 disabled:opacity-30 disabled:hover:text-gray-400"><i className="ti ti-eye text-sm"/></button>
+                <button onClick={(e)=>{e.stopPropagation();downloadDoc(r)}} disabled={!f} title={f?'Download':'No file'} className="p-1 rounded-md bg-white border border-[#E4E6EE] text-gray-400 hover:text-violet-600 disabled:opacity-30 disabled:hover:text-gray-400"><i className="ti ti-download text-sm"/></button>
+              </div>
+              <div className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity absolute left-1/2 -translate-x-1/2 top-full mt-1 z-30 w-64 bg-white border border-[#E4E6EE] rounded-xl shadow-xl p-3 text-left">
+                <p className="text-sm font-semibold text-[#1A1D2E] break-words leading-snug">{r.title}</p>
+                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap"><span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${CC[r.category]||CC.Other}`}>{r.category}</span><span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${SC[r.status]||SC.Active}`}>{r.status}</span>{r.version&&<span className="text-[10px] text-gray-400 font-mono">v{r.version}</span>}</div>
+                {r.ai_summary&&<p className="text-xs text-gray-500 mt-2 line-clamp-4 leading-relaxed">{r.ai_summary}</p>}
+                <div className="mt-2 pt-2 border-t border-[#E4E6EE]/60 space-y-1.5 text-[11px] text-gray-500">
+                  {f?<div className="flex items-center gap-1.5 min-w-0"><i className={`ti ${fi.icon} shrink-0`} style={{color:fi.color}}/><span className="truncate">{f.name}</span></div>:<div className="text-gray-300">No file attached</div>}
+                  {r.owner&&<div className="flex items-center gap-1.5"><i className="ti ti-user"/><span>{r.owner}</span></div>}
+                  {r.effective_date&&<div className="flex items-center gap-1.5"><i className="ti ti-calendar"/><span>Effective {r.effective_date}</span></div>}
+                  {r.review_date&&<div className="flex items-center gap-1.5"><i className="ti ti-calendar-event"/><span>Review {r.review_date}</span></div>}
                 </div>
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button onClick={()=>viewFile(r)} disabled={!hasFile(r)} title={hasFile(r)?'View file':'No file'} className={`${iconBtn} disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400`}><i className="ti ti-eye"/></button>
-                  <button onClick={()=>downloadDoc(r)} disabled={!hasFile(r)} title={hasFile(r)?'Download':'No file'} className={`${iconBtn} disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400`}><i className="ti ti-download"/></button>
-                  <button onClick={()=>openEdit(r)} title="Open" className={iconBtn}><i className="ti ti-pencil"/></button>
+                <div className="flex flex-wrap items-center gap-1 mt-2">
+                  {r.customer_id&&cmap[r.customer_id]&&<Chip icon="ti-user" text={cmap[r.customer_id]} cls="bg-blue-500/10 text-blue-600 border-blue-500/20"/>}
+                  {r.vendor_id&&vmap[r.vendor_id]&&<Chip icon="ti-building-store" text={vmap[r.vendor_id]} cls="bg-amber-500/10 text-amber-600 border-amber-500/20"/>}
+                  {r.order_id&&omap[r.order_id]&&<Chip icon="ti-shopping-cart" text={omap[r.order_id]} cls="bg-sky-500/10 text-sky-600 border-sky-500/20"/>}
+                  {r.certification_id&&cemap[r.certification_id]&&<Chip icon="ti-rosette" text={cemap[r.certification_id]} cls="bg-emerald-500/10 text-emerald-600 border-emerald-500/20"/>}
                 </div>
               </div>
             </div>
