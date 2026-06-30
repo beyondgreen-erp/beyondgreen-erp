@@ -9,12 +9,25 @@ interface Entry {
 }
 interface Source { type: string; title: string; id: string }
 
-const SRC_STYLE: Record<string, string> = {
-  manual: 'bg-blue-500/15 text-blue-600 border-blue-500/20',
-  document: 'bg-violet-500/15 text-violet-600 border-violet-500/20',
-  knowledge: 'bg-teal-500/15 text-teal-600 border-teal-500/20',
-}
 const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition'
+
+const knowLevel = (n: number) => n >= 26 ? 'Expert' : n >= 13 ? 'Deep' : n >= 6 ? 'Solid' : n >= 3 ? 'Growing' : 'Sparse'
+function catIcon(c: string): string {
+  const k = (c || '').toLowerCase()
+  if (/cert|complian/.test(k)) return 'ti-rosette'
+  if (/contract|legal|agree/.test(k)) return 'ti-file-certificate'
+  if (/spec|product|sku|cutlery|cup|straw/.test(k)) return 'ti-box'
+  if (/sds|safety|chem|material/.test(k)) return 'ti-flask'
+  if (/quality|qc|test/.test(k)) return 'ti-checkup-list'
+  if (/draw|design|art/.test(k)) return 'ti-ruler-2'
+  if (/policy|sop|procedure|process/.test(k)) return 'ti-clipboard-text'
+  if (/customer|sales|client/.test(k)) return 'ti-users'
+  if (/vendor|supplier|manufactur/.test(k)) return 'ti-building-store'
+  if (/ship|logist|freight|deliver/.test(k)) return 'ti-truck'
+  if (/produc|capacity|machine|lot/.test(k)) return 'ti-building-factory-2'
+  if (/finance|invoice|cost|price/.test(k)) return 'ti-receipt'
+  return 'ti-book'
+}
 
 export default function UniversityPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
@@ -44,11 +57,19 @@ export default function UniversityPage() {
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, []) // eslint-disable-line
 
-  const filtered = rows.filter(r => {
-    if (!search) return true
-    const t = search.toLowerCase()
-    return r.title.toLowerCase().includes(t) || r.content.toLowerCase().includes(t) || (r.category || '').toLowerCase().includes(t) || (r.tags || '').toLowerCase().includes(t)
-  })
+  const cats = useMemo(() => {
+    const m: Record<string, { category: string; count: number; chars: number; doc: number; manual: number; knowledge: number; updated: number }> = {}
+    for (const r of rows) {
+      const c = r.category || 'General'
+      if (!m[c]) m[c] = { category: c, count: 0, chars: 0, doc: 0, manual: 0, knowledge: 0, updated: 0 }
+      const e = m[c]; e.count++; e.chars += (r.content || '').length
+      if (r.source === 'document') e.doc++; else if (r.source === 'knowledge') e.knowledge++; else e.manual++
+      const t = new Date(r.created_at).getTime(); if (t > e.updated) e.updated = t
+    }
+    return Object.values(m).map(e => ({ ...e, score: e.count + e.chars / 600 })).sort((a, b) => b.score - a.score)
+  }, [rows])
+  const maxScore = Math.max(1, ...cats.map(c => c.score))
+  const visibleCats = cats.filter(c => !search || c.category.toLowerCase().includes(search.toLowerCase()))
 
   async function ask(e?: React.FormEvent) {
     e?.preventDefault()
@@ -135,33 +156,59 @@ export default function UniversityPage() {
 
       <div className="relative max-w-sm mb-4">
         <i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-        <input placeholder="Search the University…" value={search} onChange={e => setSearch(e.target.value)} className={inp + ' pl-9'} />
+        <input placeholder="Filter categories…" value={search} onChange={e => setSearch(e.target.value)} className={inp + ' pl-9'} />
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-20"><i className="ti ti-loader-2 animate-spin text-gray-400 text-xl" /></div>
-      ) : filtered.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="rounded-xl border border-[#E4E6EE] bg-white py-20 text-center">
           <i className="ti ti-school text-3xl text-gray-300" />
-          <p className="text-gray-500 text-sm mt-2">{search ? 'No matches.' : 'The University is empty. Add knowledge or analyze documents to fill it.'}</p>
+          <p className="text-gray-500 text-sm mt-2">The University is empty. Add knowledge or analyze documents to fill it.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {filtered.map(r => (
-            <div key={r.id} className="rounded-xl border border-[#E4E6EE] bg-white p-4 hover:border-violet-300 transition-colors">
-              <div className="flex items-start justify-between gap-2 mb-1.5">
-                <p className="text-sm font-semibold text-[#1A1D2E]">{r.title}</p>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${SRC_STYLE[r.source] || SRC_STYLE.manual}`}>{r.source}</span>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            {[
+              { label: 'Knowledge entries', value: rows.length, icon: 'ti-book' },
+              { label: 'Categories known', value: cats.length, icon: 'ti-category-2' },
+              { label: 'From documents', value: docCount, icon: 'ti-files' },
+              { label: 'Added by team', value: manualCount, icon: 'ti-user-plus' },
+            ].map(s2 => (
+              <div key={s2.label} className="rounded-xl border border-[#E4E6EE] bg-white p-4">
+                <div className="flex items-center gap-2 text-violet-500 mb-0.5"><i className={`ti ${s2.icon}`} /><span className="text-2xl font-bold text-[#1A1D2E]">{s2.value}</span></div>
+                <p className="text-xs text-gray-500">{s2.label}</p>
               </div>
-              <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed line-clamp-6">{r.content}</p>
-              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-[#E4E6EE]/70">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#F3F4F6] text-gray-600 border border-[#E4E6EE]">{r.category}</span>
-                {r.created_by && <span className="text-[10px] text-gray-400">· {r.created_by}</span>}
-                <span className="text-[10px] text-gray-400 ml-auto">{new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <p className="text-sm font-semibold text-[#1A1D2E] mb-3 flex items-center gap-2"><i className="ti ti-chart-bar text-violet-600" />How much the University knows by category</p>
+          <div className="rounded-xl border border-[#E4E6EE] bg-white p-5 space-y-4">
+            {visibleCats.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">No categories match.</p>
+            ) : visibleCats.map(c => {
+              const pct = Math.max(6, Math.round(c.score / maxScore * 100))
+              return (
+                <div key={c.category}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="w-7 h-7 rounded-lg bg-violet-500/10 text-violet-600 flex items-center justify-center shrink-0"><i className={`ti ${catIcon(c.category)} text-sm`} /></span>
+                    <span className="text-sm font-medium text-[#1A1D2E]">{c.category}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-600 border border-violet-500/20">{knowLevel(c.count)}</span>
+                    <span className="text-xs text-gray-400 ml-auto">{c.count} entr{c.count !== 1 ? 'ies' : 'y'}</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-[#F1F0F8] overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: pct + '%', background: 'linear-gradient(90deg,#a78bfa,#7c3aed)' }} />
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400 flex-wrap">
+                    {c.doc > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-violet-500" />{c.doc} from documents</span>}
+                    {c.manual > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500" />{c.manual} added by team</span>}
+                    {c.knowledge > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-teal-500" />{c.knowledge} learned</span>}
+                    <span className="ml-auto">updated {new Date(c.updated).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )
