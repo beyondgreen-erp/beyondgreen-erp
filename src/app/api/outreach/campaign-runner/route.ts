@@ -29,7 +29,7 @@ const DISTRIBUTORS = [
 ];
 const APP_URL = 'https://beyondgreen-erp.vercel.app';
 const LOGO_URL = `${APP_URL}/email-logo.png`;
-const CATALOG_URL = `${APP_URL}/bG-catalog.pdf`;
+const CATALOG_URL = 'https://beyondgreen-catalog.vercel.app';
 
 const SIG_HTML = `<div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#374151;line-height:1.5">
 <div style="margin-bottom:8px"><img src="${LOGO_URL}" alt="beyondGREEN biotech" width="180" style="width:180px;max-width:62%;height:auto;display:block" /></div>
