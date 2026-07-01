@@ -44,6 +44,7 @@ export default function RemindersWidget() {
   const [loading, setLoading] = useState(true)
   const [tableExists, setTableExists] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
   const [form, setForm] = useState({
     title: '', notes: '', due_date: '', due_time: '',
     priority: 'medium', reminder_type: 'personal', color: '#1D9E75',
@@ -169,7 +170,7 @@ export default function RemindersWidget() {
 
   return (
     <>
-    <div className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
+    <div className={expanded ? "fixed inset-0 z-50 bg-white overflow-y-auto" : "bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden"}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
         <div className="flex items-center gap-2.5">
@@ -198,6 +199,13 @@ export default function RemindersWidget() {
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
             Add
+          </button>
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="flex items-center gap-1.5 bg-[#F1F2F6] hover:bg-[#E4E6EE] text-[#1A1D2E] text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            title={expanded ? 'Close full screen' : 'Expand to full screen'}
+          >
+            {expanded ? 'Close' : 'Expand'}
           </button>
         </div>
       </div>
@@ -266,7 +274,7 @@ export default function RemindersWidget() {
       )}
 
       {/* List */}
-      <div className="divide-y divide-[#E4E6EE] max-h-80 overflow-y-auto">
+      <div className={"divide-y divide-[#E4E6EE] overflow-y-auto " + (expanded ? "max-h-[calc(100vh-140px)]" : "max-h-80")}>
         {loading && (
           <div className="p-8 text-center text-[#5A5A6A] text-sm">Loading reminders…</div>
         )}
