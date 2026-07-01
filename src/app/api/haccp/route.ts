@@ -9,8 +9,8 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-haiku-4-5-20251001';
 
-const COMPLAINT_FIELDS = ['title','product','platform','complaint_received_date','complaint','resolution','customer_email','complaint_number','status'];
-const CAPA_FIELDS = ['capa_number','capa_date','department','responsible_person','description','immediate_correction','why1','why2','why3','why4','why5','root_cause','corrective_action','corrective_target_date','corrective_effective','preventive_action','preventive_target_date','preventive_effective','verified_by','verified_date','evidence','source','status'];
+const COMPLAINT_FIELDS = ['title','product','platform','complaint_received_date','complaint','resolution','customer_email','complaint_number','status','attachments'];
+const CAPA_FIELDS = ['capa_number','capa_date','department','responsible_person','description','immediate_correction','why1','why2','why3','why4','why5','root_cause','corrective_action','corrective_target_date','corrective_effective','preventive_action','preventive_target_date','preventive_effective','verified_by','verified_date','evidence','source','status','attachments'];
 
 function pick(obj: any, fields: string[]) {
   const out: any = {};
@@ -97,6 +97,18 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase.from(table).delete().eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
+  }
+
+    if (action === 'upload') {
+    const f = body.file;
+    if (!f || !f.dataBase64) return NextResponse.json({ error: 'file required' }, { status: 400 });
+    const bytes = Buffer.from(f.dataBase64, 'base64');
+    const safe = String(f.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = (board || 'complaints') + '/' + (id || 'new') + '/' + Date.now() + '-' + safe;
+    const { error: upErr } = await supabase.storage.from('haccp-attachments').upload(path, bytes, { contentType: f.contentType || 'application/octet-stream', upsert: true });
+    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+    const { data: pub } = supabase.storage.from('haccp-attachments').getPublicUrl(path);
+    return NextResponse.json({ ok: true, url: pub.publicUrl, name: f.name || safe, contentType: f.contentType || '' });
   }
 
   return NextResponse.json({ error: 'unknown action' }, { status: 400 });
