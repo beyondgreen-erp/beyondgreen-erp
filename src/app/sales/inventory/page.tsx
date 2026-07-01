@@ -25,6 +25,7 @@ interface Product {
   bom_cost: number | null
   case_cost: number | null
   upc_gtin: string | null
+  gtin_image_url: string | null
   case_qty: number | null
   weight_per_unit_grams: number | null
   distribution_price: number | null
@@ -61,6 +62,7 @@ const emptyForm = {
   unit_cost: '',
   product_location: '',
   upc_gtin: '',
+  gtin_image_url: '',
   case_qty: '',
   weight_per_unit_grams: '',
   distribution_price: '',
@@ -206,6 +208,25 @@ const EditPanel = memo(function EditPanel({
           </div>
 
           <div>
+            <label className="block text-xs text-gray-400 mb-1.5">GTIN Barcode Image <span className="text-gray-500 font-normal">(used on the case label)</span></label>
+            {form.gtin_image_url ? (
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={form.gtin_image_url} alt="GTIN barcode" className="h-14 w-auto border border-[#E4E6EE] rounded bg-white p-1 object-contain" />
+                <a href={form.gtin_image_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">View</a>
+                <button type="button" onClick={() => setForm(p => ({ ...p, gtin_image_url: '' }))} className="text-xs text-red-500 underline">Remove</button>
+              </div>
+            ) : (
+              <label className={`${inp} flex items-center justify-center cursor-pointer text-gray-500 ${gtinUploading ? 'opacity-60' : 'hover:border-blue-400'}`}>
+                {gtinUploading ? 'Uploading…' : 'Upload GTIN barcode image (PNG/JPG)'}
+                <input type="file" accept="image/*" className="hidden" disabled={gtinUploading}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadGtinImage(f); e.target.value = '' }} />
+              </label>
+            )}
+            <p className="text-[11px] text-gray-500 mt-1">If provided, this exact barcode image is placed on the case label. Otherwise the label generates a barcode from the UPC/GTIN number.</p>
+          </div>
+
+          <div>
             <label className="block text-xs text-gray-400 mb-1.5">Weight per unit (g)</label>
             <input type="number" min="0" step="0.001" value={form.weight_per_unit_grams} onChange={e => setForm(p => ({ ...p, weight_per_unit_grams: e.target.value }))} className={inp}/>
           </div>
@@ -310,7 +331,20 @@ export default function InventoryPage() {
   const [bomProduct, setBomProduct] = useState<Product | null>(null)
   const [labelProduct, setLabelProduct] = useState<Product | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [gtinUploading, setGtinUploading] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+
+  async function uploadGtinImage(file: File) {
+    setGtinUploading(true); setErr('')
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+      const path = `gtin/${(form.sku || 'sku').trim().toUpperCase().replace(/[^A-Za-z0-9_-]/g, '')}-${Date.now()}.${ext}`
+      const { error: upErr } = await sb.storage.from('erp-images').upload(path, file, { upsert: true })
+      if (upErr) { setErr('Image upload failed: ' + upErr.message); return }
+      const { data: urlData } = sb.storage.from('erp-images').getPublicUrl(path)
+      setForm(p => ({ ...p, gtin_image_url: urlData.publicUrl }))
+    } finally { setGtinUploading(false) }
+  }
   const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
@@ -380,6 +414,7 @@ export default function InventoryPage() {
       unit_cost: r.unit_cost != null ? String(r.unit_cost) : '',
       product_location: r.product_location ?? '',
       upc_gtin: r.upc_gtin ?? '',
+      gtin_image_url: r.gtin_image_url ?? '',
       case_qty: r.case_qty != null ? String(r.case_qty) : '',
       weight_per_unit_grams: r.weight_per_unit_grams != null ? String(r.weight_per_unit_grams) : '',
       distribution_price: r.distribution_price != null ? String(r.distribution_price) : '',
@@ -414,6 +449,7 @@ export default function InventoryPage() {
       unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : null,
       product_location: form.product_location.trim() || null,
       upc_gtin: form.upc_gtin.trim() || null,
+      gtin_image_url: form.gtin_image_url || null,
       case_qty: form.case_qty ? parseInt(form.case_qty) : null,
       weight_per_unit_grams: form.weight_per_unit_grams ? parseFloat(form.weight_per_unit_grams) : null,
       distribution_price: form.distribution_price ? parseFloat(form.distribution_price) : null,
