@@ -22,6 +22,7 @@ interface QueueItem { id: string; sales_order_id: string; status: string; sales_
 interface PlanRow {
   sku: string; description: string; units: number; unitsPerCase: number; cases: number
   caseWeightLb: number; casesPerPallet: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
+  gtinImageUrl: string | null
   uom: string; packaging: string; done: number
 }
 interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string }
@@ -100,7 +101,7 @@ export default function ShippingQueuePage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prodMap: Record<string, any> = {}
     if (pids.length) {
-      const { data: prods } = await sb.from('products').select('id, case_qty, weight_per_unit_grams, upc_gtin, customer_part_number, product_name').in('id', pids)
+      const { data: prods } = await sb.from('products').select('id, case_qty, weight_per_unit_grams, upc_gtin, gtin_image_url, customer_part_number, product_name').in('id', pids)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;((prods as any[]) || []).forEach((p: any) => { prodMap[p.id] = p })
     }
@@ -114,7 +115,7 @@ export default function ShippingQueuePage() {
         sku: l.sku || '(no sku)', description: l.description || prod?.product_name || '',
         units, unitsPerCase: upc || 1, cases: Math.max(1, Math.ceil(units / (upc || 1))),
         caseWeightLb: +(((upc || 1) * gpu) / GRAMS_PER_LB).toFixed(2), casesPerPallet: cap, gramsPerUnit: gpu,
-        upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null,
+        upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
         uom: l.unit_of_measure || '', packaging: l.packaging || '', done: l.quantity_shipped || l.completed_qty || 0,
       }
     })
@@ -155,18 +156,23 @@ export default function ShippingQueuePage() {
     setBusy('')
   }
 
-  function caseArray(): CaseLabel[] {
-    const out: CaseLabel[] = []
-    for (const r of plan) for (let n = 1; n <= r.cases; n++) out.push({ sku: r.sku, description: r.description, upcGtin: r.upc, customerPartNumber: r.customerPart, vendorPartNumber: r.sku, caseNumber: n, totalCases: r.cases, unitsInCase: r.unitsPerCase })
-    return out
-  }
-
-  function genCaseLabels() {
-    const cases = caseArray()
+  async function genCaseLabels() {
+    setBusy('labels')
+    // Preload any uploaded GTIN barcode images to data URLs.
+    const urls = [...new Set(plan.map(r => r.gtinImageUrl).filter(Boolean))] as string[]
+    const map: Record<string, string> = {}
+    await Promise.all(urls.map(async u => { const d = await loadImageDataUrl(u); if (d) map[u] = d }))
+    const cases: CaseLabel[] = []
+    for (const r of plan) for (let n = 1; n <= r.cases; n++) cases.push({
+      sku: r.sku, description: r.description, upcGtin: r.upc,
+      gtinImageDataUrl: r.gtinImageUrl ? map[r.gtinImageUrl] || null : null,
+      customerPartNumber: r.customerPart, vendorPartNumber: r.sku, caseNumber: n, totalCases: r.cases, unitsInCase: r.unitsPerCase,
+    })
     const miss = missingUpcSkus(cases)
-    if (miss.length) { setMissing(miss); return }
+    if (miss.length) { setMissing(miss); setBusy(''); return }
     setMissing([])
     buildCaseLabels({ poNumber: o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, cases).save(`case-labels-${o?.order_number || 'order'}.pdf`)
+    setBusy('')
   }
 
   function genPalletLabels() {
