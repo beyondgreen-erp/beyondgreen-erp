@@ -8,6 +8,8 @@ const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
 const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
 const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
+// Orders in these sales-order statuses appear in the shipping queue.
+const SHIPPABLE = ['Ready to Ship', 'PU Date Assigned', 'Partially Shipped']
 
 interface QueueItem {
   id: string
@@ -51,10 +53,22 @@ export default function ShippingQueuePage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await sb.from('shipping_queue')
-      .select('*, sales_orders(order_number, po_number, shipping_address, total, total_amount, customer_id, customers(company_name, shipping_address))')
-      .in('status', ['Pending', 'Packing']).order('created_at', { ascending: false })
-    setItems((data as QueueItem[]) || [])
+    // Read directly from sales_orders (the shipping_queue table is not populated).
+    const { data } = await sb.from('sales_orders')
+      .select('id, order_number, po_number, shipping_address, total, total_amount, customer_id, status, required_ship_date, customers(company_name, shipping_address)')
+      .in('status', SHIPPABLE)
+      .order('required_ship_date', { ascending: true, nullsFirst: false })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = (data as any[]) || []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mapped: QueueItem[] = rows.map((o: any) => ({
+      id: o.id, sales_order_id: o.id, status: o.status,
+      sales_orders: {
+        order_number: o.order_number, po_number: o.po_number, shipping_address: o.shipping_address,
+        total: o.total, total_amount: o.total_amount, customer_id: o.customer_id, customers: o.customers,
+      },
+    }))
+    setItems(mapped)
     setLoading(false)
   }, [])
 
@@ -160,7 +174,7 @@ export default function ShippingQueuePage() {
       const j = await res.json(); if (!j.error) fill = { ...fill, ...j }
     } catch { /* fallback */ }
 
-    const bolNumber = `BOL-${(o?.order_number || Date.now().toString()).replace(/[^0-9A-Za-z]/g, '')}`
+    const bolNumber = `BOL-${(o?.order_number || Date.now().toString()).replace(/[^0-9A-Za-z]/g, '').slice(0, 20)}`
     const line: BolLine = { handlingQty: totals.pallets, handlingType: 'PLT', packageQty: totals.cases, packageType: 'CS', weight: totals.weight, commodityDescription: fill.commodityDescription, poNumber: o?.po_number || '', nmfcNumber: fill.nmfcNumber, freightClass: fill.freightClass }
     const data: BolData = {
       bolNumber, date: new Date().toLocaleDateString(), shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR,
@@ -186,14 +200,10 @@ export default function ShippingQueuePage() {
     const o = activeItem.sales_orders; const st = shipTo(o)
     const cases: PackListCase[] = []
     plan.forEach(r => { for (let n = 1; n <= r.cases; n++) cases.push({ sku: r.sku, description: r.description, caseNumber: n, totalCases: r.cases, unitsInCase: r.unitsPerCase, weight: r.caseWeightLb }) })
-    const doc = buildPackingList(
-      { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() },
-      cases, totals, null,
-    )
+    const meta = { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }
     loadImageDataUrl('/bG-logo-clean.png').then(logo => {
-      const d = buildPackingList({ poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }, cases, totals, logo)
-      d.save(`packing-list-${o?.order_number || 'order'}.pdf`)
-    }).catch(() => doc.save(`packing-list-${o?.order_number || 'order'}.pdf`))
+      buildPackingList(meta, cases, totals, logo).save(`packing-list-${o?.order_number || 'order'}.pdf`)
+    }).catch(() => buildPackingList(meta, cases, totals, null).save(`packing-list-${o?.order_number || 'order'}.pdf`))
   }
 
   async function mergeMaster() {
@@ -226,12 +236,13 @@ export default function ShippingQueuePage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-bold">Shipping Queue</h1>
         <button onClick={() => setShowMaster(s => !s)} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>
           {showMaster ? 'Hide' : 'Merge BOLs → Master BOL'}
         </button>
       </div>
+      <p className="text-xs text-gray-400 mb-5">Showing orders with status: {SHIPPABLE.join(', ')}.</p>
 
       {showMaster && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
@@ -241,8 +252,8 @@ export default function ShippingQueuePage() {
               {bols.map(b => (
                 <label key={b.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-100">
                   <input type="checkbox" checked={!!sel[b.id]} onChange={e => setSel(s => ({ ...s, [b.id]: e.target.checked }))} />
-                  <span className="font-mono font-semibold w-40">{b.bol_number}</span>
-                  <span className="flex-1 text-gray-500">PO {b.po_number || '—'} · {b.ship_to_name}</span>
+                  <span className="font-mono font-semibold w-40 truncate">{b.bol_number}</span>
+                  <span className="flex-1 text-gray-500 truncate">PO {b.po_number || '—'} · {b.ship_to_name}</span>
                   <span className="text-gray-500">{b.pallet_qty} PLT · {b.case_qty} CS · {b.weight} lb</span>
                 </label>
               ))}
@@ -254,22 +265,22 @@ export default function ShippingQueuePage() {
         </div>
       )}
 
-      {loading ? <p className="text-gray-400">Loading…</p> : items.length === 0 ? <p className="text-gray-400">Nothing in the shipping queue.</p> : (
+      {loading ? <p className="text-gray-400">Loading…</p> : items.length === 0 ? <p className="text-gray-400">No orders ready to ship.</p> : (
         <div className="space-y-2">
           {items.map(item => {
             const o = item.sales_orders; const open = openId === item.id
             return (
               <div key={item.id} className="rounded-xl border border-gray-200 bg-white">
                 <button onClick={() => openOrder(item)} className="w-full flex items-center gap-4 px-4 py-3 text-left">
-                  <span className="font-semibold">{o?.order_number || '—'}</span>
-                  <span className="text-sm text-gray-500 flex-1">{o?.customers?.company_name} · PO {o?.po_number || '—'}</span>
-                  <span className="text-xs px-2 py-1 rounded-full bg-gray-100">{item.status}</span>
-                  <span className="text-indigo-600 text-sm">{open ? 'Close' : 'Pack & Ship'}</span>
+                  <span className="font-semibold truncate max-w-md">{o?.order_number || '—'}</span>
+                  <span className="text-sm text-gray-500 flex-1 truncate">{o?.customers?.company_name} · PO {o?.po_number || '—'}</span>
+                  <span className="text-xs px-2 py-1 rounded-full bg-gray-100 whitespace-nowrap">{item.status}</span>
+                  <span className="text-indigo-600 text-sm whitespace-nowrap">{open ? 'Close' : 'Pack & Ship'}</span>
                 </button>
 
                 {open && (
                   <div className="border-t border-gray-100 p-4">
-                    {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : (
+                    {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? <p className="text-xs text-gray-400">No line items on this order.</p> : (
                       <>
                         <div className="flex items-center gap-3 mb-3">
                           <label className="text-xs text-gray-500">Max cases / pallet</label>
