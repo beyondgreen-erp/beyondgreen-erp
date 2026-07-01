@@ -63,6 +63,8 @@ export default function HaccpPage() {
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) }) }, [sb])
   useEffect(() => { load() }, [board])
+  useEffect(() => { const p = new URLSearchParams(window.location.search); const b = p.get('board'); if (b === 'complaints' || b === 'capa') setBoard(b) }, [])
+  useEffect(() => { const p = new URLSearchParams(window.location.search); const id = p.get('item'); if (id && rows.length) { const f = rows.find((x) => String(x.id) === id); if (f) { openEdit(f); window.history.replaceState({}, '', '/haccp') } } }, [rows])
 
   async function load() {
     setLoading(true)
@@ -127,7 +129,7 @@ export default function HaccpPage() {
                   <tr key={row.id} className="border-b border-[#F1F2F6] hover:bg-[#FAFBFF] align-top">
                     {cols.map((c) => <td key={c[0]} className="px-4 py-3 text-sm text-gray-700">{c[0] === 'capa_file_url' ? (row.capa_file_url ? <span className="flex items-center gap-2 whitespace-nowrap"><a href={row.capa_file_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Open</a><button onClick={() => { navigator.clipboard.writeText(row.capa_file_url); alert('Link copied'); }} className="text-xs px-2 py-0.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Copy link</button></span> : <span className="text-gray-300">-</span>) : <div className="line-clamp-3 max-w-xs">{fmt(row[c[0]])}</div>}</td>)}
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <button onClick={() => openEdit(row)} className="text-xs font-semibold px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-700 hover:bg-gray-50">Edit</button>
+                      <button onClick={() => { const u = window.location.origin + '/haccp?board=' + board + '&item=' + row.id; navigator.clipboard.writeText(u); alert('Item link copied - share it with the team'); }} className="text-xs font-semibold px-2 py-1 rounded-lg border border-[#E4E6EE] text-[#1A1D2E] mr-1">Copy link</button><button onClick={() => openEdit(row)} className="text-xs font-semibold px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-700 hover:bg-gray-50">Edit</button>
                       <button onClick={() => remove(row)} className="ml-1 text-xs font-semibold px-2 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">Delete</button>
                     </td>
                   </tr>
