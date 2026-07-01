@@ -73,6 +73,22 @@ export default function HaccpPage() {
   }
   function openAdd() { setEditing({}); setIsNew(true) }
   function openEdit(row: any) { setEditing({ ...row }); setIsNew(false) }
+  async function uploadAttachment(e: any) {
+    const files = e.target.files; if (!files || !files.length) return;
+    setBusy(true);
+    try {
+      for (const file of Array.from(files) as any[]) {
+        const dataBase64: string = await new Promise((res) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(',')[1]); rd.readAsDataURL(file); });
+        const r = await fetch('/api/haccp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upload', board, id: (editing && editing.id) || '', file: { name: file.name, contentType: file.type, dataBase64 } }) });
+        const j = await r.json();
+        if (j.ok) { setEditing((prev: any) => ({ ...prev, attachments: [ ...((prev && prev.attachments) || []), { url: j.url, name: j.name, contentType: j.contentType } ] })); } else { alert(j.error || 'Upload failed'); }
+      }
+    } catch (err: any) { alert((err && err.message) || 'Upload failed'); }
+    setBusy(false); e.target.value = '';
+  }
+  function removeAttachment(idx: number) {
+    setEditing((prev: any) => ({ ...prev, attachments: (((prev && prev.attachments) || []).filter((_: any, i: number) => i !== idx)) }));
+  }
   async function save() {
     setBusy(true)
     try {
@@ -150,6 +166,22 @@ export default function HaccpPage() {
                       : <input type={f.type === 'date' ? 'date' : 'text'} value={editing[f.key] || ''} onChange={(e) => setEditing({ ...editing, [f.key]: e.target.value })} className="w-full text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] outline-none" />}
               </div>
             ))}
+          </div>
+          <div className="col-span-2 mt-2">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Attachments (files or images)</label>
+            <input type="file" multiple onChange={uploadAttachment} className="block text-xs mb-2" />
+            <div className="flex flex-wrap gap-2">
+              {(((editing && editing.attachments) || []) as any[]).map((a: any, i: number) => (
+                <div key={i} className="border border-[#E4E6EE] rounded-lg p-2 text-xs flex flex-col items-start gap-1" style={{ maxWidth: "160px" }}>
+                  {String(a.contentType || "").indexOf("image") === 0 ? <img src={a.url} alt={a.name} style={{ maxWidth: "140px", maxHeight: "90px", objectFit: "cover", borderRadius: "6px" }} /> : <span className="text-gray-600 break-all">{a.name}</span>}
+                  <div className="flex gap-2 mt-1">
+                    <a href={a.url} target="_blank" className="text-[#1A1D2E] font-semibold">Open</a>
+                    <button onClick={() => { navigator.clipboard.writeText(a.url); alert("Link copied"); }} className="text-[#1A1D2E] font-semibold">Copy link</button>
+                    <button onClick={() => removeAttachment(i)} className="text-red-500 font-semibold">Remove</button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <button onClick={() => setEditing(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-600">Cancel</button>
