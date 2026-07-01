@@ -106,6 +106,19 @@ const EditPanel = memo(function EditPanel({
   userEmail: string
 }) {
   const liveValue = (parseFloat(form.on_hand_qty) || 0) * (parseFloat(form.unit_cost) || 0)
+  const [gtinUploading, setGtinUploading] = useState(false)
+  const gsb = useMemo(() => createSupabaseBrowserClient(), [])
+  async function uploadGtinImage(file: File) {
+    setGtinUploading(true)
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+      const path = `gtin/${(form.sku || 'sku').trim().toUpperCase().replace(/[^A-Za-z0-9_-]/g, '')}-${Date.now()}.${ext}`
+      const { error } = await gsb.storage.from('erp-images').upload(path, file, { upsert: true })
+      if (error) { alert('Image upload failed: ' + error.message); return }
+      const { data } = gsb.storage.from('erp-images').getPublicUrl(path)
+      setForm(p => ({ ...p, gtin_image_url: data.publicUrl }))
+    } finally { setGtinUploading(false) }
+  }
 
   return (
     <>
@@ -331,20 +344,7 @@ export default function InventoryPage() {
   const [bomProduct, setBomProduct] = useState<Product | null>(null)
   const [labelProduct, setLabelProduct] = useState<Product | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [gtinUploading, setGtinUploading] = useState(false)
   const [userEmail, setUserEmail] = useState('')
-
-  async function uploadGtinImage(file: File) {
-    setGtinUploading(true); setErr('')
-    try {
-      const ext = (file.name.split('.').pop() || 'png').toLowerCase()
-      const path = `gtin/${(form.sku || 'sku').trim().toUpperCase().replace(/[^A-Za-z0-9_-]/g, '')}-${Date.now()}.${ext}`
-      const { error: upErr } = await sb.storage.from('erp-images').upload(path, file, { upsert: true })
-      if (upErr) { setErr('Image upload failed: ' + upErr.message); return }
-      const { data: urlData } = sb.storage.from('erp-images').getPublicUrl(path)
-      setForm(p => ({ ...p, gtin_image_url: urlData.publicUrl }))
-    } finally { setGtinUploading(false) }
-  }
   const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
