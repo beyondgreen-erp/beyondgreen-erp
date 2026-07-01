@@ -7,6 +7,7 @@ export interface CaseLabel {
   sku: string; description?: string; upcGtin: string | null
   customerPartNumber?: string | null; vendorPartNumber?: string | null
   caseNumber: number; totalCases: number; unitsInCase?: number
+  gtinImageDataUrl?: string | null   // uploaded GTIN barcode image (data URL); used instead of generating one
 }
 export interface PalletLabel { palletNumber: number; totalPallets: number; sscc?: string | null; caseCount: number; weight?: number; skus?: string[] }
 
@@ -32,7 +33,7 @@ function barcodeDataUrl(value: string): string | null {
 }
 export function missingUpcSkus(cases: CaseLabel[]): string[] {
   const m = new Set<string>()
-  for (const c of cases) if (!c.upcGtin || !barcodeFormat(c.upcGtin)) m.add(c.sku)
+  for (const c of cases) if (!c.gtinImageDataUrl && (!c.upcGtin || !barcodeFormat(c.upcGtin))) m.add(c.sku)
   return [...m]
 }
 
@@ -63,12 +64,13 @@ export function buildCaseLabels(order: LabelOrder, cases: CaseLabel[]): jsPDF {
     y = ctext(doc, `Case ${c.caseNumber} of ${c.totalCases}`, cx, y, 16, 'bold', maxW, 0.28)
     y = ctext(doc, `PART # ${c.customerPartNumber || c.sku}`, cx, y, 11.5, 'bold', maxW, 0.22)
     y += 0.06
-    const img = barcodeDataUrl(c.upcGtin || '')
+    // Prefer the uploaded GTIN barcode image; otherwise generate one from the UPC/GTIN number.
+    const img = c.gtinImageDataUrl || barcodeDataUrl(c.upcGtin || '')
     const bw = 2.7, bh = 1.15
     if (img) {
       doc.setDrawColor(0); doc.setLineWidth(0.03)
       doc.rect(cx - bw / 2 - 0.12, y, bw + 0.24, bh + 0.18)
-      doc.addImage(img, 'PNG', cx - bw / 2, y + 0.09, bw, bh)
+      try { doc.addImage(img, cx - bw / 2, y + 0.09, bw, bh) } catch { /* unsupported image */ }
     } else {
       doc.setDrawColor(180); doc.rect(cx - bw / 2 - 0.12, y, bw + 0.24, bh + 0.18)
       doc.setFontSize(10); doc.setTextColor(170, 0, 0)
