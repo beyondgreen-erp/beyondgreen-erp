@@ -190,21 +190,6 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [lines, setLines] = useState<OrderLine[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<'board'|'table'>('board')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const dragId = useRef<string | null>(null)
-  const moveOrder = async (id: string, targetSection: string, targetIndex: number) => {
-    const moving = orders.find(o => o.id === id); if (!moving) return
-    const rest = orders.filter(o => o.id !== id)
-    const inSec = (o: SalesOrder) => (o.order_section || 'Make To Stock') === targetSection
-    const targetItems = rest.filter(inSec).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0))
-    const others = rest.filter(o => !inSec(o))
-    targetItems.splice(Math.min(targetIndex, targetItems.length), 0, { ...moving, order_section: targetSection })
-    const reindexed = targetItems.map((o, i) => ({ ...o, order_section: targetSection, board_position: i }))
-    setOrders([...others, ...reindexed])
-    dragId.current = null
-    try { await Promise.all(reindexed.map(o => sb.from('sales_orders').update({ order_section: o.order_section, board_position: o.board_position }).eq('id', o.id))) } catch (e) {}
-  }
   const [assigningId, setAssigningId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -566,6 +551,21 @@ function EditPanel({
 export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
+  const [view, setView] = useState<'board'|'table'>('board')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const dragId = useRef<string | null>(null)
+  const moveOrder = async (id: string, targetSection: string, targetIndex: number) => {
+    const moving = orders.find(o => o.id === id); if (!moving) return
+    const rest = orders.filter(o => o.id !== id)
+    const inSec = (o: SalesOrder) => (o.order_section || 'Make To Stock') === targetSection
+    const targetItems = rest.filter(inSec).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0))
+    const others = rest.filter(o => !inSec(o))
+    targetItems.splice(Math.min(targetIndex, targetItems.length), 0, { ...moving, order_section: targetSection })
+    const reindexed = targetItems.map((o, i) => ({ ...o, order_section: targetSection, board_position: i }))
+    setOrders([...others, ...reindexed])
+    dragId.current = null
+    try { await Promise.all(reindexed.map(o => sb.from('sales_orders').update({ order_section: o.order_section, board_position: o.board_position }).eq('id', o.id))) } catch (e) {}
+  }
   useItemDeepLink(orders, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
