@@ -24,6 +24,7 @@ interface SalesOrder {
   po_number: string | null
   monday_item_id: string | null
   order_section: string | null
+  board_position?: number | null
   facility: string | null
   carrier: string | null
   order_date: string | null
@@ -70,6 +71,7 @@ interface Customer { id: string; company_name: string }
 // ── Constants ──────────────────────────────────────────────────────────────
 const SECTIONS = ['Walmart','Chewy','Make To Stock','Private Label','Straw Orders','Customer DropShip','Injection Molding','Paper Products','Outsourced']
 const SECTION_TABS = ['All', ...SECTIONS]
+const SECTION_COLORS: Record<string,string> = { 'Walmart':'#0071CE','Chewy':'#1C49C2','Make To Stock':'#037f4c','Private Label':'#784bd1','Straw Orders':'#ff6d3b','Customer DropShip':'#216edf','Injection Molding':'#bb3354','Paper Products':'#cab641','Outsourced':'#7e3b8a' }
 const STATUSES = [
   'Pending','New','Confirmed',
   'Awaiting BOM Components','Awaiting Production','Production Queue',
@@ -188,6 +190,21 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [lines, setLines] = useState<OrderLine[]>([])
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState<'board'|'table'>('board')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const dragId = useRef<string | null>(null)
+  const moveOrder = async (id: string, targetSection: string, targetIndex: number) => {
+    const moving = orders.find(o => o.id === id); if (!moving) return
+    const rest = orders.filter(o => o.id !== id)
+    const inSec = (o: SalesOrder) => (o.order_section || 'Make To Stock') === targetSection
+    const targetItems = rest.filter(inSec).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0))
+    const others = rest.filter(o => !inSec(o))
+    targetItems.splice(Math.min(targetIndex, targetItems.length), 0, { ...moving, order_section: targetSection })
+    const reindexed = targetItems.map((o, i) => ({ ...o, order_section: targetSection, board_position: i }))
+    setOrders([...others, ...reindexed])
+    dragId.current = null
+    try { await Promise.all(reindexed.map(o => sb.from('sales_orders').update({ order_section: o.order_section, board_position: o.board_position }).eq('id', o.id))) } catch (e) {}
+  }
   const [assigningId, setAssigningId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -950,8 +967,49 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Section tabs */}
-      <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-4">
+      {/* View toggle */}
+      <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 mb-4 w-fit">
+        <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
+        <button onClick={() => setView('table')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'table' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Table</button>
+      </div>
+      
+      {view === 'board' && (
+        <div className="space-y-3 mb-6">
+          {SECTIONS.map((sec) => {
+            const items = orders.filter(o => (o.order_section || 'Make To Stock') === sec).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0))
+            const isColl = collapsed[sec]
+            const color = SECTION_COLORS[sec] || '#6B7280'
+            return (
+              <div key={sec} className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (dragId.current) moveOrder(dragId.current, sec, items.length) }}>
+                <div className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none" style={{ borderLeft: '4px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [sec]: !c[sec] }))}>
+                  <span className="text-gray-400 text-[10px]" style={{ display: 'inline-block', transform: isColl ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                  <span className="font-semibold text-sm" style={{ color }}>{sec}</span>
+                  <span className="text-xs text-gray-400">{items.length}</span>
+                </div>
+                {!isColl && (
+                  <div className="divide-y divide-[#F1F2F6]">
+                    {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400">Drop orders here</div>}
+                    {items.map((o, idx) => (
+                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragId.current) moveOrder(dragId.current, sec, idx) }} onClick={() => openEdit(o)} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAFBFF] cursor-grab active:cursor-grabbing">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#1A1D2E] truncate">{o.order_number || o.customer?.company_name || 'Order'}</p>
+                          <p className="text-xs text-gray-500 truncate">{o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
+                        </div>
+                        <span className={"text-xs px-2 py-0.5 rounded-full border whitespace-nowrap " + (STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-500 border-gray-200')}>{o.status || '\u2014'}</span>
+                        <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{o.required_ship_date || o.ship_date || ''}</span>
+                        <span className="text-xs text-gray-700 w-20 text-right">{o.total_amount != null ? ('$' + o.total_amount) : (o.total != null ? ('$' + o.total) : '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      
+            {/* Section tabs */}
+      <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-4" style={{ display: view === 'board' ? 'none' : undefined }}>
         {SECTION_TABS.map(t => (
           <button key={t} onClick={() => setSectionTab(t)}
             className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${sectionTab === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-700'}`}>
@@ -961,7 +1019,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Search */}
-      <div className="relative mb-4 max-w-md">
+      <div className="relative mb-4 max-w-md" style={{ display: view === 'board' ? 'none' : undefined }}>
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
         <input placeholder="Search customer, PO#, order name…" value={search} onChange={e => setSearch(e.target.value)}
           className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
@@ -969,7 +1027,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Orders table */}
-      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
+      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF", display: view === 'board' ? 'none' : undefined}}>
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
