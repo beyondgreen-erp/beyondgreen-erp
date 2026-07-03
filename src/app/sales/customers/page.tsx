@@ -427,7 +427,13 @@ export default function CustomersPage() {
 
   async function bulkDelete() {
     if (!confirm(`Delete ${selectedArr.length} customers? This cannot be undone.`)) return
-    await supabase.from('customers').delete().in('id', selectedArr)
+    const { error: delErr } = await supabase.from('customers').delete().in('id', selectedArr)
+    if (delErr) {
+      const tbls = Array.from(new Set([...delErr.message.matchAll(/on table "([a-z_]+)"/g)].map((x) => x[1]).filter((tn) => tn !== 'customers')))
+      const label = tbls.length ? tbls.join(', ').replace(/_/g, ' ') : 'related records (orders, quotes, invoices, etc.)'
+      alert('Could not delete. One or more selected customers still have linked ' + label + '. Remove or reassign those records first, then try again.\n\nDetails: ' + delErr.message)
+      return
+    }
     setSelectedIds(new Set())
     fetchCustomers()
   }
