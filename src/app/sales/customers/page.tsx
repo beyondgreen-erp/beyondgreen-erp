@@ -438,6 +438,21 @@ export default function CustomersPage() {
     fetchCustomers()
   }
 
+  async function bulkArchive(active: boolean) {
+    const { error } = await supabase.from('customers').update({ is_active: active, updated_at: new Date().toISOString() }).in('id', selectedArr)
+    if (error) { alert('Could not update: ' + error.message); return }
+    setSelectedIds(new Set()); fetchCustomers()
+  }
+
+  async function forceDeleteCustomers() {
+    const resp = prompt('PERMANENTLY delete ' + selectedArr.length + ' customer(s) AND all their linked records (orders, quotes, invoices, work orders, documents, etc.)? This cannot be undone.\n\nType DELETE to confirm.')
+    if (resp !== 'DELETE') return
+    const { data, error } = await supabase.rpc('force_delete_customers', { p_ids: selectedArr })
+    if (error) { alert('Force delete failed: ' + error.message); return }
+    setSelectedIds(new Set()); fetchCustomers()
+    alert('Deleted ' + (data && (data as any).deleted_customers != null ? (data as any).deleted_customers : selectedArr.length) + ' customer(s) and their linked records.')
+  }
+
   async function deleteLoc(id: string) {
     if (!confirm('Delete this location?') || !editing) return
     setDeletingLoc(id)
@@ -1265,11 +1280,21 @@ export default function CustomersPage() {
       </div>
 
       <BulkActionBar count={selectedArr.length} onDelete={bulkDelete} onClear={()=>setSelectedIds(new Set())}
-        extraActions={selectedArr.length >= 2 ? (
-          <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 font-medium transition-colors">
-            Merge {selectedArr.length}
-          </button>
-        ) : undefined}
+        extraActions={(
+          <>
+            {selectedArr.length >= 2 && (
+              <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 font-medium transition-colors">
+                Merge {selectedArr.length}
+              </button>
+            )}
+            <button onClick={() => bulkArchive(showArchived)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-[#EAF2FF] hover:bg-[#D9E8FF] text-[#2563EB] font-medium transition-colors">
+              {showArchived ? 'Restore' : 'Archive'} {selectedArr.length}
+            </button>
+            <button onClick={forceDeleteCustomers} title="Deletes the customer AND all linked orders, quotes, invoices, etc." className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-red-600/15 hover:bg-red-600/25 text-red-600 font-medium transition-colors">
+              Delete + records
+            </button>
+          </>
+        )}
       />
 
       {/* ── MERGE MODAL ── */}
