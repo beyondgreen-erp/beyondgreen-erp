@@ -67,7 +67,7 @@ export default function LeadsPage() {
       if (l.scrape_id && scrapeIds.has(l.scrape_id)) (byId[l.scrape_id] ||= []).push(l)
       else manual.push(l)
     }
-    const g = scrapes.filter(s => byId[s.id]?.length).map(s => ({ key: s.id, scrape: s, rows: byId[s.id] }))
+    const g: { key: string; scrape: Scrape | null; rows: Lead[] }[] = scrapes.filter(s => byId[s.id]?.length).map(s => ({ key: s.id, scrape: s as Scrape | null, rows: byId[s.id] }))
     if (manual.length) g.push({ key: 'manual', scrape: null, rows: manual })
     return g
   }, [leads, scrapes])
