@@ -14,6 +14,7 @@ const NAV: NavSection[] = [
 ]},
 { label: 'CRM', items: [
 { href: '/sales/customers', label: 'Customers', icon: 'ti-users' },
+{ href: '/sales/leads', label: 'Leads', icon: 'ti-user-search' },
 { href: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask' },
 ]},
 { label: 'Sales', items: [
