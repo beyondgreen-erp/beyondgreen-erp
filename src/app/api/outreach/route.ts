@@ -216,8 +216,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'function logged, please ask your admin for access' }, { status: 403 });
     }
     if (!Array.isArray(customer_ids) || customer_ids.length === 0) return NextResponse.json({ error: 'customer_ids required' }, { status: 400 });
-    // Cap per batch so we stay within the request time budget.
-    const ids = customer_ids.slice(0, 12);
+    // Personalized AI drafts are generated in parallel; cap per batch to fit the 60s budget.
+    const BATCH_CAP = 50;
+    const ids = customer_ids.slice(0, BATCH_CAP);
     const overflow = customer_ids.length - ids.length;
 
     const { data: custs } = await supabase.from('customers')
@@ -228,28 +229,33 @@ export async function POST(req: NextRequest) {
 
     const playbook = await buildPlaybook();
     const campaign_id = crypto.randomUUID();
+    const eligible = ((custs || []) as any[]).filter((c) => emailMap[c.id] && !c.do_not_contact);
+    let skipped = ((custs || []).length) - eligible.length;
+
+    // Generate drafts concurrently (bounded) instead of one-at-a-time.
+    async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+      const out: R[] = new Array(items.length); let i = 0;
+      async function worker() { while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx]); } }
+      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+      return out;
+    }
+    const generated = await mapLimit(eligible, 7, async (c) => {
+      try { const d = await generateDraft(c, 'initial', {}, playbook); return (d.subject && d.body) ? { c, d } : null; }
+      catch { return null; }
+    });
+
     const drafts: any[] = [];
-    let skipped = 0;
-    for (const c of (custs || []) as any[]) {
-      const to_email = emailMap[c.id];
-      if (!to_email || c.do_not_contact) { skipped++; continue; }
-      try {
-        const d = await generateDraft(c, 'initial', {}, playbook);
-        if (!d.subject || !d.body) { skipped++; continue; }
-        const { data: row } = await supabase.from('customer_outreach').insert({
-          customer_id: c.id, sent_by, to_email, status: 'draft',
-          subject: d.subject, body: d.body, campaign_id,
-          sequence_active: false, sequence_step: 0,
-        }).select('id').single();
-        // Seed a starting win-probability if none yet.
-        const base = (c.customer_status || '').toLowerCase().includes('active') ? 50 : 30;
-        if (c.probability == null) await supabase.from('customers').update({ probability: base }).eq('id', c.id);
-        drafts.push({
-          id: row?.id, customer_id: c.id, company_name: c.company_name,
-          contact_name: c.contact_name, to_email, subject: d.subject, body: d.body,
-          probability: c.probability ?? base,
-        });
-      } catch { skipped++; }
+    for (const g of generated) {
+      if (!g) { skipped++; continue; }
+      const { c, d } = g as any; const to_email = emailMap[c.id];
+      const { data: row } = await supabase.from('customer_outreach').insert({
+        customer_id: c.id, sent_by, to_email, status: 'draft',
+        subject: d.subject, body: d.body, campaign_id,
+        sequence_active: false, sequence_step: 0,
+      }).select('id').single();
+      const base = (c.customer_status || '').toLowerCase().includes('active') ? 50 : 30;
+      if (c.probability == null) await supabase.from('customers').update({ probability: base }).eq('id', c.id);
+      drafts.push({ id: row?.id, customer_id: c.id, company_name: c.company_name, contact_name: c.contact_name, to_email, subject: d.subject, body: d.body, probability: c.probability ?? base });
     }
     await supabase.from('campaign_access_log').insert({ email: sent_by, function_name: 'campaign_generate', allowed: true, reason: `${drafts.length} drafts` });
     return NextResponse.json({ ok: true, campaign_id, drafts, skipped, overflow });
