@@ -51,9 +51,12 @@ export default function CampaignPage() {
   const [wfLoading, setWfLoading] = useState(false)
   const [wfPreview, setWfPreview] = useState<any>(null)
   const [wfBusy, setWfBusy] = useState('')
-  const [view, setView] = useState<'launch' | 'analytics'>('launch')
+  const [view, setView] = useState<'launch' | 'analytics' | 'sent'>('launch')
   const [an, setAn] = useState<any>(null)
   const [anLoading, setAnLoading] = useState(false)
+  const [sentCampaigns, setSentCampaigns] = useState<any[]>([])
+  const [sentLoading, setSentLoading] = useState(false)
+  const [sentExpanded, setSentExpanded] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
@@ -117,14 +120,17 @@ export default function CampaignPage() {
     return <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: bg, color: fg }}>{v}%</span>
   }
 
-  async function generateDrafts() {
+  async function generateDrafts(ids?: string[]) {
     setErr('')
-    if (selectedArr.length === 0) { setErr('Select at least one customer.'); return }
+    const arr = Array.isArray(ids) ? ids : undefined
+    const targetIds = arr && arr.length ? arr : selectedArr
+    if (targetIds.length === 0) { setErr('Select at least one customer.'); return }
+    if (arr) { setSelected(new Set(arr)); setView('launch') }
     setGenerating(true)
     try {
       const res = await fetch('/api/outreach', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'campaign_generate', customer_ids: selectedArr, sent_by: userEmail }),
+        body: JSON.stringify({ action: 'campaign_generate', customer_ids: targetIds, sent_by: userEmail }),
       })
       const j = await res.json()
       if (!res.ok || j.error) { setErr(j.error || 'Could not generate drafts'); setGenerating(false); return }
@@ -133,6 +139,44 @@ export default function CampaignPage() {
       setStep('review')
     } catch (e: any) { setErr(e?.message || 'Could not generate drafts') }
     setGenerating(false)
+  }
+
+  // ---- Sent Campaigns: group past sends by campaign_id ----
+  async function loadSentCampaigns() {
+    setSentLoading(true)
+    const { data: rows } = await supabase.from('customer_outreach')
+      .select('id, customer_id, campaign_id, subject, sent_at, response_received, opened_at')
+      .is('parent_outreach_id', null).not('campaign_id', 'is', null)
+      .order('sent_at', { ascending: false }).limit(5000)
+    const list = (rows || []) as any[]
+    const custIds = Array.from(new Set(list.map((r) => r.customer_id).filter(Boolean)))
+    const nameMap: Record<string, { name: string; dnc: boolean }> = {}
+    if (custIds.length) {
+      const { data: cs } = await supabase.from('customers').select('id, company_name, do_not_contact').in('id', custIds)
+      ;(cs || []).forEach((c: any) => { nameMap[c.id] = { name: c.company_name, dnc: !!c.do_not_contact } })
+    }
+    const byCampaign: Record<string, any> = {}
+    for (const r of list) {
+      const g = (byCampaign[r.campaign_id] ||= { id: r.campaign_id, subject: r.subject, sent_at: r.sent_at, recipients: [] })
+      if (r.sent_at && (!g.sent_at || r.sent_at > g.sent_at)) g.sent_at = r.sent_at
+      g.recipients.push({ ...r, company: nameMap[r.customer_id]?.name || '(unknown)', dnc: nameMap[r.customer_id]?.dnc || false })
+    }
+    setSentCampaigns(Object.values(byCampaign).sort((a: any, b: any) => (b.sent_at || '').localeCompare(a.sent_at || '')))
+    setSentLoading(false)
+  }
+
+  // Suppress contacts globally (do_not_contact) and stop their active sequences.
+  async function removeContacts(customerIds: string[]) {
+    if (!customerIds.length) return
+    await supabase.from('customers').update({ do_not_contact: true }).in('id', customerIds)
+    await supabase.from('customer_outreach').update({ sequence_active: false }).in('customer_id', customerIds)
+    loadSentCampaigns()
+  }
+  function resendToGroup(recipients: any[]) {
+    const ids = Array.from(new Set(recipients.filter((r) => !r.dnc).map((r) => r.customer_id)))
+    if (!ids.length) { setErr('Everyone in this group is on the do-not-contact list.'); return }
+    if (!confirm(`Start a NEW campaign to ${ids.length} recipient(s) from this group? You'll review the AI drafts before anything sends.`)) return
+    generateDrafts(ids)
   }
 
   function updateDraft(id: string, field: 'subject' | 'body', value: string) {
@@ -215,7 +259,7 @@ export default function CampaignPage() {
       <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
         <Header />
         <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4 mb-4 flex items-center gap-3">
-          <ViewTabs view={view} setView={setView} loadAnalytics={loadAnalytics} />
+          <ViewTabs view={view} setView={setView} loadAnalytics={loadAnalytics} loadSent={loadSentCampaigns} />
           <span className="text-sm font-semibold text-[#1A1D2E]">Campaign Analytics</span>
           <button onClick={loadAnalytics} className="ml-auto text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600">Refresh</button>
         </div>
@@ -264,12 +308,70 @@ export default function CampaignPage() {
     )
   }
 
+  // ---------------- SENT CAMPAIGNS VIEW ----------------
+  if (view === 'sent') {
+    return (
+      <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
+        <Header />
+        <ViewTabs view={view} setView={setView} loadAnalytics={loadAnalytics} loadSent={loadSentCampaigns} />
+        <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4 mb-4 flex items-center gap-3 flex-wrap">
+          <span className="text-sm font-semibold text-[#1A1D2E]">Sent Campaigns</span>
+          <span className="text-xs text-gray-400">Each group is a campaign you sent. Resend to a group later, or remove anyone who replied so they aren’t bombarded.</span>
+          <button onClick={loadSentCampaigns} className="ml-auto text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600">Refresh</button>
+        </div>
+        {err && <Banner kind="err">{err}</Banner>}
+        {sentLoading ? <div className="text-sm text-gray-400 py-12 text-center">Loading…</div>
+          : sentCampaigns.length === 0 ? <div className="text-sm text-gray-400 py-12 text-center">No campaigns sent yet.</div>
+          : (
+            <div className="space-y-3">
+              {sentCampaigns.map((c) => {
+                const open = !!sentExpanded[c.id]
+                const opened = c.recipients.filter((r: any) => r.opened_at).length
+                const replied = c.recipients.filter((r: any) => r.response_received).length
+                const repliers = c.recipients.filter((r: any) => r.response_received && !r.dnc)
+                return (
+                  <div key={c.id} className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <button onClick={() => setSentExpanded((e) => ({ ...e, [c.id]: !open }))} className="text-gray-400">{open ? '▾' : '▸'}</button>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm text-[#1A1D2E] truncate">{c.subject || 'Campaign'}</p>
+                        <p className="text-xs text-gray-400">{c.sent_at ? new Date(c.sent_at).toLocaleString() : '—'} · {c.recipients.length} recipients · {opened} opened · {replied} replied</p>
+                      </div>
+                      {repliers.length > 0 && <button onClick={() => removeContacts(repliers.map((r: any) => r.customer_id))} className="text-xs px-3 py-2 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">Remove {repliers.length} who replied</button>}
+                      <button onClick={() => resendToGroup(c.recipients)} className="text-xs font-semibold px-3 py-2 rounded-lg text-white whitespace-nowrap" style={{ background: '#1A1D2E' }}>Resend to group →</button>
+                    </div>
+                    {open && (
+                      <div className="border-t border-[#F1F2F6] overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-left text-gray-400 border-b border-[#F1F2F6]"><th className="p-2">Company</th><th className="p-2">Email</th><th className="p-2">Status</th><th className="p-2 text-right">Action</th></tr></thead>
+                          <tbody>
+                            {c.recipients.map((r: any) => (
+                              <tr key={r.id} className={`border-b border-[#F7F8FA] ${r.dnc ? 'opacity-50' : ''}`}>
+                                <td className="p-2 font-medium">{r.company}</td>
+                                <td className="p-2 text-gray-500">{r.to_email || '—'}</td>
+                                <td className="p-2">{r.response_received ? <span className="text-emerald-700 font-semibold">Replied</span> : r.opened_at ? <span className="text-blue-600">Opened</span> : <span className="text-gray-400">Sent</span>}</td>
+                                <td className="p-2 text-right">{r.dnc ? <span className="text-gray-400">Removed</span> : <button onClick={() => removeContacts([r.customer_id])} className="text-red-500 hover:text-red-700">Remove</button>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+      </div>
+    )
+  }
+
   // ---------------- SELECT STEP ----------------
   if (step === 'select') {
     return (
       <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
         <Header />
-        <ViewTabs view={view} setView={setView} loadAnalytics={loadAnalytics} />
+        <ViewTabs view={view} setView={setView} loadAnalytics={loadAnalytics} loadSent={loadSentCampaigns} />
         <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4 mb-4 flex flex-wrap items-center gap-3">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search company, industry, email…" className="flex-1 min-w-[220px] text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] outline-none" />
           <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={onlyEmailable} onChange={(e) => setOnlyEmailable(e.target.checked)} /> Only contactable</label>
@@ -466,11 +568,12 @@ function Metric({ label, value }: { label: string; value: any }) {
   )
 }
 
-function ViewTabs({ view, setView, loadAnalytics }: { view: string; setView: (v: any) => void; loadAnalytics: () => void }) {
+function ViewTabs({ view, setView, loadAnalytics, loadSent }: { view: string; setView: (v: any) => void; loadAnalytics: () => void; loadSent: () => void }) {
   const cls = (k: string) => 'px-5 py-2 text-sm font-semibold rounded-lg transition-colors ' + (view === k ? 'bg-[#1A1D2E] text-white' : 'text-gray-600 hover:bg-gray-100')
   return (
     <div className="flex gap-1 bg-white border border-[#E4E6EE] rounded-xl p-1 mb-4 w-fit">
       <button onClick={() => setView('launch')} className={cls('launch')}>Launch</button>
+      <button onClick={() => { setView('sent'); loadSent() }} className={cls('sent')}>Sent Campaigns</button>
       <button onClick={() => { setView('analytics'); loadAnalytics() }} className={cls('analytics')}>Analytics</button>
     </div>
   )
