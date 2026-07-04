@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import nextDynamic from 'next/dynamic'
 import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -10,13 +10,16 @@ const sb = createSupabaseBrowserClient()
 
 interface Lead {
   id: string; company_name: string | null; email: string | null; phone: string | null; website: string | null
-  city: string | null; state: string | null; customer_status: string | null; lead_source: string | null
-  is_scraped_lead: boolean | null; scraped_at: string | null; scrape_region: string | null
-  latitude: number | null; longitude: number | null; industry: string | null
+  city: string | null; state: string | null; customer_status: string | null; pipeline_stage: string | null
+  is_scraped_lead: boolean | null; scraped_at: string | null; scrape_region: string | null; scrape_id: string | null
+  contacted_at: string | null; latitude: number | null; longitude: number | null; industry: string | null
 }
 interface Scrape { id: string; prompt: string | null; zip: string | null; radius_miles: number | null; center_lat: number | null; center_lng: number | null; result_count: number | null; new_count: number | null; emails_found: number | null; created_at: string | null }
 interface Region { area: string; state: string; score: number; regulationAngle: string; demographicAngle: string; suggestedZips?: string[] }
 interface MarketResult { summary: string; regions: Region[]; cautions?: string }
+interface NewLead { id: string; company_name: string | null; email: string | null; city: string | null; state: string | null }
+
+const isContacted = (l: Lead) => !!l.contacted_at || (!!l.pipeline_stage && l.pipeline_stage !== 'Lead')
 
 export default function LeadsPage() {
   const [tab, setTab] = useState<'leads' | 'scrape' | 'market'>('leads')
@@ -24,6 +27,8 @@ export default function LeadsPage() {
   const [scrapes, setScrapes] = useState<Scrape[]>([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState<Record<string, boolean>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [filter, setFilter] = useState<'all' | 'new' | 'contacted'>('all')
   const [userEmail, setUserEmail] = useState('')
 
   const [prompt, setPrompt] = useState('restaurants, fast food, cafes')
@@ -31,6 +36,7 @@ export default function LeadsPage() {
   const [radius, setRadius] = useState(25)
   const [scrapeBusy, setScrapeBusy] = useState(false)
   const [scrapeMsg, setScrapeMsg] = useState('')
+  const [justAdded, setJustAdded] = useState<NewLead[]>([])
 
   const [product, setProduct] = useState('')
   const [marketBusy, setMarketBusy] = useState(false)
@@ -42,8 +48,8 @@ export default function LeadsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: l }, { data: s }] = await Promise.all([
-      sb.from('customers').select('id, company_name, email, phone, website, city, state, customer_status, lead_source, is_scraped_lead, scraped_at, scrape_region, latitude, longitude, industry')
-        .or('is_scraped_lead.eq.true,customer_status.eq.Lead').order('scraped_at', { ascending: false, nullsFirst: false }).limit(2000),
+      sb.from('customers').select('id, company_name, email, phone, website, city, state, customer_status, pipeline_stage, is_scraped_lead, scraped_at, scrape_region, scrape_id, contacted_at, latitude, longitude, industry')
+        .or('is_scraped_lead.eq.true,customer_status.eq.Lead').order('scraped_at', { ascending: false, nullsFirst: false }).limit(5000),
       sb.from('lead_scrapes').select('*').order('created_at', { ascending: false }).limit(500),
     ])
     setLeads((l as Lead[]) || [])
@@ -52,14 +58,31 @@ export default function LeadsPage() {
   }, [])
   useEffect(() => { load() }, [load])
 
+  // Group leads by the scrape run they came from (newest first); leftovers → "Existing / manual".
+  const groups = useMemo(() => {
+    const byId: Record<string, Lead[]> = {}
+    const manual: Lead[] = []
+    const scrapeIds = new Set(scrapes.map(s => s.id))
+    for (const l of leads) {
+      if (l.scrape_id && scrapeIds.has(l.scrape_id)) (byId[l.scrape_id] ||= []).push(l)
+      else manual.push(l)
+    }
+    const g = scrapes.filter(s => byId[s.id]?.length).map(s => ({ key: s.id, scrape: s, rows: byId[s.id] }))
+    if (manual.length) g.push({ key: 'manual', scrape: null, rows: manual })
+    return g
+  }, [leads, scrapes])
+
+  const passFilter = (l: Lead) => filter === 'all' ? true : filter === 'contacted' ? isContacted(l) : !isContacted(l)
+  const totalNew = leads.filter(l => !isContacted(l)).length
+
   async function runScrape() {
     if (!zip.trim()) { setScrapeMsg('Enter a ZIP code.'); return }
-    setScrapeBusy(true); setScrapeMsg('Searching Google Places and extracting emails… this can take up to a minute.')
+    setScrapeBusy(true); setScrapeMsg('Searching Google Places and extracting emails… up to a minute.'); setJustAdded([])
     try {
       const res = await fetch('/api/leads/scrape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, zip: zip.trim(), radiusMiles: radius, createdBy: userEmail }) })
       const j = await res.json()
       setScrapeMsg(j.error ? `⚠️ ${j.error}` : `✅ ${j.message}`)
-      if (!j.error) await load()
+      if (!j.error) { setJustAdded(j.newLeads || []); if (j.scrapeId) setExpanded(e => ({ ...e, [j.scrapeId]: true })); await load() }
     } catch (e) { setScrapeMsg('⚠️ ' + (e as Error).message) }
     setScrapeBusy(false)
   }
@@ -69,33 +92,28 @@ export default function LeadsPage() {
     setMarketBusy(true); setMarket(null); setMarketErr('')
     try {
       const res = await fetch('/api/leads/market-fit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product }) })
-      const j = await res.json()
-      if (j.error) setMarketErr(j.error); else setMarket(j)
+      const j = await res.json(); if (j.error) setMarketErr(j.error); else setMarket(j)
     } catch (e) { setMarketErr((e as Error).message) }
     setMarketBusy(false)
   }
 
-  async function convertSelected(status: string) {
-    const ids = Object.keys(sel).filter(k => sel[k])
-    if (!ids.length) return
-    await sb.from('customers').update({ customer_status: status }).in('id', ids)
+  const selIds = () => Object.keys(sel).filter(k => sel[k])
+  async function markContacted(val: boolean) {
+    const ids = selIds(); if (!ids.length) return
+    await sb.from('customers').update(val ? { contacted_at: new Date().toISOString(), pipeline_stage: 'Contacted' } : { contacted_at: null, pipeline_stage: 'Lead' }).in('id', ids)
     setSel({}); load()
   }
-  async function deleteSelected() {
-    const ids = Object.keys(sel).filter(k => sel[k])
-    if (!ids.length || !confirm(`Delete ${ids.length} lead(s)?`)) return
-    await sb.from('customers').delete().in('id', ids)
-    setSel({}); load()
-  }
+  async function convertSelected(status: string) { const ids = selIds(); if (!ids.length) return; await sb.from('customers').update({ customer_status: status }).in('id', ids); setSel({}); load() }
+  async function deleteSelected() { const ids = selIds(); if (!ids.length || !confirm(`Delete ${ids.length} lead(s)?`)) return; await sb.from('customers').delete().in('id', ids); setSel({}); load() }
+  function toggleGroup(rows: Lead[], on: boolean) { setSel(s => { const n = { ...s }; rows.forEach(r => n[r.id] = on); return n }) }
 
-  const selCount = Object.values(sel).filter(Boolean).length
+  const selCount = selIds().length
   const withEmail = leads.filter(l => l.email).length
   const mapLeads: LeadPoint[] = leads.filter(l => l.latitude && l.longitude).map(l => ({ id: l.id, name: l.company_name, lat: l.latitude as number, lng: l.longitude as number, email: l.email, city: l.city, state: l.state }))
   const mapScrapes: ScrapeArea[] = scrapes.filter(s => s.center_lat && s.center_lng).map(s => ({ id: s.id, center_lat: s.center_lat as number, center_lng: s.center_lng as number, radius_miles: s.radius_miles || 25, prompt: s.prompt, created_at: s.created_at, new_count: s.new_count }))
 
-  const tabBtn = (t: typeof tab, label: string) => (
-    <button onClick={() => setTab(t)} className={`px-4 py-2 text-sm font-semibold rounded-lg ${tab === t ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>{label}</button>
-  )
+  const tabBtn = (t: typeof tab, label: string) => <button onClick={() => setTab(t)} className={`px-4 py-2 text-sm font-semibold rounded-lg ${tab === t ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>{label}</button>
+  const fBtn = (f: typeof filter, label: string) => <button onClick={() => setFilter(f)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${filter === f ? 'bg-gray-800 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>{label}</button>
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -103,42 +121,76 @@ export default function LeadsPage() {
         <h1 className="text-2xl font-bold">Leads</h1>
         <Link href="/sales/campaign" className="text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-600 text-white">Open Email Campaigns →</Link>
       </div>
-      <p className="text-xs text-gray-400 mb-4">{leads.length} leads · {withEmail} with email. Leads are customer records with status “Lead”; add emails then target them in Email Campaigns.</p>
+      <p className="text-xs text-gray-400 mb-4">{leads.length} leads · {withEmail} with email · <b className="text-amber-600">{totalNew} not yet contacted</b>. Grouped by the scrape they came from.</p>
 
       <div className="flex gap-2 mb-5">{tabBtn('leads', 'Leads')}{tabBtn('scrape', 'Find Leads (Scrape)')}{tabBtn('market', 'Market Finder')}</div>
 
       {tab === 'leads' && (
         <>
-          {selCount > 0 && (
-            <div className="flex items-center gap-2 mb-3 text-xs">
-              <span className="text-gray-500">{selCount} selected:</span>
-              <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border bg-white">Convert to Prospect</button>
-              <button onClick={() => convertSelected('Active Customer')} className="px-2.5 py-1.5 rounded border bg-white">Mark Active Customer</button>
-              <Link href="/sales/campaign" className="px-2.5 py-1.5 rounded border bg-emerald-50 text-emerald-700">Add to Campaign →</Link>
-              <button onClick={deleteSelected} className="px-2.5 py-1.5 rounded border bg-red-50 text-red-600">Delete</button>
-            </div>
-          )}
-          {loading ? <p className="text-gray-400">Loading…</p> : leads.length === 0 ? <p className="text-gray-400">No leads yet. Use “Find Leads (Scrape)” to add some.</p> : (
-            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-              <table className="w-full text-xs">
-                <thead><tr className="text-left text-gray-500 bg-gray-50 border-b">
-                  <th className="p-2 w-8"></th><th className="p-2">Company</th><th className="p-2">Location</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Source</th><th className="p-2">Status</th><th className="p-2">Scraped</th>
-                </tr></thead>
-                <tbody>
-                  {leads.map(l => (
-                    <tr key={l.id} className="border-b border-gray-50">
-                      <td className="p-2"><input type="checkbox" checked={!!sel[l.id]} onChange={e => setSel(s => ({ ...s, [l.id]: e.target.checked }))} /></td>
-                      <td className="p-2 font-medium">{l.company_name}{l.website && <a href={l.website} target="_blank" rel="noreferrer" className="text-blue-500 ml-1">↗</a>}</td>
-                      <td className="p-2 text-gray-500">{[l.city, l.state].filter(Boolean).join(', ') || '—'}</td>
-                      <td className="p-2">{l.email ? <a href={`mailto:${l.email}`} className="text-blue-600">{l.email}</a> : <span className="text-amber-500">none</span>}</td>
-                      <td className="p-2 text-gray-500">{l.phone || '—'}</td>
-                      <td className="p-2 text-gray-500">{l.is_scraped_lead ? 'Scraped' : (l.lead_source || '—')}</td>
-                      <td className="p-2">{l.customer_status || 'Lead'}</td>
-                      <td className="p-2 text-gray-400">{l.scraped_at ? new Date(l.scraped_at).toLocaleDateString() : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-xs text-gray-500 mr-1">Show:</span>{fBtn('all', 'All')}{fBtn('new', 'Not contacted')}{fBtn('contacted', 'Contacted')}
+            {selCount > 0 && (
+              <div className="flex items-center gap-2 ml-auto text-xs">
+                <span className="text-gray-500">{selCount} selected:</span>
+                <button onClick={() => markContacted(true)} className="px-2.5 py-1.5 rounded border bg-blue-50 text-blue-700">Mark Contacted</button>
+                <button onClick={() => markContacted(false)} className="px-2.5 py-1.5 rounded border bg-white">Mark Not Contacted</button>
+                <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border bg-white">Convert to Prospect</button>
+                <Link href="/sales/campaign" className="px-2.5 py-1.5 rounded border bg-emerald-50 text-emerald-700">Add to Campaign →</Link>
+                <button onClick={deleteSelected} className="px-2.5 py-1.5 rounded border bg-red-50 text-red-600">Delete</button>
+              </div>
+            )}
+          </div>
+
+          {loading ? <p className="text-gray-400">Loading…</p> : groups.length === 0 ? <p className="text-gray-400">No leads yet. Use “Find Leads (Scrape)”.</p> : (
+            <div className="space-y-3">
+              {groups.map(({ key, scrape, rows }) => {
+                const open = expanded[key] ?? (groups[0].key === key) // first (newest) open by default
+                const newCount = rows.filter(r => !isContacted(r)).length
+                const emailCount = rows.filter(r => r.email).length
+                const shown = rows.filter(passFilter)
+                return (
+                  <div key={key} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                    <button onClick={() => setExpanded(e => ({ ...e, [key]: !open }))} className="w-full flex items-center gap-3 px-4 py-3 text-left bg-gray-50 hover:bg-gray-100">
+                      <span className="text-gray-400">{open ? '▾' : '▸'}</span>
+                      <div className="flex-1 min-w-0">
+                        {scrape ? (
+                          <p className="font-semibold text-sm truncate">🔍 {scrape.prompt} <span className="text-gray-400 font-normal">· ZIP {scrape.zip} · {scrape.radius_miles} mi · {scrape.created_at ? new Date(scrape.created_at).toLocaleDateString() : ''}</span></p>
+                        ) : <p className="font-semibold text-sm">📇 Existing / manually-added leads</p>}
+                      </div>
+                      <span className="text-xs text-gray-500 whitespace-nowrap">{rows.length} leads · {emailCount} emails</span>
+                      {newCount > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">{newCount} NEW</span>}
+                    </button>
+                    {open && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-left text-gray-500 border-b">
+                            <th className="p-2 w-8"><input type="checkbox" onChange={e => toggleGroup(rows, e.target.checked)} /></th>
+                            <th className="p-2">Company</th><th className="p-2">Location</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Status</th>
+                          </tr></thead>
+                          <tbody>
+                            {shown.map(l => {
+                              const contacted = isContacted(l)
+                              return (
+                                <tr key={l.id} className={`border-b border-gray-50 ${!contacted ? 'bg-amber-50/40' : ''}`}>
+                                  <td className="p-2"><input type="checkbox" checked={!!sel[l.id]} onChange={e => setSel(s => ({ ...s, [l.id]: e.target.checked }))} /></td>
+                                  <td className="p-2 font-medium">{l.company_name}{l.website && <a href={l.website} target="_blank" rel="noreferrer" className="text-blue-500 ml-1">↗</a>}</td>
+                                  <td className="p-2 text-gray-500">{[l.city, l.state].filter(Boolean).join(', ') || '—'}</td>
+                                  <td className="p-2">{l.email ? <a href={`mailto:${l.email}`} className="text-blue-600">{l.email}</a> : <span className="text-amber-500">none</span>}</td>
+                                  <td className="p-2 text-gray-500">{l.phone || '—'}</td>
+                                  <td className="p-2">{contacted
+                                    ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Contacted</span>
+                                    : <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">New</span>}</td>
+                                </tr>
+                              )
+                            })}
+                            {shown.length === 0 && <tr><td colSpan={6} className="p-3 text-center text-gray-400">No leads match this filter in this group.</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </>
@@ -151,24 +203,31 @@ export default function LeadsPage() {
               <label className="block text-xs text-gray-500 mb-1">What to find (business types / keywords)</label>
               <input value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="restaurants, fast food, cafes, food trucks" className="w-full border rounded-lg px-3 py-2 text-sm" />
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">ZIP code</label>
-              <input value={zip} onChange={e => setZip(e.target.value)} placeholder="92705" className="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Radius: <b>{radius} mi</b></label>
-              <input type="range" min={5} max={50} value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full" />
-            </div>
+            <div><label className="block text-xs text-gray-500 mb-1">ZIP code</label><input value={zip} onChange={e => setZip(e.target.value)} placeholder="92705" className="w-full border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">Radius: <b>{radius} mi</b></label><input type="range" min={5} max={50} value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full" /></div>
             <div className="md:col-span-4">
               <button onClick={runScrape} disabled={scrapeBusy} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50">{scrapeBusy ? 'Scraping…' : '🔍 Find Leads'}</button>
               {scrapeMsg && <span className="ml-3 text-xs text-gray-600">{scrapeMsg}</span>}
             </div>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden" style={{ height: 420 }}>
-            <LeadsMap leads={mapLeads} scrapes={mapScrapes} />
-          </div>
-          <p className="text-xs text-gray-400">Indigo circles = areas already scraped (so you don’t rework them). Green dots = leads with email; amber = no email found.</p>
+          {justAdded.length > 0 && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-sm font-semibold text-emerald-800 mb-2">✅ Just added {justAdded.length} new leads</p>
+              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                {justAdded.map(n => (
+                  <div key={n.id} className="flex justify-between gap-2 border-b border-emerald-100 py-0.5">
+                    <span className="truncate">{n.company_name} <span className="text-gray-400">{[n.city, n.state].filter(Boolean).join(', ')}</span></span>
+                    <span className={n.email ? 'text-emerald-700' : 'text-amber-500'}>{n.email || 'no email'}</span>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setTab('leads')} className="mt-2 text-xs font-semibold text-indigo-600">View in Leads →</button>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden" style={{ height: 420 }}><LeadsMap leads={mapLeads} scrapes={mapScrapes} /></div>
+          <p className="text-xs text-gray-400">Indigo circles = already-scraped areas (don’t rework them). Green dots = leads with email; amber = no email.</p>
 
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <p className="text-sm font-semibold mb-2">Scrape history</p>
@@ -205,18 +264,11 @@ export default function LeadsPage() {
               <div className="grid md:grid-cols-2 gap-3">
                 {market.regions.map((r, i) => (
                   <div key={i} className="rounded-xl border border-gray-200 bg-white p-4">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="font-semibold">{r.area}, {r.state}</p>
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">{r.score}</span>
-                    </div>
+                    <div className="flex items-center justify-between mb-1"><p className="font-semibold">{r.area}, {r.state}</p><span className="text-xs font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">{r.score}</span></div>
                     <p className="text-xs text-gray-600 mb-1"><b className="text-emerald-700">Regulation:</b> {r.regulationAngle}</p>
                     <p className="text-xs text-gray-600 mb-2"><b className="text-blue-700">Demographics:</b> {r.demographicAngle}</p>
                     {r.suggestedZips && r.suggestedZips.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {r.suggestedZips.map(z => (
-                          <button key={z} onClick={() => { setZip(z); setTab('scrape') }} className="text-[11px] px-2 py-1 rounded bg-gray-100 hover:bg-indigo-100">Scrape {z} →</button>
-                        ))}
-                      </div>
+                      <div className="flex flex-wrap gap-1">{r.suggestedZips.map(z => <button key={z} onClick={() => { setZip(z); setTab('scrape') }} className="text-[11px] px-2 py-1 rounded bg-gray-100 hover:bg-indigo-100">Scrape {z} →</button>)}</div>
                     )}
                   </div>
                 ))}
