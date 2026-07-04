@@ -105,6 +105,13 @@ export default function LeadsPage() {
   }
   async function convertSelected(status: string) { const ids = selIds(); if (!ids.length) return; await sb.from('customers').update({ customer_status: status }).in('id', ids); setSel({}); load() }
   async function deleteSelected() { const ids = selIds(); if (!ids.length || !confirm(`Delete ${ids.length} lead(s)?`)) return; await sb.from('customers').delete().in('id', ids); setSel({}); load() }
+  async function deleteOne(id: string) { if (!confirm('Delete this lead?')) return; await sb.from('customers').delete().eq('id', id); load() }
+  async function deleteGroup(rows: Lead[], key: string) {
+    if (!rows.length || !confirm(`Delete all ${rows.length} leads in this group? This also removes the scrape from history/map.`)) return
+    await sb.from('customers').delete().in('id', rows.map(r => r.id))
+    if (key && key !== 'manual') await sb.from('lead_scrapes').delete().eq('id', key)
+    setSel({}); load()
+  }
   function toggleGroup(rows: Lead[], on: boolean) { setSel(s => { const n = { ...s }; rows.forEach(r => n[r.id] = on); return n }) }
 
   const selCount = selIds().length
@@ -150,7 +157,7 @@ export default function LeadsPage() {
                 const shown = rows.filter(passFilter)
                 return (
                   <div key={key} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-                    <button onClick={() => setExpanded(e => ({ ...e, [key]: !open }))} className="w-full flex items-center gap-3 px-4 py-3 text-left bg-gray-50 hover:bg-gray-100">
+                    <div onClick={() => setExpanded(e => ({ ...e, [key]: !open }))} className="w-full flex items-center gap-3 px-4 py-3 text-left bg-gray-50 hover:bg-gray-100 cursor-pointer">
                       <span className="text-gray-400">{open ? '▾' : '▸'}</span>
                       <div className="flex-1 min-w-0">
                         {scrape ? (
@@ -159,13 +166,14 @@ export default function LeadsPage() {
                       </div>
                       <span className="text-xs text-gray-500 whitespace-nowrap">{rows.length} leads · {emailCount} emails</span>
                       {newCount > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">{newCount} NEW</span>}
-                    </button>
+                      <button onClick={e => { e.stopPropagation(); deleteGroup(rows, key) }} className="text-[11px] px-2 py-1 rounded border bg-red-50 text-red-600 whitespace-nowrap hover:bg-red-100">Delete group</button>
+                    </div>
                     {open && (
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead><tr className="text-left text-gray-500 border-b">
                             <th className="p-2 w-8"><input type="checkbox" onChange={e => toggleGroup(rows, e.target.checked)} /></th>
-                            <th className="p-2">Company</th><th className="p-2">Location</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Status</th>
+                            <th className="p-2">Company</th><th className="p-2">Location</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Status</th><th className="p-2 w-10"></th>
                           </tr></thead>
                           <tbody>
                             {shown.map(l => {
@@ -180,10 +188,11 @@ export default function LeadsPage() {
                                   <td className="p-2">{contacted
                                     ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Contacted</span>
                                     : <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">New</span>}</td>
+                                  <td className="p-2 text-right"><button onClick={() => deleteOne(l.id)} title="Delete lead" className="text-red-500 hover:text-red-700">🗑</button></td>
                                 </tr>
                               )
                             })}
-                            {shown.length === 0 && <tr><td colSpan={6} className="p-3 text-center text-gray-400">No leads match this filter in this group.</td></tr>}
+                            {shown.length === 0 && <tr><td colSpan={7} className="p-3 text-center text-gray-400">No leads match this filter in this group.</td></tr>}
                           </tbody>
                         </table>
                       </div>
