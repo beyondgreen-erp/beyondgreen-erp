@@ -49,50 +49,66 @@ function parseCityState(addr: string): { city: string | null; state: string | nu
   return m ? { city: m[1].trim(), state: m[2] } : { city: null, state: null }
 }
 
+// Grid of query points covering the whole radius, so we sweep the area (Google caps ~20-60 per point).
+function gridPoints(lat: number, lng: number, radiusMiles: number, maxPoints: number): { lat: number; lng: number }[] {
+  const pts = [{ lat, lng }]
+  const step = Math.max(6, radiusMiles / 3)
+  const latPerMile = 1 / 69
+  const lngPerMile = 1 / (69 * Math.cos((lat * Math.PI) / 180))
+  for (let dLat = -radiusMiles; dLat <= radiusMiles + 0.001; dLat += step) {
+    for (let dLng = -radiusMiles; dLng <= radiusMiles + 0.001; dLng += step) {
+      if (dLat === 0 && dLng === 0) continue
+      if (Math.sqrt(dLat * dLat + dLng * dLng) > radiusMiles) continue
+      pts.push({ lat: lat + dLat * latPerMile, lng: lng + dLng * lngPerMile })
+      if (pts.length >= maxPoints) return pts
+    }
+  }
+  return pts
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!KEY) return NextResponse.json({ error: 'GOOGLE_PLACES_API_KEY is not configured. Add it in Vercel → Settings → Environment Variables, then redeploy.' }, { status: 400 })
     const { prompt, zip, radiusMiles, createdBy } = await req.json() as { prompt?: string; zip?: string; radiusMiles?: number; createdBy?: string }
     if (!prompt || !zip) return NextResponse.json({ error: 'prompt and zip are required' }, { status: 400 })
     const miles = radiusMiles && radiusMiles > 0 ? radiusMiles : 25
-    const radiusM = Math.min(Math.round(miles * 1609.34), 50000)
 
     const geo = await jget(`${G}/geocode/json?address=${encodeURIComponent(zip + ' USA')}&key=${KEY}`)
     if (geo.status !== 'OK' || !geo.results?.length) return NextResponse.json({ error: `Could not geocode ZIP ${zip} (${geo.status})` }, { status: 400 })
     const loc = geo.results[0].geometry.location as { lat: number; lng: number }
 
+    // Sweep a grid of points across the radius, 1 page each (fast, broad coverage).
+    const tiles = gridPoints(loc.lat, loc.lng, miles, 20)
+    const tileRadiusM = Math.min(Math.round((miles / 3) * 1.6 * 1609.34), 40000)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const places: any[] = []
-    let url = `${G}/place/textsearch/json?query=${encodeURIComponent(prompt)}&location=${loc.lat},${loc.lng}&radius=${radiusM}&key=${KEY}`
-    for (let page = 0; page < 2; page++) {
-      const res = await jget(url)
-      if (res.status !== 'OK' && res.status !== 'ZERO_RESULTS') {
-        if (page === 0) return NextResponse.json({ error: `Places search failed: ${res.status} ${res.error_message || ''}` }, { status: 400 })
-        break
-      }
-      places.push(...(res.results || []))
-      if (!res.next_page_token) break
-      await new Promise(r => setTimeout(r, 2100))
-      url = `${G}/place/textsearch/json?pagetoken=${res.next_page_token}&key=${KEY}`
-    }
+    const byPlace: Record<string, any> = {}
+    await mapLimit(tiles, 6, async (t) => {
+      try {
+        const res = await jget(`${G}/place/textsearch/json?query=${encodeURIComponent(prompt)}&location=${t.lat},${t.lng}&radius=${tileRadiusM}&key=${KEY}`)
+        if (res.status === 'OK') for (const p of (res.results || [])) if (p.place_id && !byPlace[p.place_id]) byPlace[p.place_id] = p
+      } catch { /* ignore tile errors */ }
+    })
+    const places = Object.values(byPlace)
 
     const sb = createSupabaseAdminClient()
-
-    // Record the scrape run first so leads can reference it.
     const { data: scrape } = await sb.from('lead_scrapes').insert({
       prompt, zip, radius_miles: miles, center_lat: loc.lat, center_lng: loc.lng,
       result_count: places.length, new_count: 0, emails_found: 0, created_by: createdBy || null,
     }).select().single()
     const scrapeId = scrape?.id || null
 
-    if (!places.length) return NextResponse.json({ found: 0, added: 0, emails: 0, scrapeId, newLeads: [], message: 'No businesses found for that search.' })
+    if (!places.length) return NextResponse.json({ found: 0, added: 0, emails: 0, scrapeId, newLeads: [], moreAvailable: false, message: 'No businesses found for that search.' })
 
-    const ids = places.map(p => p.place_id).filter(Boolean)
+    // Dedupe against existing leads by place_id.
+    const ids = places.map((p: any) => p.place_id)
     const { data: existing } = await sb.from('customers').select('place_id').in('place_id', ids)
     const seen = new Set((existing || []).map((r: { place_id: string }) => r.place_id))
-    const fresh = places.filter(p => p.place_id && !seen.has(p.place_id)).slice(0, 45)
+    const freshAll = places.filter((p: any) => !seen.has(p.place_id))
+    const PROCESS_CAP = 55
+    const fresh = freshAll.slice(0, PROCESS_CAP)
+    const moreAvailable = freshAll.length > fresh.length
 
-    const rows = await mapLimit(fresh, 8, async (p) => {
+    const rows = await mapLimit(fresh, 8, async (p: any) => {
       let website = p.website || ''; let phone = ''
       try {
         const d = await jget(`${G}/place/details/json?place_id=${p.place_id}&fields=website,formatted_phone_number&key=${KEY}`)
@@ -122,8 +138,8 @@ export async function POST(req: NextRequest) {
     if (scrapeId) await sb.from('lead_scrapes').update({ new_count: newLeads.length, emails_found: emails }).eq('id', scrapeId)
 
     return NextResponse.json({
-      found: places.length, added: newLeads.length, emails, center: loc, scrapeId, newLeads,
-      message: `Found ${places.length}, added ${newLeads.length} new leads (${emails} with email).`,
+      found: places.length, added: newLeads.length, emails, center: loc, scrapeId, newLeads, moreAvailable,
+      message: `Swept ${tiles.length} sub-areas, found ${places.length} businesses, added ${newLeads.length} new (${emails} with email).` + (moreAvailable ? ' More remain — run again to continue.' : ''),
     })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message || 'scrape failed' }, { status: 500 })
