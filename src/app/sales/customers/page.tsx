@@ -444,6 +444,14 @@ export default function CustomersPage() {
     setSelectedIds(new Set()); fetchCustomers()
   }
 
+  async function moveToLeads() {
+    if (!selectedArr.length) return
+    if (!confirm(`Move ${selectedArr.length} to the Leads board? Their status becomes "Lead".`)) return
+    const { error } = await supabase.from('customers').update({ customer_status: 'Lead', board: 'Leads', updated_at: new Date().toISOString() }).in('id', selectedArr)
+    if (error) { alert('Could not move to Leads: ' + error.message); return }
+    setSelectedIds(new Set()); fetchCustomers()
+  }
+
   async function forceDeleteCustomers() {
     const resp = prompt('PERMANENTLY delete ' + selectedArr.length + ' customer(s) AND all their linked records (orders, quotes, invoices, work orders, documents, etc.)? This cannot be undone.\n\nType DELETE to confirm.')
     if (resp !== 'DELETE') return
@@ -1282,6 +1290,9 @@ export default function CustomersPage() {
       <BulkActionBar count={selectedArr.length} onDelete={bulkDelete} onClear={()=>setSelectedIds(new Set())}
         extraActions={(
           <>
+            <button onClick={moveToLeads} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-700 font-medium transition-colors">
+              Move to Leads
+            </button>
             {selectedArr.length >= 2 && (
               <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 font-medium transition-colors">
                 Merge {selectedArr.length}
