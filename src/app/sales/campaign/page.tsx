@@ -375,7 +375,7 @@ export default function CampaignPage() {
         <div className="bg-white border border-[#E4E6EE] rounded-2xl p-4 mb-4 flex flex-wrap items-center gap-3">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search company, industry, email…" className="flex-1 min-w-[220px] text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] outline-none" />
           <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={onlyEmailable} onChange={(e) => setOnlyEmailable(e.target.checked)} /> Only contactable</label>
-          <button onClick={generateDrafts} disabled={generating || selected.size === 0} className="text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors disabled:opacity-40" style={darkBtn}>
+          <button onClick={() => generateDrafts()} disabled={generating || selected.size === 0} className="text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors disabled:opacity-40" style={darkBtn}>
             {generating ? 'Generating drafts…' : `Generate Drafts (${selected.size})`}
           </button>
         </div>
