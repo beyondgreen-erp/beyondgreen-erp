@@ -132,20 +132,41 @@ export async function sendViaGraph(
   return true
 }
 
-// Look for a reply from `fromAddress` received after `sinceIso`. Returns true if found.
+// Subjects that indicate an automated message, NOT a real human reply.
+const AUTO_REPLY_RE = /^(automatic reply|auto:|auto reply|autoreply|out of office|out-of-office|undeliverable|delivery status notification|mail delivery|returned mail|read:|delivery receipt|read receipt|does not accept|address not found)/i
+
+export interface ReplyHit { subject: string; preview: string; receivedDateTime: string }
+
+// Find a GENUINE reply from `fromAddress` after `sinceIso` (skips auto-replies / OOO / bounces).
+// Returns the reply's subject + preview so it can be shown in the ERP, or null.
+export async function findReplyFrom(
+  accessToken: string,
+  fromAddress: string,
+  sinceIso: string
+): Promise<ReplyHit | null> {
+  const filter = `receivedDateTime ge ${sinceIso} and from/emailAddress/address eq '${fromAddress.replace(/'/g, "''")}'`
+  const url =
+    `https://graph.microsoft.com/v1.0/me/messages?$select=id,subject,bodyPreview,receivedDateTime&$top=5&$filter=` +
+    encodeURIComponent(filter)
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, ConsistencyLevel: 'eventual' },
+  })
+  if (!r.ok) return null
+  const j = await r.json()
+  const msgs = Array.isArray(j.value) ? j.value : []
+  for (const m of msgs) {
+    const subject = (m.subject || '').trim()
+    if (AUTO_REPLY_RE.test(subject)) continue
+    return { subject: subject || '(no subject)', preview: (m.bodyPreview || '').replace(/\s+/g, ' ').slice(0, 300), receivedDateTime: m.receivedDateTime || new Date().toISOString() }
+  }
+  return null
+}
+
+// Boolean wrapper (used by the campaign runner). Excludes auto-replies/OOO/bounces.
 export async function inboxHasReplyFrom(
   accessToken: string,
   fromAddress: string,
   sinceIso: string
 ): Promise<boolean> {
-  const filter = `receivedDateTime ge ${sinceIso} and from/emailAddress/address eq '${fromAddress.replace(/'/g, "''")}'`
-  const url =
-    `https://graph.microsoft.com/v1.0/me/messages?$select=id,receivedDateTime&$top=1&$filter=` +
-    encodeURIComponent(filter)
-  const r = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}`, ConsistencyLevel: 'eventual' },
-  })
-  if (!r.ok) return false
-  const j = await r.json()
-  return Array.isArray(j.value) && j.value.length > 0
+  return (await findReplyFrom(accessToken, fromAddress, sinceIso)) !== null
 }
