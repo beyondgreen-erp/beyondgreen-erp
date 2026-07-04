@@ -3,7 +3,7 @@
 // the recipient and, if found, marks the outreach as responded automatically.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getOutlookAccessToken, inboxHasReplyFrom, outlookConfigured } from '@/lib/outlook'
+import { getOutlookAccessToken, findReplyFrom, outlookConfigured } from '@/lib/outlook'
 
 export const maxDuration = 60
 
@@ -42,14 +42,14 @@ export async function GET(req: NextRequest) {
     const token = tokenBySender[sender]
     if (!token) continue
     try {
-      const found = await inboxHasReplyFrom(token, o.to_email, new Date(o.sent_at).toISOString())
-      if (found) {
+      const hit = await findReplyFrom(token, o.to_email, new Date(o.sent_at).toISOString())
+      if (hit) {
         await admin
           .from('customer_outreach')
           .update({
             response_received: true,
-            response_at: new Date().toISOString(),
-            response_notes: 'Auto-detected reply in Outlook',
+            response_at: hit.receivedDateTime || new Date().toISOString(),
+            response_notes: `Reply: "${hit.subject}" — ${hit.preview}`.slice(0, 500),
             status: 'responded',
           })
           .eq('id', o.id)
