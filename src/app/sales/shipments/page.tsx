@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
 import { statusColor } from '@/lib/statusColors'
+import OrdersMirror from '@/components/OrdersMirror'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import {
@@ -78,7 +79,7 @@ export default function ShipmentsPage() {
   const [rows, setRows] = useState<Shipment[]>([])
   useItemDeepLink(rows, openEdit)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'table' | 'map' | 'heatmap' | 'analytics'>('table')
+  const [tab, setTab] = useState<'table' | 'map' | 'heatmap' | 'analytics' | 'cancelled'>('table')
   const [search, setSearch] = useState('')
   const [filterMonth, setFilterMonth] = useState('all')
   const [filterCarrier, setFilterCarrier] = useState('all')
@@ -274,7 +275,13 @@ export default function ShipmentsPage() {
         <button onClick={() => setTab('map')} className={tabCls('map')}>Live Map</button>
         <button onClick={() => setTab('heatmap')} className={tabCls('heatmap')}>Heat Map</button>
         <button onClick={() => setTab('analytics')} className={tabCls('analytics')}>Analytics</button>
+        <button onClick={() => setTab('cancelled')} className={tabCls('cancelled')}>Cancelled Orders</button>
       </div>
+
+      {/* ── CANCELLED ORDERS TAB (sales orders in Cancelled / Closed status) ── */}
+      {tab === 'cancelled' && (
+        <OrdersMirror statuses={['Cancelled', 'Closed']} title="Cancelled Orders" tagClass="t-pink" emoji="✕" />
+      )}
 
       {/* ── TABLE TAB ── */}
       {tab === 'table' && (
