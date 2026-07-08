@@ -7,6 +7,7 @@ import nextDynamic from 'next/dynamic'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
+import { statusColor } from '@/lib/statusColors'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import {
@@ -357,9 +358,11 @@ export default function ShipmentsPage() {
                         </td>
                         <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{s.month_group || '—'}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[s.delivery_status] || STATUS_COLORS['In Transit']}`}>
-                            {s.delivery_status}
-                          </span>
+                          {(() => { const c = statusColor(s.delivery_status); return (
+                            <span className="mon-pill" style={{ background: c.bg, color: c.fg }}>
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{s.delivery_status}
+                            </span>
+                          ) })()}
                         </td>
                       </tr>
                     )
@@ -502,15 +505,20 @@ export default function ShipmentsPage() {
           <div className="fixed inset-0 bg-black/50" />
           <div className="relative w-full max-w-lg bg-[#F9FAFB] border-l border-[#E4E6EE] h-full overflow-y-auto flex flex-col"
             onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE] shrink-0">
-              <div>
-                <h2 className="text-base font-semibold text-[#1A1D2E] truncate max-w-xs">{editing?.customer_name || 'Shipment'}</h2>
-                {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
-                <p className="text-xs text-gray-500 mt-0.5">{editing?.month_group}</p>
+            <div className="mon-modal-head shrink-0">
+              <div className="min-w-0">
+                <h2 className="text-base truncate max-w-xs">{editing?.customer_name || 'Shipment'}</h2>
+                <p className="text-white/80 text-xs mt-0.5">{editing?.month_group}</p>
+                {editing && (() => { const c = statusColor(editing.delivery_status); return (
+                  <span className="mon-pill mt-2" style={{ background: c.bg, color: c.fg }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{editing.delivery_status}
+                  </span>
+                ) })()}
               </div>
-              <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-700 p-1.5 rounded-lg hover:bg-[#F5F6FA] transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {editing && <ShareLink id={editing.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
+                <button onClick={() => setOpen(false)} className="mon-modal-close" aria-label="Close">×</button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
