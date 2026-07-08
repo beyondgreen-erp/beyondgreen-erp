@@ -26,6 +26,7 @@ interface PlanRow {
   sku: string; description: string; units: number; unitsPerCase: number; cases: number
   caseWeightLb: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
   gtinImageUrl: string | null; uom: string; packaging: string; done: number
+  productId: string | null
   alloc: Record<number, number>   // cases of this line on each pallet id (supports splitting a SKU across pallets)
 }
 interface Pallet { id: number; weightLb: number }   // manual total pallet weight
@@ -140,6 +141,7 @@ export default function ShippingQueuePage() {
         caseWeightLb: +(((upc || 1) * gpu) / GRAMS_PER_LB).toFixed(2), gramsPerUnit: gpu,
         upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
         uom: l.unit_of_measure || '', packaging: l.packaging || '', done: l.quantity_shipped || l.completed_qty || 0,
+        productId: l.product_id || null,
         alloc: { 1: cs },   // default: all of this line's cases on Pallet 1
       }
     })
@@ -333,6 +335,27 @@ export default function ShippingQueuePage() {
     setBusy(''); markDoc('caseLabels')
   }
 
+  // Upload a GTIN barcode image for a SKU that is missing one. Used immediately for
+  // this shipment's case labels AND written back to the Inventory board (products.gtin_image_url).
+  async function uploadGtin(sku: string, file: File) {
+    setBusy('gtin-' + sku)
+    try {
+      const safe = sku.replace(/[^A-Za-z0-9_-]/g, '') || 'sku'
+      const path = `gtin/${safe}-${Date.now()}.png`
+      const { error } = await sb.storage.from('erp-images').upload(path, file, { upsert: true, contentType: file.type || 'image/png' })
+      if (error) throw error
+      const url = sb.storage.from('erp-images').getPublicUrl(path).data.publicUrl
+      // apply to every plan row with this SKU so the case labels can use it now
+      setPlan(p => p.map(r => r.sku === sku ? { ...r, gtinImageUrl: url } : r))
+      // write back to Inventory so it's available next time (best-effort)
+      const pid = plan.find(r => r.sku === sku)?.productId
+      if (pid) await sb.from('products').update({ gtin_image_url: url }).eq('id', pid)
+      else await sb.from('products').update({ gtin_image_url: url }).eq('sku', sku)
+      setMissing(m => m.filter(s => s !== sku))
+    } catch (e) { alert('GTIN upload failed: ' + (e as Error).message) }
+    setBusy('')
+  }
+
   function genPalletLabels() {
     const labels: PalletLabel[] = pallets.map((p, idx) => ({ palletNumber: idx + 1, totalPallets: pallets.length, caseCount: casesOnPallet(p.id), weight: p.weightLb, skus: skusOnPallet(p.id) }))
     buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
@@ -341,11 +364,12 @@ export default function ShippingQueuePage() {
 
   function genPackingList() {
     if (!activeItem) return
+    // One line per SKU per pallet (case counts). A SKU split across pallets
+    // shows one line per pallet; otherwise a SKU appears exactly once.
     const cases: PackListCase[] = []
     pallets.forEach((p, idx) => {
       plan.filter(r => (r.alloc[p.id] || 0) > 0).forEach(r => {
-        const n = r.alloc[p.id] || 0
-        for (let k = 1; k <= n; k++) cases.push({ sku: r.sku, description: r.description, caseNumber: k, totalCases: r.cases, unitsInCase: r.unitsPerCase, weight: r.caseWeightLb, palletNumber: idx + 1 })
+        cases.push({ sku: r.sku, description: r.description, palletNumber: idx + 1, caseCount: r.alloc[p.id] || 0, unitsInCase: r.unitsPerCase, weight: r.caseWeightLb })
       })
     })
     const meta = { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }
@@ -722,8 +746,22 @@ export default function ShippingQueuePage() {
                             {!labelsUnlocked && <span className="ml-auto text-xs text-gray-400">Unlocks after the BOL is finalized</span>}
                           </div>
                           {missing.length > 0 && (
-                            <div className="text-xs bg-red-50 border-l-4 border-red-400 text-red-700 p-3 mb-3">
-                              <b>UPC or GTIN is missing in the Inventory board</b> for: {missing.join(', ')}.<br />Please add the UPC/GTIN (and product image) in Inventory before generating labels.
+                            <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                              <p className="text-amber-800 mb-2"><b>GTIN barcode image is missing</b> for {missing.length} SKU{missing.length !== 1 ? 's' : ''}. Upload the unique GTIN barcode image for each — it will be used on this order&apos;s case labels and saved to the Inventory board for next time.</p>
+                              <div className="space-y-1.5">
+                                {missing.map(sku => (
+                                  <div key={sku} className="flex items-center gap-2 bg-white rounded-md border border-amber-200 px-2.5 py-1.5">
+                                    <span className="font-mono font-semibold text-[#1A1D2E] w-28 truncate">{sku}</span>
+                                    <span className="text-gray-500 flex-1 truncate">{plan.find(r => r.sku === sku)?.description || ''}</span>
+                                    <label className={`${btn} bg-amber-600 text-white border-amber-600 cursor-pointer ${busy === 'gtin-' + sku ? 'opacity-60' : ''}`}>
+                                      {busy === 'gtin-' + sku ? 'Uploading…' : '⬆ Upload GTIN'}
+                                      <input type="file" accept="image/*" className="hidden" disabled={busy === 'gtin-' + sku}
+                                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadGtin(sku, f); e.currentTarget.value = '' }} />
+                                    </label>
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-amber-700 mt-2">Then click <b>Case Labels</b> again to generate.</p>
                             </div>
                           )}
                           <div className="flex flex-wrap gap-2">
