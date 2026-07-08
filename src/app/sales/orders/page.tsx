@@ -1042,8 +1042,8 @@ export default function OrdersPage() {
         const baseGroups = groupBy === 'status' ? STATUSES : SECTIONS
         const groupData = baseGroups.map(grp => {
           const items = (groupBy === 'status'
-            ? orders.filter(o => o.status === grp && orderMatches(o))
-            : orders.filter(o => (o.order_section || 'Make To Stock') === grp && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
+            ? orders.filter(o => o.status === grp && !isCompleted(o) && orderMatches(o))
+            : orders.filter(o => (o.order_section || 'Make To Stock') === grp && !isCompleted(o) && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
           return { grp, items }
         }).filter(g => showEmpty || g.items.length > 0)
         return (
