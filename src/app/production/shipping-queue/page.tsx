@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 import { buildCaseLabels, buildPalletLabels, missingUpcSkus, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
@@ -21,45 +21,37 @@ interface OrderInfo {
 interface QueueItem { id: string; sales_order_id: string; status: string; sales_orders?: OrderInfo }
 interface PlanRow {
   sku: string; description: string; units: number; unitsPerCase: number; cases: number
-  caseWeightLb: number; casesPerPallet: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
-  gtinImageUrl: string | null
-  uom: string; packaging: string; done: number
+  caseWeightLb: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
+  gtinImageUrl: string | null; uom: string; packaging: string; done: number
+  alloc: Record<number, number>   // cases of this line on each pallet id (supports splitting a SKU across pallets)
 }
+interface Pallet { id: number; weightLb: number }   // manual total pallet weight
 interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string }
-interface PalletSlot { palletNumber: number; caseCount: number; weightLb: number; sku: string }
-interface SkuLine extends PlanRow { pallets: number; palletStart: number; palletEnd: number }
+
+// Editable BOL form state (mirrors BolData + editable commodity lines)
+interface BolLineForm { palletId: number; handlingQty: number; packageQty: number; weight: number; commodityDescription: string; nmfcNumber: string; freightClass: string }
+interface BolForm {
+  bolNumber: string; date: string; carrierName: string; scac: string; freightTerms: string
+  proNumber: string; trailerNo: string; sealNumber: string
+  poNumber: string; puNumber: string; loadNumber: string
+  shipFromName: string; shipFromAddress: string; shipToName: string; shipToAddress: string
+  specialInstructions: string   // newline-separated in the textarea
+  declaredValue: number
+  lines: BolLineForm[]
+}
 
 function shipTo(o?: OrderInfo): { name: string; addr: string } {
   return { name: o?.customers?.company_name || 'Customer', addr: (o?.shipping_address || o?.customers?.shipping_address || '').toString() }
 }
 function fmtMoney(n?: number | null) { return n != null ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—' }
-
-// Assign each SKU's cases to sequential pallets (no auto-mixing).
-function buildPacking(plan: PlanRow[], defaultCap: number): { skuLines: SkuLine[]; pallets: PalletSlot[]; totalPallets: number } {
-  let palletNo = 0
-  const skuLines: SkuLine[] = []
-  const pallets: PalletSlot[] = []
-  for (const r of plan) {
-    const cpp = Math.max(1, r.casesPerPallet || defaultCap)
-    const nP = Math.max(1, Math.ceil(r.cases / cpp))
-    const start = palletNo + 1
-    let remaining = r.cases
-    for (let i = 0; i < nP; i++) {
-      palletNo++
-      const cnt = Math.min(cpp, remaining); remaining -= cnt
-      pallets.push({ palletNumber: palletNo, caseCount: cnt, weightLb: +(cnt * r.caseWeightLb).toFixed(0), sku: r.sku })
-    }
-    skuLines.push({ ...r, pallets: nP, palletStart: start, palletEnd: palletNo })
-  }
-  return { skuLines, pallets, totalPallets: palletNo }
-}
+function sumAlloc(a: Record<number, number>) { return Object.values(a).reduce((s, v) => s + (v || 0), 0) }
 
 export default function ShippingQueuePage() {
   const [items, setItems] = useState<QueueItem[]>([])
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState<string | null>(null)
   const [plan, setPlan] = useState<PlanRow[]>([])
-  const [cap, setCap] = useState(40)
+  const [pallets, setPallets] = useState<Pallet[]>([{ id: 1, weightLb: 0 }])
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState('')
   const [missing, setMissing] = useState<string[]>([])
@@ -67,6 +59,15 @@ export default function ShippingQueuePage() {
   const [sel, setSel] = useState<Record<string, boolean>>({})
   const [showMaster, setShowMaster] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  // Search / filter
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('All')
+  // BOL review + gating
+  const [parcel, setParcel] = useState(false)
+  const [bolForm, setBolForm] = useState<BolForm | null>(null)
+  const [finalized, setFinalized] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const prevUrlRef = useRef('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [])
 
@@ -90,9 +91,16 @@ export default function ShippingQueuePage() {
 
   useEffect(() => { load(); loadBols() }, [load, loadBols])
 
+  function resetPackState() {
+    setPlan([]); setPallets([{ id: 1, weightLb: 0 }]); setParcel(false)
+    setBolForm(null); setFinalized(false); setMissing([]); setNotes('')
+    if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' }
+    setPreviewUrl('')
+  }
+
   async function openOrder(item: QueueItem) {
-    if (openId === item.id) { setOpenId(null); return }
-    setOpenId(item.id); setNotes(''); setMissing([]); setBusy('load'); setPlan([])
+    if (openId === item.id) { setOpenId(null); resetPackState(); return }
+    setOpenId(item.id); resetPackState(); setBusy('load')
     const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', item.sales_order_id).order('line_number', { ascending: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ls = (lines as any[]) || []
@@ -111,54 +119,190 @@ export default function ShippingQueuePage() {
       const upc = l.qty_per_case || prod?.case_qty || 1
       const units = l.quantity ?? l.qty ?? 0
       const gpu = prod?.weight_per_unit_grams || 0
+      const cs = Math.max(1, Math.ceil(units / (upc || 1)))
       return {
         sku: l.sku || '(no sku)', description: l.description || prod?.product_name || '',
-        units, unitsPerCase: upc || 1, cases: Math.max(1, Math.ceil(units / (upc || 1))),
-        caseWeightLb: +(((upc || 1) * gpu) / GRAMS_PER_LB).toFixed(2), casesPerPallet: cap, gramsPerUnit: gpu,
+        units, unitsPerCase: upc || 1, cases: cs,
+        caseWeightLb: +(((upc || 1) * gpu) / GRAMS_PER_LB).toFixed(2), gramsPerUnit: gpu,
         upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
         uom: l.unit_of_measure || '', packaging: l.packaging || '', done: l.quantity_shipped || l.completed_qty || 0,
+        alloc: { 1: cs },   // default: all of this line's cases on Pallet 1
       }
     })
     setPlan(rowsOut); setBusy('')
   }
 
-  function upd(i: number, patch: Partial<PlanRow>) { setPlan(p => p.map((r, idx) => idx === i ? { ...r, ...patch } : r)) }
+  // Editing packing after the BOL was reviewed/finalized invalidates it (labels must come from a fresh BOL).
+  function invalidateBol() { if (finalized) setFinalized(false); if (bolForm) setBolForm(null) }
+
+  const firstPalletId = () => pallets[0]?.id ?? 1
+  function removeLine(i: number) { setPlan(p => p.filter((_, idx) => idx !== i)); invalidateBol() }
+  // Set total cases for a line, resetting its allocation onto the first pallet.
+  function setCases(i: number, v: number) {
+    const cs = Math.max(1, v || 1)
+    setPlan(p => p.map((r, idx) => idx === i ? { ...r, cases: cs, alloc: { [firstPalletId()]: cs } } : r)); invalidateBol()
+  }
   function setUnitsPerCase(i: number, v: number) {
     setPlan(p => p.map((r, idx) => {
       if (idx !== i) return r
       const upc = Math.max(1, v || 1)
-      return { ...r, unitsPerCase: upc, cases: Math.max(1, Math.ceil(r.units / upc)), caseWeightLb: r.gramsPerUnit ? +((upc * r.gramsPerUnit) / GRAMS_PER_LB).toFixed(2) : r.caseWeightLb }
+      const cs = Math.max(1, Math.ceil(r.units / upc))
+      return { ...r, unitsPerCase: upc, cases: cs, alloc: { [firstPalletId()]: cs }, caseWeightLb: r.gramsPerUnit ? +((upc * r.gramsPerUnit) / GRAMS_PER_LB).toFixed(2) : r.caseWeightLb }
     }))
+    invalidateBol()
   }
+  // Set how many of a line's cases sit on a given pallet (this is what enables splitting a SKU across pallets).
+  function setAlloc(i: number, palletId: number, v: number) {
+    setPlan(p => p.map((r, idx) => idx === i ? { ...r, alloc: { ...r.alloc, [palletId]: Math.max(0, v || 0) } } : r)); invalidateBol()
+  }
+
+  function addPallet() { setPallets(ps => [...ps, { id: (ps.reduce((m, p) => Math.max(m, p.id), 0) + 1), weightLb: 0 }]); invalidateBol() }
+  function removePallet(id: number) {
+    if (pallets.length <= 1) return
+    const first = pallets.find(p => p.id !== id)!.id
+    setPlan(p => p.map(r => {
+      const moved = r.alloc[id] || 0
+      if (!moved) return r
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [id]: _drop, ...rest } = r.alloc
+      return { ...r, alloc: { ...rest, [first]: (rest[first] || 0) + moved } }
+    }))
+    setPallets(ps => ps.filter(p => p.id !== id))
+    invalidateBol()
+  }
+  function setPalletWeight(id: number, w: number) { setPallets(ps => ps.map(p => p.id === id ? { ...p, weightLb: Math.max(0, w || 0) } : p)); invalidateBol() }
 
   const activeItem = items.find(i => i.id === openId)
   const o = activeItem?.sales_orders
   const st = o ? shipTo(o) : { name: '', addr: '' }
-  const pk = buildPacking(plan, cap)
+
+  const casesOnPallet = (id: number) => plan.reduce((a, r) => a + (r.alloc[id] || 0), 0)
+  const skusOnPallet = (id: number) => plan.filter(r => (r.alloc[id] || 0) > 0).map(r => r.sku)
+  const remaining = (r: PlanRow) => r.cases - sumAlloc(r.alloc)
+  const anyUnallocated = plan.some(r => remaining(r) !== 0)
+
   const totals = {
     cases: plan.reduce((a, r) => a + r.cases, 0),
-    weight: +(plan.reduce((a, r) => a + r.cases * r.caseWeightLb, 0)).toFixed(2),
-    pallets: pk.totalPallets,
+    pallets: pallets.length,
+    weight: +(pallets.reduce((a, p) => a + (p.weightLb || 0), 0)).toFixed(0),
   }
-  const missingWeight = plan.some(r => !r.caseWeightLb)
+  const anyPalletMissingWeight = pallets.some(p => !p.weightLb)
 
   async function aiSuggest() {
     setBusy('ai')
     try {
       const res = await fetch('/api/shipping/pack-suggest', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxCasesPerPallet: cap, lines: plan.map(r => ({ sku: r.sku, description: r.description, units: r.units, unitsPerCase: r.unitsPerCase, weightPerUnitGrams: r.gramsPerUnit })) }),
+        body: JSON.stringify({ maxCasesPerPallet: 40, lines: plan.map(r => ({ sku: r.sku, description: r.description, units: r.units, unitsPerCase: r.unitsPerCase, weightPerUnitGrams: r.gramsPerUnit })) }),
       })
       const j = await res.json()
-      if (j.skuPlan) setPlan(p => p.map(r => { const s = j.skuPlan.find((x: { sku: string }) => x.sku === r.sku); return s ? { ...r, cases: s.cases } : r }))
+      if (j.skuPlan) setPlan(p => p.map(r => { const s = j.skuPlan.find((x: { sku: string }) => x.sku === r.sku); return s ? { ...r, cases: s.cases, alloc: { [firstPalletId()]: s.cases } } : r }))
       if (j.notes) setNotes(j.notes)
+      invalidateBol()
     } catch { setNotes('AI suggestion unavailable; using computed plan.') }
     setBusy('')
   }
 
+  // ---- BOL review / preview / finalize -------------------------------------
+  function buildBolLines(): BolLineForm[] {
+    return pallets.map(p => {
+      const rows = plan.filter(r => (r.alloc[p.id] || 0) > 0)
+      const cases = rows.reduce((a, r) => a + (r.alloc[p.id] || 0), 0)
+      const desc = rows.map(r => `${r.description || r.sku} — ${r.unitsPerCase}pcs/cs × ${r.alloc[p.id]}cs`).join('; ') || '(empty pallet)'
+      return { palletId: p.id, handlingQty: 1, packageQty: cases, weight: p.weightLb, commodityDescription: desc, nmfcNumber: '', freightClass: '' }
+    })
+  }
+
+  async function reviewBol() {
+    if (!activeItem) return
+    setBusy('bol')
+    const orderValue = o?.total_amount || o?.total || o?.total_value || 0
+    let fill = { nmfcNumber: '', freightClass: '', specialInstructions: 'DO NOT STACK' }
+    try {
+      const res = await fetch('/api/shipping/bol-fill', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productDescriptions: plan.map(p => p.description), totalPallets: totals.pallets, totalCases: totals.cases, totalWeight: totals.weight, orderValue }),
+      })
+      const j = await res.json(); if (!j.error) fill = { ...fill, ...j }
+    } catch { /* fallback to defaults */ }
+    const po = o?.po_number || ''
+    const bolNumber = `BOL-${(o?.order_number || Date.now().toString()).replace(/[^0-9A-Za-z]/g, '').slice(0, 20)}`
+    const si = ['"DO NOT STACK"', po ? `PU# ${po}` : '', po ? `Load# ${po}` : ''].filter(Boolean).join('\n')
+    const lines = buildBolLines().map(l => ({ ...l, nmfcNumber: fill.nmfcNumber || '', freightClass: fill.freightClass || '' }))
+    setBolForm({
+      bolNumber, date: new Date().toLocaleDateString(), carrierName: o?.carrier || 'SINGLE (Walmart FLEET)', scac: 'WALM', freightTerms: '3rd Party',
+      proNumber: '', trailerNo: '', sealNumber: '', poNumber: po, puNumber: po, loadNumber: po,
+      shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, shipToName: st.name, shipToAddress: st.addr,
+      specialInstructions: si, declaredValue: orderValue, lines,
+    })
+    setFinalized(false)
+    setBusy('')
+  }
+
+  function formToData(f: BolForm): { data: BolData; lines: BolLine[] } {
+    const lines: BolLine[] = f.lines.map((l, idx) => ({
+      handlingQty: l.handlingQty, handlingType: 'Pallet', packageQty: l.packageQty, packageType: 'Case',
+      weight: +(+l.weight).toFixed(0),
+      commodityDescription: `Pallet ${idx + 1}: ${l.commodityDescription}`,
+      nmfcNumber: l.nmfcNumber, freightClass: l.freightClass,
+    }))
+    if (f.poNumber) lines.push({ kind: 'note', commodityDescription: `All items listed as part of PO# ${f.poNumber}` })
+    const data: BolData = {
+      bolNumber: f.bolNumber, date: f.date, shipFromName: f.shipFromName, shipFromAddress: f.shipFromAddress,
+      shipToName: f.shipToName, shipToAddress: f.shipToAddress, carrierName: f.carrierName, scac: f.scac, freightTerms: f.freightTerms,
+      proNumber: f.proNumber, trailerNo: f.trailerNo, sealNumber: f.sealNumber,
+      specialInstructions: f.specialInstructions.split('\n').filter(Boolean),
+      totalPallets: f.lines.length, totalCases: f.lines.reduce((a, l) => a + (+l.packageQty || 0), 0),
+      totalWeight: f.lines.reduce((a, l) => a + (+l.weight || 0), 0), declaredValue: f.declaredValue,
+    }
+    return { data, lines }
+  }
+
+  // Live PDF preview (debounced) whenever the BOL form changes.
+  useEffect(() => {
+    if (!bolForm) { if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' } setPreviewUrl(''); return }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const logo = await loadImageDataUrl('/bG-logo-clean.png')
+      if (cancelled) return
+      const { data, lines } = formToData(bolForm)
+      const url = String(buildBOL(data, lines, logo).output('bloburl'))
+      if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current)
+      prevUrlRef.current = url; setPreviewUrl(url)
+    }, 450)
+    return () => { cancelled = true; clearTimeout(t) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bolForm])
+
+  function updBolLine(i: number, patch: Partial<BolLineForm>) { setBolForm(f => f ? { ...f, lines: f.lines.map((l, idx) => idx === i ? { ...l, ...patch } : l) } : f) }
+  function updBol(patch: Partial<BolForm>) { setBolForm(f => f ? { ...f, ...patch } : f) }
+
+  async function finalizeBol() {
+    if (!activeItem || !bolForm) return
+    setBusy('finalize')
+    const { data, lines } = formToData(bolForm)
+    const logo = await loadImageDataUrl('/bG-logo-clean.png')
+    buildBOL(data, lines, logo).save(`${bolForm.bolNumber}.pdf`)
+    const payload = { pallets, plan: plan.map(r => ({ sku: r.sku, description: r.description, cases: r.cases, unitsPerCase: r.unitsPerCase, alloc: r.alloc, upc: r.upc, customerPart: r.customerPart })), bol: bolForm }
+    await sb.from('bols').insert({
+      bol_number: bolForm.bolNumber, sales_order_id: activeItem.sales_order_id, carrier_name: bolForm.carrierName, scac: bolForm.scac,
+      ship_from_name: bolForm.shipFromName, ship_from_address: bolForm.shipFromAddress, ship_to_name: bolForm.shipToName, ship_to_address: bolForm.shipToAddress,
+      po_number: bolForm.poNumber || null, pu_number: bolForm.puNumber || null, load_number: bolForm.loadNumber || null,
+      pro_number: bolForm.proNumber || null, trailer_no: bolForm.trailerNo || null, seal_number: bolForm.sealNumber || null,
+      pallet_qty: data.totalPallets, case_qty: data.totalCases, weight: data.totalWeight, declared_value: bolForm.declaredValue,
+      freight_terms: bolForm.freightTerms, special_instructions: bolForm.specialInstructions,
+      commodity_description: bolForm.lines.map(l => l.commodityDescription).join(' | '),
+      nmfc_number: bolForm.lines[0]?.nmfcNumber || null, freight_class: bolForm.lines[0]?.freightClass || null,
+      status: 'Final', payload,
+    })
+    setFinalized(true); setBusy(''); loadBols()
+  }
+
+  // ---- Labels (only after BOL finalized, or in parcel mode) -----------------
+  const labelsUnlocked = finalized || parcel
+
   async function genCaseLabels() {
     setBusy('labels')
-    // Preload any uploaded GTIN barcode images to data URLs.
     const urls = [...new Set(plan.map(r => r.gtinImageUrl).filter(Boolean))] as string[]
     const map: Record<string, string> = {}
     await Promise.all(urls.map(async u => { const d = await loadImageDataUrl(u); if (d) map[u] = d }))
@@ -171,63 +315,23 @@ export default function ShippingQueuePage() {
     const miss = missingUpcSkus(cases)
     if (miss.length) { setMissing(miss); setBusy(''); return }
     setMissing([])
-    buildCaseLabels({ poNumber: o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, cases).save(`case-labels-${o?.order_number || 'order'}.pdf`)
+    buildCaseLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, cases).save(`case-labels-${o?.order_number || 'order'}.pdf`)
     setBusy('')
   }
 
   function genPalletLabels() {
-    const pallets: PalletLabel[] = pk.pallets.map(p => ({ palletNumber: p.palletNumber, totalPallets: pk.totalPallets, caseCount: p.caseCount, weight: p.weightLb, skus: [p.sku] }))
-    buildPalletLabels({ poNumber: o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, pallets).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
-  }
-
-  async function genBOL() {
-    if (!activeItem) return
-    setBusy('bol')
-    const orderValue = o?.total_amount || o?.total || o?.total_value || 0
-    let fill = { commodityDescription: plan[0]?.description || 'Disposable Foodservice Products', nmfcNumber: '', freightClass: '', declaredValue: orderValue, specialInstructions: 'DO NOT STACK' }
-    try {
-      const res = await fetch('/api/shipping/bol-fill', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productDescriptions: plan.map(p => p.description), totalPallets: totals.pallets, totalCases: totals.cases, totalWeight: totals.weight, orderValue }),
-      })
-      const j = await res.json(); if (!j.error) fill = { ...fill, ...j }
-    } catch { /* fallback */ }
-    const po = o?.po_number || ''
-    const lines: BolLine[] = pk.skuLines.map(s => ({
-      handlingQty: s.pallets, handlingType: 'Pallet', packageQty: s.cases, packageType: 'Case',
-      weight: +(s.cases * s.caseWeightLb).toFixed(0),
-      commodityDescription: `${s.description || s.sku} - ${s.unitsPerCase}pcs/cs (Pallet # ${s.palletStart}${s.palletEnd > s.palletStart ? '-' + s.palletEnd : ''})`,
-      freightClass: fill.freightClass || '', nmfcNumber: fill.nmfcNumber || '',
-    }))
-    if (po) lines.push({ kind: 'note', commodityDescription: `All items listed as part of PO# ${po}` })
-    const bolNumber = `BOL-${(o?.order_number || Date.now().toString()).replace(/[^0-9A-Za-z]/g, '').slice(0, 20)}`
-    const data: BolData = {
-      bolNumber, date: new Date().toLocaleDateString(), shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR,
-      shipToName: st.name, shipToAddress: st.addr, carrierName: o?.carrier || 'SINGLE (Walmart FLEET)', scac: 'WALM', freightTerms: '3rd Party',
-      specialInstructions: ['"DO NOT STACK"', po ? `PU# ${po}` : '', po ? `Load# ${po}` : ''].filter(Boolean),
-      totalPallets: totals.pallets, totalCases: totals.cases, totalWeight: totals.weight, declaredValue: fill.declaredValue,
-    }
-    const logo = await loadImageDataUrl('/bG-logo-clean.png')
-    buildBOL(data, lines, logo).save(`${bolNumber}.pdf`)
-    await sb.from('bols').insert({
-      bol_number: bolNumber, sales_order_id: activeItem.sales_order_id, carrier_name: data.carrierName, scac: data.scac,
-      ship_to_name: st.name, ship_to_address: st.addr, po_number: po || null, pu_number: po || null,
-      pallet_qty: totals.pallets, case_qty: totals.cases, weight: totals.weight, declared_value: fill.declaredValue,
-      commodity_description: fill.commodityDescription, nmfc_number: fill.nmfcNumber, freight_class: fill.freightClass, status: 'Draft',
-    })
-    setBusy(''); loadBols()
+    const labels: PalletLabel[] = pallets.map((p, idx) => ({ palletNumber: idx + 1, totalPallets: pallets.length, caseCount: casesOnPallet(p.id), weight: p.weightLb, skus: skusOnPallet(p.id) }))
+    buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
   }
 
   function genPackingList() {
     if (!activeItem) return
     const cases: PackListCase[] = []
-    pk.skuLines.forEach(s => {
-      let caseIdx = 0
-      for (let pnum = s.palletStart; pnum <= s.palletEnd; pnum++) {
-        const slot = pk.pallets.find(p => p.palletNumber === pnum)
-        const cnt = slot ? slot.caseCount : 0
-        for (let k = 0; k < cnt; k++) { caseIdx++; cases.push({ sku: s.sku, description: s.description, caseNumber: caseIdx, totalCases: s.cases, unitsInCase: s.unitsPerCase, weight: s.caseWeightLb, palletNumber: pnum }) }
-      }
+    pallets.forEach((p, idx) => {
+      plan.filter(r => (r.alloc[p.id] || 0) > 0).forEach(r => {
+        const n = r.alloc[p.id] || 0
+        for (let k = 1; k <= n; k++) cases.push({ sku: r.sku, description: r.description, caseNumber: k, totalCases: r.cases, unitsInCase: r.unitsPerCase, weight: r.caseWeightLb, palletNumber: idx + 1 })
+      })
     })
     const meta = { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }
     loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, totals, logo).save(`packing-list-${o?.order_number || 'order'}.pdf`))
@@ -259,8 +363,17 @@ export default function ShippingQueuePage() {
     setBusy(''); setSel({})
   }
 
-  const btn = 'text-xs font-semibold px-3 py-2 rounded-lg border transition-colors disabled:opacity-50'
-  const num = 'w-14 border rounded px-1 py-0.5 text-right text-xs'
+  const btn = 'text-xs font-semibold px-3 py-2 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+  const num = 'w-16 border rounded px-1 py-0.5 text-right text-xs'
+  const inp = 'w-full border rounded px-2 py-1 text-xs'
+
+  const visible = items.filter(it => {
+    if (statusFilter !== 'All' && it.status !== statusFilter) return false
+    if (!query.trim()) return true
+    const q = query.toLowerCase()
+    const io = it.sales_orders
+    return [io?.order_number, io?.po_number, io?.customers?.company_name].some(v => (v || '').toString().toLowerCase().includes(q))
+  })
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -268,7 +381,16 @@ export default function ShippingQueuePage() {
         <h1 className="text-2xl font-bold">Shipping Queue</h1>
         <button onClick={() => setShowMaster(s => !s)} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>{showMaster ? 'Hide' : 'Merge BOLs → Master BOL'}</button>
       </div>
-      <p className="text-xs text-gray-400 mb-5">Mirrors the Sales Orders board. Showing: {SHIPPABLE.join(', ')}.</p>
+      <p className="text-xs text-gray-400 mb-4">Mirrors the Sales Orders board. Showing: {SHIPPABLE.join(', ')}.</p>
+
+      {/* Search + filter */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search order #, PO #, or customer…" className="flex-1 min-w-[220px] border rounded-lg px-3 py-2 text-sm" />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
+          <option>All</option>{SHIPPABLE.map(s => <option key={s}>{s}</option>)}
+        </select>
+        <span className="text-xs text-gray-400">{visible.length} of {items.length}</span>
+      </div>
 
       {showMaster && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
@@ -289,9 +411,9 @@ export default function ShippingQueuePage() {
         </div>
       )}
 
-      {loading ? <p className="text-gray-400">Loading…</p> : items.length === 0 ? <p className="text-gray-400">No orders ready to ship.</p> : (
+      {loading ? <p className="text-gray-400">Loading…</p> : visible.length === 0 ? <p className="text-gray-400">No matching orders.</p> : (
         <div className="space-y-2">
-          {items.map(item => {
+          {visible.map(item => {
             const io = item.sales_orders; const open = openId === item.id
             return (
               <div key={item.id} className="rounded-xl border border-gray-200 bg-white">
@@ -319,51 +441,141 @@ export default function ShippingQueuePage() {
 
                     {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? <p className="text-xs text-gray-400">No line items found on this order.</p> : (
                       <>
-                        <div className="flex items-center gap-3 mb-3">
-                          <label className="text-xs text-gray-500">Default cases / pallet</label>
-                          <input type="number" value={cap} onChange={e => setCap(Math.max(1, Number(e.target.value) || 1))} className="w-20 border rounded px-2 py-1 text-sm" />
+                        {/* Line items → allocate cases to pallets (split a SKU across pallets by putting cases in more than one column) */}
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-gray-600">Line items — enter how many cases go on each pallet</p>
                           <button onClick={aiSuggest} disabled={busy === 'ai'} className={`${btn} bg-violet-600 text-white border-violet-600`}>{busy === 'ai' ? 'Thinking…' : '✨ AI Suggest Packing'}</button>
                         </div>
-
                         <div className="overflow-x-auto">
-                        <table className="w-full text-xs mb-3">
+                        <table className="w-full text-xs mb-4">
                           <thead><tr className="text-left text-gray-500 border-b bg-gray-50">
                             <th className="py-1.5 px-2">SKU</th><th className="px-2">Product / Description</th><th className="text-right px-2">Qty</th>
                             <th className="px-2">UOM</th><th className="text-right px-2">Units/Case</th><th className="text-right px-2">Cases</th>
-                            <th className="text-right px-2">Case&nbsp;lb</th><th className="text-right px-2">Cases/Plt</th><th className="text-center px-2">UPC</th>
+                            <th className="px-2">Cases per pallet</th><th className="text-center px-2">UPC</th><th className="px-2"></th>
                           </tr></thead>
                           <tbody>
                             {plan.map((r, i) => (
-                              <tr key={i} className="border-b border-gray-50">
+                              <tr key={i} className="border-b border-gray-50 align-top">
                                 <td className="py-1.5 px-2 font-mono">{r.sku}</td>
                                 <td className="px-2 text-gray-600">{r.description}</td>
                                 <td className="text-right px-2">{r.units}</td>
                                 <td className="px-2 text-gray-500">{r.uom || '—'}</td>
                                 <td className="text-right px-2"><input type="number" value={r.unitsPerCase} onChange={e => setUnitsPerCase(i, Number(e.target.value))} className={num} /></td>
-                                <td className="text-right px-2"><input type="number" value={r.cases} onChange={e => upd(i, { cases: Math.max(1, Number(e.target.value) || 1) })} className={num} /></td>
-                                <td className="text-right px-2"><input type="number" step="0.01" value={r.caseWeightLb} onChange={e => upd(i, { caseWeightLb: Math.max(0, Number(e.target.value) || 0) })} className={`${num} ${!r.caseWeightLb ? 'ring-1 ring-red-300' : ''}`} /></td>
-                                <td className="text-right px-2"><input type="number" value={r.casesPerPallet} onChange={e => upd(i, { casesPerPallet: Math.max(1, Number(e.target.value) || 1) })} className={num} /></td>
+                                <td className="text-right px-2"><input type="number" value={r.cases} onChange={e => setCases(i, Number(e.target.value))} className={num} /></td>
+                                <td className="px-2">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {pallets.map((p, idx) => (
+                                      <span key={p.id} className="inline-flex items-center gap-0.5" title={`Cases of ${r.sku} on Pallet ${idx + 1}`}>
+                                        <span className="text-gray-400">P{idx + 1}</span>
+                                        <input type="number" min={0} value={r.alloc[p.id] || 0} onChange={e => setAlloc(i, p.id, Number(e.target.value))} className="w-12 border rounded px-1 py-0.5 text-right text-xs" />
+                                      </span>
+                                    ))}
+                                    {remaining(r) !== 0 && <span className={`text-[10px] font-semibold ${remaining(r) > 0 ? 'text-amber-600' : 'text-red-600'}`}>{remaining(r) > 0 ? `${remaining(r)} unassigned` : `${-remaining(r)} over`}</span>}
+                                  </div>
+                                </td>
                                 <td className="text-center px-2">{r.upc ? '✓' : <span className="text-red-500 font-bold">!</span>}</td>
+                                <td className="px-2 text-center"><button onClick={() => removeLine(i)} title="Remove this line from the shipment" className="text-gray-300 hover:text-red-500">✕</button></td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                         </div>
 
+                        {/* Pallets → manual total weight each */}
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-gray-600">Pallets</p>
+                          <button onClick={addPallet} className={`${btn} bg-white border-gray-300`}>+ Add pallet</button>
+                        </div>
+                        <div className="space-y-1.5 mb-3">
+                          {pallets.map((p, idx) => (
+                            <div key={p.id} className="flex items-center gap-3 text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                              <span className="font-semibold w-16">Pallet {idx + 1}</span>
+                              <span className="text-gray-500 flex-1 truncate">{casesOnPallet(p.id)} cases · {skusOnPallet(p.id).join(', ') || '—'}</span>
+                              <label className="text-gray-500">Total weight (lb)</label>
+                              <input type="number" value={p.weightLb || ''} placeholder="0" onChange={e => setPalletWeight(p.id, Number(e.target.value))} className={`${num} w-20 ${!p.weightLb ? 'ring-1 ring-red-300' : ''}`} />
+                              {pallets.length > 1 && <button onClick={() => removePallet(p.id)} className="text-red-400 hover:text-red-600" title="Remove pallet">✕</button>}
+                            </div>
+                          ))}
+                        </div>
+
                         <p className="text-xs text-gray-600 mb-2">Totals: <b>{totals.pallets}</b> pallets · <b>{totals.cases}</b> cases · <b>{totals.weight}</b> lb</p>
-                        {missingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mb-3">Some case weights are 0 — type the case weight (lb) in the <b>Case&nbsp;lb</b> column so the BOL/labels are accurate.</div>}
+                        {anyUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mb-2">Some cases aren&apos;t assigned to a pallet — the “Cases per pallet” columns for each line should add up to that line&apos;s <b>Cases</b> total.</div>}
+                        {anyPalletMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mb-3">Enter the <b>total weight</b> for each pallet so the BOL and labels are accurate.</div>}
                         {notes && <div className="text-xs bg-violet-50 border-l-4 border-violet-400 p-2 mb-3 whitespace-pre-line">{notes}</div>}
+
+                        {/* Parcel toggle */}
+                        <label className="flex items-center gap-2 text-xs mb-3 select-none">
+                          <input type="checkbox" checked={parcel} onChange={e => { setParcel(e.target.checked); if (e.target.checked) { setBolForm(null); setFinalized(false) } }} />
+                          <span>This is a <b>parcel shipment</b> — no BOL needed (unlocks labels directly)</span>
+                        </label>
+
+                        {/* BOL step */}
+                        {!parcel && (
+                          <div className="rounded-xl border border-gray-200 mb-4">
+                            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-t-xl">
+                              <span className="text-xs font-semibold text-gray-600">Bill of Lading {finalized && <span className="text-emerald-600">✓ finalized</span>}</span>
+                              {!bolForm
+                                ? <button onClick={reviewBol} disabled={busy === 'bol'} className={`${btn} bg-emerald-600 text-white border-emerald-600`}>{busy === 'bol' ? 'Preparing…' : '📄 Review BOL'}</button>
+                                : <button onClick={() => { setBolForm(null); setFinalized(false) }} className={`${btn} bg-white border-gray-300`}>Cancel</button>}
+                            </div>
+
+                            {bolForm && (
+                              <div className="p-3 grid md:grid-cols-2 gap-4">
+                                {/* Editable fields */}
+                                <div className="space-y-2 text-xs">
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div><label className="text-gray-400 block mb-0.5">BOL #</label><input value={bolForm.bolNumber} onChange={e => updBol({ bolNumber: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">Date</label><input value={bolForm.date} onChange={e => updBol({ date: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">Carrier</label><input value={bolForm.carrierName} onChange={e => updBol({ carrierName: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">SCAC</label><input value={bolForm.scac} onChange={e => updBol({ scac: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">Freight terms</label><input value={bolForm.freightTerms} onChange={e => updBol({ freightTerms: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">Declared value</label><input type="number" value={bolForm.declaredValue} onChange={e => updBol({ declaredValue: Number(e.target.value) })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">Pro #</label><input value={bolForm.proNumber} onChange={e => updBol({ proNumber: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">PO #</label><input value={bolForm.poNumber} onChange={e => updBol({ poNumber: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">Trailer #</label><input value={bolForm.trailerNo} onChange={e => updBol({ trailerNo: e.target.value })} className={inp} /></div>
+                                    <div><label className="text-gray-400 block mb-0.5">Seal #</label><input value={bolForm.sealNumber} onChange={e => updBol({ sealNumber: e.target.value })} className={inp} /></div>
+                                  </div>
+                                  <div><label className="text-gray-400 block mb-0.5">Ship to</label><input value={bolForm.shipToName} onChange={e => updBol({ shipToName: e.target.value })} className={inp} /></div>
+                                  <div><label className="text-gray-400 block mb-0.5">Ship-to address</label><textarea value={bolForm.shipToAddress} onChange={e => updBol({ shipToAddress: e.target.value })} rows={2} className={inp} /></div>
+                                  <div><label className="text-gray-400 block mb-0.5">Special instructions</label><textarea value={bolForm.specialInstructions} onChange={e => updBol({ specialInstructions: e.target.value })} rows={3} className={inp} /></div>
+                                  <div className="border-t pt-2">
+                                    <label className="text-gray-400 block mb-1">Commodity lines (per pallet)</label>
+                                    {bolForm.lines.map((l, i) => (
+                                      <div key={i} className="mb-2 border rounded p-2">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="font-semibold w-14">Pallet {i + 1}</span>
+                                          <label className="text-gray-400">Cases</label><input type="number" value={l.packageQty} onChange={e => updBolLine(i, { packageQty: Number(e.target.value) })} className={num} />
+                                          <label className="text-gray-400">Wt</label><input type="number" value={l.weight} onChange={e => updBolLine(i, { weight: Number(e.target.value) })} className={num} />
+                                          <label className="text-gray-400">NMFC</label><input value={l.nmfcNumber} onChange={e => updBolLine(i, { nmfcNumber: e.target.value })} className="w-16 border rounded px-1 py-0.5 text-xs" />
+                                          <label className="text-gray-400">Class</label><input value={l.freightClass} onChange={e => updBolLine(i, { freightClass: e.target.value })} className="w-14 border rounded px-1 py-0.5 text-xs" />
+                                        </div>
+                                        <textarea value={l.commodityDescription} onChange={e => updBolLine(i, { commodityDescription: e.target.value })} rows={2} className={inp} />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <button onClick={finalizeBol} disabled={busy === 'finalize'} className={`${btn} bg-emerald-600 text-white border-emerald-600 w-full`}>{busy === 'finalize' ? 'Finalizing…' : finalized ? 'Re-finalize BOL' : '✓ Finalize BOL & Download'}</button>
+                                </div>
+                                {/* Live preview */}
+                                <div className="min-h-[420px] border rounded bg-gray-100">
+                                  {previewUrl ? <iframe title="BOL preview" src={previewUrl} className="w-full h-[520px] rounded" /> : <div className="flex items-center justify-center h-[420px] text-xs text-gray-400">Rendering preview…</div>}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {missing.length > 0 && (
                           <div className="text-xs bg-red-50 border-l-4 border-red-400 text-red-700 p-3 mb-3">
                             <b>UPC or GTIN is missing in the Inventory board</b> for: {missing.join(', ')}.<br />Please add the UPC/GTIN (and product image) in Inventory before generating labels.
                           </div>
                         )}
 
+                        {/* Labels — gated behind a finalized BOL (or parcel mode) */}
+                        {!labelsUnlocked && <p className="text-xs text-gray-400 mb-1">Finalize the BOL (or mark as a parcel shipment) to unlock labels.</p>}
                         <div className="flex flex-wrap gap-2 mb-4">
-                          <button onClick={genCaseLabels} className={`${btn} bg-white border-gray-300`}>🏷️ Case Labels</button>
-                          <button onClick={genPalletLabels} className={`${btn} bg-white border-gray-300`}>📦 Pallet Labels</button>
+                          <button onClick={genCaseLabels} disabled={!labelsUnlocked || busy === 'labels'} className={`${btn} bg-white border-gray-300`}>🏷️ Case Labels</button>
+                          <button onClick={genPalletLabels} disabled={!labelsUnlocked} className={`${btn} bg-white border-gray-300`}>📦 Pallet Labels</button>
                           <button onClick={genPackingList} className={`${btn} bg-white border-gray-300`}>📋 Packing List</button>
-                          <button onClick={genBOL} disabled={busy === 'bol'} className={`${btn} bg-emerald-600 text-white border-emerald-600`}>{busy === 'bol' ? 'Generating…' : '📄 Generate BOL'}</button>
                         </div>
                       </>
                     )}
