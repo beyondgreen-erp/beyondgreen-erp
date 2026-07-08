@@ -178,6 +178,12 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
   pointer-events:none;
 }
 .mon-modal-head > * { position:relative; z-index:1; }
+/* Per-record-type header colors */
+.mon-modal-head.h-blue   { background:linear-gradient(120deg, #57C7FF 0%, #0086C0 55%, #03567A 100%); }
+.mon-modal-head.h-purple { background:linear-gradient(120deg, #C08BEB 0%, #A25DDC 55%, #6C2FA0 100%); }
+.mon-modal-head.h-orange { background:linear-gradient(120deg, #FFC46B 0%, #FDAB3D 52%, #9A5B00 100%); }
+.mon-modal-head.h-pink   { background:linear-gradient(120deg, #FF8ED8 0%, #FF5AC4 55%, #B01582 100%); }
+.mon-modal-head.h-teal   { background:linear-gradient(120deg, #5FE3E3 0%, #00C7C7 52%, #017070 100%); }
 .mon-modal-head h2 { color:#fff; font-weight:700; letter-spacing:-0.01em; }
 .mon-modal-close {
   color:#fff; background:rgba(255,255,255,0.15); border-radius:9px;
@@ -221,14 +227,20 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 /* Fun, colorful pills + chips */
 .mon-pill { box-shadow:0 1px 2px rgba(16,24,40,0.06); }
 
-/* Gradient title chip (page section labels) */
+/* Gradient title chip (page section labels) — bold & playful */
 .mon-tag {
-  display:inline-flex; align-items:center; gap:5px;
-  padding:3px 12px; border-radius:999px;
-  font-size:11px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:#fff;
-  background:linear-gradient(120deg, #00B894, var(--brand));
-  box-shadow:0 2px 8px var(--brand-glow);
+  display:inline-flex; align-items:center; gap:6px;
+  padding:4px 14px; border-radius:999px;
+  font-size:11.5px; font-weight:800; letter-spacing:0.09em; text-transform:uppercase; color:#fff;
+  background:linear-gradient(120deg, #00C7C7 0%, #00B894 40%, var(--brand) 75%, #0086C0 130%);
+  box-shadow:0 3px 12px var(--brand-glow);
 }
+/* Per-page accent tags (add alongside .mon-tag) */
+.mon-tag.t-blue   { background:linear-gradient(120deg, #57C7FF, #0086C0); box-shadow:0 3px 12px rgba(0,134,192,0.30); }
+.mon-tag.t-purple { background:linear-gradient(120deg, #C08BEB, #A25DDC); box-shadow:0 3px 12px rgba(162,93,220,0.30); }
+.mon-tag.t-orange { background:linear-gradient(120deg, #FFC46B, #FDAB3D); box-shadow:0 3px 12px rgba(253,171,61,0.32); }
+.mon-tag.t-pink   { background:linear-gradient(120deg, #FF8ED8, #FF5AC4); box-shadow:0 3px 12px rgba(255,90,196,0.30); }
+.mon-tag.t-teal   { background:linear-gradient(120deg, #5FE3E3, #00C7C7); box-shadow:0 3px 12px rgba(0,199,199,0.30); }
 
 /* Colorful stat cards — pass --c for the accent color */
 .mon-stat {
