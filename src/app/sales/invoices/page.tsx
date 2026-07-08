@@ -336,7 +336,7 @@ export default function InvoicesPage() {
   const selSm = inpSm + ' cursor-pointer'
 
   return (
-    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
+    <div className="min-h-screen mon-page">
       {/* Amber warning banner */}
       <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-6">
         <p className="text-amber-400 font-medium text-sm">
@@ -347,8 +347,8 @@ export default function InvoicesPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Invoices & Billing</h1>
+          <span className="mon-tag t-teal">🧾 Billing</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Invoices & Billing</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} invoice${rows.length !== 1 ? 's' : ''}`}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -478,12 +478,12 @@ export default function InvoicesPage() {
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
       {/* Backdrop */}
-      <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={close}/>
+      <div className={`fixed inset-0 z-40 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} style={{ background:'rgba(26,32,53,0.48)', backdropFilter:'blur(3px)' }} onClick={close}/>
 
-      {/* Slide-out panel */}
+      {/* Centered pop-up */}
       <div ref={panelRef} onClick={e => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[680px] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
+        className={`fixed left-1/2 top-6 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[720px] z-50 flex flex-col shadow-2xl rounded-2xl overflow-hidden transition-all duration-200 ${open ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}
+        style={{ background: '#FFFFFF', maxHeight: 'calc(100vh - 48px)' }}>
         {sel && (
           <>
             {/* Panel header */}
