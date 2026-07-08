@@ -1295,8 +1295,8 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* ── Completed / Shipped Group ─────────────────────────────── */}
-      {completedOrders.length > 0 && (
+      {/* ── Completed / Shipped Group — REMOVED. Shipped/Closed/Cancelled orders live only on the Shipments page. ── */}
+      {false && completedOrders.length > 0 && (
         <div className="mt-4 rounded-xl overflow-hidden" style={{ border: '1px solid #E4E6EE' }}>
           <button
             onClick={() => setCompletedOpen(v => !v)}
