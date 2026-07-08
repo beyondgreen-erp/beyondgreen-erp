@@ -125,12 +125,12 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function Stat({ label, value, accent, sub }: { label: string; value: string; accent?: string; sub?: string }) {
+function Stat({ label, value, c, sub }: { label: string; value: string; c?: string; sub?: string }) {
   return (
-    <div className="bg-white border rounded-xl px-4 py-3" style={{borderColor:"#E4E6EE"}}>
-      <p className="text-xs font-medium" style={{color:'#9CA3AF'}}>{label}</p>
-      <p className={`text-xl font-bold mt-0.5 ${accent ?? ''}`} style={!accent ? {color:'#1A1D2E'} : {}}>{value}</p>
-      {sub && <p className="text-xs mt-0.5" style={{color:'#9CA3AF'}}>{sub}</p>}
+    <div className="mon-stat stat-card" style={c ? ({ ['--c']: c } as any) : undefined}>
+      <p className="text-xs font-semibold text-gray-400">{label}</p>
+      <p className="mon-stat-val mt-0.5">{value}</p>
+      {sub && <p className="text-xs mt-0.5 text-gray-400">{sub}</p>}
     </div>
   )
 }
@@ -332,10 +332,12 @@ function EditPanel({
 
   return (
     <>
-      <div onClick={onClose} className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}/>
+      <div onClick={onClose}
+        className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        style={{ background: 'rgba(26,32,53,0.48)', backdropFilter: 'blur(3px)' }}>
       <div onClick={e => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[600px] z-50 flex flex-col shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
+        className={`relative w-full max-w-[660px] my-4 bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-3 scale-95 pointer-events-none'}`}
+        style={{ maxHeight: 'calc(100vh - 32px)' }}>
         <div className="mon-modal-head shrink-0">
           <div className="min-w-0">
             <h2 className="text-lg truncate">{editing ? (editing.order_number || 'Order') : 'New Order'}</h2>
@@ -553,11 +555,12 @@ function EditPanel({
             )}
             <button onClick={onClose} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
             <button onClick={onSave} disabled={saving}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+              className="mon-btn flex-1 justify-center !py-2.5">
               {saving ? 'Saving…' : 'Save Order'}
             </button>
           </div>
         </div>
+      </div>
       </div>
     </>
   )
@@ -957,7 +960,7 @@ export default function OrdersPage() {
     }
 
   return (
-    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
+    <div className="min-h-screen mon-page">
       {loadError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center gap-3">
           <span className="text-red-400 text-sm flex-1">{loadError}</span>
@@ -968,8 +971,8 @@ export default function OrdersPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">ORDERS</span>
-          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Sales Orders</h1>
+          <span className="mon-tag">📦 Orders</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Sales Orders</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${orders.length} orders`}</p>
         </div>
         <button onClick={openAdd} className="mon-btn">
@@ -981,12 +984,12 @@ export default function OrdersPage() {
       {/* Stats bar */}
       {!loading && (
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
-          <Stat label="Total Orders" value={String(tabPool.length)}/>
-          <Stat label="In Production" value={String(stats.inProd)} accent="text-amber-400"/>
-          <Stat label="Ready to Ship" value={String(stats.ready)} accent="text-teal-400"/>
-          <Stat label="On Hold" value={String(stats.onHold)} accent={stats.onHold > 0 ? 'text-red-400' : 'text-[#1A1D2E]'}/>
-          <Stat label="Total Value" value={fmt$(stats.totalVal) ?? '—'} accent="text-emerald-400"/>
-          <Stat label="Flagged Lines" value={String(stats.flaggedTotal)} accent={stats.flaggedTotal > 0 ? 'text-amber-400' : 'text-[#1A1D2E]'} sub="need SKU"/>
+          <Stat label="Total Orders" value={String(tabPool.length)} c="#0086C0"/>
+          <Stat label="In Production" value={String(stats.inProd)} c="#FDAB3D"/>
+          <Stat label="Ready to Ship" value={String(stats.ready)} c="#00C7C7"/>
+          <Stat label="On Hold" value={String(stats.onHold)} c={stats.onHold > 0 ? '#E2445C' : '#9699A6'}/>
+          <Stat label="Total Value" value={fmt$(stats.totalVal) ?? '—'} c="#00A84F"/>
+          <Stat label="Flagged Lines" value={String(stats.flaggedTotal)} c={stats.flaggedTotal > 0 ? '#A25DDC' : '#9699A6'} sub="need SKU"/>
         </div>
       )}
 
