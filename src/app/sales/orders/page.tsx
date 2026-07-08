@@ -12,6 +12,7 @@ import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
+import { statusColor } from '@/lib/statusColors'
 import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder } from '@/lib/pdfHelpers'
 import PoExtractUpload from '@/components/PoExtractUpload'
 
@@ -114,12 +115,11 @@ function orderValue(o: SalesOrder): number {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_COLORS[status] ?? STATUS_COLORS.Pending
+  const c = statusColor(status)
+  const pulse = status === 'Production Queue' || status === 'In Production' || status === 'QC'
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium border whitespace-nowrap ${cls}`}>
-      {status === 'Production Queue' && <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"/>}
-      {status === 'In Production' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"/>}
-      {status === 'QC' && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse"/>}
+    <span className="mon-pill" style={{ background: c.bg, color: c.fg }}>
+      <span className={`w-1.5 h-1.5 rounded-full ${pulse ? 'animate-pulse' : ''}`} style={{ background: c.solid }} />
       {status}
     </span>
   )
@@ -336,15 +336,16 @@ function EditPanel({
       <div onClick={e => e.stopPropagation()}
         className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[600px] z-50 flex flex-col shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}
         style={{ background: '#FFFFFF', borderLeft: '1px solid #E4E6EE' }}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
-          <div>
-            <h2 className="text-[#1A1D2E] font-semibold">{editing ? 'Edit Order' : 'New Order'}</h2>
-            {editing && <p className="text-xs text-gray-500 mt-0.5">{editing.order_number}</p>}
+        <div className="mon-modal-head shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-lg truncate">{editing ? (editing.order_number || 'Order') : 'New Order'}</h2>
+            {editing && <p className="text-white/80 text-xs mt-0.5 truncate">{orderCustomerName(editing)}</p>}
+            {editing && <StatusBadge status={editing.status} />}
           </div>
-          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {editing && <ShareLink id={editing.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
+            <button onClick={onClose} className="mon-modal-close" aria-label="Close">×</button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
@@ -970,8 +971,7 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Sales Orders</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${orders.length} orders`}</p>
         </div>
-        <button onClick={openAdd}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+        <button onClick={openAdd} className="mon-btn">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
           New Order
         </button>
@@ -1029,7 +1029,7 @@ export default function OrdersPage() {
               ? orders.filter(o => o.status === grp && orderMatches(o))
               : orders.filter(o => (o.order_section || 'Make To Stock') === grp && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
             const isColl = collapsed[grp]
-            const color = groupBy === 'status' ? '#6B7280' : (SECTION_COLORS[grp] || '#6B7280')
+            const color = groupBy === 'status' ? statusColor(grp).solid : (SECTION_COLORS[grp] || statusColor(grp).solid)
             const dropInto = (idx: number) => {
               const id = dragId.current; dragId.current = null; if (!id) return
               if (groupBy === 'status') { const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp) }
@@ -1119,8 +1119,8 @@ export default function OrdersPage() {
                       <td className="px-3 py-3.5 cursor-pointer" onClick={() => toggleExpand(order.id)}>
                         <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
                       </td>
-                      {/* Customer / Order Name */}
-                      <td className="px-3 py-3.5 max-w-[200px] cursor-pointer" onClick={() => toggleExpand(order.id)}>
+                      {/* Customer / Order Name — click opens the record window */}
+                      <td className="px-3 py-3.5 max-w-[200px] cursor-pointer mon-row" onClick={() => openEdit(order)}>
                         <p className="text-[#1A1D2E] font-semibold text-sm truncate">{custName}</p>
                         {ref && <p className="text-gray-500 text-xs truncate mt-0.5">{ref}</p>}
                       </td>
