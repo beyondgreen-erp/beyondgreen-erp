@@ -506,7 +506,10 @@ export default function ShippingQueuePage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-2xl font-bold">Shipping Queue</h1>
+        <div>
+          <span className="mon-tag">📦 Shipping</span>
+          <h1 className="text-2xl font-bold mt-1.5">Shipping Queue</h1>
+        </div>
         <button onClick={() => setShowMaster(s => !s)} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>{showMaster ? 'Hide' : 'Merge BOLs → Master BOL'}</button>
       </div>
       <p className="text-xs text-gray-400 mb-4">Mirrors the Sales Orders board. Showing: {SHIPPABLE.join(', ')}.</p>
