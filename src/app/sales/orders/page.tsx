@@ -581,6 +581,7 @@ export default function OrdersPage() {
   const ms = useMultiSelect<SalesOrder>()
   const [search, setSearch] = useState('')
   const [sectionTab, setSectionTab] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [expandedCompletedIds, setExpandedCompletedIds] = useState<Set<string>>(new Set())
   const [completedOpen, setCompletedOpen] = useState(false)
@@ -649,30 +650,20 @@ export default function OrdersPage() {
     COMPLETED_STATUSES.includes(o.status) || shippedOrderIds.has(o.id),
   [shippedOrderIds]) // eslint-disable-line
 
-  const filtered = useMemo(() => {
+  const orderMatches = useCallback((o: SalesOrder) => {
+    if (statusFilter !== 'All' && o.status !== statusFilter) return false
     const q = search.toLowerCase().trim()
-    const pool = tabPool.filter(o => !isCompleted(o))
-    if (!q) return pool
-    return pool.filter(o =>
-      orderCustomerName(o).toLowerCase().includes(q) ||
+    if (!q) return true
+    return orderCustomerName(o).toLowerCase().includes(q) ||
       (o.notes ?? '').toLowerCase().includes(q) ||
       (o.order_number ?? '').toLowerCase().includes(q) ||
       (o.po_number ?? '').toLowerCase().includes(q) ||
       (o.customer_email ?? '').toLowerCase().includes(q)
-    )
-  }, [tabPool, search, isCompleted])
+  }, [search, statusFilter])
 
-  const completedOrders = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    const pool = tabPool.filter(o => isCompleted(o))
-    if (!q) return pool
-    return pool.filter(o =>
-      orderCustomerName(o).toLowerCase().includes(q) ||
-      (o.notes ?? '').toLowerCase().includes(q) ||
-      (o.order_number ?? '').toLowerCase().includes(q) ||
-      (o.po_number ?? '').toLowerCase().includes(q)
-    )
-  }, [tabPool, search, isCompleted])
+  const filtered = useMemo(() => tabPool.filter(o => !isCompleted(o) && orderMatches(o)), [tabPool, isCompleted, orderMatches])
+
+  const completedOrders = useMemo(() => tabPool.filter(o => isCompleted(o) && orderMatches(o)), [tabPool, isCompleted, orderMatches])
 
   const stats = useMemo(() => {
     const inProd = tabPool.filter(o => o.status === 'In Production').length
@@ -967,6 +958,24 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {/* Search + status filter — applies to both Board and Table */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="relative flex-1 min-w-[240px] max-w-md">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input placeholder="Search customer, PO#, order #…" value={search} onChange={e => setSearch(e.target.value)}
+            className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+        </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          className="bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+          <option value="All">All statuses</option>
+          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        {(search || statusFilter !== 'All') && (
+          <button onClick={() => { setSearch(''); setStatusFilter('All') }} className="text-xs text-gray-500 hover:text-[#1A1D2E] px-2 py-1">Clear</button>
+        )}
+        <span className="text-xs text-gray-400 ml-auto">{(view === 'board' ? orders.filter(orderMatches).length : filtered.length)} shown</span>
+      </div>
+
       {/* View toggle */}
       <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 mb-4 w-fit">
         <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
@@ -976,7 +985,7 @@ export default function OrdersPage() {
       {view === 'board' && (
         <div className="space-y-3 mb-6">
           {SECTIONS.map((sec) => {
-            const items = orders.filter(o => (o.order_section || 'Make To Stock') === sec).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0))
+            const items = orders.filter(o => (o.order_section || 'Make To Stock') === sec && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0))
             const isColl = collapsed[sec]
             const color = SECTION_COLORS[sec] || '#6B7280'
             return (
@@ -1018,13 +1027,7 @@ export default function OrdersPage() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="relative mb-4 max-w-md" style={{ display: view === 'board' ? 'none' : undefined }}>
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-        <input placeholder="Search customer, PO#, order name…" value={search} onChange={e => setSearch(e.target.value)}
-          className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
-        {search && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">{filtered.length}</span>}
-      </div>
+      {/* (search + status filter moved to the top bar, shared by Board and Table) */}
 
       {/* Orders table */}
       <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF", display: view === 'board' ? 'none' : undefined}}>
