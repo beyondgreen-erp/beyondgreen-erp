@@ -729,14 +729,16 @@ export default function OrdersPage() {
 
   const completedOrders = useMemo(() => tabPool.filter(o => isCompleted(o) && orderMatches(o)), [tabPool, isCompleted, orderMatches])
 
+  // Stats reflect the SAME set shown on the board/table: active (non-completed) orders that match the current search/filter.
   const stats = useMemo(() => {
-    const inProd = tabPool.filter(o => o.status === 'In Production').length
-    const ready  = tabPool.filter(o => o.status === 'Ready to Ship').length
-    const onHold = tabPool.filter(o => o.status === 'On Hold').length
-    const totalVal = tabPool.reduce((s, o) => s + orderValue(o), 0)
+    const active = orders.filter(o => !isCompleted(o) && orderMatches(o))
+    const inProd = active.filter(o => o.status === 'In Production').length
+    const ready  = active.filter(o => o.status === 'Ready to Ship' || o.status === 'Ready at Will Call').length
+    const onHold = active.filter(o => o.status === 'On Hold').length
+    const totalVal = active.reduce((s, o) => s + orderValue(o), 0)
     const flaggedTotal = Object.values(flaggedMap).reduce((s, v) => s + v, 0)
-    return { inProd, ready, onHold, totalVal, flaggedTotal }
-  }, [tabPool, flaggedMap])
+    return { total: active.length, inProd, ready, onHold, totalVal, flaggedTotal }
+  }, [orders, isCompleted, orderMatches, flaggedMap])
 
   const sectionCounts = useMemo(() => {
     const c: Record<string,number> = { All: orders.length }
@@ -1012,7 +1014,7 @@ export default function OrdersPage() {
       {/* Stats bar */}
       {!loading && (
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
-          <Stat label="Total Orders" value={String(tabPool.length)} c="#0086C0"/>
+          <Stat label="Active Orders" value={String(stats.total)} c="#0086C0"/>
           <Stat label="In Production" value={String(stats.inProd)} c="#FDAB3D"/>
           <Stat label="Ready to Ship" value={String(stats.ready)} c="#00C7C7"/>
           <Stat label="On Hold" value={String(stats.onHold)} c={stats.onHold > 0 ? '#E2445C' : '#9699A6'}/>
@@ -1067,7 +1069,12 @@ export default function OrdersPage() {
       </div>
 
       {view === 'board' && (() => {
-        const baseGroups = groupBy === 'status' ? STATUSES : SECTIONS
+        // Include any status present on active orders that isn't in the canonical list,
+        // so no order can ever hide from the status board (defensive against stray statuses).
+        const extraStatuses = groupBy === 'status'
+          ? [...new Set(orders.filter(o => !isCompleted(o) && o.status && !STATUSES.includes(o.status)).map(o => o.status as string))]
+          : []
+        const baseGroups = groupBy === 'status' ? [...STATUSES, ...extraStatuses] : SECTIONS
         const groupData = baseGroups.map(grp => {
           const items = (groupBy === 'status'
             ? orders.filter(o => o.status === grp && !isCompleted(o) && orderMatches(o))
