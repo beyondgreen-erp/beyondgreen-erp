@@ -416,8 +416,8 @@ export default function ShippingQueuePage() {
           {visible.map(item => {
             const io = item.sales_orders; const open = openId === item.id
             return (
-              <div key={item.id} className="rounded-xl border border-gray-200 bg-white">
-                <button onClick={() => openOrder(item)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[#FAFBFF]">
+              <div key={item.id} className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                <button onClick={() => openOrder(item)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[#F3F5F8]">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1A1D2E] truncate">{io?.order_number || '—'}</p>
                     <p className="text-xs text-gray-500 truncate">{io?.customers?.company_name || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
@@ -428,7 +428,7 @@ export default function ShippingQueuePage() {
                 </button>
 
                 {open && (
-                  <div className="border-t border-gray-100 p-4 bg-[#FAFBFC]">
+                  <div className="border-t border-gray-100 p-4 bg-[#E9ECF2]">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs mb-4">
                       <div><span className="text-gray-400 block">Customer</span>{o?.customers?.company_name || '—'}</div>
                       <div><span className="text-gray-400 block">PO #</span>{o?.po_number || '—'}</div>
@@ -445,7 +445,7 @@ export default function ShippingQueuePage() {
                     {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? <p className="text-xs text-gray-400">No line items found on this order.</p> : (
                       <>
                         {/* STEP 1 — Pack the pallets */}
-                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3">
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">1</span>
                             <span className="text-sm font-semibold text-[#1A1D2E]">Pack the pallets</span>
@@ -511,7 +511,7 @@ export default function ShippingQueuePage() {
                         </div>
 
                         {/* STEP 2 — Bill of lading */}
-                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3">
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-3">
                             <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">2</span>
                             <span className="text-sm font-semibold text-[#1A1D2E]">Bill of lading</span>
@@ -570,7 +570,7 @@ export default function ShippingQueuePage() {
                         </div>
 
                         {/* STEP 3 — Print labels */}
-                        <div className={`rounded-xl border border-gray-200 bg-white p-4 mb-3 ${!labelsUnlocked ? 'opacity-60' : ''}`}>
+                        <div className={`rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm ${!labelsUnlocked ? 'opacity-60' : ''}`}>
                           <div className="flex items-center gap-2 mb-3">
                             <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-semibold shrink-0 ${labelsUnlocked ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>3</span>
                             <span className="text-sm font-semibold text-[#1A1D2E]">Print labels</span>
