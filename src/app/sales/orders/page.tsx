@@ -1036,7 +1036,7 @@ export default function OrdersPage() {
               else { moveOrder(id, grp, idx) }
             }
             return (
-              <div key={grp} className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); dropInto(items.length) }}>
+              <div key={grp} className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden shadow-sm" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); dropInto(items.length) }}>
                 <div className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none" style={{ borderLeft: '4px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [grp]: !c[grp] }))}>
                   <span className="text-gray-400 text-[10px]" style={{ display: 'inline-block', transform: isColl ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-semibold text-sm" style={{ color: groupBy === 'status' ? '#1A1D2E' : color }}>{grp}</span>
