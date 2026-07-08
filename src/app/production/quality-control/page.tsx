@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import OrdersMirror from '@/components/OrdersMirror'
 
 const sb = createSupabaseBrowserClient()
 
@@ -40,6 +41,10 @@ export default function QCPage() {
     <div className="min-h-screen p-8 bg-gray-50">
       <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">PRODUCTION</p>
       <h1 className="text-3xl font-bold text-gray-900 mb-6">Quality Control</h1>
+
+      {/* Sales orders currently in QC (mirrored from Sales Orders) */}
+      <OrdersMirror statuses={['QC']} title="Sales Orders in QC" tagClass="t-purple" emoji="🔬" />
+
       <p className="text-gray-500 mb-6">{items.length} items awaiting QC</p>
       {loading ? (
         <div className="text-center py-20 text-gray-400">Loading...</div>
