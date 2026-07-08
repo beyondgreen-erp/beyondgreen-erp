@@ -258,11 +258,12 @@ export default function ShipmentsPage() {
   }, [rows, filtered, filterMonth, filterCarrier, filterState, search])
 
   return (
-    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
+    <div className="min-h-screen mon-page">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1D2E]">Shipments</h1>
+          <span className="mon-tag">🚚 Shipments</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Shipments</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} total shipments`}</p>
         </div>
       </div>
@@ -501,9 +502,10 @@ export default function ShipmentsPage() {
 
       {/* ── SLIDE-OUT PANEL ── */}
       {open && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setOpen(false)}>
-          <div className="fixed inset-0 bg-black/50" />
-          <div className="relative w-full max-w-lg bg-[#F9FAFB] border-l border-[#E4E6EE] h-full overflow-y-auto flex flex-col"
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" onClick={() => setOpen(false)}>
+          <div className="fixed inset-0" style={{ background: 'rgba(26,32,53,0.48)', backdropFilter: 'blur(3px)' }} />
+          <div className="relative w-full max-w-[640px] my-4 bg-[#F9FAFB] rounded-2xl shadow-2xl overflow-hidden flex flex-col mon-pop"
+            style={{ maxHeight: 'calc(100vh - 32px)' }}
             onClick={e => e.stopPropagation()}>
             <div className="mon-modal-head shrink-0">
               <div className="min-w-0">
