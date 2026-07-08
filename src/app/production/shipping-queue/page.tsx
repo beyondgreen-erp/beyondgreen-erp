@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import { statusColor } from '@/lib/statusColors'
 import { buildCaseLabels, buildPalletLabels, missingUpcSkus, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
 import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase } from '@/lib/shipping/bol'
 
@@ -543,19 +544,33 @@ export default function ShippingQueuePage() {
           {visible.map(item => {
             const io = item.sales_orders; const open = openId === item.id
             return (
-              <div key={item.id} className="rounded-xl border border-gray-200 bg-white shadow-sm">
-                <button onClick={() => openOrder(item)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[#F3F5F8]">
+              <div key={item.id} className="rounded-xl border border-gray-200 bg-white shadow-sm mon-row">
+                <button onClick={() => openOrder(item)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1A1D2E] truncate">{io?.order_number || '—'}</p>
                     <p className="text-xs text-gray-500 truncate">{io?.customers?.company_name || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
                   </div>
-                  <span className="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-600 border-gray-200 whitespace-nowrap">{item.status}</span>
+                  {(() => { const c = statusColor(item.status); return (
+                    <span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{item.status}</span>
+                  ) })()}
                   <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{io?.required_ship_date || ''}</span>
-                  <span className="text-indigo-600 text-sm font-medium whitespace-nowrap w-24 text-right">{open ? 'Close' : 'Pack & Ship'}</span>
+                  <span className="mon-btn !py-1.5 !px-3 whitespace-nowrap">{open ? 'Close' : '🚚 Pack & Ship'}</span>
                 </button>
 
                 {open && (
-                  <div className="border-t border-gray-100 p-4 bg-[#E9ECF2]">
+                  <div className="mon-backdrop" onClick={() => { setOpenId(null); resetPackState() }}>
+                   <div className="mon-modal" style={{ maxWidth: 1000 }} onClick={e => e.stopPropagation()}>
+                    <div className="mon-modal-head">
+                      <div className="min-w-0">
+                        <h2 className="text-lg truncate">{io?.order_number || 'Order'}</h2>
+                        <p className="text-white/80 text-xs mt-0.5 truncate">{io?.customers?.company_name || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
+                        {(() => { const c = statusColor(item.status); return (
+                          <span className="mon-pill mt-2" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{item.status}</span>
+                        ) })()}
+                      </div>
+                      <button onClick={() => { setOpenId(null); resetPackState() }} className="mon-modal-close" aria-label="Close">×</button>
+                    </div>
+                    <div className="mon-modal-body bg-[#E9ECF2]">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs mb-4">
                       <div><span className="text-gray-400 block">Customer</span>{o?.customers?.company_name || '—'}</div>
                       <div><span className="text-gray-400 block">PO #</span>{o?.po_number || '—'}</div>
@@ -741,6 +756,8 @@ export default function ShippingQueuePage() {
                     <div className="border-t border-gray-100 pt-4">
                       <Comments recordType="sales_order" recordId={item.sales_order_id} currentUserEmail={userEmail} title="Activity Log" />
                     </div>
+                    </div>{/* /mon-modal-body */}
+                   </div>{/* /mon-modal */}
                   </div>
                 )}
               </div>
@@ -751,7 +768,7 @@ export default function ShippingQueuePage() {
 
       {/* ── Close-out modal ─────────────────────────────────────────── */}
       {closeout && activeItem && o && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4">
+        <div className="fixed inset-0 z-[70] bg-black/50 flex items-start justify-center overflow-y-auto p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-6">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
