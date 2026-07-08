@@ -10,12 +10,14 @@ const GRAMS_PER_LB = 453.592
 const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
 const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
 const SHIPPABLE = ['Ready to Ship', 'PU Date Assigned', 'Partially Shipped']
+const DOC_LABELS: Record<string, string> = { bol: 'BOL', packingList: 'Packing List', palletLabels: 'Pallet Labels', caseLabels: 'Case Labels' }
 
 interface OrderInfo {
   order_number: string; po_number?: string | null; shipping_address?: string | null
   total?: number | null; total_amount?: number | null; total_value?: number | null; customer_id?: string
   status?: string | null; order_date?: string | null; required_ship_date?: string | null
   carrier?: string | null; tracking_number?: string | null; additional_comments?: string | null
+  ship_prep?: Record<string, boolean> | null
   customers?: { company_name: string; shipping_address?: string | null }
 }
 interface QueueItem { id: string; sales_order_id: string; status: string; sales_orders?: OrderInfo }
@@ -68,13 +70,22 @@ export default function ShippingQueuePage() {
   const [finalized, setFinalized] = useState(false)
   const [previewUrl, setPreviewUrl] = useState('')
   const prevUrlRef = useRef('')
+  // Closeout / move-to-shipments
+  const [shipPrep, setShipPrep] = useState<Record<string, boolean>>({})
+  const [closeout, setCloseout] = useState(false)
+  const [coShipId, setCoShipId] = useState('')
+  const [coSlipUrl, setCoSlipUrl] = useState('')
+  const [coBolUrl, setCoBolUrl] = useState('')
+  const [coPhotos, setCoPhotos] = useState<{ url: string; type: string }[]>([])
+  const [coSummary, setCoSummary] = useState('')
+  const [coBusy, setCoBusy] = useState('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data } = await sb.from('sales_orders')
-      .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, customers(company_name, shipping_address)')
+      .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, ship_prep, customers(company_name, shipping_address)')
       .in('status', SHIPPABLE).order('required_ship_date', { ascending: true, nullsFirst: false })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = (data as any[]) || []
@@ -96,11 +107,13 @@ export default function ShippingQueuePage() {
     setBolForm(null); setFinalized(false); setMissing([]); setNotes('')
     if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' }
     setPreviewUrl('')
+    setShipPrep({}); setCloseout(false); setCoShipId(''); setCoSlipUrl(''); setCoBolUrl(''); setCoPhotos([]); setCoSummary(''); setCoBusy('')
   }
 
   async function openOrder(item: QueueItem) {
     if (openId === item.id) { setOpenId(null); resetPackState(); return }
     setOpenId(item.id); resetPackState(); setBusy('load')
+    setShipPrep(item.sales_orders?.ship_prep || {})
     const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', item.sales_order_id).order('line_number', { ascending: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ls = (lines as any[]) || []
@@ -295,7 +308,7 @@ export default function ShippingQueuePage() {
       nmfc_number: bolForm.lines[0]?.nmfcNumber || null, freight_class: bolForm.lines[0]?.freightClass || null,
       status: 'Final', payload,
     })
-    setFinalized(true); setBusy(''); loadBols()
+    setFinalized(true); setBusy(''); loadBols(); markDoc('bol')
   }
 
   // ---- Labels (only after BOL finalized, or in parcel mode) -----------------
@@ -316,12 +329,13 @@ export default function ShippingQueuePage() {
     if (miss.length) { setMissing(miss); setBusy(''); return }
     setMissing([])
     buildCaseLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, cases).save(`case-labels-${o?.order_number || 'order'}.pdf`)
-    setBusy('')
+    setBusy(''); markDoc('caseLabels')
   }
 
   function genPalletLabels() {
     const labels: PalletLabel[] = pallets.map((p, idx) => ({ palletNumber: idx + 1, totalPallets: pallets.length, caseCount: casesOnPallet(p.id), weight: p.weightLb, skus: skusOnPallet(p.id) }))
     buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
+    markDoc('palletLabels')
   }
 
   function genPackingList() {
@@ -336,6 +350,115 @@ export default function ShippingQueuePage() {
     const meta = { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }
     loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, totals, logo).save(`packing-list-${o?.order_number || 'order'}.pdf`))
       .catch(() => buildPackingList(meta, cases, totals, null).save(`packing-list-${o?.order_number || 'order'}.pdf`))
+    markDoc('packingList')
+  }
+
+  // ── Close out & move to shipments ─────────────────────────────────────────
+  async function markDoc(key: string) {
+    if (!activeItem) return
+    const next = { ...shipPrep, [key]: true }
+    setShipPrep(next)
+    try { await sb.from('sales_orders').update({ ship_prep: next }).eq('id', activeItem.sales_order_id) } catch { /* */ }
+  }
+  const requiredDocs = parcel ? ['packingList', 'caseLabels'] : ['bol', 'packingList', 'palletLabels', 'caseLabels']
+  const canMove = requiredDocs.every(k => shipPrep[k])
+  const requiredPhotoTypes = parcel ? ['package', 'shipping_label'] : ['packed_pallet', 'shipping_label', 'sealed_cases', 'bol_document']
+
+  function startCloseout() { setCoShipId((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString()); setCoSlipUrl(''); setCoBolUrl(''); setCoPhotos([]); setCoSummary(''); setCoBusy(''); setCloseout(true) }
+
+  async function uploadDoc(file: File, kind: 'slip' | 'bol') {
+    setCoBusy(kind)
+    try {
+      const path = `shipping/${coShipId}/${kind}-${Date.now()}-${file.name}`
+      const { error } = await sb.storage.from('erp-files').upload(path, file, { upsert: true })
+      if (error) throw error
+      const { data } = sb.storage.from('erp-files').getPublicUrl(path)
+      await sb.from('file_attachments').insert({ record_type: 'shipment', record_id: coShipId, file_name: file.name, file_size: file.size, file_type: file.type, storage_path: path, uploaded_by: userEmail })
+      if (kind === 'slip') setCoSlipUrl(data.publicUrl); else setCoBolUrl(data.publicUrl)
+    } catch (e) { alert('Upload failed: ' + (e as Error).message) }
+    setCoBusy('')
+  }
+  async function uploadPhoto(file: File, type: string) {
+    setCoBusy('photo')
+    try {
+      const path = `shipping/${coShipId}/${type}-${Date.now()}.jpg`
+      const { error } = await sb.storage.from('erp-images').upload(path, file, { upsert: true })
+      if (error) throw error
+      const { data } = sb.storage.from('erp-images').getPublicUrl(path)
+      await sb.from('file_attachments').insert({ record_type: 'shipment', record_id: coShipId, file_name: `${type}.jpg`, file_size: file.size, file_type: file.type, storage_path: path, uploaded_by: userEmail })
+      setCoPhotos(p => [...p, { url: data.publicUrl, type }])
+    } catch (e) { alert('Upload failed: ' + (e as Error).message) }
+    setCoBusy('')
+  }
+  async function genSummary() {
+    setCoBusy('ai')
+    try {
+      const res = await fetch('/api/shipping/ship-summary', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderNumber: o?.order_number, poNumber: o?.po_number, customer: st.name, carrier: o?.carrier, bolNumber: bolForm?.bolNumber, totalPallets: totals.pallets, totalCases: totals.cases, totalWeight: totals.weight, photoUrls: coPhotos.map(p => p.url), docNames: [coSlipUrl && 'Signed Packing Slip', coBolUrl && 'Signed BOL'].filter(Boolean) }),
+      })
+      const j = await res.json(); setCoSummary(j.summary || '')
+    } catch { setCoSummary('') }
+    setCoBusy('')
+  }
+  const needBolDoc = !parcel && !!shipPrep.bol
+  const photosOk = requiredPhotoTypes.every(t => coPhotos.some(p => p.type === t))
+  const canConfirm = !!coSlipUrl && (!needBolDoc || !!coBolUrl) && photosOk && !!coSummary
+
+  async function createShipment(extra: Record<string, unknown>) {
+    if (!activeItem || !o) return
+    const now = new Date()
+    await sb.from('shipments').insert({
+      id: coShipId || undefined, sales_order_id: activeItem.sales_order_id, order_id: activeItem.sales_order_id,
+      customer_name: st.name, po_number: o.po_number || null, carrier: o.carrier || null,
+      ship_date: now.toISOString().slice(0, 10), shipped_at: now.toISOString(), order_date: o.order_date || null,
+      total_value: o.total_amount ?? o.total ?? o.total_value ?? null, ship_to_address: st.addr || null,
+      bol_number: bolForm?.bolNumber || null, packing_slip_url: coSlipUrl || null, pod_file_url: coBolUrl || null,
+      month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      ...extra,
+    })
+    const targetId = coShipId || (extra.id as string)
+    if (targetId) {
+      // Consolidate the order's comments + attachments onto the shipment (handle both singular/plural record_type conventions)
+      await sb.from('comments').update({ record_type: 'shipment', record_id: targetId }).in('record_type', ['sales_order', 'sales_orders']).eq('record_id', activeItem.sales_order_id)
+      await sb.from('file_attachments').update({ record_type: 'shipment', record_id: targetId }).in('record_type', ['sales_order', 'sales_orders']).eq('record_id', activeItem.sales_order_id)
+    }
+  }
+  async function confirmMove() {
+    if (!canConfirm || !activeItem) return
+    setCoBusy('move')
+    try {
+      await createShipment({ id: coShipId, delivery_status: 'Shipped', status: 'Shipped', ai_summary: coSummary || null })
+      await sb.from('sales_orders').update({ status: 'Shipped' }).eq('id', activeItem.sales_order_id)
+    } catch (e) { alert('Move failed: ' + (e as Error).message); setCoBusy(''); return }
+    setOpenId(null); resetPackState(); load()
+  }
+  async function doOverride() {
+    if (!activeItem) return
+    const pw = window.prompt('Enter the Shipped Override password:')
+    if (pw == null || !pw) return
+    const { data: ok } = await sb.rpc('verify_ship_override', { pw })
+    if (!ok) { alert('Incorrect password.'); return }
+    setBusy('override')
+    try {
+      const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString()
+      await createShipment({ id, delivery_status: 'Shipped', status: 'Shipped', ai_summary: 'Manually marked shipped via override — closeout documents not attached.' })
+      await sb.from('sales_orders').update({ status: 'Shipped' }).eq('id', activeItem.sales_order_id)
+    } catch (e) { alert('Override failed: ' + (e as Error).message); setBusy(''); return }
+    setBusy(''); setOpenId(null); resetPackState(); load()
+  }
+  async function doCancel() {
+    if (!activeItem) return
+    const reason = window.prompt('Reason for cancellation (required):')
+    if (reason == null) return
+    if (!reason.trim()) { alert('A cancellation reason is required.'); return }
+    setBusy('cancel')
+    try {
+      const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString()
+      await createShipment({ id, delivery_status: 'Cancelled', status: 'Cancelled', cancel_reason: reason.trim(), month_group: 'Cancelled' })
+      await sb.from('sales_orders').update({ status: 'Cancelled' }).eq('id', activeItem.sales_order_id)
+    } catch (e) { alert('Cancel failed: ' + (e as Error).message); setBusy(''); return }
+    setBusy(''); setOpenId(null); resetPackState(); load()
   }
 
   async function mergeMaster() {
@@ -374,6 +497,10 @@ export default function ShippingQueuePage() {
     const io = it.sales_orders
     return [io?.order_number, io?.po_number, io?.customers?.company_name].some(v => (v || '').toString().toLowerCase().includes(q))
   })
+
+  const photoSlots: { type: string; label: string; req: boolean }[] = parcel
+    ? [{ type: 'package', label: 'Sealed package', req: true }, { type: 'shipping_label', label: 'Shipping label', req: true }, { type: 'other', label: 'Other', req: false }]
+    : [{ type: 'packed_pallet', label: 'Packed pallet(s)', req: true }, { type: 'shipping_label', label: 'Pallet / shipping label', req: true }, { type: 'sealed_cases', label: 'Sealed cases', req: true }, { type: 'bol_document', label: 'BOL on shipment', req: true }, { type: 'truck_loaded', label: 'Loaded on truck', req: false }]
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -587,6 +714,27 @@ export default function ShippingQueuePage() {
                             <button onClick={genPackingList} className={`${btn} bg-white border-gray-300`}>📋 Packing List</button>
                           </div>
                         </div>
+
+                        {/* STEP 4 — Ship it (close out & move to shipments) */}
+                        <div className={`rounded-xl border p-4 mb-3 shadow-sm ${canMove ? 'border-emerald-300 bg-emerald-50/40' : 'border-gray-200 bg-white opacity-95'}`}>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-semibold shrink-0 ${canMove ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>4</span>
+                            <span className="text-sm font-semibold text-[#1A1D2E]">Ship it</span>
+                            {!canMove && <span className="ml-auto text-xs text-gray-400">Generate all required documents to unlock</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {requiredDocs.map(k => (
+                              <span key={k} className={`text-xs px-2 py-1 rounded-full border ${shipPrep[k] ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
+                                {shipPrep[k] ? '✓ ' : '○ '}{DOC_LABELS[k]}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button onClick={startCloseout} disabled={!canMove} className={`${btn} ${canMove ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-gray-300'}`}>🚚 Move to shipments</button>
+                            <button onClick={doOverride} disabled={busy === 'override'} className={`${btn} bg-white border-amber-300 text-amber-700`}>🔒 Shipped Override</button>
+                            <button onClick={doCancel} disabled={busy === 'cancel'} className={`${btn} bg-white border-red-300 text-red-600`}>✕ Cancel shipment</button>
+                          </div>
+                        </div>
                       </>
                     )}
 
@@ -598,6 +746,76 @@ export default function ShippingQueuePage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* ── Close-out modal ─────────────────────────────────────────── */}
+      {closeout && activeItem && o && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-6">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-base font-bold text-[#1A1D2E]">Close out & move to shipments</h2>
+                <p className="text-xs text-gray-500">{o.order_number} · PO {o.po_number || '—'} · {st.name}</p>
+              </div>
+              <button onClick={() => setCloseout(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Signed docs */}
+              <div>
+                <div className="text-sm font-semibold text-[#1A1D2E] mb-2">Signed documents</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className={`flex flex-col items-start gap-1 border rounded-xl p-3 cursor-pointer ${coSlipUrl ? 'border-emerald-300 bg-emerald-50/50' : 'border-gray-200'}`}>
+                    <span className="text-xs font-semibold">Signed Packing Slip <span className="text-red-500">*</span></span>
+                    <span className="text-[11px] text-gray-500">{coSlipUrl ? '✓ Uploaded' : coBusy === 'slip' ? 'Uploading…' : 'PDF or photo'}</span>
+                    <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'slip') }} />
+                  </label>
+                  {needBolDoc && (
+                    <label className={`flex flex-col items-start gap-1 border rounded-xl p-3 cursor-pointer ${coBolUrl ? 'border-emerald-300 bg-emerald-50/50' : 'border-gray-200'}`}>
+                      <span className="text-xs font-semibold">Signed BOL <span className="text-red-500">*</span></span>
+                      <span className="text-[11px] text-gray-500">{coBolUrl ? '✓ Uploaded' : coBusy === 'bol' ? 'Uploading…' : 'PDF or photo'}</span>
+                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'bol') }} />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {/* Photos */}
+              <div>
+                <div className="text-sm font-semibold text-[#1A1D2E] mb-2">Shipment photos</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {photoSlots.map(slot => {
+                    const shot = coPhotos.find(p => p.type === slot.type)
+                    return (
+                      <label key={slot.type} className={`relative flex flex-col items-center justify-center gap-1 border rounded-xl h-24 cursor-pointer overflow-hidden ${shot ? 'border-emerald-300' : 'border-dashed border-gray-300'}`}>
+                        {shot ? <img src={shot.url} alt={slot.label} className="absolute inset-0 w-full h-full object-cover" /> : <span className="text-lg text-gray-300">＋</span>}
+                        <span className={`relative text-[10px] text-center px-1 ${shot ? 'text-white bg-black/40 rounded absolute bottom-1' : 'text-gray-500'}`}>{slot.label}{slot.req && !shot ? ' *' : ''}</span>
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(f, slot.type) }} />
+                      </label>
+                    )
+                  })}
+                </div>
+                {coBusy === 'photo' && <p className="text-[11px] text-gray-500 mt-1">Uploading photo…</p>}
+              </div>
+
+              {/* AI summary */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold text-[#1A1D2E]">AI shipment summary <span className="text-red-500">*</span></div>
+                  <button onClick={genSummary} disabled={coBusy === 'ai' || coPhotos.length === 0} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>{coBusy === 'ai' ? 'Analyzing…' : coSummary ? 'Regenerate' : '✨ Generate summary'}</button>
+                </div>
+                {coSummary
+                  ? <textarea value={coSummary} onChange={e => setCoSummary(e.target.value)} className="w-full text-xs border border-gray-200 rounded-lg p-3 h-28" />
+                  : <p className="text-[11px] text-gray-400">Add photos, then generate an AI review of the shipment condition for the record.</p>}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+              <button onClick={() => setCloseout(false)} className={`${btn} bg-white border-gray-300`}>Cancel</button>
+              <button onClick={confirmMove} disabled={!canConfirm || coBusy === 'move'} className={`${btn} ${canConfirm ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Moving…' : 'Confirm & move to shipments'}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
