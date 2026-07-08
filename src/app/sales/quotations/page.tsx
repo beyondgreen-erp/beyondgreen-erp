@@ -432,12 +432,13 @@ export default function QuotationsPage() {
   const inpStyle = { borderColor: '#E4E6EE', color: '#1A1D2E', background: '#fff' }
 
   return (
-    <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
+    <div className="min-h-screen mon-page">
 
       {/* Page Header */}
       <div className="bg-white border-b px-8 py-5 flex items-center justify-between" style={{ borderColor: '#E4E6EE' }}>
         <div>
-          <h1 className="text-lg font-semibold" style={{ color: '#1A1D2E' }}>Quotations</h1>
+          <span className="mon-tag t-pink">💬 Quotes</span>
+          <h1 className="text-2xl font-bold mt-1.5" style={{ color: '#1A1D2E' }}>Quotations</h1>
           <p className="text-sm mt-0.5" style={{ color: '#9CA3AF' }}>
             {loading ? 'Loading…' : `${filtered.length} quotation${filtered.length !== 1 ? 's' : ''}${statusFilter !== 'All' ? ` · ${statusFilter}` : ''}`}
           </p>
@@ -647,24 +648,30 @@ export default function QuotationsPage() {
 
       {/* OVERLAY */}
       <div
-        className="fixed inset-0 z-40 transition-opacity duration-300"
+        className="fixed inset-0 z-40 transition-opacity duration-200"
         style={{
-          background: 'rgba(0,0,0,0.3)',
+          background: 'rgba(26,32,53,0.48)',
+          backdropFilter: 'blur(3px)',
           opacity: panelOpen ? 1 : 0,
           pointerEvents: panelOpen ? 'auto' : 'none',
         }}
         onClick={closePanel}
       />
 
-      {/* SLIDE-OUT PANEL */}
+      {/* CENTERED POP-UP */}
       <div
-        className="fixed top-0 right-0 h-full z-50 flex flex-col transition-transform duration-300 ease-in-out"
+        onClick={e => e.stopPropagation()}
+        className="fixed left-1/2 top-6 z-50 flex flex-col overflow-hidden transition-all duration-200"
         style={{
-          width: 700,
+          width: 720,
+          maxWidth: 'calc(100% - 2rem)',
+          maxHeight: 'calc(100vh - 48px)',
           background: '#FFFFFF',
-          borderLeft: '1px solid #E4E6EE',
-          boxShadow: '-8px 0 32px rgba(0,0,0,0.12)',
-          transform: panelOpen ? 'translateX(0)' : 'translateX(100%)',
+          borderRadius: 16,
+          boxShadow: '0 24px 70px rgba(3,44,22,0.30)',
+          transform: panelOpen ? 'translateX(-50%) scale(1)' : 'translateX(-50%) scale(0.95)',
+          opacity: panelOpen ? 1 : 0,
+          pointerEvents: panelOpen ? 'auto' : 'none',
         }}
       >
         {/* Panel Header */}
