@@ -74,9 +74,8 @@ const SECTIONS = ['Walmart','Chewy','Make To Stock','Private Label','Straw Order
 const SECTION_TABS = ['All', ...SECTIONS]
 const SECTION_COLORS: Record<string,string> = { 'Walmart':'#0071CE','Chewy':'#1C49C2','Make To Stock':'#037f4c','Private Label':'#784bd1','Straw Orders':'#ff6d3b','Customer DropShip':'#216edf','Injection Molding':'#bb3354','Paper Products':'#cab641','Outsourced':'#7e3b8a' }
 const STATUSES = [
-  'Pending','New','Confirmed',
-  'Awaiting BOM Components','Awaiting Production','Production Queue',
-  'In Production','QC',
+  'Pending','Confirmed','Awaiting BOM Components',
+  'Production Queue','In Production','QC',
   'Ready to Ship','Ready at Will Call',
   'Partially Shipped','Shipped',
   'On Hold','Cancelled','Closed',
@@ -358,6 +357,35 @@ function EditPanel({
               <WorkflowProgressBar status={editing.status}/>
             </div>
           )}
+
+          {/* Awaiting BOM Components → link to the Purchase Order Request board */}
+          {editing && form.status === 'Awaiting BOM Components' && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-xs font-semibold text-amber-800 mb-1">⏳ Awaiting BOM Components</p>
+              <p className="text-xs text-amber-700 mb-2">Components for this order are on the Purchase Order Request board.</p>
+              <a href={`/sales/purchase-orders?q=${encodeURIComponent(editing.po_number || editing.order_number || '')}`}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 underline hover:text-amber-900">
+                View ordered items on the Purchase Order Request board →
+              </a>
+            </div>
+          )}
+
+          {/* Partially Shipped → note with the partial shipped quantity */}
+          {editing && form.status === 'Partially Shipped' && (() => {
+            const ordered = editLines.reduce((s, l) => s + (parseFloat(l.quantity) || 0), 0)
+            const shipped = editLines.reduce((s, l) => s + (parseFloat(l.completed_qty) || 0), 0)
+            const remaining = Math.max(0, ordered - shipped)
+            return (
+              <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+                <p className="text-xs font-semibold text-violet-800 mb-1">📦 Partially Shipped</p>
+                <p className="text-xs text-violet-700">
+                  {shipped.toLocaleString()} of {ordered.toLocaleString()} units shipped
+                  {remaining > 0 ? ` — ${remaining.toLocaleString()} remaining to ship.` : '.'}
+                </p>
+              </div>
+            )
+          })()}
+
           {/* Order Info */}
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider mb-3">Order Info</p>
