@@ -38,12 +38,23 @@ interface Shipment {
   created_at: string
   invoice_id: string | null
   invoice_number: string | null
+  status: string | null
+  cancel_reason: string | null
+  ai_summary: string | null
+  packing_slip_url: string | null
+  pod_file_url: string | null
+  ship_to_address: string | null
+  bol_number: string | null
+  total_value: number | null
+  sales_order_id: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
   Delivered: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   'In Transit': 'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  Shipped: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20',
   Exception: 'bg-red-500/15 text-red-400 border-red-500/20',
+  Cancelled: 'bg-red-500/15 text-red-500 border-red-500/20',
   Pending: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
 }
 const CARRIER_PIE_COLORS = ['#8B4513','#4B0082','#0071CE','#CC0000','#1D9E75','#6B7280']
@@ -92,7 +103,13 @@ export default function ShipmentsPage() {
   // ── Derived filter options ───────────────────────────────
   const months = useMemo(() => {
     const set = new Set(rows.map(r => r.month_group).filter(Boolean) as string[])
-    return MONTH_ORDER.filter(m => set.has(m))
+    const known = MONTH_ORDER.filter(m => set.has(m))
+    // append any month_groups not in the static order (e.g. later 2026 months), newest first, then Cancelled last
+    const extra = Array.from(set).filter(m => m !== 'Cancelled' && !MONTH_ORDER.includes(m))
+      .sort((a, b) => new Date('1 ' + b).getTime() - new Date('1 ' + a).getTime())
+    const out = [...known, ...extra]
+    if (set.has('Cancelled')) out.push('Cancelled')
+    return out
   }, [rows])
 
   const carriers = useMemo(() => {
@@ -537,7 +554,7 @@ export default function ShipmentsPage() {
                 <div className="col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">Status</label>
                   <select value={form.delivery_status || 'Delivered'} onChange={e => setForm(p => ({ ...p, delivery_status: e.target.value }))} className={inp + ' cursor-pointer'}>
-                    {['Delivered','In Transit','Exception','Pending'].map(s => <option key={s} value={s}>{s}</option>)}
+                    {['Shipped','Delivered','In Transit','Exception','Pending','Cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="col-span-2">
@@ -553,6 +570,49 @@ export default function ShipmentsPage() {
 
               {editing && (
                 <>
+                  {/* Cancellation reason */}
+                  {editing.status === 'Cancelled' && (
+                    <div className="border border-red-200 bg-red-50 rounded-lg p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-red-600 mb-1">Cancelled</p>
+                      <p className="text-xs text-red-700">{editing.cancel_reason || 'No reason recorded.'}</p>
+                    </div>
+                  )}
+
+                  {/* AI shipment summary */}
+                  {editing.ai_summary && (
+                    <div className="border-t border-[#E4E6EE] pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">✨ AI Shipment Summary</p>
+                      <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap bg-indigo-50/50 border border-indigo-100 rounded-lg p-3">{editing.ai_summary}</p>
+                    </div>
+                  )}
+
+                  {/* Signed closeout documents */}
+                  {(editing.packing_slip_url || editing.pod_file_url || editing.bol_number) && (
+                    <div className="border-t border-[#E4E6EE] pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2">Closeout Documents</p>
+                      <div className="space-y-1.5">
+                        {editing.bol_number && (
+                          <div className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2">
+                            <span className="text-xs text-gray-500">BOL #</span>
+                            <span className="font-mono text-xs text-[#1A1D2E]">{editing.bol_number}</span>
+                          </div>
+                        )}
+                        {editing.packing_slip_url && (
+                          <a href={editing.packing_slip_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 hover:bg-emerald-50">
+                            <span className="text-xs text-gray-500">Signed Packing Slip</span>
+                            <span className="text-xs text-emerald-600 font-medium">Open ↗</span>
+                          </a>
+                        )}
+                        {editing.pod_file_url && (
+                          <a href={editing.pod_file_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 hover:bg-emerald-50">
+                            <span className="text-xs text-gray-500">Signed BOL</span>
+                            <span className="text-xs text-emerald-600 font-medium">Open ↗</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Invoice info */}
                   <div className="border-t border-[#E4E6EE] pt-4">
                     <p className="text-xs font-semibold uppercase tracking-wider mb-2">Invoice</p>
@@ -566,7 +626,7 @@ export default function ShipmentsPage() {
                     )}
                   </div>
                   <div className="border-t border-[#E4E6EE] pt-4">
-                    <FileUpload supabase={sb} recordType="shipments" recordId={editing.id} currentUserEmail={userEmail} />
+                    <FileUpload supabase={sb} recordType="shipment" recordId={editing.id} currentUserEmail={userEmail} />
                   </div>
                   <div className="border-t border-[#E4E6EE] pt-4">
                     <Comments recordType="shipment" recordId={editing.id} currentUserEmail={userEmail}/>
