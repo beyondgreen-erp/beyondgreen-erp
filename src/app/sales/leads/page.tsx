@@ -125,8 +125,11 @@ export default function LeadsPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-2xl font-bold">Leads</h1>
-        <Link href="/sales/campaign" className="text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-600 text-white">Open Email Campaigns →</Link>
+        <div>
+          <span className="mon-tag t-purple">🎯 Leads</span>
+          <h1 className="text-2xl font-bold mt-1.5">Leads</h1>
+        </div>
+        <Link href="/sales/campaign" className="mon-btn">Open Email Campaigns →</Link>
       </div>
       <p className="text-xs text-gray-400 mb-4">{leads.length} leads · {withEmail} with email · <b className="text-amber-600">{totalNew} not yet contacted</b>. Grouped by the scrape they came from.</p>
 
