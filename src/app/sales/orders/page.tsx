@@ -569,6 +569,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<SalesOrder[]>([])
   const [view, setView] = useState<'board'|'table'>('board')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
   const dragId = useRef<string | null>(null)
   const moveOrder = async (id: string, targetSection: string, targetIndex: number) => {
@@ -1020,54 +1021,80 @@ export default function OrdersPage() {
             <button onClick={() => setGroupBy('status')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (groupBy === 'status' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Status</button>
           </div>
         )}
+        {view === 'board' && (
+          <div className="flex items-center gap-1.5 ml-auto text-xs">
+            <button onClick={() => setCollapsed(Object.fromEntries((groupBy === 'status' ? STATUSES : SECTIONS).map(g => [g, true])))}
+              className="px-2.5 py-1.5 rounded-md text-gray-500 hover:text-[#1A1D2E] hover:bg-[#F0F2F7] transition-colors">Collapse all</button>
+            <button onClick={() => setCollapsed({})}
+              className="px-2.5 py-1.5 rounded-md text-gray-500 hover:text-[#1A1D2E] hover:bg-[#F0F2F7] transition-colors">Expand all</button>
+            <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7] cursor-pointer select-none">
+              <input type="checkbox" checked={showEmpty} onChange={e => setShowEmpty(e.target.checked)} className="accent-[#00A84F] w-3.5 h-3.5" />
+              Show empty
+            </label>
+          </div>
+        )}
       </div>
 
-      {view === 'board' && (
-        <div className="space-y-3 mb-6">
-          {(groupBy === 'status' ? STATUSES.filter(s => orders.some(o => o.status === s)) : SECTIONS).map((grp) => {
-            const items = (groupBy === 'status'
-              ? orders.filter(o => o.status === grp && orderMatches(o))
-              : orders.filter(o => (o.order_section || 'Make To Stock') === grp && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
+      {view === 'board' && (() => {
+        const baseGroups = groupBy === 'status' ? STATUSES : SECTIONS
+        const groupData = baseGroups.map(grp => {
+          const items = (groupBy === 'status'
+            ? orders.filter(o => o.status === grp && orderMatches(o))
+            : orders.filter(o => (o.order_section || 'Make To Stock') === grp && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
+          return { grp, items }
+        }).filter(g => showEmpty || g.items.length > 0)
+        return (
+        <div className="space-y-2.5 mb-6">
+          {groupData.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">No orders match your filters.</p>}
+          {groupData.map(({ grp, items }) => {
             const isColl = collapsed[grp]
             const color = groupBy === 'status' ? statusColor(grp).solid : (SECTION_COLORS[grp] || statusColor(grp).solid)
+            const groupTotal = items.reduce((s, o) => s + orderValue(o), 0)
             const dropInto = (idx: number) => {
               const id = dragId.current; dragId.current = null; if (!id) return
               if (groupBy === 'status') { const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp) }
               else { moveOrder(id, grp, idx) }
             }
             return (
-              <div key={grp} className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden shadow-sm" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); dropInto(items.length) }}>
-                <div className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none" style={{ borderLeft: '4px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [grp]: !c[grp] }))}>
-                  <span className="text-gray-400 text-[10px]" style={{ display: 'inline-block', transform: isColl ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
-                  <span className="font-semibold text-sm" style={{ color: groupBy === 'status' ? '#1A1D2E' : color }}>{grp}</span>
-                  <span className="text-xs text-gray-400">{items.length}</span>
+              <div key={grp} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); dropInto(items.length) }}>
+                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-[5]"
+                  style={{ background: color + '14', borderLeft: '5px solid ' + color }}
+                  onClick={() => setCollapsed(c => ({ ...c, [grp]: !c[grp] }))}>
+                  <span className="text-[10px]" style={{ color, display: 'inline-block', transition: 'transform .15s', transform: isColl ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                  <span className="font-bold text-sm truncate" style={{ color }}>{grp}</span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: color + '26', color }}>{items.length}</span>
+                  {groupTotal > 0 && <span className="ml-auto text-xs font-semibold text-gray-500 shrink-0">{fmt$(groupTotal)}</span>}
                 </div>
                 {!isColl && (
-                  <div className="divide-y divide-[#F1F2F6]">
-                    {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400">Drop orders here</div>}
-                    {items.map((o, idx) => (
-                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2 px-3 py-1.5 hover:bg-[#FAFBFF]">
-                        <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs" title="Drag to reorder or move">&#8942;&#8942;</span>
-                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openEdit(o)}>
-                          <p className="text-sm font-medium text-[#1A1D2E] truncate">{o.order_number || o.customer?.company_name || 'Order'}</p>
+                  <div className="divide-y divide-[#F4F5F8]">
+                    {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400 italic">Drop orders here</div>}
+                    {items.map((o, idx) => {
+                      const sc = statusColor(o.status)
+                      return (
+                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
+                        <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
+                        <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
+                          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{o.order_number || o.customer?.company_name || 'Order'}</p>
                           <p className="text-xs text-gray-500 truncate">{o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
                         </div>
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
-                          className={"text-xs rounded-full border px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400 " + (STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-600 border-gray-200')}>
-                          {(STATUSES.includes(o.status) ? STATUSES : [o.status, ...STATUSES]).map(s => <option key={s} value={s}>{s}</option>)}
+                          style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
+                          className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0">
+                          {(STATUSES.includes(o.status) ? STATUSES : [o.status, ...STATUSES]).map(s => <option key={s} value={s} style={{ color: '#1A1D2E' }}>{s}</option>)}
                         </select>
                         <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
-                          className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-blue-400" title="Required ship date"/>
-                        <span className="text-xs text-gray-700 w-20 text-right shrink-0">{o.total_amount != null ? ('$' + o.total_amount) : (o.total != null ? ('$' + o.total) : '')}</span>
+                          className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-[#00A84F]" title="Required ship date"/>
+                        <span className="text-xs font-semibold text-gray-700 w-20 text-right shrink-0">{fmt$(orderValue(o)) ?? ''}</span>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>
             )
           })}
         </div>
-      )}
+        )
+      })()}
       
             {/* Section tabs */}
       <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-4" style={{ display: view === 'board' ? 'none' : undefined }}>
