@@ -151,6 +151,8 @@ export default function ShippingQueuePage() {
   }
   function setPalletWeight(id: number, w: number) { setPallets(ps => ps.map(p => p.id === id ? { ...p, weightLb: Math.max(0, w || 0) } : p)); invalidateBol() }
   function assignLine(i: number, palletId: number) { setPlan(p => p.map((r, idx) => idx === i ? { ...r, palletId } : r)); invalidateBol() }
+  // Remove a line from this shipment's packing (e.g. a duplicated PO line). Does not alter the order record.
+  function removeLine(i: number) { setPlan(p => p.filter((_, idx) => idx !== i)); invalidateBol() }
 
   const activeItem = items.find(i => i.id === openId)
   const o = activeItem?.sales_orders
@@ -427,7 +429,7 @@ export default function ShippingQueuePage() {
                           <thead><tr className="text-left text-gray-500 border-b bg-gray-50">
                             <th className="py-1.5 px-2">SKU</th><th className="px-2">Product / Description</th><th className="text-right px-2">Qty</th>
                             <th className="px-2">UOM</th><th className="text-right px-2">Units/Case</th><th className="text-right px-2">Cases</th>
-                            <th className="px-2">Pallet</th><th className="text-center px-2">UPC</th>
+                            <th className="px-2">Pallet</th><th className="text-center px-2">UPC</th><th className="px-2"></th>
                           </tr></thead>
                           <tbody>
                             {plan.map((r, i) => (
@@ -444,6 +446,7 @@ export default function ShippingQueuePage() {
                                   </select>
                                 </td>
                                 <td className="text-center px-2">{r.upc ? '✓' : <span className="text-red-500 font-bold">!</span>}</td>
+                                <td className="px-2 text-center"><button onClick={() => removeLine(i)} title="Remove this line from the shipment" className="text-gray-300 hover:text-red-500">✕</button></td>
                               </tr>
                             ))}
                           </tbody>
