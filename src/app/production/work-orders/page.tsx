@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import OrdersMirror from '@/components/OrdersMirror'
 
 const sb = createSupabaseBrowserClient()
 
@@ -43,6 +44,10 @@ export default function WorkOrdersPage() {
     <div className="min-h-screen p-8 bg-gray-50">
       <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">PRODUCTION</p>
       <h1 className="text-3xl font-bold text-gray-900 mb-6">Work Orders</h1>
+
+      {/* Sales orders currently in production (mirrored from Sales Orders) */}
+      <OrdersMirror statuses={['Production Queue', 'In Production']} title="Sales Orders in Production" tagClass="t-orange" emoji="🏭" />
+
       <div className="grid grid-cols-3 gap-4 mb-8">
         {[
           { label: 'Queued', count: q.length, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700' },
