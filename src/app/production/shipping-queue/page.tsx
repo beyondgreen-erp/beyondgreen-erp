@@ -10,7 +10,7 @@ const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
 const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
 const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
-const SHIPPABLE = ['Ready to Ship']
+const SHIPPABLE = ['Ready to Ship', 'Ready at Will Call']
 const DOC_LABELS: Record<string, string> = { bol: 'BOL', packingList: 'Packing List', palletLabels: 'Pallet Labels', caseLabels: 'Case Labels' }
 
 interface OrderInfo {
@@ -536,7 +536,7 @@ export default function ShippingQueuePage() {
         </div>
         <button onClick={() => setShowMaster(s => !s)} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>{showMaster ? 'Hide' : 'Merge BOLs → Master BOL'}</button>
       </div>
-      <p className="text-xs text-gray-400 mb-4">Live from Sales Orders — showing only orders with status <b className="text-[#00863F]">Ready to Ship</b>.</p>
+      <p className="text-xs text-gray-400 mb-4">Live from Sales Orders — showing orders with status <b className="text-[#00863F]">Ready to Ship</b> or <b className="text-[#00863F]">Ready at Will Call</b>.</p>
 
       {/* Search + filter */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
