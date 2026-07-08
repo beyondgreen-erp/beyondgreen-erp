@@ -681,12 +681,12 @@ export default function CustomersPage() {
   const displaySpend = editing ? (editing.manual_spend_override && editing.manual_lifetime_spend != null ? editing.manual_lifetime_spend : editing.lifetime_spend) : null
 
   return (
-    <div className="min-h-screen" style={{background:"#F5F6FA"}}>
+    <div className="min-h-screen mon-page">
       {/* Page header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">SALES</span>
-          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Customers</h1>
+          <span className="mon-tag t-blue">🏢 Customers</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Customers</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${showArchived?'archived':'active'} customer${filtered.length!==1?'s':''}`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -894,26 +894,28 @@ export default function CustomersPage() {
       )}
 
       {/* ── OVERLAY ── */}
-      <div className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${panelOpen?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={closePanel}/>
+      <div className={`fixed inset-0 z-40 transition-opacity duration-200 ${panelOpen?'opacity-100':'opacity-0 pointer-events-none'}`} style={{ background:'rgba(26,32,53,0.48)', backdropFilter:'blur(3px)' }} onClick={closePanel}/>
 
-      {/* ── PANEL ── */}
-      <div ref={panelRef} onClick={e=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[640px] bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${panelOpen?'translate-x-0':'translate-x-full'}`}>
+      {/* ── PANEL (centered pop-up) ── */}
+      <div ref={panelRef} onClick={e=>e.stopPropagation()} className={`fixed left-1/2 top-6 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[680px] bg-white rounded-2xl z-50 flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${panelOpen?'opacity-100 scale-100':'opacity-0 scale-95 pointer-events-none'}`} style={{ maxHeight:'calc(100vh - 48px)' }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
-          <div className="flex items-center gap-3">
-            {editing&&<div className={`w-8 h-8 rounded-full ${avatarColor(editing.company_name)} flex items-center justify-center`}><span className="text-[#1A1D2E] font-bold text-xs">{initials(editing.company_name)}</span></div>}
-            <div>
-              <h2 className="text-[#1A1D2E] font-semibold text-sm">{editing?editing.company_name:'Add Customer'}</h2>
-              <p className="text-xs text-gray-500">
+        <div className="mon-modal-head h-blue shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            {editing&&<div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0"><span className="text-white font-bold text-xs">{initials(editing.company_name)}</span></div>}
+            <div className="min-w-0">
+              <h2 className="text-lg truncate">{editing?editing.company_name:'Add Customer'}</h2>
+              <p className="text-xs text-white/80 truncate">
                 {editing?.customer_status||'Lead'}
-                {editing?.is_merged&&<span className="ml-2 text-amber-400">· Merged</span>}
-                {editing?.is_parent_account&&<span className="ml-2 text-teal-400">· Parent Account ({(childrenByParent[editing.id]??[]).length} locations)</span>}
-                {editing?.account_type==='child'&&editing?.parent_customer_id&&(()=>{const p=customers.find(x=>x.id===editing.parent_customer_id);return p?<span className="ml-2 text-teal-400">· Part of {p.company_name}</span>:null})()}
+                {editing?.is_merged&&<span className="ml-2">· Merged</span>}
+                {editing?.is_parent_account&&<span className="ml-2">· Parent Account ({(childrenByParent[editing.id]??[]).length} locations)</span>}
+                {editing?.account_type==='child'&&editing?.parent_customer_id&&(()=>{const p=customers.find(x=>x.id===editing.parent_customer_id);return p?<span className="ml-2">· Part of {p.company_name}</span>:null})()}
               </p>
             </div>
           </div>
-          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
-          <button onClick={closePanel} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+          <div className="flex items-center gap-2 shrink-0">
+            {editing && <ShareLink id={editing.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
+            <button onClick={closePanel} className="mon-modal-close" aria-label="Close">×</button>
+          </div>
         </div>
 
         {/* Spend summary card */}
