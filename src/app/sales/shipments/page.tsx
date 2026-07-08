@@ -587,6 +587,16 @@ export default function ShipmentsPage() {
 
               {editing && (
                 <>
+                  {/* Historical Monday.com import — no ERP activity/attachments on file */}
+                  {!editing.sales_order_id && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-xs font-semibold text-amber-800 mb-1">📥 Historical import from Monday.com</p>
+                      <p className="text-xs text-amber-700">
+                        This shipment was imported from Monday.com and has no activity, history, or attachments recorded in the ERP. Please check Monday.com for the full detail of this order{editing.external_id ? ` (Monday item ${editing.external_id})` : ''}.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Cancellation reason */}
                   {editing.status === 'Cancelled' && (
                     <div className="border border-red-200 bg-red-50 rounded-lg p-3">
