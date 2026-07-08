@@ -198,8 +198,11 @@ export function buildMasterBOL(d: BolData, lines: BolLine[], logo: string | null
 }
 
 export interface PackListCase {
-  sku: string; description?: string; caseNumber: number; totalCases: number
-  unitsInCase?: number; weight?: number; palletNumber?: number | null
+  sku: string; description?: string
+  palletNumber?: number | null
+  caseCount: number           // number of cases of this SKU on this pallet
+  unitsInCase?: number         // units per case
+  weight?: number              // per-case weight (lb)
 }
 
 export function buildPackingList(
@@ -226,7 +229,7 @@ export function buildPackingList(
   order.shipToAddress.split('\n').forEach(l => { if (l.trim()) { doc.text(l, M + 42, y); y += 11 } })
   y += 10
 
-  const cols = [{ t: 'Pallet', w: 44 }, { t: 'Case', w: 60 }, { t: 'SKU', w: 90 }, { t: 'Description', w: 0 }, { t: 'Units', w: 46 }, { t: 'Wt(lb)', w: 50 }]
+  const cols = [{ t: 'Pallet', w: 46 }, { t: 'Cases', w: 46 }, { t: 'SKU', w: 96 }, { t: 'Description', w: 0 }, { t: 'Units', w: 52 }, { t: 'Wt (lb)', w: 54 }]
   const tableW = R - M
   cols[3].w = tableW - cols.reduce((s, c, i) => i === 3 ? s : s + c.w, 0)
   const xOf: number[] = []; { let cx = M; cols.forEach(c => { xOf.push(cx); cx += c.w }) }
@@ -235,10 +238,21 @@ export function buildPackingList(
   cols.forEach((c, i) => doc.text(c.t, xOf[i] + 3, y + 11))
   y += 16
   doc.setFont('helvetica', 'normal')
-  cases.forEach(c => {
+  // Group by SKU per pallet: one row each, ordered by pallet then SKU.
+  const ordered = [...cases].sort((a, b) => (a.palletNumber ?? 0) - (b.palletNumber ?? 0) || a.sku.localeCompare(b.sku))
+  ordered.forEach(c => {
     if (y > 748) { doc.addPage(); y = M }
     doc.setDrawColor(220); doc.setLineWidth(0.3); doc.line(M, y + 13, R, y + 13)
-    const cells = [c.palletNumber ? String(c.palletNumber) : '-', `${c.caseNumber}/${c.totalCases}`, c.sku, c.description || '', c.unitsInCase != null ? String(c.unitsInCase) : '', c.weight != null ? String(c.weight) : '']
+    const totalUnits = (c.caseCount || 0) * (c.unitsInCase || 0)
+    const lineWt = (c.caseCount || 0) * (c.weight || 0)
+    const cells = [
+      c.palletNumber ? String(c.palletNumber) : '-',
+      String(c.caseCount),
+      c.sku,
+      c.description || '',
+      totalUnits ? String(totalUnits) : '',
+      lineWt ? String(Math.round(lineWt)) : '',
+    ]
     cols.forEach((col, i) => doc.text(String(cells[i]), xOf[i] + 3, y + 9, { maxWidth: col.w - 5 }))
     y += 13
   })
