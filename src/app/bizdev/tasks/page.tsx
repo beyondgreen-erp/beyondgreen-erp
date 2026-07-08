@@ -270,13 +270,14 @@ export default function TasksPage() {
   const totalDone   = rows.filter(r => r.status === 'Done').length
 
   return (
-    <div className="min-h-screen" style={{ background: '#F5F6FA' }}>
+    <div className="min-h-screen mon-page">
       <div className="max-w-7xl mx-auto px-6 py-8">
 
         {/* ── Header ── */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-[#1A1D2E]">Task Board</h1>
+            <span className="mon-tag t-orange">✅ Tasks</span>
+            <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Task Board</h1>
             <p className="text-[#6B7280] mt-1">
               {loading ? 'Loading…' : `${totalActive} active · ${totalDone} done · ${rows.length} total`}
             </p>
@@ -467,26 +468,26 @@ export default function TasksPage() {
       {/* Backdrop */}
       <div
         onClick={close}
-        className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 z-40 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        style={{ background:'rgba(26,32,53,0.48)', backdropFilter:'blur(3px)' }}
       />
 
-      {/* ── Slide-out drawer ── */}
+      {/* ── Centered pop-up ── */}
       <div
         onClick={e => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[440px] bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`fixed left-1/2 top-6 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[560px] bg-white rounded-2xl z-50 flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${open ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}
+        style={{ maxHeight:'calc(100vh - 48px)' }}
       >
-        {/* Drawer header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
-          <div>
-            <h2 className="text-[#1A1D2E] font-bold text-lg">{editing ? 'Edit Task' : 'New Task'}</h2>
-            {editing && <p className="text-[#9CA3AF] text-sm mt-0.5 truncate max-w-[300px]">{editing.task_name}</p>}
+        {/* Pop-up header */}
+        <div className="mon-modal-head h-orange shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-lg truncate">{editing ? (editing.task_name || 'Task') : 'New Task'}</h2>
+            {editing && <p className="text-white/80 text-xs mt-0.5 truncate">Task</p>}
           </div>
-          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
-          <button onClick={close} className="w-9 h-9 flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-[#1A1D2E] hover:bg-[#F5F6FA] transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {editing && <ShareLink id={editing.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
+            <button onClick={close} className="mon-modal-close" aria-label="Close">×</button>
+          </div>
         </div>
 
         {/* Drawer body */}
