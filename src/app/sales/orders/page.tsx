@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
-import WorkflowMover, { WorkflowProgressBar } from '@/components/WorkflowMover'
+import { WorkflowProgressBar } from '@/components/WorkflowMover'
 import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
@@ -1187,7 +1187,6 @@ export default function OrdersPage() {
                         <div className="flex items-center gap-1 flex-wrap">
                           <button onClick={() => openEdit(order)}
                             className="text-xs px-2 py-1 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-300 transition-colors">Edit</button>
-                          <WorkflowMover recordId={order.id} recordType="sales_order" currentStatus={order.status} orderNumber={order.order_number} customerId={order.customer_id} onMoved={load}/>
                       <button
                         onClick={e => { e.stopPropagation(); handleDelete(order.id) }}
                         className="text-xs px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-medium transition-colors"
@@ -1320,7 +1319,6 @@ export default function OrdersPage() {
                             <div className="flex items-center gap-1">
                               <button onClick={() => openEdit(order)}
                                 className="text-xs px-2 py-1 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-300 transition-colors">Edit</button>
-                              <WorkflowMover recordId={order.id} recordType="sales_order" currentStatus={order.status} orderNumber={order.order_number} customerId={order.customer_id} onMoved={load}/>
                             </div>
                           </td>
                         </tr>
