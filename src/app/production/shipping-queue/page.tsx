@@ -10,7 +10,7 @@ const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
 const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
 const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
-const SHIPPABLE = ['Ready to Ship', 'PU Date Assigned', 'Partially Shipped']
+const SHIPPABLE = ['Ready to Ship']
 const DOC_LABELS: Record<string, string> = { bol: 'BOL', packingList: 'Packing List', palletLabels: 'Pallet Labels', caseLabels: 'Case Labels' }
 
 interface OrderInfo {
@@ -536,14 +536,11 @@ export default function ShippingQueuePage() {
         </div>
         <button onClick={() => setShowMaster(s => !s)} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>{showMaster ? 'Hide' : 'Merge BOLs → Master BOL'}</button>
       </div>
-      <p className="text-xs text-gray-400 mb-4">Mirrors the Sales Orders board. Showing: {SHIPPABLE.join(', ')}.</p>
+      <p className="text-xs text-gray-400 mb-4">Live from Sales Orders — showing only orders with status <b className="text-[#00863F]">Ready to Ship</b>.</p>
 
       {/* Search + filter */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search order #, PO #, or customer…" className="flex-1 min-w-[220px] border rounded-lg px-3 py-2 text-sm" />
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
-          <option>All</option>{SHIPPABLE.map(s => <option key={s}>{s}</option>)}
-        </select>
         <span className="text-xs text-gray-400">{visible.length} of {items.length}</span>
       </div>
 
