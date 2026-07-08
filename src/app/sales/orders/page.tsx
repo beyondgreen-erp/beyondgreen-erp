@@ -315,6 +315,20 @@ function EditPanel({
   }
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch } : l)) }
+  const dragLineKey = useRef<string | null>(null)
+  function reorderLine(toKey: string) {
+    const from = dragLineKey.current; dragLineKey.current = null
+    if (!from || from === toKey) return
+    setEditLines(ls => {
+      const arr = [...ls]
+      const fi = arr.findIndex(l => l._key === from)
+      const ti = arr.findIndex(l => l._key === toKey)
+      if (fi < 0 || ti < 0) return ls
+      const [m] = arr.splice(fi, 1)
+      arr.splice(ti, 0, m)
+      return arr
+    })
+  }
 
   return (
     <>
@@ -475,9 +489,10 @@ function EditPanel({
             </div>
             <div className="space-y-2">
               {editLines.map((line, i) => (
-                <div key={line._key} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-[#E4E6EE] bg-[#F9FAFB]/30'}`}>
+                <div key={line._key} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); reorderLine(line._key) }} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-[#E4E6EE] bg-[#F9FAFB]/30'}`}>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-600 w-5 shrink-0">{i + 1}</span>
+                    <span draggable onDragStart={() => { dragLineKey.current = line._key }} className="text-gray-400 cursor-grab active:cursor-grabbing select-none shrink-0 text-xs" title="Drag to reorder line">&#8942;&#8942;</span>
+                    <span className="text-xs text-gray-600 w-4 shrink-0">{i + 1}</span>
                     {/* SKU with typeahead */}
                     <div className="relative flex-1">
                       <input value={skuDropdown === i ? skuQ : (line.sku || '')}
@@ -553,6 +568,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<SalesOrder[]>([])
   const [view, setView] = useState<'board'|'table'>('board')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
   const dragId = useRef<string | null>(null)
   const moveOrder = async (id: string, targetSection: string, targetIndex: number) => {
     const moving = orders.find(o => o.id === id); if (!moving) return
@@ -565,6 +581,21 @@ export default function OrdersPage() {
     setOrders([...others, ...reindexed])
     dragId.current = null
     try { await Promise.all(reindexed.map(o => sb.from('sales_orders').update({ order_section: o.order_section, board_position: o.board_position }).eq('id', o.id))) } catch (e) {}
+  }
+  // Inline edits from the board rows (no modal needed) — route status through the real workflow.
+  async function inlineStatus(o: SalesOrder, newStatus: string) {
+    if (!newStatus || newStatus === o.status) return
+    const prev = o.status
+    setOrders(prevOrders => prevOrders.map(x => x.id === o.id ? { ...x, status: newStatus } : x))
+    try {
+      await sb.from('sales_orders').update({ status: newStatus }).eq('id', o.id)
+      const result = await onStatusChange(o.id, newStatus as OrderStatus, prev as OrderStatus)
+      if (result?.message) setFlowToast({ message: result.message, undoData: result.undoData })
+    } catch { /* keep optimistic state */ }
+  }
+  async function inlineField(id: string, field: 'required_ship_date', value: string) {
+    setOrders(prevOrders => prevOrders.map(x => x.id === id ? { ...x, [field]: value } : x))
+    try { await sb.from('sales_orders').update({ [field]: value || null }).eq('id', id) } catch { /* */ }
   }
   useItemDeepLink(orders, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -976,37 +1007,58 @@ export default function OrdersPage() {
         <span className="text-xs text-gray-400 ml-auto">{(view === 'board' ? orders.filter(orderMatches).length : filtered.length)} shown</span>
       </div>
 
-      {/* View toggle */}
-      <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 mb-4 w-fit">
-        <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
-        <button onClick={() => setView('table')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'table' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Table</button>
+      {/* View toggle + board grouping */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
+          <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
+          <button onClick={() => setView('table')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'table' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Table</button>
+        </div>
+        {view === 'board' && (
+          <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
+            <span className="text-[11px] text-gray-400 pl-2 pr-1">Group by</span>
+            <button onClick={() => setGroupBy('section')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (groupBy === 'section' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Customer</button>
+            <button onClick={() => setGroupBy('status')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (groupBy === 'status' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Status</button>
+          </div>
+        )}
       </div>
-      
+
       {view === 'board' && (
         <div className="space-y-3 mb-6">
-          {SECTIONS.map((sec) => {
-            const items = orders.filter(o => (o.order_section || 'Make To Stock') === sec && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0))
-            const isColl = collapsed[sec]
-            const color = SECTION_COLORS[sec] || '#6B7280'
+          {(groupBy === 'status' ? STATUSES.filter(s => orders.some(o => o.status === s)) : SECTIONS).map((grp) => {
+            const items = (groupBy === 'status'
+              ? orders.filter(o => o.status === grp && orderMatches(o))
+              : orders.filter(o => (o.order_section || 'Make To Stock') === grp && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
+            const isColl = collapsed[grp]
+            const color = groupBy === 'status' ? '#6B7280' : (SECTION_COLORS[grp] || '#6B7280')
+            const dropInto = (idx: number) => {
+              const id = dragId.current; dragId.current = null; if (!id) return
+              if (groupBy === 'status') { const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp) }
+              else { moveOrder(id, grp, idx) }
+            }
             return (
-              <div key={sec} className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (dragId.current) moveOrder(dragId.current, sec, items.length) }}>
-                <div className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none" style={{ borderLeft: '4px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [sec]: !c[sec] }))}>
+              <div key={grp} className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); dropInto(items.length) }}>
+                <div className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none" style={{ borderLeft: '4px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [grp]: !c[grp] }))}>
                   <span className="text-gray-400 text-[10px]" style={{ display: 'inline-block', transform: isColl ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
-                  <span className="font-semibold text-sm" style={{ color }}>{sec}</span>
+                  <span className="font-semibold text-sm" style={{ color: groupBy === 'status' ? '#1A1D2E' : color }}>{grp}</span>
                   <span className="text-xs text-gray-400">{items.length}</span>
                 </div>
                 {!isColl && (
                   <div className="divide-y divide-[#F1F2F6]">
                     {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400">Drop orders here</div>}
                     {items.map((o, idx) => (
-                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragId.current) moveOrder(dragId.current, sec, idx) }} onClick={() => openEdit(o)} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAFBFF] cursor-grab active:cursor-grabbing">
-                        <div className="flex-1 min-w-0">
+                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2 px-3 py-1.5 hover:bg-[#FAFBFF]">
+                        <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs" title="Drag to reorder or move">&#8942;&#8942;</span>
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openEdit(o)}>
                           <p className="text-sm font-medium text-[#1A1D2E] truncate">{o.order_number || o.customer?.company_name || 'Order'}</p>
                           <p className="text-xs text-gray-500 truncate">{o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
                         </div>
-                        <span className={"text-xs px-2 py-0.5 rounded-full border whitespace-nowrap " + (STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-500 border-gray-200')}>{o.status || '\u2014'}</span>
-                        <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{o.required_ship_date || o.ship_date || ''}</span>
-                        <span className="text-xs text-gray-700 w-20 text-right">{o.total_amount != null ? ('$' + o.total_amount) : (o.total != null ? ('$' + o.total) : '')}</span>
+                        <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
+                          className={"text-xs rounded-full border px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400 " + (STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-600 border-gray-200')}>
+                          {(STATUSES.includes(o.status) ? STATUSES : [o.status, ...STATUSES]).map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
+                          className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-blue-400" title="Required ship date"/>
+                        <span className="text-xs text-gray-700 w-20 text-right shrink-0">{o.total_amount != null ? ('$' + o.total_amount) : (o.total != null ? ('$' + o.total) : '')}</span>
                       </div>
                     ))}
                   </div>
