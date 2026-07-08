@@ -417,15 +417,18 @@ export default function ShippingQueuePage() {
             const io = item.sales_orders; const open = openId === item.id
             return (
               <div key={item.id} className="rounded-xl border border-gray-200 bg-white">
-                <button onClick={() => openOrder(item)} className="w-full flex items-center gap-4 px-4 py-3 text-left">
-                  <span className="font-semibold truncate max-w-md">{io?.order_number || '—'}</span>
-                  <span className="text-sm text-gray-500 flex-1 truncate">{io?.customers?.company_name} · PO {io?.po_number || '—'}</span>
-                  <span className="text-xs px-2 py-1 rounded-full bg-gray-100 whitespace-nowrap">{item.status}</span>
-                  <span className="text-indigo-600 text-sm whitespace-nowrap">{open ? 'Close' : 'Pack & Ship'}</span>
+                <button onClick={() => openOrder(item)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[#FAFBFF]">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#1A1D2E] truncate">{io?.order_number || '—'}</p>
+                    <p className="text-xs text-gray-500 truncate">{io?.customers?.company_name || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
+                  </div>
+                  <span className="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-600 border-gray-200 whitespace-nowrap">{item.status}</span>
+                  <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{io?.required_ship_date || ''}</span>
+                  <span className="text-indigo-600 text-sm font-medium whitespace-nowrap w-24 text-right">{open ? 'Close' : 'Pack & Ship'}</span>
                 </button>
 
                 {open && (
-                  <div className="border-t border-gray-100 p-4">
+                  <div className="border-t border-gray-100 p-4 bg-[#FAFBFC]">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs mb-4">
                       <div><span className="text-gray-400 block">Customer</span>{o?.customers?.company_name || '—'}</div>
                       <div><span className="text-gray-400 block">PO #</span>{o?.po_number || '—'}</div>
@@ -441,11 +444,15 @@ export default function ShippingQueuePage() {
 
                     {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? <p className="text-xs text-gray-400">No line items found on this order.</p> : (
                       <>
-                        {/* Line items → allocate cases to pallets (split a SKU across pallets by putting cases in more than one column) */}
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-gray-600">Line items — enter how many cases go on each pallet</p>
-                          <button onClick={aiSuggest} disabled={busy === 'ai'} className={`${btn} bg-violet-600 text-white border-violet-600`}>{busy === 'ai' ? 'Thinking…' : '✨ AI Suggest Packing'}</button>
-                        </div>
+                        {/* STEP 1 — Pack the pallets */}
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">1</span>
+                            <span className="text-sm font-semibold text-[#1A1D2E]">Pack the pallets</span>
+                            <span className="ml-auto text-xs text-gray-400">{totals.pallets} pallet{totals.pallets !== 1 ? 's' : ''} · {totals.cases} cases · {totals.weight} lb</span>
+                            <button onClick={aiSuggest} disabled={busy === 'ai'} className={`${btn} bg-violet-600 text-white border-violet-600`}>{busy === 'ai' ? 'Thinking…' : '✨ AI Suggest'}</button>
+                          </div>
+                          <p className="text-xs text-gray-500 mb-2">Enter how many cases of each line go on each pallet — split a SKU by filling more than one pallet box.</p>
                         <div className="overflow-x-auto">
                         <table className="w-full text-xs mb-4">
                           <thead><tr className="text-left text-gray-500 border-b bg-gray-50">
@@ -498,29 +505,28 @@ export default function ShippingQueuePage() {
                           ))}
                         </div>
 
-                        <p className="text-xs text-gray-600 mb-2">Totals: <b>{totals.pallets}</b> pallets · <b>{totals.cases}</b> cases · <b>{totals.weight}</b> lb</p>
-                        {anyUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mb-2">Some cases aren&apos;t assigned to a pallet — the “Cases per pallet” columns for each line should add up to that line&apos;s <b>Cases</b> total.</div>}
-                        {anyPalletMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mb-3">Enter the <b>total weight</b> for each pallet so the BOL and labels are accurate.</div>}
-                        {notes && <div className="text-xs bg-violet-50 border-l-4 border-violet-400 p-2 mb-3 whitespace-pre-line">{notes}</div>}
+                          {anyUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Some cases aren&apos;t assigned to a pallet — the “Cases per pallet” columns for each line should add up to that line&apos;s <b>Cases</b> total.</div>}
+                          {anyPalletMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-2">Enter the <b>total weight</b> for each pallet so the BOL and labels are accurate.</div>}
+                          {notes && <div className="text-xs bg-violet-50 border-l-4 border-violet-400 p-2 mt-2 whitespace-pre-line">{notes}</div>}
+                        </div>
 
-                        {/* Parcel toggle */}
-                        <label className="flex items-center gap-2 text-xs mb-3 select-none">
-                          <input type="checkbox" checked={parcel} onChange={e => { setParcel(e.target.checked); if (e.target.checked) { setBolForm(null); setFinalized(false) } }} />
-                          <span>This is a <b>parcel shipment</b> — no BOL needed (unlocks labels directly)</span>
-                        </label>
-
-                        {/* BOL step */}
-                        {!parcel && (
-                          <div className="rounded-xl border border-gray-200 mb-4">
-                            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-t-xl">
-                              <span className="text-xs font-semibold text-gray-600">Bill of Lading {finalized && <span className="text-emerald-600">✓ finalized</span>}</span>
-                              {!bolForm
-                                ? <button onClick={reviewBol} disabled={busy === 'bol'} className={`${btn} bg-emerald-600 text-white border-emerald-600`}>{busy === 'bol' ? 'Preparing…' : '📄 Review BOL'}</button>
-                                : <button onClick={() => { setBolForm(null); setFinalized(false) }} className={`${btn} bg-white border-gray-300`}>Cancel</button>}
-                            </div>
-
-                            {bolForm && (
-                              <div className="p-3 grid md:grid-cols-2 gap-4">
+                        {/* STEP 2 — Bill of lading */}
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3">
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">2</span>
+                            <span className="text-sm font-semibold text-[#1A1D2E]">Bill of lading</span>
+                            {finalized && !parcel && <span className="text-xs text-emerald-600">✓ finalized</span>}
+                            {!parcel && <div className="ml-auto">{!bolForm
+                              ? <button onClick={reviewBol} disabled={busy === 'bol'} className={`${btn} bg-emerald-600 text-white border-emerald-600`}>{busy === 'bol' ? 'Preparing…' : '📄 Review BOL'}</button>
+                              : <button onClick={() => { setBolForm(null); setFinalized(false) }} className={`${btn} bg-white border-gray-300`}>Cancel</button>}</div>}
+                          </div>
+                          <label className="flex items-center gap-2 text-xs mb-2 select-none">
+                            <input type="checkbox" checked={parcel} onChange={e => { setParcel(e.target.checked); if (e.target.checked) { setBolForm(null); setFinalized(false) } }} />
+                            <span>This is a <b>parcel shipment</b> — no BOL needed (unlocks labels directly)</span>
+                          </label>
+                          {!parcel && !bolForm && <p className="text-xs text-gray-500">Review generates the BOL from your pallets — edit any field, watch the live preview, then finalize.</p>}
+                          {!parcel && bolForm && (
+                              <div className="grid md:grid-cols-2 gap-4">
                                 {/* Editable fields */}
                                 <div className="space-y-2 text-xs">
                                   <div className="grid grid-cols-2 gap-2">
@@ -560,22 +566,26 @@ export default function ShippingQueuePage() {
                                   {previewUrl ? <iframe title="BOL preview" src={previewUrl} className="w-full h-[520px] rounded" /> : <div className="flex items-center justify-center h-[420px] text-xs text-gray-400">Rendering preview…</div>}
                                 </div>
                               </div>
-                            )}
-                          </div>
-                        )}
+                          )}
+                        </div>
 
-                        {missing.length > 0 && (
-                          <div className="text-xs bg-red-50 border-l-4 border-red-400 text-red-700 p-3 mb-3">
-                            <b>UPC or GTIN is missing in the Inventory board</b> for: {missing.join(', ')}.<br />Please add the UPC/GTIN (and product image) in Inventory before generating labels.
+                        {/* STEP 3 — Print labels */}
+                        <div className={`rounded-xl border border-gray-200 bg-white p-4 mb-3 ${!labelsUnlocked ? 'opacity-60' : ''}`}>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-semibold shrink-0 ${labelsUnlocked ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>3</span>
+                            <span className="text-sm font-semibold text-[#1A1D2E]">Print labels</span>
+                            {!labelsUnlocked && <span className="ml-auto text-xs text-gray-400">Unlocks after the BOL is finalized</span>}
                           </div>
-                        )}
-
-                        {/* Labels — gated behind a finalized BOL (or parcel mode) */}
-                        {!labelsUnlocked && <p className="text-xs text-gray-400 mb-1">Finalize the BOL (or mark as a parcel shipment) to unlock labels.</p>}
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          <button onClick={genCaseLabels} disabled={!labelsUnlocked || busy === 'labels'} className={`${btn} bg-white border-gray-300`}>🏷️ Case Labels</button>
-                          <button onClick={genPalletLabels} disabled={!labelsUnlocked} className={`${btn} bg-white border-gray-300`}>📦 Pallet Labels</button>
-                          <button onClick={genPackingList} className={`${btn} bg-white border-gray-300`}>📋 Packing List</button>
+                          {missing.length > 0 && (
+                            <div className="text-xs bg-red-50 border-l-4 border-red-400 text-red-700 p-3 mb-3">
+                              <b>UPC or GTIN is missing in the Inventory board</b> for: {missing.join(', ')}.<br />Please add the UPC/GTIN (and product image) in Inventory before generating labels.
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            <button onClick={genCaseLabels} disabled={!labelsUnlocked || busy === 'labels'} className={`${btn} bg-white border-gray-300`}>🏷️ Case Labels</button>
+                            <button onClick={genPalletLabels} disabled={!labelsUnlocked} className={`${btn} bg-white border-gray-300`}>📦 Pallet Labels</button>
+                            <button onClick={genPackingList} className={`${btn} bg-white border-gray-300`}>📋 Packing List</button>
+                          </div>
                         </div>
                       </>
                     )}
