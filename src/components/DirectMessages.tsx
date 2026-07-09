@@ -69,12 +69,30 @@ export default function DirectMessages() {
 
   useEffect(() => { meRef.current = me }, [me])
 
-  /* auto-dismiss the big red alert after a while */
+  /* Recompute the big red alert from ACTUAL unread messages in the DB. This is a
+     robust fallback in case a realtime event is missed, and it means the alert
+     stays up until the messages are read (opened) or dismissed — it never auto-hides. */
+  const refreshUnreadAlert = useCallback(async () => {
+    const m = meRef.current; if (!m) return
+    const { data } = await sb.from('direct_messages')
+      .select('sender_email,sender_name,content,created_at')
+      .eq('recipient_email', m.email).is('read_at', null)
+      .order('created_at', { ascending: false }).limit(50)
+    // ignore chats the user already has open + focused
+    const focused = new Set(winsRef.current.filter(w => !w.minimized).map(w => w.peer.email))
+    const rows = (data || []).filter(r => !focused.has(r.sender_email))
+    if (rows.length === 0) { setAlert(null); return }
+    const latest = rows[0]
+    setAlert({ from: latest.sender_email, name: latest.sender_name || latest.sender_email.split('@')[0], count: rows.length, preview: latest.content })
+  }, [sb])
+
+  /* Safety-net poll (every 10s) + an immediate check on login. */
   useEffect(() => {
-    if (!alert) return
-    const t = setTimeout(() => setAlert(null), 12000)
-    return () => clearTimeout(t)
-  }, [alert])
+    if (!me) return
+    refreshUnreadAlert()
+    const id = setInterval(refreshUnreadAlert, 10000)
+    return () => clearInterval(id)
+  }, [me, refreshUnreadAlert])
 
   /* resume audio on first user gesture (browser autoplay policy) */
   useEffect(() => {
@@ -157,15 +175,19 @@ export default function DirectMessages() {
           })
         })
         if (incoming) {
-          playPing()
-          markRead(peerEmail)
-          const nm = dm.sender_name || peerEmail.split('@')[0]
-          setAlert(a => ({ from: peerEmail, name: nm, count: (a && a.from === peerEmail ? a.count : (a ? a.count : 0)) + 1, preview: dm.content }))
+          const win = winsRef.current.find(w => w.peer.email === peerEmail)
+          const focused = !!win && !win.minimized
+          if (focused) {
+            markRead(peerEmail)          // they're actively looking at this chat
+          } else {
+            playPing()
+            refreshUnreadAlert()         // pop / refresh the big red alert
+          }
         }
       })
       .subscribe()
     return () => { sb.removeChannel(ch) }
-  }, [me, sb, markRead])
+  }, [me, sb, markRead, refreshUnreadAlert])
 
   if (!me) return null
   return (
@@ -190,7 +212,12 @@ export default function DirectMessages() {
               <p className="text-white/75 text-xs mt-0.5">Click to open the chat</p>
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); setAlert(null) }}
+              onClick={async (e) => {
+                e.stopPropagation()
+                const m = meRef.current
+                if (m) await sb.from('direct_messages').update({ read_at: new Date().toISOString() }).eq('recipient_email', m.email).is('read_at', null)
+                setAlert(null)
+              }}
               className="shrink-0 w-9 h-9 rounded-lg text-white/90 hover:text-white hover:bg-white/20 flex items-center justify-center text-2xl leading-none"
               title="Dismiss"
             >×</button>
