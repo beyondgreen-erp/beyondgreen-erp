@@ -65,8 +65,16 @@ export default function DirectMessages() {
   const [wins, setWins] = useState<Win[]>([])
   const winsRef = useRef<Win[]>([])
   winsRef.current = wins
+  const [alert, setAlert] = useState<{ from: string; name: string; count: number; preview: string } | null>(null)
 
   useEffect(() => { meRef.current = me }, [me])
+
+  /* auto-dismiss the big red alert after a while */
+  useEffect(() => {
+    if (!alert) return
+    const t = setTimeout(() => setAlert(null), 12000)
+    return () => clearTimeout(t)
+  }, [alert])
 
   /* resume audio on first user gesture (browser autoplay policy) */
   useEffect(() => {
@@ -151,6 +159,8 @@ export default function DirectMessages() {
         if (incoming) {
           playPing()
           markRead(peerEmail)
+          const nm = dm.sender_name || peerEmail.split('@')[0]
+          setAlert(a => ({ from: peerEmail, name: nm, count: (a && a.from === peerEmail ? a.count : (a ? a.count : 0)) + 1, preview: dm.content }))
         }
       })
       .subscribe()
@@ -159,6 +169,35 @@ export default function DirectMessages() {
 
   if (!me) return null
   return (
+    <>
+      {/* BIG RED new-message alert — shows on every screen when a message arrives */}
+      {alert && (
+        <div className="fixed inset-x-0 top-6 z-[120] flex justify-center px-4 pointer-events-none">
+          <div
+            role="button"
+            onClick={() => { openWindow({ email: alert.from, name: alert.name }); setAlert(null) }}
+            className="alert-pulse pointer-events-auto flex items-center gap-4 w-full max-w-[560px] rounded-2xl px-6 py-4 cursor-pointer"
+            style={{ background: '#DC2626', boxShadow: '0 14px 48px rgba(220,38,38,0.6)', border: '2px solid #fff' }}
+          >
+            <span className="text-4xl shrink-0" aria-hidden>📩</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-white font-extrabold text-xl leading-tight tracking-tight">
+                {alert.count} New Message{alert.count > 1 ? 's' : ''}
+              </p>
+              <p className="text-white/95 text-sm truncate">
+                from <b>{alert.name}</b>{alert.preview ? ` — “${alert.preview}”` : ''}
+              </p>
+              <p className="text-white/75 text-xs mt-0.5">Click to open the chat</p>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setAlert(null) }}
+              className="shrink-0 w-9 h-9 rounded-lg text-white/90 hover:text-white hover:bg-white/20 flex items-center justify-center text-2xl leading-none"
+              title="Dismiss"
+            >×</button>
+          </div>
+        </div>
+      )}
+
     <div className="fixed bottom-0 right-0 z-[70] hidden md:flex flex-row-reverse items-end gap-3 p-4 pointer-events-none">
       {wins.map((w) => (
         <DMWindow
@@ -172,6 +211,7 @@ export default function DirectMessages() {
         />
       ))}
     </div>
+    </>
   )
 }
 
