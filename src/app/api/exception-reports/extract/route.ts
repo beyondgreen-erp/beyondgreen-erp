@@ -9,12 +9,16 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 interface LineItem {
   po_number?: string
+  vendor_name?: string
   po_freight_bill_qty?: number
   over_qty?: number
   short_qty?: number
   damaged_qty?: number
   comment?: string
 }
+
+// beyondGREEN goes by "BEYONDGREEN BIOTECH, INC. DBA" on Walmart reports.
+const isBeyondGreen = (v?: string | null) => !!v && /beyond\s*green|byndgrn/i.test(v)
 
 function firstJson(text: string): any {
   const a = text.indexOf('{'); const b = text.lastIndexOf('}')
@@ -64,6 +68,7 @@ export async function POST(req: NextRequest) {
   "line_items": [
     {
       "po_number": "the PO # for this line",
+      "vendor_name": "the Vendor Name printed for THIS row, exactly as written (e.g. 'BEYONDGREEN BIOTECH, INC. DBA'), else ''",
       "po_freight_bill_qty": number (the PO Freight Bill Qty),
       "over_qty": number (Over quantity, 0 if none),
       "short_qty": number (Short quantity, 0 if none),
@@ -72,7 +77,7 @@ export async function POST(req: NextRequest) {
     }
   ]
 }
-Include EVERY PO line shown across ALL pages of the report's line-item table (one object per PO row), regardless of vendor name. Use 0 for blank quantities. Numbers only for quantity fields. The over_qty / short_qty / damaged_qty values are the handwritten numbers in the Over / Short / Damage columns.` })
+Include EVERY PO line shown across ALL pages of the report's line-item table (one object per PO row) and ALWAYS capture the printed Vendor Name for each row — do not skip any row (the system filters by vendor afterward). Use 0 for blank quantities. Numbers only for quantity fields. The over_qty / short_qty / damaged_qty values are the handwritten numbers in the Over / Short / Damage columns.` })
 
     const msg = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -88,10 +93,18 @@ Include EVERY PO line shown across ALL pages of the report's line-item table (on
     const report_date = typeof j.report_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(j.report_date) ? j.report_date : null
     const carrier = j.carrier_name === 'JB HUNT TRANSPORT  (HJBT)' ? j.carrier_name : (j.carrier_name ? 'Walmart Fleet' : null)
 
-    const rows = lines.filter(li => li && (li.po_number || li.po_freight_bill_qty)).map(li => {
+    // Only keep beyondGREEN's own PO lines — the Walmart report lists many vendors per delivery.
+    const bgLines = lines.filter(li => li && (li.po_number || li.po_freight_bill_qty) && isBeyondGreen(li.vendor_name))
+    const skippedOther = lines.filter(li => li && (li.po_number || li.po_freight_bill_qty) && !isBeyondGreen(li.vendor_name)).length
+    if (bgLines.length === 0) {
+      return NextResponse.json({ error: `No beyondGREEN PO lines found on this report (skipped ${skippedOther} line(s) for other vendors). Make sure this is a beyondGREEN exception report.` }, { status: 422 })
+    }
+
+    const rows = bgLines.map(li => {
       const over_qty = num(li.over_qty), short_qty = num(li.short_qty), damaged_qty = num(li.damaged_qty)
       return {
         po_number: li.po_number ? String(li.po_number) : null,
+        vendor_name: li.vendor_name ? String(li.vendor_name) : null,
         report_date,
         centerpoint: j.centerpoint ? String(j.centerpoint) : null,
         delivery_no: j.delivery_no ? String(j.delivery_no) : null,
@@ -124,7 +137,7 @@ Include EVERY PO line shown across ALL pages of the report's line-item table (on
       'EXCEPTIONS:',
       exLines.length ? exLines.map(fmtLine).join(NL) : '(none)',
     ].join(NL)
-    return NextResponse.json({ inserted: inserted?.length ?? rows.length, delivery_no: j.delivery_no || '', report_date, record })
+    return NextResponse.json({ inserted: inserted?.length ?? rows.length, skipped_other_vendors: skippedOther, delivery_no: j.delivery_no || '', report_date, record })
   } catch (err) {
     console.error('exception-reports/extract error:', err)
     return NextResponse.json({ error: (err as Error).message || 'Extraction failed' }, { status: 500 })
