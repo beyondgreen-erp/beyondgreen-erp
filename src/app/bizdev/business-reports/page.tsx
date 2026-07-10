@@ -22,8 +22,10 @@ interface ExRow {
   claim_penalty: string | null
   exception_report_file: string | null
   source: string | null
+  vendor_name: string | null
 }
 
+const isBeyondGreen = (v: string | null) => !!v && /beyond\s*green|byndgrn/i.test(v)
 const CLAIM = ['', 'Filing Claim', 'No', 'Yes']
 const claimStyle = (c: string | null) =>
   c === 'Yes' ? 'bg-red-50 text-red-700 border-red-200'
@@ -213,13 +215,18 @@ export default function BusinessReportsPage() {
           : filtered.length === 0 ? <div className="text-center py-16 text-gray-400 text-sm">No exception reports yet — upload one to get started.</div>
           : <table className="w-full min-w-[1100px]">
               <thead><tr className="bg-[#FAFBFC] border-b border-[#E4E6EE]">
-                {['PO #', 'Date', 'Delivery No.', 'CenterPoint', 'Carrier', 'Over', 'Short', 'Damaged', 'Freight Qty', 'Over Qty', 'Short Qty', 'Dmg Qty', 'Claim Penalty', 'Comment', 'File', ''].map(h =>
+                {['PO #', 'Confirmed beyondGREEN PO', 'Date', 'Delivery No.', 'CenterPoint', 'Carrier', 'Over', 'Short', 'Damaged', 'Freight Qty', 'Over Qty', 'Short Qty', 'Dmg Qty', 'Claim Penalty', 'Comment', 'File', ''].map(h =>
                   <th key={h} className={th}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {filtered.map((r, i) => (
                   <tr key={r.id} className={`border-b border-[#F3F4F6] hover:bg-[#F9FAFB] ${i % 2 ? 'bg-[#FCFCFD]' : ''}`}>
                     <td className={td + ' font-mono font-semibold text-[#1A1D2E]'}>{r.po_number || '—'}</td>
+                    <td className={td}>
+                      {isBeyondGreen(r.vendor_name)
+                        ? <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200" title={r.vendor_name || ''}><i className="ti ti-circle-check-filled" />beyondGREEN</span>
+                        : <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full bg-gray-50 text-gray-400 border border-gray-200">Unconfirmed</span>}
+                    </td>
                     <td className={td}>{fmtD(r.report_date)}</td>
                     <td className={td + ' font-mono'}>{r.delivery_no || '—'}</td>
                     <td className={td}>{r.centerpoint || '—'}</td>
