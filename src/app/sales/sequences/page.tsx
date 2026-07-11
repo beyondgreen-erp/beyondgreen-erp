@@ -11,6 +11,7 @@ interface Sequence {
   send_days: string[] | null; created_at: string
 }
 interface Enr { sequence_id: string; status: string }
+interface Mailbox { email: string; connected_at?: string; is_protected?: boolean; is_outreach_default?: boolean }
 
 const VARS = ['{{company}}', '{{contact}}', '{{first_name}}', '{{city}}', '{{state}}', '{{industry}}', '{{website}}', '{{my_name}}']
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -28,6 +29,8 @@ export default function SequencesPage() {
   const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
   const [loading, setLoading] = useState(true)
   const [userEmail, setUserEmail] = useState('')
+  const [mailboxes, setMailboxes] = useState<Mailbox[]>([])
+  const [allowProtected, setAllowProtected] = useState(false)
 
   const [editing, setEditing] = useState<Sequence | null>(null)
   const [open, setOpen] = useState(false)
@@ -37,6 +40,13 @@ export default function SequencesPage() {
   const [running, setRunning] = useState('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [sb])
+  useEffect(() => {
+    fetch('/api/outlook/status').then(r => r.json()).then(d => setMailboxes(d.mailboxes || [])).catch(() => {})
+  }, [])
+
+  const outreachDefault = useMemo(() => mailboxes.find(m => m.is_outreach_default) || mailboxes.find(m => !m.is_protected), [mailboxes])
+  const selectedMailbox = useMemo(() => mailboxes.find(m => m.email === form.from_email), [mailboxes, form.from_email])
+  const protectedChosen = !!selectedMailbox?.is_protected
 
   async function scanReplies() {
     setRunning('Scanning replies…')
@@ -68,13 +78,14 @@ export default function SequencesPage() {
   useEffect(() => { load() }, [load])
 
   function openNew() {
-    setEditing(null)
-    setForm({ name: '', description: '', from_name: 'Rudy Perrier', from_email: '', reply_to: '', daily_cap: 40, send_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], status: 'draft' })
+    setEditing(null); setAllowProtected(false)
+    setForm({ name: '', description: '', from_name: 'Rudy Perrier', from_email: outreachDefault?.email || '', reply_to: '', daily_cap: 40, send_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], status: 'draft' })
     setSteps(DEFAULT_STEPS.map(s => ({ ...s })))
     setOpen(true)
   }
   function openEdit(s: Sequence) {
     setEditing(s); setForm({ ...s, send_days: s.send_days || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] })
+    setAllowProtected(!!mailboxes.find(m => m.email === s.from_email)?.is_protected)
     setSteps((stepsBySeq[s.id] || []).map(x => ({ ...x })).sort((a, b) => a.step_number - b.step_number))
     setOpen(true)
   }
@@ -89,6 +100,9 @@ export default function SequencesPage() {
 
   async function save() {
     if (!form.name?.trim()) { alert('Give the sequence a name.'); return }
+    if (!form.from_email) { alert('Choose a sending mailbox (From email).'); return }
+    if (!mailboxes.find(m => m.email === form.from_email)) { alert('That sending mailbox isn’t connected. Connect it in Settings → Email first.'); return }
+    if (protectedChosen && !allowProtected) { alert('That mailbox is marked as protected (your primary business email). Tick the confirmation box if you really want to send from it — otherwise pick your outreach mailbox.'); return }
     setSaving(true)
     const payload = {
       name: form.name.trim(), description: form.description || null, from_email: form.from_email || null,
@@ -180,17 +194,42 @@ export default function SequencesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2"><label className="block text-xs text-gray-500 mb-1">Sequence name</label><input value={form.name || ''} onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))} className={inp} placeholder="e.g. Restaurant cold outreach" /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">From name</label><input value={form.from_name || ''} onChange={e => setForm((f: any) => ({ ...f, from_name: e.target.value }))} className={inp} /></div>
-                <div><label className="block text-xs text-gray-500 mb-1">From email (dedicated mailbox)</label><input value={form.from_email || ''} onChange={e => setForm((f: any) => ({ ...f, from_email: e.target.value }))} className={inp} placeholder="rudy@trybyndgrn.com" /></div>
+                <div className="col-span-2">
+                  <label className="block text-xs text-gray-500 mb-1">Send from mailbox</label>
+                  {mailboxes.length === 0 ? (
+                    <div className="text-xs rounded-lg bg-[#FCE8EC] text-[#A11B30] border border-[#F3C6CF] px-3 py-2">No mailboxes connected. Connect one in <b>Settings → Email</b> before sending.</div>
+                  ) : (
+                    <select value={form.from_email || ''} onChange={e => { setForm((f: any) => ({ ...f, from_email: e.target.value })); setAllowProtected(false) }} className={inp}>
+                      <option value="">— choose a mailbox —</option>
+                      {mailboxes.map(m => (
+                        <option key={m.email} value={m.email}>
+                          {m.email}{m.is_outreach_default ? '  ✓ outreach (recommended)' : ''}{m.is_protected ? '  ⚠ primary — not for cold outreach' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <div><label className="block text-xs text-gray-500 mb-1">Reply-to (optional)</label><input value={form.reply_to || ''} onChange={e => setForm((f: any) => ({ ...f, reply_to: e.target.value }))} className={inp} /></div>
                 <div><label className="block text-xs text-gray-500 mb-1">Daily cap (per mailbox)</label><input type="number" value={form.daily_cap ?? 40} onChange={e => setForm((f: any) => ({ ...f, daily_cap: e.target.value }))} className={inp} /></div>
               </div>
+
+              {protectedChosen && (
+                <div className="rounded-lg bg-[#FCE8EC] border-2 border-[#E0244B] px-3 py-2.5">
+                  <p className="text-sm font-bold text-[#A11B30] flex items-center gap-1.5"><i className="ti ti-alert-triangle" />{form.from_email} is your primary business mailbox</p>
+                  <p className="text-[12px] text-[#A11B30] mt-0.5">Sending cold outreach from here can hurt your normal email deliverability and get the domain flagged. Use your dedicated outreach mailbox instead.</p>
+                  <label className="flex items-center gap-2 mt-2 text-[12px] text-[#A11B30] font-medium">
+                    <input type="checkbox" checked={allowProtected} onChange={e => setAllowProtected(e.target.checked)} />
+                    I understand the risk and want to send from this mailbox anyway.
+                  </label>
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Send days</label>
                 <div className="flex gap-1">{DAYS.map(d => { const on = (form.send_days || []).includes(d); return <button key={d} onClick={() => setForm((f: any) => ({ ...f, send_days: on ? f.send_days.filter((x: string) => x !== d) : [...(f.send_days || []), d] }))} className={`text-xs px-2.5 py-1.5 rounded-md border ${on ? 'bg-[#0086C0] text-white border-[#0086C0]' : 'border-[#E4E6EE] text-gray-500'}`}>{d}</button> })}</div>
               </div>
 
               <div className="rounded-lg bg-[#FFF8E7] border border-[#F3E5C0] px-3 py-2 text-[11px] text-[#8A6D3B]">
-                Sends go out from the <b>From email</b> above. Use a dedicated outreach mailbox on a lookalike domain — never your primary <b>byndgrn.com</b>.
+                Sends go out from the mailbox chosen above. The <b>✓ recommended</b> mailbox is your dedicated outreach address; mailboxes marked <b>⚠ primary</b> are blocked from sending unless you explicitly override.
               </div>
 
               <div>
