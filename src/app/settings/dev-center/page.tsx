@@ -1,0 +1,199 @@
+'use client'
+export const dynamic = 'force-dynamic'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { useBoards, groupBoards, GROUP_ORDER, boardsChanged, Board, BoardColumn } from '@/lib/boards'
+import { accentColor } from '@/lib/statusColors'
+
+const COL_TYPES: { v: BoardColumn['type']; label: string }[] = [
+  { v: 'text', label: 'Text' }, { v: 'longtext', label: 'Long text' }, { v: 'number', label: 'Number' },
+  { v: 'date', label: 'Date' }, { v: 'status', label: 'Status' }, { v: 'link', label: 'Link' }, { v: 'person', label: 'Person' },
+]
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'field'
+
+export default function DevCenterPage() {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const { boards, reload } = useBoards()
+  const pwRef = useRef<HTMLInputElement>(null)
+
+  const [unlocked, setUnlocked] = useState(false)
+  const [pw, setPw] = useState('')
+  const [pwErr, setPwErr] = useState('')
+  const [checking, setChecking] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = sessionStorage.getItem('devcenter_pw')
+    if (saved) { setPw(saved); setUnlocked(true) }
+  }, [])
+
+  async function tryUnlock(e: React.FormEvent) {
+    e.preventDefault()
+    const candidate = (pwRef.current?.value ?? pw).trim()
+    if (!candidate) { setPwErr('Enter the password.'); return }
+    setChecking(true); setPwErr('')
+    const { data, error } = await sb.rpc('verify_vault_password', { pw: candidate })
+    setChecking(false)
+    if (!error && data === true) { setPw(candidate); setUnlocked(true); sessionStorage.setItem('devcenter_pw', candidate) }
+    else setPwErr('Incorrect password.')
+  }
+
+  // ── Board builder state ──
+  const [nLabel, setNLabel] = useState('')
+  const [nIcon, setNIcon] = useState('ti-layout-board')
+  const [nGroup, setNGroup] = useState('Business')
+  const [nColor, setNColor] = useState('#00A84F')
+  const [nGroups, setNGroups] = useState('Items')
+  const [nCols, setNCols] = useState<{ label: string; type: BoardColumn['type'] }[]>([{ label: 'Name', type: 'text' }, { label: 'Status', type: 'status' }, { label: 'Notes', type: 'longtext' }])
+  const [creating, setCreating] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function createBoard() {
+    if (!nLabel.trim()) { setMsg('Give the board a name.'); return }
+    setCreating(true); setMsg('')
+    const columns: BoardColumn[] = nCols.filter(c => c.label.trim()).map(c => ({ key: slug(c.label), label: c.label.trim(), type: c.type }))
+    const groups = nGroups.split(',').map(s => s.trim()).filter(Boolean)
+    const builder_config = { columns: columns.length ? columns : [{ key: 'name', label: 'Name', type: 'text' }], groups: groups.length ? groups : ['Items'], primary: (columns[0]?.key || 'name'), color: nColor }
+    const { error } = await sb.rpc('create_board', { p_pw: pw, p_label: nLabel.trim(), p_icon: nIcon.trim() || 'ti-layout-board', p_nav_group: nGroup.trim() || 'Business', p_builder_config: builder_config })
+    setCreating(false)
+    if (error) { setMsg('Could not create board: ' + error.message); return }
+    setMsg('Board created ✓'); setNLabel(''); boardsChanged(); reload()
+  }
+
+  // ── Manage boards ──
+  const allGroups = useMemo(() => groupBoards(boards, { includeHidden: true }), [boards])
+  const groupOptions = useMemo(() => Array.from(new Set([...GROUP_ORDER, ...boards.map(b => b.nav_group)])), [boards])
+
+  async function meta(b: Board, patch: Partial<Board>) {
+    const { error } = await sb.rpc('update_board_meta', {
+      p_pw: pw, p_key: b.board_key,
+      p_label: patch.label ?? b.label,
+      p_icon: patch.icon ?? b.icon ?? null,
+      p_nav_group: patch.nav_group ?? b.nav_group,
+      p_sort_order: patch.sort_order ?? b.sort_order,
+      p_is_hidden: patch.is_hidden ?? b.is_hidden ?? false,
+    })
+    if (!error) { boardsChanged(); reload() }
+  }
+  async function moveBoard(group: string, idx: number, dir: -1 | 1) {
+    const items = allGroups.find(g => g.group === group)?.items || []
+    const j = idx + dir; if (j < 0 || j >= items.length) return
+    const a = items[idx], b = items[j]
+    await meta(a, { sort_order: b.sort_order }); await meta(b, { sort_order: a.sort_order })
+  }
+  async function removeBoard(b: Board) {
+    if (!b.is_custom) return
+    if (!confirm(`Delete the board "${b.label}"? Its entries will be removed. This cannot be undone.`)) return
+    const { error } = await sb.rpc('delete_board', { p_pw: pw, p_key: b.board_key })
+    if (!error) { boardsChanged(); reload() }
+  }
+
+  const inp = 'bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#A25DDC]/30'
+
+  if (!unlocked) {
+    return (
+      <div className="min-h-screen mon-page flex items-center justify-center p-6">
+        <form onSubmit={tryUnlock} className="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-[#ECEEF3] overflow-hidden">
+          <div className="mon-modal-head h-purple"><div><h2 className="text-lg">🛠️ Dev Center</h2><p className="text-white/80 text-xs mt-0.5">Build the ERP · password protected</p></div></div>
+          <div className="p-6 space-y-3">
+            <p className="text-xs text-gray-500">Enter the password to add boards and change the ERP structure.</p>
+            <input ref={pwRef} type="password" autoFocus value={pw} onChange={e => setPw(e.target.value)} onInput={e => setPw((e.target as HTMLInputElement).value)} placeholder="Password" className={inp + ' w-full'} />
+            {pwErr && <p className="text-xs text-red-600">{pwErr}</p>}
+            <button type="submit" disabled={checking} className="mon-btn w-full justify-center !py-2.5" style={{ background: '#A25DDC', borderColor: '#6C2FA0' }}>{checking ? 'Checking…' : 'Unlock Dev Center'}</button>
+            <Link href="/settings" className="block text-center text-xs text-gray-400 hover:text-gray-600">← Back to Settings</Link>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen mon-page">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <span className="mon-tag t-purple">🛠️ Dev Center</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Dev Center</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Add boards and manage the ERP structure — like building in Monday.com.</p>
+        </div>
+        <button onClick={() => { sessionStorage.removeItem('devcenter_pw'); setUnlocked(false); setPw('') }} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E]">Lock</button>
+      </div>
+
+      {/* Create a board */}
+      <div className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm p-5 mb-6">
+        <h2 className="font-bold text-[#1A1D2E] mb-3 flex items-center gap-2"><i className="ti ti-plus text-[#A25DDC]" />Create a new board</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div><label className="block text-xs text-gray-500 mb-1">Board name</label><input value={nLabel} onChange={e => setNLabel(e.target.value)} placeholder="e.g. Marketing Campaigns" className={inp + ' w-full'} /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">Nav group</label>
+            <input list="dc-groups" value={nGroup} onChange={e => setNGroup(e.target.value)} className={inp + ' w-full'} />
+            <datalist id="dc-groups">{groupOptions.map(g => <option key={g} value={g} />)}</datalist>
+          </div>
+          <div><label className="block text-xs text-gray-500 mb-1">Icon (Tabler name)</label><input value={nIcon} onChange={e => setNIcon(e.target.value)} placeholder="ti-layout-board" className={inp + ' w-full'} /></div>
+          <div><label className="block text-xs text-gray-500 mb-1">Accent color</label>
+            <div className="flex items-center gap-2"><input type="color" value={nColor} onChange={e => setNColor(e.target.value)} className="w-10 h-9 rounded border border-[#E4E6EE] bg-white" /><input value={nColor} onChange={e => setNColor(e.target.value)} className={inp + ' flex-1'} /></div>
+          </div>
+          <div className="md:col-span-2"><label className="block text-xs text-gray-500 mb-1">Groups (comma-separated)</label><input value={nGroups} onChange={e => setNGroups(e.target.value)} placeholder="To Do, In Progress, Done" className={inp + ' w-full'} /></div>
+        </div>
+
+        <div className="mt-4">
+          <label className="block text-xs text-gray-500 mb-1.5">Columns</label>
+          <div className="space-y-2">
+            {nCols.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input value={c.label} onChange={e => setNCols(cs => cs.map((x, xi) => xi === i ? { ...x, label: e.target.value } : x))} placeholder="Column name" className={inp + ' flex-1'} />
+                <select value={c.type} onChange={e => setNCols(cs => cs.map((x, xi) => xi === i ? { ...x, type: e.target.value as BoardColumn['type'] } : x))} className={inp}>
+                  {COL_TYPES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+                </select>
+                <button onClick={() => setNCols(cs => cs.filter((_, xi) => xi !== i))} className="w-9 h-9 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-red-600 shrink-0"><i className="ti ti-trash text-sm" /></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setNCols(cs => [...cs, { label: '', type: 'text' }])} className="mt-2 text-xs text-[#A25DDC] font-semibold">+ Add column</button>
+        </div>
+
+        <div className="flex items-center gap-3 mt-4">
+          <button onClick={createBoard} disabled={creating} className="mon-btn !py-2" style={{ background: '#A25DDC', borderColor: '#6C2FA0' }}>{creating ? 'Creating…' : 'Create Board'}</button>
+          {msg && <span className="text-xs text-gray-500">{msg}</span>}
+        </div>
+        <p className="text-[11px] text-gray-400 mt-2">The board’s connection key never changes when you rename it — links and data stay intact.</p>
+      </div>
+
+      {/* Manage existing boards */}
+      <div className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm p-5">
+        <h2 className="font-bold text-[#1A1D2E] mb-3 flex items-center gap-2"><i className="ti ti-adjustments text-[#A25DDC]" />Manage boards</h2>
+        <div className="space-y-4">
+          {allGroups.map(section => {
+            const c = accentColor(section.group)
+            return (
+              <div key={section.group}>
+                <p className="text-xs font-bold mb-1.5" style={{ color: c.solid }}>{section.group}</p>
+                <div className="rounded-lg border border-[#ECEEF3] divide-y divide-[#F4F5F8]">
+                  {section.items.map((b, idx) => (
+                    <div key={b.board_key} className="flex items-center gap-2 px-3 py-2">
+                      <i className={`ti ${b.icon || 'ti-layout-board'} text-base text-gray-400 w-5 text-center shrink-0`} />
+                      <input defaultValue={b.label} onBlur={e => { const v = e.target.value.trim(); if (v && v !== b.label) meta(b, { label: v }) }} className={inp + ' flex-1 min-w-0'} />
+                      <select value={b.nav_group} onChange={e => meta(b, { nav_group: e.target.value })} className={inp + ' hidden sm:block'}>
+                        {groupOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => moveBoard(section.group, idx, -1)} className="w-8 h-8 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E]" title="Move up"><i className="ti ti-arrow-up text-sm" /></button>
+                        <button onClick={() => moveBoard(section.group, idx, 1)} className="w-8 h-8 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E]" title="Move down"><i className="ti ti-arrow-down text-sm" /></button>
+                        <button onClick={() => meta(b, { is_hidden: !b.is_hidden })} className="w-8 h-8 rounded-lg border border-[#E4E6EE] shrink-0" style={{ color: b.is_hidden ? '#9CA3AF' : '#00A84F' }} title={b.is_hidden ? 'Hidden — click to show' : 'Visible — click to hide'}>
+                          <i className={`ti ${b.is_hidden ? 'ti-eye-off' : 'ti-eye'} text-sm`} />
+                        </button>
+                        {b.is_custom
+                          ? <button onClick={() => removeBoard(b)} className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50" title="Delete board"><i className="ti ti-trash text-sm" /></button>
+                          : <span className="w-8 h-8 flex items-center justify-center text-[9px] text-gray-300" title="Built-in board">CORE</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
