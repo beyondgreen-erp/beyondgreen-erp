@@ -193,7 +193,8 @@ export default function CustomersPage() {
   // ── Load ──────────────────────────────────────────────────
   const fetchCustomers = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('customers').select('*').order('company_name')
+    // Customers board only — leads (board='Leads') live on the Leads page.
+    let q = supabase.from('customers').select('*').neq('board', 'Leads').order('company_name')
     if (!showMerged) q = q.eq('is_merged', false)
     const [{ data: c }, { data: pc }] = await Promise.all([
       q,
@@ -350,7 +351,7 @@ export default function CustomersPage() {
       const { error } = await supabase.from('customers').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editing.id)
       if (error) { setFormError(error.message); setSaving(false); return }
     } else {
-      const { error } = await supabase.from('customers').insert({ ...payload, is_active: true, is_merged: false })
+      const { error } = await supabase.from('customers').insert({ ...payload, is_active: true, is_merged: false, board: 'customer' })
       if (error) { setFormError(error.message); setSaving(false); return }
     }
     setSaving(false); closePanel(); fetchCustomers()
@@ -450,6 +451,22 @@ export default function CustomersPage() {
     const { error } = await supabase.from('customers').update({ customer_status: 'Lead', board: 'Leads', updated_at: new Date().toISOString() }).in('id', selectedArr)
     if (error) { alert('Could not move to Leads: ' + error.message); return }
     setSelectedIds(new Set()); fetchCustomers()
+  }
+
+  // Quick Move: sweep every customer with no orders yet over to the Leads board.
+  const [quickMoving, setQuickMoving] = useState(false)
+  async function quickMoveLeads() {
+    setQuickMoving(true)
+    const { data: count, error: cErr } = await supabase.rpc('quick_move_leads', { p_commit: false })
+    if (cErr) { setQuickMoving(false); alert('Could not check leads: ' + cErr.message); return }
+    const n = (count as number) || 0
+    if (!n) { setQuickMoving(false); alert('No leads to move — every customer here has placed an order.'); return }
+    if (!confirm(`Move ${n} contact${n === 1 ? '' : 's'} with no orders yet to the Leads board?\n\nThey'll appear on the Leads page and drop off Customers. Anyone who places an order later returns here automatically.`)) { setQuickMoving(false); return }
+    const { data: moved, error } = await supabase.rpc('quick_move_leads', { p_commit: true })
+    setQuickMoving(false)
+    if (error) { alert('Quick Move failed: ' + error.message); return }
+    setSelectedIds(new Set()); fetchCustomers()
+    alert(`Moved ${(moved as number) || 0} to the Leads board.`)
   }
 
   async function forceDeleteCustomers() {
@@ -703,6 +720,10 @@ export default function CustomersPage() {
           <button onClick={findDuplicates} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
             Find Duplicates
+          </button>
+          <button onClick={quickMoveLeads} disabled={quickMoving} title="Move everyone with no orders yet to the Leads board" className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-50">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7"/></svg>
+            {quickMoving ? 'Moving…' : 'Quick Move to Leads'}
           </button>
           <div className="flex items-center bg-[#F9FAFB] rounded-lg p-1 border border-[#E4E6EE]">
             <button onClick={()=>setViewMode('table')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='table'?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}>
