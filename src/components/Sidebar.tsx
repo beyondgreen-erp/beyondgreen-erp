@@ -74,20 +74,24 @@ export default function Sidebar() {
     <>
       <aside className="fixed top-0 left-0 h-full z-40 flex flex-col transition-all duration-300 overflow-hidden hidden md:flex"
         style={{ width: W, background: '#1A2035', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
-        <div className="flex items-center gap-3 px-4 shrink-0" style={{ height: 64, borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#3B6FE0' }}>
-            <span className="text-white font-bold text-base">bG</span>
-          </div>
+        <div className="flex items-center gap-2 px-3 shrink-0" style={{ height: 64, borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
           {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="text-white font-bold text-base leading-tight truncate">beyondGREEN</p>
-              <p className="text-xs truncate" style={{ color: '#6B7E9F' }}>ERP Platform</p>
-            </div>
+            <>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#3B6FE0' }}>
+                <span className="text-white font-bold text-base">bG</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-white font-bold text-base leading-tight truncate">beyondGREEN</p>
+                <p className="text-xs truncate" style={{ color: '#6B7E9F' }}>ERP Platform</p>
+              </div>
+            </>
           )}
-          <button onClick={() => setCollapse(!collapsed)} className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style={{ color: 'rgba(255,255,255,0.3)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.8)'; (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.3)'; (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
-            <i className={`ti ${collapsed ? 'ti-chevron-right' : 'ti-chevron-left'} text-sm`} />
+          <button onClick={() => setCollapse(!collapsed)}
+            className={(collapsed ? 'mx-auto ' : 'ml-auto ') + 'shrink-0 w-9 h-9 rounded-lg flex items-center justify-center transition-colors'}
+            style={{ color: 'rgba(255,255,255,0.55)' }} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.9)'; (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.55)'; (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+            <i className={`ti ${collapsed ? 'ti-menu-2' : 'ti-chevron-left'} text-base`} />
           </button>
         </div>
 

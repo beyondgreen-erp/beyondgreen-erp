@@ -127,7 +127,7 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
         <h1 className="font-bold text-base sm:text-lg truncate shrink-0 max-w-[36vw] md:max-w-none" style={{ color: '#1A1D2E' }}>{activeTitle}</h1>
 
         {/* group dropdowns */}
-        <nav className="hidden lg:flex items-center gap-0.5 ml-2 overflow-x-auto no-scrollbar">
+        <nav className="hidden lg:flex items-center gap-0.5 ml-2">
           {groups.map(g => (
             <div key={g.group} className="relative">
               <button
