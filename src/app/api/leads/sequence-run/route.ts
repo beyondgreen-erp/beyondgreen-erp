@@ -42,6 +42,13 @@ export async function GET(req: NextRequest) {
     if (!onlySeq && !sendDays.includes(today)) { results.push({ sequence: seq.name, skipped: `not a send day (${today})` }); continue }
     if (!seq.from_email) { results.push({ sequence: seq.name, skipped: 'no from_email set' }); continue }
 
+    // Hard guard: never let a sequence send from a mailbox flagged as protected
+    // (e.g. the primary business inbox). This backstops the UI even if a sequence
+    // was created another way. Flip is_protected in Settings → Email to override.
+    const { data: mb } = await sb.from('user_email_connections')
+      .select('is_protected').eq('provider', 'microsoft').ilike('email', seq.from_email).limit(1).maybeSingle()
+    if (mb?.is_protected) { results.push({ sequence: seq.name, skipped: `mailbox ${seq.from_email} is protected — cold outreach blocked` }); continue }
+
     const token = await getOutlookAccessToken(seq.from_email)
     if (!token) { results.push({ sequence: seq.name, skipped: `mailbox ${seq.from_email} not connected` }); continue }
 
