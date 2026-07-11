@@ -12,6 +12,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ connected: false, configured: outlookConfigured() })
   const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
   const { data } = await admin.from('user_email_connections')
-    .select('email, connected_at').eq('user_id', user.id).eq('provider', 'microsoft').maybeSingle()
-  return NextResponse.json({ connected: !!data, configured: outlookConfigured(), email: data?.email || null, connected_at: data?.connected_at || null })
+    .select('email, connected_at').eq('user_id', user.id).eq('provider', 'microsoft').order('connected_at', { ascending: false })
+  const mailboxes = data || []
+  return NextResponse.json({ connected: mailboxes.length > 0, configured: outlookConfigured(), mailboxes })
 }
