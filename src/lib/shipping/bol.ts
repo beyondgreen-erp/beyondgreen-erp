@@ -173,6 +173,7 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   for (; drawn < minRows; drawn++) drawRow(['', '', '', '', '', '', '', '', ''])
 
   // Totals row
+  const rowH = 13
   doc.setFillColor(245, 245, 245); doc.rect(M, y, tableW, rowH, 'F')
   rect(doc, M, y, tableW, rowH)
   cols.forEach((c, i) => { if (i > 0) line(doc, xOf[i], y, xOf[i], y + rowH) })
