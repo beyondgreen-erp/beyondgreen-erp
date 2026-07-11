@@ -9,6 +9,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request })
   }
 
+  // Public pick-ticket scan flow (QR codes on printed pick tickets). Warehouse
+  // staff scan these on their phones without logging in; access is gated by an
+  // unguessable per-pallet token, not by session.
+  if (pathname.startsWith('/pick/') || pathname.startsWith('/api/pick/')) {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

@@ -41,6 +41,7 @@ interface SalesOrder {
   purchase_order_url: string | null
   packing_slip_url: string | null
   bol: string | null
+  load_id: string | null
   total_amount: number | null
   total: number | null
   subtotal: number | null
@@ -260,13 +261,56 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
   )
 }
 
+// ── Board inline SKU dropdown (order qty vs completed qty) ───────────────────
+function BoardOrderLines({ orderId }: { orderId: string }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [lines, setLines] = useState<OrderLine[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', orderId).order('line_number', { ascending: true })
+      if (alive) { setLines((data ?? []) as OrderLine[]); setLoading(false) }
+    })()
+    return () => { alive = false }
+  }, [sb, orderId])
+
+  if (loading) return <div className="px-3 py-2.5 text-xs text-gray-500">Loading items…</div>
+  if (lines.length === 0) return <div className="px-3 py-2.5 text-xs text-gray-500">No line items.</div>
+
+  return (
+    <div className="px-3 py-2">
+      <div className="grid grid-cols-[minmax(120px,1.4fr)_minmax(140px,2fr)_60px_60px_70px] gap-2 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 border-b border-[#E4E6EE]">
+        <span>SKU</span><span>Description</span><span className="text-right">Order</span><span className="text-right">Done</span><span className="text-right">Progress</span>
+      </div>
+      {lines.map(line => {
+        const qty = line.quantity ?? 0
+        const done = line.completed_qty ?? line.quantity_shipped ?? 0
+        const pct = qty > 0 ? Math.min(100, Math.round((done / qty) * 100)) : 0
+        return (
+          <div key={line.id} className="grid grid-cols-[minmax(120px,1.4fr)_minmax(140px,2fr)_60px_60px_70px] gap-2 px-2 py-1.5 text-xs items-center border-b border-[#F4F5F8] last:border-0">
+            <span className="font-mono font-bold text-emerald-500 truncate">
+              {line.sku_flagged ? <span className="text-amber-500" title="Needs SKU">⚠ </span> : null}{line.sku || '—'}
+            </span>
+            <span className="text-gray-600 truncate">{line.description ?? line.added_details ?? '—'}</span>
+            <span className="text-right text-gray-700 font-semibold">{qty}</span>
+            <span className={`text-right font-semibold ${pct === 100 ? 'text-emerald-500' : pct > 0 ? 'text-blue-500' : 'text-gray-400'}`}>{done}</span>
+            <span className={`text-right font-medium ${pct === 100 ? 'text-emerald-500' : 'text-gray-500'}`}>{pct}%</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Edit form ──────────────────────────────────────────────────────────────
 const emptyForm = {
   notes: '', order_section: '', order_number: '', status: 'Pending', facility: '',
   monday_item_id: '', order_date: '', production_start: '', estimated_completion: '',
   ship_date: '', customer_id: '', customer_email: '', customer_phone: '',
   shipping_address: '', total_amount: '', purchase_order_url: '', packing_slip_url: '',
-  bol: '', additional_comments: '',
+  bol: '', load_id: '', additional_comments: '',
 }
 type F = typeof emptyForm
 
@@ -499,9 +543,13 @@ function EditPanel({
                   <input value={form.packing_slip_url} onChange={e => setForm(p => ({ ...p, packing_slip_url: e.target.value }))} className={inp}/>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">BOL</label>
+                  <label className="block text-xs text-gray-400 mb-1.5">BOL #</label>
                   <input value={form.bol} onChange={e => setForm(p => ({ ...p, bol: e.target.value }))} className={inp}/>
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Load ID</label>
+                <input value={form.load_id} onChange={e => setForm(p => ({ ...p, load_id: e.target.value }))} className={inp} placeholder="Load / trailer reference"/>
               </div>
             </div>
           </div>
@@ -598,7 +646,7 @@ function EditPanel({
 export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
-  const [view, setView] = useState<'board'|'table'>('board')
+  const [view] = useState<'board'|'table'>('board') // Table view removed; Board is the only view
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
@@ -626,7 +674,7 @@ export default function OrdersPage() {
       if (result?.message) setFlowToast({ message: result.message, undoData: result.undoData })
     } catch { /* keep optimistic state */ }
   }
-  async function inlineField(id: string, field: 'required_ship_date', value: string) {
+  async function inlineField(id: string, field: 'required_ship_date' | 'load_id' | 'bol', value: string) {
     setOrders(prevOrders => prevOrders.map(x => x.id === id ? { ...x, [field]: value } : x))
     try { await sb.from('sales_orders').update({ [field]: value || null }).eq('id', id) } catch { /* */ }
   }
@@ -722,7 +770,9 @@ export default function OrdersPage() {
       (o.notes ?? '').toLowerCase().includes(q) ||
       (o.order_number ?? '').toLowerCase().includes(q) ||
       (o.po_number ?? '').toLowerCase().includes(q) ||
-      (o.customer_email ?? '').toLowerCase().includes(q)
+      (o.customer_email ?? '').toLowerCase().includes(q) ||
+      (o.load_id ?? '').toLowerCase().includes(q) ||
+      (o.bol ?? '').toLowerCase().includes(q)
   }, [search, statusFilter])
 
   const filtered = useMemo(() => tabPool.filter(o => !isCompleted(o) && orderMatches(o)), [tabPool, isCompleted, orderMatches])
@@ -847,6 +897,7 @@ export default function OrdersPage() {
       purchase_order_url: order.purchase_order_url ?? '',
       packing_slip_url: order.packing_slip_url ?? '',
       bol: order.bol ?? '',
+      load_id: order.load_id ?? '',
       additional_comments: order.additional_comments ?? '',
     })
     setErr(''); setEditOpen(true)
@@ -882,6 +933,7 @@ export default function OrdersPage() {
       purchase_order_url: form.purchase_order_url || null,
       packing_slip_url: form.packing_slip_url || null,
       bol: form.bol || null,
+      load_id: form.load_id || null,
       total_amount: form.total_amount ? parseFloat(form.total_amount) : 0,
       monday_item_id: form.monday_item_id || null,
     }
@@ -1027,7 +1079,7 @@ export default function OrdersPage() {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input placeholder="Search customer, PO#, order #…" value={search} onChange={e => setSearch(e.target.value)}
+          <input placeholder="Search customer, PO#, order #, Load ID, BOL #…" value={search} onChange={e => setSearch(e.target.value)}
             className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
         </div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
@@ -1041,12 +1093,8 @@ export default function OrdersPage() {
         <span className="text-xs text-gray-400 ml-auto">{(view === 'board' ? orders.filter(orderMatches).length : filtered.length)} shown</span>
       </div>
 
-      {/* View toggle + board grouping */}
+      {/* Board grouping (Table view removed — Board is the single view) */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
-          <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
-          <button onClick={() => setView('table')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'table' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Table</button>
-        </div>
         {view === 'board' && (
           <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
             <span className="text-[11px] text-gray-400 pl-2 pr-1">Group by</span>
@@ -1108,13 +1156,21 @@ export default function OrdersPage() {
                     {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400 italic">Drop orders here</div>}
                     {items.map((o, idx) => {
                       const sc = statusColor(o.status)
+                      const expanded = expandedIds.has(o.id)
                       return (
-                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
+                      <div key={o.id}>
+                      <div draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
+                        <button onClick={(e) => { e.stopPropagation(); toggleExpand(o.id) }} className="shrink-0 text-gray-400 hover:text-gray-700 p-0.5" title="Show SKUs">
+                          <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+                        </button>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{o.order_number || o.customer?.company_name || 'Order'}</p>
                           <p className="text-xs text-gray-500 truncate">{o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
                         </div>
+                        <input value={o.load_id || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'load_id', e.target.value)} onDragStart={e => e.stopPropagation()}
+                          placeholder="Load / BOL #"
+                          className="text-xs font-mono text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] focus:bg-white rounded px-1.5 py-0.5 w-[130px] hidden md:block focus:outline-none focus:border-[#00A84F] placeholder-gray-300" title="Load ID / BOL #"/>
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
                           className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0">
@@ -1123,6 +1179,12 @@ export default function OrdersPage() {
                         <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
                           className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-[#00A84F]" title="Required ship date"/>
                         <span className="text-xs font-semibold text-gray-700 w-20 text-right shrink-0">{fmt$(orderValue(o)) ?? ''}</span>
+                      </div>
+                      {expanded && (
+                        <div className="bg-[#F9FAFB] border-t border-[#EEF0F4]" onClick={e => e.stopPropagation()}>
+                          <BoardOrderLines orderId={o.id} />
+                        </div>
+                      )}
                       </div>
                     )})}
                   </div>

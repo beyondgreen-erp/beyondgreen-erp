@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import JsBarcode from 'jsbarcode'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import {
-  generateCaseLabels, generatePalletLabels, generateBOL,
-  type ShipAddress, type PalletInfo, type BOLLine,
+  generateCaseLabels, generatePalletLabels, generateBOL, generatePickTickets,
+  type ShipAddress, type PalletInfo, type BOLLine, type PickTicketPallet,
 } from '@/lib/labelGenerator'
 
 // ─── Types ─────────────────────────────────────────────────────
@@ -103,6 +103,7 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
   const [numPallets, setNumPallets] = useState(1)
   const [pallets, setPallets] = useState<PalletEntry[]>([{ id: 1, casesByLine: {} }])
   const [palletLabelsGenerated, setPalletLabelsGenerated] = useState(false)
+  const [savingPickTickets, setSavingPickTickets] = useState(false)
 
   // Step 4 – BOL
   const [bolCarrier, setBolCarrier] = useState('')
@@ -286,6 +287,76 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
       pallets: palletInfos,
     })
     setPalletLabelsGenerated(true)
+  }
+
+  // Persist the pallet layout (so it can be reprinted by Load ID and scanned to
+  // completion later), assign a unique scan token per pallet, then print tickets.
+  async function savePalletsAndPickTickets() {
+    const active = pallets.filter(p => palletTotalCases(p) > 0)
+    if (active.length === 0) { alert('Assign cases to at least one pallet first.'); return }
+    setSavingPickTickets(true)
+    try {
+      const totalPallets = active.length
+      // Re-save cleanly: clear any previously saved pallets/cases for this order.
+      await sb.from('shipment_cases').delete().eq('sales_order_id', orderId)
+      await sb.from('shipment_pallets').delete().eq('sales_order_id', orderId)
+
+      const ticketPallets: PickTicketPallet[] = []
+      for (const p of active) {
+        const token = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        const pLines = Object.entries(p.casesByLine)
+          .filter(([, c]) => c > 0)
+          .map(([lineId, cases]) => {
+            const line = lines.find(l => l.lineId === lineId)!
+            return { sku: line.sku, productName: line.productName, cases, unitsPerCase: line.caseQty, units: cases * line.caseQty }
+          })
+        const caseCount = pLines.reduce((s, l) => s + l.cases, 0)
+        const totalUnits = pLines.reduce((s, l) => s + l.units, 0)
+        const palletId = `PLT-${(order?.order_number ?? 'ORD').replace(/\s/g, '')}-${String(p.id).padStart(2, '0')}`
+
+        const { data: pRow, error: pErr } = await sb.from('shipment_pallets').insert({
+          sales_order_id: orderId,
+          pallet_number: p.id,
+          total_pallets: totalPallets,
+          sscc: palletId,
+          case_count: caseCount,
+          weight: Math.round(palletWeightLbs(p, lines)),
+          pick_token: token,
+        }).select('id').single()
+        if (pErr) throw pErr
+        const palletDbId = (pRow as { id: string } | null)?.id
+        if (palletDbId) {
+          let caseNo = 1
+          for (const l of pLines) {
+            await sb.from('shipment_cases').insert({
+              sales_order_id: orderId,
+              pallet_id: palletDbId,
+              sku: l.sku,
+              description: l.productName,
+              case_number: caseNo,
+              total_cases: l.cases,
+              units_in_case: l.unitsPerCase,
+            })
+            caseNo += l.cases
+          }
+        }
+        ticketPallets.push({ palletNumber: p.id, totalPallets, palletId, token, lines: pLines, totalCases: caseCount, totalUnits })
+      }
+
+      generatePickTickets({
+        shipTo,
+        orderNumber: order?.order_number ?? undefined,
+        poNumber: order?.po_number ?? undefined,
+        scanBaseUrl: window.location.origin,
+        pallets: ticketPallets,
+      })
+    } catch (e) {
+      alert('Failed to save pallets: ' + ((e as Error).message || 'unknown error'))
+    } finally {
+      setSavingPickTickets(false)
+    }
   }
 
   function doBOL() {
@@ -845,6 +916,19 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
                     </svg>
                     Print {pallets.length} Pallet Label{pallets.length !== 1 ? 's' : ''}
+                  </button>
+                  <button
+                    onClick={savePalletsAndPickTickets}
+                    disabled={savingPickTickets}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+                    title="Save the pallet layout and print a scannable pick ticket for each pallet"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M9 16H5v4h4v-4zM3 8h4V4H3v4zm0 8h4v-4H3v4zm14-8h4V4h-4v4z"/>
+                    </svg>
+                    {savingPickTickets
+                      ? 'Saving…'
+                      : `Save & Print ${pallets.filter(p => palletTotalCases(p) > 0).length} Pick Ticket${pallets.filter(p => palletTotalCases(p) > 0).length !== 1 ? 's' : ''}`}
                   </button>
                   {palletLabelsGenerated && (
                     <button

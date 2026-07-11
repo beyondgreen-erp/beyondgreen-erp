@@ -323,3 +323,108 @@ ${data.freightValue ? `<div class="fbox"><b>Declared Freight Value:</b> $${data.
 
   openWindow(html, 950, 800)
 }
+
+// ── Pick Tickets ────────────────────────────────────────────────────────────────
+// One 4x6 ticket per pallet, each with a scannable QR that opens the mobile
+// confirm page (/pick/<token>). Scanning + confirming marks the pallet built and
+// rolls its unit quantities into the order line items' completed_qty.
+
+const QR_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
+
+export interface PickTicketLine {
+  sku: string
+  productName: string
+  cases: number
+  unitsPerCase: number
+  units: number
+}
+
+export interface PickTicketPallet {
+  palletNumber: number
+  totalPallets: number
+  palletId: string
+  token: string
+  lines: PickTicketLine[]
+  totalCases: number
+  totalUnits: number
+}
+
+export interface PickTicketData {
+  shipTo: ShipAddress
+  orderNumber?: string
+  poNumber?: string
+  loadId?: string
+  scanBaseUrl: string
+  pallets: PickTicketPallet[]
+}
+
+export function generatePickTickets(data: PickTicketData): void {
+  const pages = data.pallets.map(p => {
+    const url = `${data.scanBaseUrl.replace(/\/$/, '')}/pick/${p.token}`
+    const rows = p.lines.map(l => `
+      <tr><td class="sku">${esc(l.sku)}</td><td class="c">${l.cases}</td><td class="c">${l.unitsPerCase}</td><td class="c b">${l.units}</td></tr>`).join('')
+    return `
+<div class="page">
+  <div class="head">
+    <div class="hname">beyondGREEN Biotech, Inc.</div>
+    <div class="tt">PICK TICKET</div>
+  </div>
+  <div class="meta">
+    <div><span>Order</span><b>${esc(data.orderNumber ?? '')}</b></div>
+    ${data.poNumber ? `<div><span>PO</span><b>${esc(data.poNumber)}</b></div>` : ''}
+    ${data.loadId ? `<div><span>Load</span><b>${esc(data.loadId)}</b></div>` : ''}
+  </div>
+  <div class="pallet">PALLET ${p.palletNumber} OF ${p.totalPallets} &nbsp;&middot;&nbsp; ${esc(p.palletId)}</div>
+  <div class="ship">Ship To: <b>${esc(data.shipTo.name)}</b></div>
+  <table class="items">
+    <thead><tr><th>SKU</th><th class="c">Cases</th><th class="c">U/Case</th><th class="c">Units</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td class="b">TOTAL</td><td class="c b">${p.totalCases}</td><td></td><td class="c b">${p.totalUnits}</td></tr></tfoot>
+  </table>
+  <div class="qrwrap"><div class="qr" data-qr="${esc(url)}"></div></div>
+  <div class="scan">Scan to confirm pallet complete</div>
+  <div class="tok">${esc(p.token)}</div>
+</div>`
+  }).join('\n')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Pick Tickets — ${esc(data.orderNumber)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#fff}
+@page{size:4in 6in;margin:0}
+.page{width:4in;height:6in;padding:.2in .22in;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}
+.head{text-align:center;border-bottom:2px solid #111;padding-bottom:4px}
+.hname{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+.tt{font-size:20px;font-weight:800;letter-spacing:1px;margin-top:2px}
+.meta{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 2px}
+.meta span{color:#777;text-transform:uppercase;font-size:8px;display:block;letter-spacing:.5px}
+.meta b{font-size:12px}
+.pallet{background:#111;color:#fff;text-align:center;font-weight:700;font-size:12px;padding:4px;border-radius:4px;margin:4px 0}
+.ship{font-size:10px;margin:2px 0 4px}
+table.items{width:100%;border-collapse:collapse;font-size:10px}
+table.items th{background:#f0f0f0;text-align:left;padding:3px 4px;border-bottom:1px solid #999;font-size:8px;text-transform:uppercase;letter-spacing:.5px}
+table.items td{padding:3px 4px;border-bottom:1px solid #eee}
+.items .c{text-align:right}
+.items .b{font-weight:700}
+.items .sku{font-family:'Courier New',monospace;font-weight:700}
+table.items tfoot td{border-top:2px solid #111;font-size:11px}
+.qrwrap{flex:1;display:flex;align-items:center;justify-content:center;margin-top:4px}
+.qr{width:1.5in;height:1.5in}
+.qr img,.qr canvas{width:100%!important;height:100%!important}
+.scan{text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.tok{text-align:center;font-size:7px;color:#999;font-family:'Courier New',monospace;word-break:break-all;margin-top:1px}
+</style></head><body>
+${pages}
+<script src="${QR_CDN}"></script>
+<script>
+window.onload=function(){
+  document.querySelectorAll('[data-qr]').forEach(function(el){
+    var v=el.getAttribute('data-qr');if(!v)return;
+    try{new QRCode(el,{text:v,width:144,height:144,correctLevel:QRCode.CorrectLevel.M});}catch(err){}
+  });
+  setTimeout(function(){window.print();},500);
+};
+</script></body></html>`
+
+  openWindow(html)
+}
