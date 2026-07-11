@@ -46,13 +46,23 @@ export default function LeadProspectorPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: l }, { data: ll }, { data: lm }, { data: ss }] = await Promise.all([
-      sb.from('customers').select('id,company_name,contact_name,title,seniority,email,phone,website,linkedin_url,city,state,industry,company_size,customer_status,pipeline_stage,is_scraped_lead,scraped_at,scrape_region,contacted_at,enriched_at,enrichment_source,lead_source,notes,do_not_contact').eq('board', 'Leads').order('company_name').limit(8000),
+    // Supabase caps a single response at 1000 rows, so page through in chunks to load ALL leads.
+    const cols = 'id,company_name,contact_name,title,seniority,email,phone,website,linkedin_url,city,state,industry,company_size,customer_status,pipeline_stage,is_scraped_lead,scraped_at,scrape_region,contacted_at,enriched_at,enrichment_source,lead_source,notes,do_not_contact'
+    const all: Lead[] = []
+    const SIZE = 1000
+    for (let from = 0; from < 100000; from += SIZE) {
+      const { data, error } = await sb.from('customers').select(cols).eq('board', 'Leads').order('company_name').range(from, from + SIZE - 1)
+      if (error || !data || !data.length) break
+      all.push(...(data as Lead[]))
+      if (data.length < SIZE) break
+    }
+    const [{ data: ll }, { data: lm }, { data: ss }] = await Promise.all([
       sb.from('lead_lists').select('id,name,color').order('created_at', { ascending: false }),
       sb.from('lead_list_members').select('list_id,customer_id'),
       sb.from('lead_saved_searches').select('id,name,filters').order('created_at', { ascending: false }),
     ])
-    setLeads((l as Lead[]) || [])
+    const l = all
+    setLeads(all)
     setLists((ll as LeadList[]) || [])
     const m: Record<string, string[]> = {}
     ;(lm as any[] || []).forEach(r => { (m[r.customer_id] ||= []).push(r.list_id) })
@@ -62,9 +72,13 @@ export default function LeadProspectorPage() {
     setSequences((sq as any[]) || [])
     const ids = ((l as Lead[]) || []).map(x => x.id)
     if (ids.length) {
-      const { data: cs } = await sb.from('customer_campaign_stats').select('customer_id,emails_sent,responded,active_campaign').in('customer_id', ids)
+      // Batch the id lookup so a huge list doesn't blow the request-URL limit.
       const sm: Record<string, Stat> = {}
-      ;(cs as Stat[] || []).forEach(s => { sm[s.customer_id] = s })
+      for (let i = 0; i < ids.length; i += 400) {
+        const chunk = ids.slice(i, i + 400)
+        const { data: cs } = await sb.from('customer_campaign_stats').select('customer_id,emails_sent,responded,active_campaign').in('customer_id', chunk)
+        ;(cs as Stat[] || []).forEach(s => { sm[s.customer_id] = s })
+      }
       setStats(sm)
     }
     setLoading(false)
