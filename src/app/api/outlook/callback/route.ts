@@ -32,6 +32,19 @@ export async function GET(req: NextRequest) {
   const me = await getMe(tokens.access_token)
   const mailbox = String(me.mail || me.userPrincipalName || user.email || '').toLowerCase()
 
+  // If the connect flow pinned a specific mailbox, make sure Microsoft actually returned
+  // that identity. If a different signed-in session was used, reject instead of silently
+  // saving the wrong mailbox.
+  const wanted = (req.cookies.get('ms_oauth_hint')?.value || '').trim().toLowerCase()
+  if (wanted && mailbox !== wanted) {
+    const bad = NextResponse.redirect(
+      `${origin}/settings/email?outlook=wrong_account&got=${encodeURIComponent(mailbox)}&wanted=${encodeURIComponent(wanted)}`
+    )
+    bad.cookies.set('ms_oauth_state', '', { maxAge: 0, path: '/' })
+    bad.cookies.set('ms_oauth_hint', '', { maxAge: 0, path: '/' })
+    return bad
+  }
+
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -55,5 +68,6 @@ export async function GET(req: NextRequest) {
 
   const res = NextResponse.redirect(`${origin}/settings/email?outlook=connected`)
   res.cookies.set('ms_oauth_state', '', { maxAge: 0, path: '/' })
+  res.cookies.set('ms_oauth_hint', '', { maxAge: 0, path: '/' })
   return res
 }
