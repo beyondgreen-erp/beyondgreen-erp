@@ -141,7 +141,7 @@ export default function LeadsPage() {
   const fBtn = (f: typeof filter, label: string) => <button onClick={() => setFilter(f)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${filter === f ? 'bg-gray-800 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>{label}</button>
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 pb-16 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-1">
         <div>
           <span className="mon-tag t-purple">🎯 Leads</span>
@@ -149,7 +149,7 @@ export default function LeadsPage() {
         </div>
         <Link href="/sales/campaign" className="mon-btn">Open Email Campaigns →</Link>
       </div>
-      <p className="text-xs text-gray-400 mb-4">{leads.length} leads · {withEmail} with email · <b className="text-amber-600">{totalNew} not yet contacted</b>. Grouped by the scrape they came from.</p>
+      <p className="text-xs text-gray-400 mb-4">{leads.length} leads · {withEmail} with email · <b className="text-amber-600">{totalNew} not yet contacted</b>.</p>
 
       <div className="flex gap-2 mb-5">{tabBtn('leads', 'Leads')}{tabBtn('scrape', 'Find Leads (Scrape)')}{tabBtn('market', 'Market Finder')}</div>
 
@@ -171,7 +171,7 @@ export default function LeadsPage() {
 
           {loading ? <p className="text-gray-400">Loading…</p> : flat.length === 0 ? <p className="text-gray-400">No leads match this filter.</p> : (
             <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-              <div className="max-h-[calc(100vh-260px)] overflow-auto" onScroll={e => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 500) setVisN(v => v < flat.length ? Math.min(v + 200, flat.length) : v) }}>
+              <div className="max-h-[calc(100vh-330px)] overflow-auto" onScroll={e => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 500) setVisN(v => v < flat.length ? Math.min(v + 200, flat.length) : v) }}>
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-gray-50 z-10"><tr className="text-left text-gray-500 border-b">
                     <th className="p-2 w-8"><input type="checkbox" checked={allFlatSelected} onChange={e => toggleAllFlat(e.target.checked)} /></th>
