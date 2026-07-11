@@ -9,6 +9,11 @@ import { createClient } from '@supabase/supabase-js'
 const TENANT = process.env.AZURE_TENANT_ID || ''
 const CLIENT_ID = process.env.AZURE_CLIENT_ID || ''
 const CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET || ''
+// Sign-in authority. "organizations" lets mailboxes from ANY Microsoft 365 org connect
+// (so byndgrn.com works alongside beyondgreenbiotech.com). Requires the Azure app
+// registration to be set to "Accounts in any organizational directory (multitenant)".
+// Override with AZURE_AUTHORITY if you ever need to pin it back to a single tenant.
+const AUTHORITY = process.env.AZURE_AUTHORITY || 'organizations'
 export const OUTLOOK_REDIRECT_URI =
   process.env.AZURE_REDIRECT_URI || 'https://beyondgreen-erp.vercel.app/api/outlook/callback'
 export const OUTLOOK_SCOPES = 'openid profile offline_access User.Read Mail.Send Mail.Read'
@@ -18,7 +23,7 @@ export function outlookConfigured(): boolean {
 }
 
 function tokenEndpoint(): string {
-  return `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`
+  return `https://login.microsoftonline.com/${AUTHORITY}/oauth2/v2.0/token`
 }
 
 export function authorizeUrl(state: string): string {
@@ -30,7 +35,7 @@ export function authorizeUrl(state: string): string {
     scope: OUTLOOK_SCOPES,
     state,
   })
-  return `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize?${p.toString()}`
+  return `https://login.microsoftonline.com/${AUTHORITY}/oauth2/v2.0/authorize?${p.toString()}`
 }
 
 function admin() {
