@@ -38,6 +38,7 @@ export default function LeadProspectorPage() {
   const [showAllIndustries, setShowAllIndustries] = useState(false)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(0)
+  const [visibleCount, setVisibleCount] = useState(200) // infinite-scroll window
   const [busy, setBusy] = useState('')
   const [detail, setDetail] = useState<Lead | null>(null)
   const [detailOutreach, setDetailOutreach] = useState<any[]>([])
@@ -119,9 +120,9 @@ export default function LeadProspectorPage() {
     return true
   }
   const filtered = useMemo(() => leads.filter(match), [leads, f, members]) // eslint-disable-line
-  useEffect(() => { setPage(0) }, [f])
-  const pageRows = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
-  const pageCount = Math.ceil(filtered.length / PAGE_SIZE)
+  useEffect(() => { setPage(0); setVisibleCount(200) }, [f])
+  // Single scrollable list: render a growing window of rows, expanded as the user scrolls.
+  const viewRows = filtered.slice(0, visibleCount)
 
   const withEmail = filtered.filter(l => l.email).length
   const withPhone = filtered.filter(l => l.phone).length
@@ -131,8 +132,8 @@ export default function LeadProspectorPage() {
   // ── selection ──
   const selArr = () => Array.from(sel)
   const toggleSel = (id: string) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const allPageSelected = pageRows.length > 0 && pageRows.every(r => sel.has(r.id))
-  const togglePage = () => setSel(s => { const n = new Set(s); if (allPageSelected) pageRows.forEach(r => n.delete(r.id)); else pageRows.forEach(r => n.add(r.id)); return n })
+  const allPageSelected = viewRows.length > 0 && viewRows.every(r => sel.has(r.id))
+  const togglePage = () => setSel(s => { const n = new Set(s); if (allPageSelected) viewRows.forEach(r => n.delete(r.id)); else viewRows.forEach(r => n.add(r.id)); return n })
   const selectAllFiltered = () => setSel(new Set(filtered.map(l => l.id)))
 
   const toggleArr = (key: 'industries' | 'states', v: string) => setF(p => ({ ...p, [key]: p[key].includes(v) ? p[key].filter(x => x !== v) : [...p[key], v] }))
@@ -237,9 +238,10 @@ export default function LeadProspectorPage() {
   )
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] flex">
+    <div className="bg-[#F5F6FA] p-4 h-[calc(100vh-64px)]">
+     <div className="flex h-full bg-white rounded-xl border border-[#E4E6EE] shadow-sm overflow-hidden">
       {/* ── Filter rail ── */}
-      <aside className="w-64 shrink-0 bg-white border-r border-[#E4E6EE] h-[calc(100vh-64px)] sticky top-0 overflow-y-auto">
+      <aside className="w-64 shrink-0 bg-[#FBFCFE] border-r border-[#E4E6EE] h-full overflow-y-auto">
         <div className="p-3 border-b border-[#EEF0F4] flex items-center justify-between">
           <span className="text-sm font-bold text-[#1A1D2E] flex items-center gap-1.5"><i className="ti ti-filter text-[#0086C0]" />Filters{activeFilterCount > 0 && <span className="text-[10px] bg-[#0086C0] text-white rounded-full px-1.5">{activeFilterCount}</span>}</span>
           {activeFilterCount > 0 && <button onClick={() => setF(emptyFilters)} className="text-[11px] text-gray-400 hover:text-gray-700">Clear</button>}
@@ -358,8 +360,11 @@ export default function LeadProspectorPage() {
         )}
         {busy && <div className="px-5 py-1.5 bg-[#FFF8E7] border-b border-[#F3E5C0] text-xs text-[#8A6D3B]">{busy}</div>}
 
-        {/* table */}
-        <div className="flex-1 overflow-auto">
+        {/* table — single scrollable list; window grows as you scroll */}
+        <div className="flex-1 overflow-auto" onScroll={e => {
+          const el = e.currentTarget
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 500) setVisibleCount(c => (c < filtered.length ? Math.min(c + 200, filtered.length) : c))
+        }}>
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-[#F7F8FB] border-b border-[#E4E6EE] z-10">
               <tr className="text-[11px] uppercase tracking-wide text-gray-400">
@@ -375,8 +380,8 @@ export default function LeadProspectorPage() {
             </thead>
             <tbody className="divide-y divide-[#F0F1F5]">
               {loading ? <tr><td colSpan={8} className="text-center py-16 text-gray-400 text-sm">Loading leads…</td></tr>
-                : pageRows.length === 0 ? <tr><td colSpan={8} className="text-center py-16 text-gray-400 text-sm">No leads match these filters.</td></tr>
-                  : pageRows.map(l => {
+                : viewRows.length === 0 ? <tr><td colSpan={8} className="text-center py-16 text-gray-400 text-sm">No leads match these filters.</td></tr>
+                  : viewRows.map(l => {
                     const st = stats[l.id]; const sc = statusColor(l.customer_status || 'Lead')
                     return (
                       <tr key={l.id} className={`hover:bg-[#F7FAFD] cursor-pointer ${l.do_not_contact ? 'bg-[#FDF2F4]' : sel.has(l.id) ? 'bg-[#EAF4FB]' : 'bg-white'}`} onClick={() => openDetail(l)}>
@@ -401,17 +406,15 @@ export default function LeadProspectorPage() {
           </table>
         </div>
 
-        {/* pagination */}
-        {pageCount > 1 && (
+        {/* footer — everything is on one scrollable list */}
+        {!loading && filtered.length > 0 && (
           <div className="flex items-center justify-between px-5 py-2 border-t border-[#E4E6EE] bg-white text-xs text-gray-500">
-            <span>Page {page + 1} of {pageCount} · {filtered.length.toLocaleString()} leads</span>
-            <div className="flex gap-1">
-              <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-2 py-1 rounded border border-[#E4E6EE] disabled:opacity-40">Prev</button>
-              <button disabled={page >= pageCount - 1} onClick={() => setPage(p => p + 1)} className="px-2 py-1 rounded border border-[#E4E6EE] disabled:opacity-40">Next</button>
-            </div>
+            <span>Showing {viewRows.length.toLocaleString()} of {filtered.length.toLocaleString()} — scroll to load more</span>
+            {viewRows.length < filtered.length && <button onClick={() => setVisibleCount(c => Math.min(c + 1000, filtered.length))} className="px-2 py-1 rounded border border-[#E4E6EE] hover:bg-[#F5F6FA]">Load more</button>}
           </div>
         )}
       </div>
+     </div>
 
       {/* ── Detail drawer ── */}
       {detail && (
