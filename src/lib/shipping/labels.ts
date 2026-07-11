@@ -82,7 +82,7 @@ export function buildCaseLabels(order: LabelOrder, cases: CaseLabel[]): jsPDF {
   return doc
 }
 
-export function buildPalletLabels(order: LabelOrder, pallets: PalletLabel[]): jsPDF {
+export function buildPalletLabels(order: LabelOrder, pallets: PalletLabel[], docsQr?: string | null): jsPDF {
   const W = 4, H = 6
   const doc = new jsPDF({ unit: 'in', format: [W, H], orientation: 'portrait' })
   const cx = W / 2, maxW = W - 0.4
@@ -109,6 +109,15 @@ export function buildPalletLabels(order: LabelOrder, pallets: PalletLabel[]): js
         JsBarcode(canvas, id, { format: 'CODE128', width: 2, height: 110, displayValue: true, fontSize: 16, margin: 4 })
         const bw = 3.2, bh = 1.35
         doc.addImage(canvas.toDataURL('image/png'), 'PNG', cx - bw / 2, y, bw, bh)
+      } catch { /* */ }
+    }
+    // Docs QR (top-right corner) — scanning opens the packing slip + BOL only.
+    if (docsQr) {
+      try {
+        const q = 0.82
+        doc.addImage(docsQr, 'PNG', W - q - 0.15, 0.12, q, q)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5)
+        doc.text('SCAN: DOCS', W - q / 2 - 0.15, 0.12 + q + 0.09, { align: 'center' })
       } catch { /* */ }
     }
   })
