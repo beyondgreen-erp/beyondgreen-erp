@@ -6,6 +6,7 @@ import { statusColor } from '@/lib/statusColors'
 import { buildCaseLabels, buildPalletLabels, missingUpcSkus, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
 import { generatePickTickets, type PickTicketPallet } from '@/lib/labelGenerator'
 import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase } from '@/lib/shipping/bol'
+import QRCode from 'qrcode'
 
 const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
@@ -399,9 +400,16 @@ export default function ShippingQueuePage() {
     setBusy('')
   }
 
-  function genPalletLabels() {
+  async function genPalletLabels() {
+    // Save the shipping-docs snapshot and build a QR the pallet labels can carry,
+    // so scanning a pallet in the field opens the packing slip + BOL (not the ERP).
+    const token = await ensureShipDocs()
+    let docsQr: string | null = null
+    if (token) {
+      try { docsQr = await QRCode.toDataURL(`${window.location.origin}/ship-docs/${token}`, { margin: 1, width: 240 }) } catch { docsQr = null }
+    }
     const labels: PalletLabel[] = pallets.map((p, idx) => ({ palletNumber: idx + 1, totalPallets: pallets.length, caseCount: casesOnPallet(p.id), weight: p.weightLb, skus: skusOnPallet(p.id) }))
-    buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
+    buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels, docsQr).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
     markDoc('palletLabels')
   }
 
@@ -460,11 +468,11 @@ export default function ShippingQueuePage() {
     }
   }
 
-  function genPackingList() {
-    if (!activeItem) return
-    // One line per SKU, aggregated across every pallet. Each pallet's manually
-    // entered total weight is allocated to its SKUs by case share, so every line
-    // shows a real weight even when per-unit product weights aren't on file.
+  // Aggregate packing by SKU. Each pallet's manually-entered total weight is
+  // allocated to its SKUs by case share, so every line shows a real weight even
+  // when per-unit product weights aren't on file. Shared by the packing-list PDF
+  // and the public shipping-docs snapshot.
+  function buildPackListCases(): PackListCase[] {
     const bySku = new Map<string, PackListCase>()
     pallets.forEach(p => {
       const palletCases = casesOnPallet(p.id)
@@ -480,8 +488,40 @@ export default function ShippingQueuePage() {
         bySku.set(r.sku, cur)
       })
     })
-    const cases: PackListCase[] = [...bySku.values()]
-    const meta = { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }
+    return [...bySku.values()]
+  }
+
+  function packMeta() {
+    return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }
+  }
+
+  // Save a public snapshot (packing-slip + BOL inputs) under a per-order token so
+  // the pallet-label QR can open just those two documents — no ERP access, no
+  // order internals beyond what's already printed on the shipping paperwork.
+  async function ensureShipDocs(): Promise<string | null> {
+    if (!activeItem) return null
+    const snapshot = {
+      savedAt: new Date().toISOString(),
+      orderNumber: o?.order_number || '',
+      customer: st.name,
+      packing: { meta: packMeta(), cases: buildPackListCases(), totals },
+      bol: bolForm ? formToData(bolForm) : null,
+    }
+    try {
+      const { data: od } = await sb.from('sales_orders').select('docs_token').eq('id', activeItem.sales_order_id).single()
+      const token: string = ((od as { docs_token?: string } | null)?.docs_token)
+        || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      await sb.from('sales_orders').update({ docs_token: token, ship_docs: snapshot }).eq('id', activeItem.sales_order_id)
+      return token
+    } catch {
+      return null
+    }
+  }
+
+  function genPackingList() {
+    if (!activeItem) return
+    const cases = buildPackListCases()
+    const meta = packMeta()
     loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, totals, logo).save(`packing-list-${o?.order_number || 'order'}.pdf`))
       .catch(() => buildPackingList(meta, cases, totals, null).save(`packing-list-${o?.order_number || 'order'}.pdf`))
     markDoc('packingList')
