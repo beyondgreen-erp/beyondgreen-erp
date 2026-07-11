@@ -34,8 +34,20 @@ export default function SequencesPage() {
   const [form, setForm] = useState<any>({})
   const [steps, setSteps] = useState<Step[]>([])
   const [saving, setSaving] = useState(false)
+  const [running, setRunning] = useState('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [sb])
+
+  async function scanReplies() {
+    setRunning('Scanning replies…')
+    try { const r = await fetch('/api/leads/reply-scan'); const j = await r.json(); alert(j.message || j.error || 'Done') } catch { alert('Reply scan failed.') }
+    setRunning(''); load()
+  }
+  async function runNow() {
+    setRunning('Sending due emails…')
+    try { const r = await fetch('/api/leads/sequence-run'); const j = await r.json(); alert(j.message || j.error || 'Done') } catch { alert('Send run failed.') }
+    setRunning(''); load()
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -107,7 +119,12 @@ export default function SequencesPage() {
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5 flex items-center gap-2"><i className="ti ti-mail-forward text-[#0086C0]" />Outreach Sequences</h1>
           <p className="text-gray-500 text-sm mt-0.5">Multi-step follow-up cadences. Enroll leads from the Lead Prospector.</p>
         </div>
-        <button onClick={openNew} className="text-sm px-4 py-2.5 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6] font-medium">+ New Sequence</button>
+        <div className="flex items-center gap-2">
+          {running && <span className="text-xs text-gray-500">{running}</span>}
+          <button onClick={scanReplies} disabled={!!running} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50"><i className="ti ti-mail-search mr-1" />Scan replies</button>
+          <button onClick={runNow} disabled={!!running} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50"><i className="ti ti-player-play mr-1" />Send due now</button>
+          <button onClick={openNew} className="text-sm px-4 py-2.5 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6] font-medium">+ New Sequence</button>
+        </div>
       </div>
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : seqs.length === 0 ? (
