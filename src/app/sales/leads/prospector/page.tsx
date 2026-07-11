@@ -12,13 +12,14 @@ interface Lead {
   customer_status: string | null; pipeline_stage: string | null; is_scraped_lead: boolean | null
   scraped_at: string | null; scrape_region: string | null; contacted_at: string | null
   enriched_at: string | null; enrichment_source: string | null; lead_source: string | null; notes: string | null
+  do_not_contact: boolean | null
 }
 interface LeadList { id: string; name: string; color: string | null }
 interface SavedSearch { id: string; name: string; filters: any }
 interface Stat { customer_id: string; emails_sent: number | null; responded: boolean | null; active_campaign: boolean | null }
 
 const PAGE_SIZE = 50
-const emptyFilters = { search: '', industries: [] as string[], states: [] as string[], status: 'all', hasEmail: false, hasPhone: false, hasWebsite: false, enriched: false, notContacted: false, listId: 'all' }
+const emptyFilters = { search: '', industries: [] as string[], states: [] as string[], status: 'all', hasEmail: false, hasPhone: false, hasWebsite: false, enriched: false, notContacted: false, listId: 'all', websiteNoEmail: false, showDnc: false }
 type Filters = typeof emptyFilters
 
 export default function LeadProspectorPage() {
@@ -45,7 +46,7 @@ export default function LeadProspectorPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: l }, { data: ll }, { data: lm }, { data: ss }] = await Promise.all([
-      sb.from('customers').select('id,company_name,contact_name,title,seniority,email,phone,website,linkedin_url,city,state,industry,company_size,customer_status,pipeline_stage,is_scraped_lead,scraped_at,scrape_region,contacted_at,enriched_at,enrichment_source,lead_source,notes').eq('board', 'Leads').order('company_name').limit(8000),
+      sb.from('customers').select('id,company_name,contact_name,title,seniority,email,phone,website,linkedin_url,city,state,industry,company_size,customer_status,pipeline_stage,is_scraped_lead,scraped_at,scrape_region,contacted_at,enriched_at,enrichment_source,lead_source,notes,do_not_contact').eq('board', 'Leads').order('company_name').limit(8000),
       sb.from('lead_lists').select('id,name,color').order('created_at', { ascending: false }),
       sb.from('lead_list_members').select('list_id,customer_id'),
       sb.from('lead_saved_searches').select('id,name,filters').order('created_at', { ascending: false }),
@@ -95,6 +96,9 @@ export default function LeadProspectorPage() {
     if (f.enriched && !l.enriched_at) return false
     if (f.notContacted && l.contacted_at) return false
     if (f.listId !== 'all' && !(members[l.id] || []).includes(f.listId)) return false
+    if (f.websiteNoEmail && !(l.website && !l.email)) return false
+    // Do-not-contact leads are hidden by default; the "Do-not-contact list" toggle shows only them.
+    if (f.showDnc) { if (!l.do_not_contact) return false } else if (l.do_not_contact) return false
     return true
   }
   const filtered = useMemo(() => leads.filter(match), [leads, f, members]) // eslint-disable-line
@@ -141,6 +145,25 @@ export default function LeadProspectorPage() {
     if (!sel.size) return
     await sb.from('customers').update({ contacted_at: new Date().toISOString(), pipeline_stage: 'Contacted' }).in('id', selArr())
     load(); setBusy(`Marked ${sel.size} contacted.`); setTimeout(() => setBusy(''), 2500)
+  }
+  async function markDNC(ids: string[]) {
+    if (!ids.length) return
+    if (!confirm(`Mark ${ids.length} lead(s) as DO NOT CONTACT?\n\nThey'll be removed from every list and permanently excluded from all automated outreach.`)) return
+    await sb.from('customers').update({ do_not_contact: true, updated_at: new Date().toISOString() }).in('id', ids)
+    await sb.from('lead_list_members').delete().in('customer_id', ids)
+    try { await sb.from('customer_campaign_stats').upsert(ids.map(id => ({ customer_id: id, active_campaign: false })), { onConflict: 'customer_id' }) } catch { /* ignore */ }
+    setSel(new Set()); setDetail(null); load(); setBusy(`${ids.length} marked Do-Not-Contact.`); setTimeout(() => setBusy(''), 3000)
+  }
+  function siteUrl(l: Lead) {
+    const w = (l.website || '').trim(); if (!w) return null
+    return w.startsWith('http') ? w : 'https://' + w
+  }
+  async function logWebForm(l: Lead) {
+    try {
+      await sb.from('customer_outreach').insert({ customer_id: l.id, subject: 'Website contact-form outreach', body: '(Submitted via the company website contact form.)', delivered_via: 'web_form', status: 'sent', sent_by: userEmail, sent_at: new Date().toISOString() })
+    } catch { /* ignore */ }
+    await sb.from('customers').update({ contacted_at: new Date().toISOString(), pipeline_stage: 'Contacted' }).eq('id', l.id)
+    load(); openDetail(l); setBusy('Logged website-form outreach.'); setTimeout(() => setBusy(''), 2500)
   }
   async function addToCampaign() {
     if (!sel.size) return
@@ -213,6 +236,14 @@ export default function LeadProspectorPage() {
               <Facet label="Has website" on={f.hasWebsite} onClick={() => setF(p => ({ ...p, hasWebsite: !p.hasWebsite }))} />
               <Facet label="Enriched" on={f.enriched} onClick={() => setF(p => ({ ...p, enriched: !p.enriched }))} />
               <Facet label="Not yet contacted" on={f.notContacted} onClick={() => setF(p => ({ ...p, notContacted: !p.notContacted }))} />
+              <Facet label="Website, no email" on={f.websiteNoEmail} onClick={() => setF(p => ({ ...p, websiteNoEmail: !p.websiteNoEmail }))} />
+              <button onClick={() => setF(p => ({ ...p, showDnc: !p.showDnc }))} className={`flex items-center justify-between w-full px-2 py-1.5 rounded-md text-left ${f.showDnc ? 'bg-[#FCE8EC]' : 'hover:bg-[#F0F4F9]'}`}>
+                <span className="flex items-center gap-2 text-[13px] min-w-0" style={{ color: f.showDnc ? '#A11B30' : '#3A4056' }}>
+                  <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${f.showDnc ? 'bg-[#E2445C] border-[#E2445C]' : 'border-gray-300'}`}>{f.showDnc && <i className="ti ti-check text-white text-[10px]" />}</span>
+                  <span className="truncate">Do-not-contact list</span>
+                </span>
+                <i className="ti ti-ban text-[#E2445C] text-sm shrink-0" />
+              </button>
             </div>
           </div>
 
@@ -298,6 +329,7 @@ export default function LeadProspectorPage() {
               <button onClick={addToCampaign} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-[#CDE6F5] hover:bg-[#F0F8FD]"><i className="ti ti-send mr-1" />Add to campaign</button>
               <button onClick={enrichSelected} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-[#CDE6F5] hover:bg-[#F0F8FD]"><i className="ti ti-sparkles mr-1 text-[#A25DDC]" />Enrich</button>
               <button onClick={markContacted} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-[#CDE6F5] hover:bg-[#F0F8FD]"><i className="ti ti-mail-check mr-1" />Mark contacted</button>
+              <button onClick={() => markDNC(selArr())} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50"><i className="ti ti-ban mr-1" />Do not contact</button>
               <button onClick={exportCSV} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-[#CDE6F5] hover:bg-[#F0F8FD]"><i className="ti ti-download mr-1" />Export</button>
             </div>
             <button onClick={() => setSel(new Set())} className="ml-auto text-xs text-gray-400 hover:text-gray-700">Clear</button>
@@ -326,7 +358,7 @@ export default function LeadProspectorPage() {
                   : pageRows.map(l => {
                     const st = stats[l.id]; const sc = statusColor(l.customer_status || 'Lead')
                     return (
-                      <tr key={l.id} className={`hover:bg-[#F7FAFD] cursor-pointer ${sel.has(l.id) ? 'bg-[#EAF4FB]' : 'bg-white'}`} onClick={() => openDetail(l)}>
+                      <tr key={l.id} className={`hover:bg-[#F7FAFD] cursor-pointer ${l.do_not_contact ? 'bg-[#FDF2F4]' : sel.has(l.id) ? 'bg-[#EAF4FB]' : 'bg-white'}`} onClick={() => openDetail(l)}>
                         <td className="px-3 py-2" onClick={e => e.stopPropagation()}><input type="checkbox" className={chk} checked={sel.has(l.id)} onChange={() => toggleSel(l.id)} /></td>
                         <td className="px-2 py-2 min-w-[200px]">
                           <div className="font-semibold text-[#1A1D2E] truncate max-w-[240px]">{l.company_name}</div>
@@ -336,7 +368,7 @@ export default function LeadProspectorPage() {
                         <td className="px-2 py-2 text-xs text-gray-600">{l.phone || <span className="text-gray-300">—</span>}</td>
                         <td className="px-2 py-2 text-xs text-gray-600">{[l.city, l.state].filter(Boolean).join(', ') || <span className="text-gray-300">—</span>}</td>
                         <td className="px-2 py-2 text-xs text-gray-600 truncate max-w-[140px]">{l.industry || <span className="text-gray-300">—</span>}</td>
-                        <td className="px-2 py-2"><span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: sc.bg, color: sc.fg }}>{l.customer_status || 'Lead'}</span></td>
+                        <td className="px-2 py-2">{l.do_not_contact ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-md text-white" style={{ background: '#E2445C' }}>⛔ DO NOT CONTACT</span> : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: sc.bg, color: sc.fg }}>{l.customer_status || 'Lead'}</span>}</td>
                         <td className="px-2 py-2 text-[11px] text-gray-500">
                           {st?.emails_sent ? <span title="emails sent" className="mr-2">✉ {st.emails_sent}</span> : null}
                           {st?.responded ? <span className="text-[#00A84F] font-semibold">Replied</span> : st?.active_campaign ? <span className="text-[#FDAB3D]">In campaign</span> : (l.contacted_at ? <span className="text-gray-400">Contacted</span> : <span className="text-gray-300">New</span>)}
@@ -373,6 +405,7 @@ export default function LeadProspectorPage() {
               <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700 text-lg">×</button>
             </div>
             <div className="p-4 space-y-4">
+              {detail.do_not_contact && <div className="rounded-lg bg-[#E2445C] text-white text-center font-bold text-sm py-2.5">⛔ DO NOT CONTACT — excluded from all outreach</div>}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {[['Email', detail.email && `mailto:${detail.email}`, detail.email], ['Phone', null, detail.phone], ['Website', detail.website && (detail.website.startsWith('http') ? detail.website : 'https://' + detail.website), detail.website?.replace(/^https?:\/\//, '')], ['LinkedIn', detail.linkedin_url, detail.linkedin_url ? 'Profile' : null], ['Location', null, [detail.city, detail.state].filter(Boolean).join(', ')], ['Industry', null, detail.industry], ['Status', null, detail.customer_status || 'Lead'], ['Source', null, detail.lead_source || (detail.is_scraped_lead ? 'Scraped' : '—')]].map(([label, href, val], i) => (
                   <div key={i} className="bg-[#F7F8FB] rounded-lg px-2.5 py-1.5">
@@ -385,6 +418,16 @@ export default function LeadProspectorPage() {
                 {detail.email && <a href={`mailto:${detail.email}`} className="flex-1 text-center text-xs px-3 py-2 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6]"><i className="ti ti-mail mr-1" />Email</a>}
                 <button onClick={async () => { setSel(new Set([detail.id])); await enrichSelected() }} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] hover:bg-[#F5F6FA]"><i className="ti ti-sparkles mr-1 text-[#A25DDC]" />Enrich</button>
               </div>
+              {detail.website && !detail.email && !detail.do_not_contact && (
+                <div className="rounded-lg border border-[#DCEFE3] bg-[#F2FBF6] p-2.5">
+                  <p className="text-[11px] text-[#03683a] mb-1.5 font-semibold">No email on file — reach out via their website form</p>
+                  <div className="flex gap-2">
+                    <a href={siteUrl(detail) || '#'} target="_blank" rel="noreferrer" className="flex-1 text-center text-xs px-3 py-2 rounded-lg bg-[#00A84F] text-white hover:bg-[#03934a]"><i className="ti ti-external-link mr-1" />Open website</a>
+                    <button onClick={() => logWebForm(detail)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#B9E3CB] text-[#03683a] hover:bg-[#E7F6EE]"><i className="ti ti-check mr-1" />Log form outreach</button>
+                  </div>
+                </div>
+              )}
+              {!detail.do_not_contact && <button onClick={() => markDNC([detail.id])} className="w-full text-xs px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"><i className="ti ti-ban mr-1" />Mark do-not-contact</button>}
               {(members[detail.id] || []).length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {(members[detail.id] || []).map(lid => { const ll = lists.find(x => x.id === lid); return ll ? <span key={lid} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: (ll.color || '#0086C0') + '20', color: ll.color || '#0086C0' }}>{ll.name}</span> : null })}
