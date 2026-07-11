@@ -12,14 +12,14 @@ interface Lead {
   customer_status: string | null; pipeline_stage: string | null; is_scraped_lead: boolean | null
   scraped_at: string | null; scrape_region: string | null; contacted_at: string | null
   enriched_at: string | null; enrichment_source: string | null; lead_source: string | null; notes: string | null
-  do_not_contact: boolean | null
+  do_not_contact: boolean | null; is_dead_lead: boolean | null
 }
 interface LeadList { id: string; name: string; color: string | null }
 interface SavedSearch { id: string; name: string; filters: any }
 interface Stat { customer_id: string; emails_sent: number | null; responded: boolean | null; active_campaign: boolean | null }
 
 const PAGE_SIZE = 50
-const emptyFilters = { search: '', industries: [] as string[], states: [] as string[], status: 'all', hasEmail: false, hasPhone: false, hasWebsite: false, enriched: false, notContacted: false, listId: 'all', websiteNoEmail: false, showDnc: false }
+const emptyFilters = { search: '', industries: [] as string[], states: [] as string[], status: 'all', hasEmail: false, hasPhone: false, hasWebsite: false, enriched: false, notContacted: false, listId: 'all', websiteNoEmail: false, showDnc: false, inSequence: false, dead: false }
 type Filters = typeof emptyFilters
 
 export default function LeadProspectorPage() {
@@ -28,6 +28,7 @@ export default function LeadProspectorPage() {
   const [lists, setLists] = useState<LeadList[]>([])
   const [sequences, setSequences] = useState<{ id: string; name: string; status: string }[]>([])
   const [members, setMembers] = useState<Record<string, string[]>>({}) // customer_id -> list_ids
+  const [enrolled, setEnrolled] = useState<Set<string>>(new Set()) // customer_ids actively in a sequence
   const [saved, setSaved] = useState<SavedSearch[]>([])
   const [stats, setStats] = useState<Record<string, Stat>>({})
   const [loading, setLoading] = useState(true)
@@ -48,7 +49,7 @@ export default function LeadProspectorPage() {
   const load = useCallback(async () => {
     setLoading(true)
     // Supabase caps a single response at 1000 rows, so page through in chunks to load ALL leads.
-    const cols = 'id,company_name,contact_name,title,seniority,email,phone,website,linkedin_url,city,state,industry,company_size,customer_status,pipeline_stage,is_scraped_lead,scraped_at,scrape_region,contacted_at,enriched_at,enrichment_source,lead_source,notes,do_not_contact'
+    const cols = 'id,company_name,contact_name,title,seniority,email,phone,website,linkedin_url,city,state,industry,company_size,customer_status,pipeline_stage,is_scraped_lead,scraped_at,scrape_region,contacted_at,enriched_at,enrichment_source,lead_source,notes,do_not_contact,is_dead_lead'
     const all: Lead[] = []
     const SIZE = 1000
     for (let from = 0; from < 100000; from += SIZE) {
@@ -71,6 +72,9 @@ export default function LeadProspectorPage() {
     setSaved((ss as SavedSearch[]) || [])
     const { data: sq } = await sb.from('sequences').select('id,name,status').in('status', ['active', 'draft']).order('created_at', { ascending: false })
     setSequences((sq as any[]) || [])
+    // Which leads are currently active in a sequence (for the "In sequence" flag).
+    const { data: enr } = await sb.from('sequence_enrollments').select('customer_id,status').eq('status', 'active')
+    setEnrolled(new Set(((enr as any[]) || []).map(r => r.customer_id)))
     const ids = ((l as Lead[]) || []).map(x => x.id)
     if (ids.length) {
       // Batch the id lookup so a huge list doesn't blow the request-URL limit.
@@ -115,11 +119,13 @@ export default function LeadProspectorPage() {
     if (f.notContacted && l.contacted_at) return false
     if (f.listId !== 'all' && !(members[l.id] || []).includes(f.listId)) return false
     if (f.websiteNoEmail && !(l.website && !l.email)) return false
+    if (f.inSequence && !enrolled.has(l.id)) return false
+    if (f.dead && !l.is_dead_lead) return false
     // Do-not-contact leads are hidden by default; the "Do-not-contact list" toggle shows only them.
     if (f.showDnc) { if (!l.do_not_contact) return false } else if (l.do_not_contact) return false
     return true
   }
-  const filtered = useMemo(() => leads.filter(match), [leads, f, members]) // eslint-disable-line
+  const filtered = useMemo(() => leads.filter(match), [leads, f, members, enrolled]) // eslint-disable-line
   useEffect(() => { setPage(0); setVisibleCount(200) }, [f])
   // Single scrollable list: render a growing window of rows, expanded as the user scrolls.
   const viewRows = filtered.slice(0, visibleCount)
@@ -257,6 +263,8 @@ export default function LeadProspectorPage() {
               <Facet label="Enriched" on={f.enriched} onClick={() => setF(p => ({ ...p, enriched: !p.enriched }))} />
               <Facet label="Not yet contacted" on={f.notContacted} onClick={() => setF(p => ({ ...p, notContacted: !p.notContacted }))} />
               <Facet label="Website, no email" on={f.websiteNoEmail} onClick={() => setF(p => ({ ...p, websiteNoEmail: !p.websiteNoEmail }))} />
+              <Facet label="In a sequence" on={f.inSequence} onClick={() => setF(p => ({ ...p, inSequence: !p.inSequence }))} />
+              <Facet label="Dead leads" on={f.dead} onClick={() => setF(p => ({ ...p, dead: !p.dead }))} />
               <button onClick={() => setF(p => ({ ...p, showDnc: !p.showDnc }))} className={`flex items-center justify-between w-full px-2 py-1.5 rounded-md text-left ${f.showDnc ? 'bg-[#FCE8EC]' : 'hover:bg-[#F0F4F9]'}`}>
                 <span className="flex items-center gap-2 text-[13px] min-w-0" style={{ color: f.showDnc ? '#A11B30' : '#3A4056' }}>
                   <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${f.showDnc ? 'bg-[#E2445C] border-[#E2445C]' : 'border-gray-300'}`}>{f.showDnc && <i className="ti ti-check text-white text-[10px]" />}</span>
@@ -397,7 +405,11 @@ export default function LeadProspectorPage() {
                         <td className="px-2 py-2">{l.do_not_contact ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-md text-white" style={{ background: '#E2445C' }}>⛔ DO NOT CONTACT</span> : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: sc.bg, color: sc.fg }}>{l.customer_status || 'Lead'}</span>}</td>
                         <td className="px-2 py-2 text-[11px] text-gray-500">
                           {st?.emails_sent ? <span title="emails sent" className="mr-2">✉ {st.emails_sent}</span> : null}
-                          {st?.responded ? <span className="text-[#00A84F] font-semibold">Replied</span> : st?.active_campaign ? <span className="text-[#FDAB3D]">In campaign</span> : (l.contacted_at ? <span className="text-gray-400">Contacted</span> : <span className="text-gray-300">New</span>)}
+                          {l.is_dead_lead ? <span className="font-bold px-1.5 py-0.5 rounded" style={{ background: '#EDEEF2', color: '#5A5E6B' }}>☠ Dead</span>
+                            : st?.responded ? <span className="text-[#00A84F] font-semibold">Replied</span>
+                              : enrolled.has(l.id) ? <span className="font-semibold px-1.5 py-0.5 rounded" style={{ background: '#E8F0FE', color: '#1152C9' }}>In sequence</span>
+                                : st?.active_campaign ? <span className="text-[#FDAB3D]">In campaign</span>
+                                  : (l.contacted_at ? <span className="text-gray-400">Contacted</span> : <span className="text-gray-300">New</span>)}
                         </td>
                       </tr>
                     )
