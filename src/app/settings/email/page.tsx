@@ -8,23 +8,32 @@ export default function EmailPage() {
   const [loading, setLoading] = useState(true)
   const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
 
+  async function refresh() {
+    try { const d = await fetch('/api/outlook/status').then(r => r.json()); setStatus(d) } catch { /* ignore */ }
+    setLoading(false)
+  }
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get('outlook')
     if (p === 'connected') setFlash({ kind: 'ok', msg: 'Mailbox connected.' })
     else if (p === 'not_configured') setFlash({ kind: 'err', msg: 'Microsoft app is not configured on the server (Azure keys missing).' })
     else if (p) setFlash({ kind: 'err', msg: 'Could not connect (' + p + '). Try again.' })
-    fetch('/api/outlook/status').then(r => r.json()).then(d => { setStatus(d); setLoading(false) }).catch(() => setLoading(false))
+    refresh()
   }, [])
 
-  const connected = status?.connected
-  const email = status?.email
+  async function disconnect(email: string) {
+    if (!confirm(`Disconnect ${email}? The ERP will stop sending/reading from it.`)) return
+    await fetch('/api/outlook/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })
+    refresh()
+  }
+
+  const mailboxes: any[] = status?.mailboxes || []
 
   return (
     <div className="p-4 md:p-8 min-h-screen max-w-2xl mx-auto">
       <div className="mb-6">
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-white text-[#0086C0] border-[#CDE6F5]">SETTINGS</span>
         <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Email Connection</h1>
-        <p className="text-gray-500 text-sm mt-0.5">The mailbox the ERP sends outreach from and reads replies in.</p>
+        <p className="text-gray-500 text-sm mt-0.5">Mailboxes the ERP can send outreach from and read replies in. You can connect more than one.</p>
       </div>
 
       {flash && (
@@ -32,36 +41,38 @@ export default function EmailPage() {
       )}
 
       <div className="bg-white border border-[#E4E6EE] rounded-xl p-6">
-        {loading ? <p className="text-gray-400 text-sm">Checking connection…</p> : (
+        {loading ? <p className="text-gray-400 text-sm">Checking connections…</p> : (
           <>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: connected ? '#E6F7EE' : '#F0F1F5' }}>
-                <i className={`ti ${connected ? 'ti-mail-check text-[#00A84F]' : 'ti-mail-off text-gray-400'} text-xl`} />
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Connected mailboxes</p>
+            {mailboxes.length === 0 ? (
+              <div className="flex items-center gap-3 py-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#F0F1F5] shrink-0"><i className="ti ti-mail-off text-gray-400 text-lg" /></div>
+                <p className="text-sm text-gray-500">No mailboxes connected yet.</p>
               </div>
-              <div className="min-w-0">
-                {connected ? (
-                  <>
-                    <p className="text-[#1A1D2E] font-semibold">Connected</p>
-                    <p className="text-sm text-gray-500 truncate">{email}{status?.connected_at ? ` · since ${new Date(status.connected_at).toLocaleDateString()}` : ''}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[#1A1D2E] font-semibold">No mailbox connected</p>
-                    <p className="text-sm text-gray-500">Connect a Microsoft 365 mailbox to send and read outreach.</p>
-                  </>
-                )}
+            ) : (
+              <div className="divide-y divide-[#F0F1F5] mb-2">
+                {mailboxes.map((m: any) => (
+                  <div key={m.email} className="flex items-center gap-3 py-2.5">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#E6F7EE] shrink-0"><i className="ti ti-mail-check text-[#00A84F]" /></div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-[#1A1D2E] truncate">{m.email}</p>
+                      <p className="text-[11px] text-gray-400">{m.connected_at ? `Connected ${new Date(m.connected_at).toLocaleDateString()}` : ''}</p>
+                    </div>
+                    <button onClick={() => disconnect(m.email)} className="text-xs px-2.5 py-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50">Disconnect</button>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
 
-            <a href="/api/outlook/connect" className="inline-flex items-center gap-2 text-sm px-4 py-2.5 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6] font-medium">
-              <i className="ti ti-brand-windows" />{connected ? 'Switch / reconnect mailbox' : 'Connect a mailbox'}
+            <a href="/api/outlook/connect" className="inline-flex items-center gap-2 text-sm px-4 py-2.5 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6] font-medium mt-2">
+              <i className="ti ti-plus" />Connect {mailboxes.length ? 'another' : 'a'} mailbox
             </a>
 
             <div className="mt-5 space-y-2 text-xs text-gray-500 border-t border-[#F0F1F5] pt-4">
-              <p><b>Sign in as the exact address you want to use.</b> Whatever mailbox you authorize becomes the send-from and reply-reading account.</p>
-              <p>Connecting a mailbox <b>replaces</b> the current one — the ERP only keeps one Microsoft connection at a time.</p>
-              <p className="text-[#8A6D3B]">For cold outreach, use a <b>dedicated outreach mailbox</b> where possible. Sending high volume from a mailbox on a domain you rely on for normal business email can hurt that domain’s deliverability.</p>
-              <p>Only works with <b>Microsoft 365</b> mailboxes your organization can authorize. If the address is hosted elsewhere (e.g. Google), it won’t connect here.</p>
+              <p><b>Sign in as the exact address you want to add.</b> Each mailbox you authorize can be chosen as a sequence’s “From email.”</p>
+              <p>Connecting the same address again just refreshes it; other mailboxes stay connected.</p>
+              <p className="text-[#8A6D3B]">For cold outreach, point your sequences at a <b>dedicated outreach mailbox</b> (e.g. rudy.patel@byndgrn.com). Keep high-volume cold sending off any mailbox you rely on for normal business email.</p>
+              <p>Microsoft 365 mailboxes only. Addresses hosted elsewhere (e.g. Google) won’t connect here.</p>
             </div>
           </>
         )}
