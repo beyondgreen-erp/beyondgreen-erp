@@ -12,7 +12,10 @@ export async function middleware(request: NextRequest) {
   // Public pick-ticket scan flow (QR codes on printed pick tickets). Warehouse
   // staff scan these on their phones without logging in; access is gated by an
   // unguessable per-pallet token, not by session.
-  if (pathname.startsWith('/pick/') || pathname.startsWith('/api/pick/')) {
+  if (
+    pathname.startsWith('/pick/') || pathname.startsWith('/api/pick/') ||
+    pathname.startsWith('/ship-docs/') || pathname.startsWith('/api/ship-docs/')
+  ) {
     return NextResponse.next({ request })
   }
 
