@@ -72,7 +72,8 @@ export async function GET(req: NextRequest) {
     if (intent === 'auto_reply') { replies--; continue } // ignore OOO/bounces, keep sequence running
 
     const now = new Date().toISOString()
-    const custPatch: Record<string, unknown> = { last_reply_intent: intent, last_reply_at: now, updated_at: now }
+    // Any genuine reply means the lead is alive again — clear any dead flag.
+    const custPatch: Record<string, unknown> = { last_reply_intent: intent, last_reply_at: now, updated_at: now, is_dead_lead: false }
     let enrStatus = 'replied'
 
     if (intent === 'interested' || intent === 'meeting' || intent === 'question') {
