@@ -12,12 +12,12 @@ export async function GET(req: NextRequest) {
   const state = url.searchParams.get('state')
   const oauthErr = url.searchParams.get('error')
 
-  if (oauthErr) return NextResponse.redirect(`${origin}/sales/customers?outlook=error`)
-  if (!code) return NextResponse.redirect(`${origin}/sales/customers?outlook=error`)
+  if (oauthErr) return NextResponse.redirect(`${origin}/settings/email?outlook=error`)
+  if (!code) return NextResponse.redirect(`${origin}/settings/email?outlook=error`)
 
   const cookieState = req.cookies.get('ms_oauth_state')?.value
   if (!cookieState || cookieState !== state) {
-    return NextResponse.redirect(`${origin}/sales/customers?outlook=state_mismatch`)
+    return NextResponse.redirect(`${origin}/settings/email?outlook=state_mismatch`)
   }
 
   const sb = await createSupabaseServerClient()
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   const tokens = await exchangeCodeForTokens(code)
   if (!tokens || !tokens.access_token) {
-    return NextResponse.redirect(`${origin}/sales/customers?outlook=token_error`)
+    return NextResponse.redirect(`${origin}/settings/email?outlook=token_error`)
   }
 
   const me = await getMe(tokens.access_token)
@@ -36,12 +36,13 @@ export async function GET(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
-  // Replace any existing Microsoft connection for this user.
+  // Keep other connected mailboxes; only refresh this same address if reconnecting.
   await adminClient
     .from('user_email_connections')
     .delete()
     .eq('user_id', user.id)
     .eq('provider', 'microsoft')
+    .eq('email', mailbox)
   await adminClient.from('user_email_connections').insert({
     user_id: user.id,
     email: mailbox,
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
     connected_at: new Date().toISOString(),
   })
 
-  const res = NextResponse.redirect(`${origin}/sales/customers?outlook=connected`)
+  const res = NextResponse.redirect(`${origin}/settings/email?outlook=connected`)
   res.cookies.set('ms_oauth_state', '', { maxAge: 0, path: '/' })
   return res
 }
