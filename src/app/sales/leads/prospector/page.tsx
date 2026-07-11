@@ -26,6 +26,7 @@ export default function LeadProspectorPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [leads, setLeads] = useState<Lead[]>([])
   const [lists, setLists] = useState<LeadList[]>([])
+  const [sequences, setSequences] = useState<{ id: string; name: string; status: string }[]>([])
   const [members, setMembers] = useState<Record<string, string[]>>({}) // customer_id -> list_ids
   const [saved, setSaved] = useState<SavedSearch[]>([])
   const [stats, setStats] = useState<Record<string, Stat>>({})
@@ -57,6 +58,8 @@ export default function LeadProspectorPage() {
     ;(lm as any[] || []).forEach(r => { (m[r.customer_id] ||= []).push(r.list_id) })
     setMembers(m)
     setSaved((ss as SavedSearch[]) || [])
+    const { data: sq } = await sb.from('sequences').select('id,name,status').in('status', ['active', 'draft']).order('created_at', { ascending: false })
+    setSequences((sq as any[]) || [])
     const ids = ((l as Lead[]) || []).map(x => x.id)
     if (ids.length) {
       const { data: cs } = await sb.from('customer_campaign_stats').select('customer_id,emails_sent,responded,active_campaign').in('customer_id', ids)
@@ -165,11 +168,12 @@ export default function LeadProspectorPage() {
     await sb.from('customers').update({ contacted_at: new Date().toISOString(), pipeline_stage: 'Contacted' }).eq('id', l.id)
     load(); openDetail(l); setBusy('Logged website-form outreach.'); setTimeout(() => setBusy(''), 2500)
   }
-  async function addToCampaign() {
-    if (!sel.size) return
-    const rows = selArr().map(cid => ({ customer_id: cid, active_campaign: true, last_campaign_launch: new Date().toISOString() }))
-    await sb.from('customer_campaign_stats').upsert(rows, { onConflict: 'customer_id' })
-    load(); setBusy(`Queued ${sel.size} into a campaign.`); setTimeout(() => setBusy(''), 2500)
+  async function enrollInSequence(seqId: string) {
+    if (!seqId || !sel.size) return
+    const eligible = selArr().filter(id => !leads.find(l => l.id === id)?.do_not_contact)
+    const rows = eligible.map(cid => ({ sequence_id: seqId, customer_id: cid, enrolled_by: userEmail, status: 'active', current_step: 0, next_send_at: new Date().toISOString() }))
+    if (rows.length) await sb.from('sequence_enrollments').upsert(rows, { onConflict: 'sequence_id,customer_id' })
+    load(); setBusy(`Enrolled ${rows.length} lead(s) into the sequence.`); setTimeout(() => setBusy(''), 3000)
   }
   async function enrichSelected() {
     if (!sel.size) return
@@ -326,7 +330,10 @@ export default function LeadProspectorPage() {
                 <option value="">+ Add to list…</option>
                 {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              <button onClick={addToCampaign} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-[#CDE6F5] hover:bg-[#F0F8FD]"><i className="ti ti-send mr-1" />Add to campaign</button>
+              <select value="" onChange={e => { if (e.target.value) enrollInSequence(e.target.value) }} className="text-xs border border-[#CDE6F5] bg-white rounded-md px-2 py-1.5">
+                <option value="">+ Add to sequence…</option>
+                {sequences.map(s => <option key={s.id} value={s.id}>{s.name}{s.status !== 'active' ? ' (draft)' : ''}</option>)}
+              </select>
               <button onClick={enrichSelected} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-[#CDE6F5] hover:bg-[#F0F8FD]"><i className="ti ti-sparkles mr-1 text-[#A25DDC]" />Enrich</button>
               <button onClick={markContacted} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-[#CDE6F5] hover:bg-[#F0F8FD]"><i className="ti ti-mail-check mr-1" />Mark contacted</button>
               <button onClick={() => markDNC(selArr())} className="text-xs px-2.5 py-1.5 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50"><i className="ti ti-ban mr-1" />Do not contact</button>
