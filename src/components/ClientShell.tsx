@@ -1,9 +1,9 @@
 'use client'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Sidebar from './Sidebar'
+import TopNav from './TopNav'
 import PresenceTracker from './PresenceTracker'
-import NotificationBell from './NotificationBell'
 import Chat from './Chat'
 import DirectMessages from './DirectMessages'
 import MobileNav from './MobileNav'
@@ -11,7 +11,6 @@ import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import AuthWatcher from './AuthWatcher'
-import UserAvatar from '@/components/UserAvatar'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -56,7 +55,6 @@ function getPageTitle(pathname: string): string {
 
 export default function ClientShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const router = useRouter()
   const [userInitials, setUserInitials] = useState('?')
   const [userName, setUserName] = useState('')
   const [avatarColor, setAvatarColor] = useState('#3B6FE0')
@@ -106,38 +104,14 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
         {/* Main area */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          {/* Top bar */}
-          <header
-            className="shrink-0 sticky top-0 z-30"
-            style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}
-          >
-            <div className="flex items-center justify-between px-6 gap-4" style={{ height: 64 }}>
-              <h1 className="font-bold text-lg truncate" style={{ color: '#1A1D2E' }}>{pageTitle}</h1>
-              <div className="flex items-center gap-2 shrink-0">
-                <NotificationBell />
-                <button
-                  onClick={() => router.push('/settings')}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
-                  style={{ background: '#F5F6FA', color: '#6B7280', border: '1px solid #E4E6EE' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE'; (e.currentTarget as HTMLElement).style.color = '#1A1D2E' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA'; (e.currentTarget as HTMLElement).style.color = '#6B7280' }}
-                  title="Settings"
-                >
-                  <i className="ti ti-settings text-base"/>
-                </button>
-                <button
-                  onClick={() => router.push('/settings/profile')}
-                  className="flex items-center gap-2.5 rounded-xl px-3 py-2 transition-colors"
-                  style={{ background: '#F5F6FA', border: '1px solid #E4E6EE' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E4E6EE' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F5F6FA' }}
-                >
-                  <UserAvatar email={userEmail} initials={userInitials} color={avatarColor} size={32} />
-                  {userName && <span className="text-sm font-semibold hidden sm:block" style={{ color: '#374151' }}>{userName}</span>}
-                </button>
-              </div>
-            </div>
-          </header>
+          {/* Sticky top navigation: group dropdowns + global search + user menu */}
+          <TopNav
+            pageTitle={pageTitle}
+            userEmail={userEmail}
+            userName={userName}
+            userInitials={userInitials}
+            avatarColor={avatarColor}
+          />
 
           {/* Content */}
           <main className="flex-1 overflow-auto pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
