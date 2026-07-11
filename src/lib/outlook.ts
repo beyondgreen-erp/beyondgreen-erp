@@ -26,7 +26,7 @@ function tokenEndpoint(): string {
   return `https://login.microsoftonline.com/${AUTHORITY}/oauth2/v2.0/token`
 }
 
-export function authorizeUrl(state: string): string {
+export function authorizeUrl(state: string, loginHint?: string): string {
   const p = new URLSearchParams({
     client_id: CLIENT_ID,
     response_type: 'code',
@@ -34,7 +34,13 @@ export function authorizeUrl(state: string): string {
     response_mode: 'query',
     scope: OUTLOOK_SCOPES,
     state,
+    // Always show the account chooser so the user connects the exact mailbox they intend.
+    prompt: 'select_account',
   })
+  // When a specific address is being connected, pin Microsoft to that identity so it
+  // can't fall back to another signed-in session (e.g. picking byndgrn but getting the
+  // primary mailbox's token). login_hint pre-selects and locks the account.
+  if (loginHint) p.set('login_hint', loginHint)
   return `https://login.microsoftonline.com/${AUTHORITY}/oauth2/v2.0/authorize?${p.toString()}`
 }
 
