@@ -7,18 +7,26 @@ export default function EmailPage() {
   const [status, setStatus] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  const [addr, setAddr] = useState('')
 
   async function refresh() {
     try { const d = await fetch('/api/outlook/status').then(r => r.json()); setStatus(d) } catch { /* ignore */ }
     setLoading(false)
   }
   useEffect(() => {
-    const p = new URLSearchParams(window.location.search).get('outlook')
+    const q = new URLSearchParams(window.location.search)
+    const p = q.get('outlook')
     if (p === 'connected') setFlash({ kind: 'ok', msg: 'Mailbox connected.' })
     else if (p === 'not_configured') setFlash({ kind: 'err', msg: 'Microsoft app is not configured on the server (Azure keys missing).' })
+    else if (p === 'wrong_account') setFlash({ kind: 'err', msg: `Microsoft signed you in as ${q.get('got') || 'a different account'} instead of ${q.get('wanted') || 'the address you asked for'}. Nothing was saved. Type the exact address below and try again — you may need to pick “Use another account” and sign in fresh.` })
     else if (p) setFlash({ kind: 'err', msg: 'Could not connect (' + p + '). Try again.' })
     refresh()
   }, [])
+
+  function connect() {
+    const a = addr.trim().toLowerCase()
+    window.location.href = a ? `/api/outlook/connect?hint=${encodeURIComponent(a)}` : '/api/outlook/connect'
+  }
 
   async function disconnect(email: string) {
     if (!confirm(`Disconnect ${email}? The ERP will stop sending/reading from it.`)) return
@@ -64,9 +72,19 @@ export default function EmailPage() {
               </div>
             )}
 
-            <a href="/api/outlook/connect" className="inline-flex items-center gap-2 text-sm px-4 py-2.5 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6] font-medium mt-2">
-              <i className="ti ti-plus" />Connect {mailboxes.length ? 'another' : 'a'} mailbox
-            </a>
+            <div className="mt-2 flex flex-col sm:flex-row gap-2 sm:items-center">
+              <input
+                value={addr}
+                onChange={e => setAddr(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') connect() }}
+                placeholder="Exact address to connect (e.g. rudy.patel@byndgrn.com)"
+                className="flex-1 text-sm px-3 py-2.5 rounded-lg border border-[#D6D9E4] focus:border-[#0086C0] focus:ring-1 focus:ring-[#0086C0] outline-none"
+              />
+              <button onClick={connect} className="inline-flex items-center justify-center gap-2 text-sm px-4 py-2.5 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6] font-medium shrink-0">
+                <i className="ti ti-plus" />Connect {mailboxes.length ? 'another' : 'a'} mailbox
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">Tip: typing the address locks Microsoft to that exact mailbox. Leave blank to just pick from the account list.</p>
 
             <div className="mt-5 space-y-2 text-xs text-gray-500 border-t border-[#F0F1F5] pt-4">
               <p><b>Sign in as the exact address you want to add.</b> Each mailbox you authorize can be chosen as a sequence’s “From email.”</p>
