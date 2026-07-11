@@ -29,6 +29,7 @@ export default function LeadsPage() {
   const [sel, setSel] = useState<Record<string, boolean>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [filter, setFilter] = useState<'all' | 'new' | 'contacted'>('all')
+  const [visN, setVisN] = useState(200) // how many rows are shown (grows on scroll)
   const [userEmail, setUserEmail] = useState('')
 
   const [prompt, setPrompt] = useState('restaurants, fast food, cafes')
@@ -83,6 +84,14 @@ export default function LeadsPage() {
 
   const passFilter = (l: Lead) => filter === 'all' ? true : filter === 'contacted' ? isContacted(l) : !isContacted(l)
   const totalNew = leads.filter(l => !isContacted(l)).length
+
+  // Flat list (no grouping). Source column shows the scrape date or "Manually added".
+  const flat = useMemo(() => leads.filter(passFilter), [leads, filter]) // eslint-disable-line
+  const flatView = flat.slice(0, visN)
+  useEffect(() => { setVisN(200) }, [filter])
+  const sourceLabel = (l: Lead) => l.scraped_at ? `Scraped · ${new Date(l.scraped_at).toLocaleDateString()}` : 'Manually added'
+  const allFlatSelected = flatView.length > 0 && flatView.every(r => sel[r.id])
+  const toggleAllFlat = (on: boolean) => setSel(s => { const n = { ...s }; flatView.forEach(r => n[r.id] = on); return n })
 
   async function runScrape() {
     if (!zip.trim()) { setScrapeMsg('Enter a ZIP code.'); return }
@@ -160,59 +169,42 @@ export default function LeadsPage() {
             )}
           </div>
 
-          {loading ? <p className="text-gray-400">Loading…</p> : groups.length === 0 ? <p className="text-gray-400">No leads yet. Use “Find Leads (Scrape)”.</p> : (
-            <div className="space-y-3">
-              {groups.map(({ key, scrape, rows }) => {
-                const open = expanded[key] ?? (groups[0].key === key) // first (newest) open by default
-                const newCount = rows.filter(r => !isContacted(r)).length
-                const emailCount = rows.filter(r => r.email).length
-                const shown = rows.filter(passFilter)
-                return (
-                  <div key={key} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-                    <div onClick={() => setExpanded(e => ({ ...e, [key]: !open }))} className="w-full flex items-center gap-3 px-4 py-3 text-left bg-gray-50 hover:bg-gray-100 cursor-pointer">
-                      <span className="text-gray-400">{open ? '▾' : '▸'}</span>
-                      <div className="flex-1 min-w-0">
-                        {scrape ? (
-                          <p className="font-semibold text-sm truncate">🔍 {scrape.prompt} <span className="text-gray-400 font-normal">· ZIP {scrape.zip} · {scrape.radius_miles} mi · {scrape.created_at ? new Date(scrape.created_at).toLocaleDateString() : ''}</span></p>
-                        ) : <p className="font-semibold text-sm">📇 Existing / manually-added leads</p>}
-                      </div>
-                      <span className="text-xs text-gray-500 whitespace-nowrap">{rows.length} leads · {emailCount} emails</span>
-                      {newCount > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">{newCount} NEW</span>}
-                      <button onClick={e => { e.stopPropagation(); deleteGroup(rows, key) }} className="text-[11px] px-2 py-1 rounded border bg-red-50 text-red-600 whitespace-nowrap hover:bg-red-100">Delete group</button>
-                    </div>
-                    {open && (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead><tr className="text-left text-gray-500 border-b">
-                            <th className="p-2 w-8"><input type="checkbox" onChange={e => toggleGroup(rows, e.target.checked)} /></th>
-                            <th className="p-2">Company</th><th className="p-2">Location</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Status</th><th className="p-2 w-10"></th>
-                          </tr></thead>
-                          <tbody>
-                            {shown.slice(0, 300).map(l => {
-                              const contacted = isContacted(l)
-                              return (
-                                <tr key={l.id} className={`border-b border-gray-50 ${!contacted ? 'bg-amber-50/40' : ''}`}>
-                                  <td className="p-2"><input type="checkbox" checked={!!sel[l.id]} onChange={e => setSel(s => ({ ...s, [l.id]: e.target.checked }))} /></td>
-                                  <td className="p-2 font-medium">{l.company_name}{l.website && <a href={l.website} target="_blank" rel="noreferrer" className="text-blue-500 ml-1">↗</a>}</td>
-                                  <td className="p-2 text-gray-500">{[l.city, l.state].filter(Boolean).join(', ') || '—'}</td>
-                                  <td className="p-2">{l.email ? <a href={`mailto:${l.email}`} className="text-blue-600">{l.email}</a> : <span className="text-amber-500">none</span>}</td>
-                                  <td className="p-2 text-gray-500">{l.phone || '—'}</td>
-                                  <td className="p-2">{contacted
-                                    ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Contacted</span>
-                                    : <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">New</span>}</td>
-                                  <td className="p-2 text-right"><button onClick={() => deleteOne(l.id)} title="Delete lead" className="text-red-500 hover:text-red-700">🗑</button></td>
-                                </tr>
-                              )
-                            })}
-                            {shown.length > 300 && <tr><td colSpan={7} className="p-3 text-center text-gray-500 bg-indigo-50/40">Showing 300 of {shown.length.toLocaleString()} in this group. <Link href="/sales/leads/prospector" className="text-indigo-600 font-semibold">Open all in Lead Prospector →</Link></td></tr>}
-                            {shown.length === 0 && <tr><td colSpan={7} className="p-3 text-center text-gray-400">No leads match this filter in this group.</td></tr>}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+          {loading ? <p className="text-gray-400">Loading…</p> : flat.length === 0 ? <p className="text-gray-400">No leads match this filter.</p> : (
+            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+              <div className="max-h-[calc(100vh-260px)] overflow-auto" onScroll={e => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 500) setVisN(v => v < flat.length ? Math.min(v + 200, flat.length) : v) }}>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-gray-50 z-10"><tr className="text-left text-gray-500 border-b">
+                    <th className="p-2 w-8"><input type="checkbox" checked={allFlatSelected} onChange={e => toggleAllFlat(e.target.checked)} /></th>
+                    <th className="p-2">Company</th><th className="p-2">Location</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Industry</th><th className="p-2">Source</th><th className="p-2">Status</th><th className="p-2 w-10"></th>
+                  </tr></thead>
+                  <tbody>
+                    {flatView.map(l => {
+                      const contacted = isContacted(l)
+                      return (
+                        <tr key={l.id} className={`border-b border-gray-50 ${!contacted ? 'bg-amber-50/40' : ''}`}>
+                          <td className="p-2"><input type="checkbox" checked={!!sel[l.id]} onChange={e => setSel(s => ({ ...s, [l.id]: e.target.checked }))} /></td>
+                          <td className="p-2 font-medium">{l.company_name}{l.website && <a href={l.website} target="_blank" rel="noreferrer" className="text-blue-500 ml-1">↗</a>}</td>
+                          <td className="p-2 text-gray-500">{[l.city, l.state].filter(Boolean).join(', ') || '—'}</td>
+                          <td className="p-2">{l.email ? <a href={`mailto:${l.email}`} className="text-blue-600">{l.email}</a> : <span className="text-amber-500">none</span>}</td>
+                          <td className="p-2 text-gray-500">{l.phone || '—'}</td>
+                          <td className="p-2 text-gray-500">{l.industry || '—'}</td>
+                          <td className="p-2 whitespace-nowrap">{l.scraped_at
+                            ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">{sourceLabel(l)}</span>
+                            : <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">Manually added</span>}</td>
+                          <td className="p-2">{contacted
+                            ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Contacted</span>
+                            : <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">New</span>}</td>
+                          <td className="p-2 text-right"><button onClick={() => deleteOne(l.id)} title="Delete lead" className="text-red-500 hover:text-red-700">🗑</button></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 text-xs text-gray-500">
+                <span>Showing {flatView.length.toLocaleString()} of {flat.length.toLocaleString()}</span>
+                {flatView.length < flat.length && <button onClick={() => setVisN(v => Math.min(v + 1000, flat.length))} className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50">Load more</button>}
+              </div>
             </div>
           )}
         </>
