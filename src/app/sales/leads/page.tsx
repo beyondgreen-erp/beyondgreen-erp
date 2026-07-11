@@ -12,7 +12,7 @@ interface Lead {
   id: string; company_name: string | null; email: string | null; phone: string | null; website: string | null
   city: string | null; state: string | null; customer_status: string | null; pipeline_stage: string | null
   is_scraped_lead: boolean | null; scraped_at: string | null; scrape_region: string | null; scrape_id: string | null
-  contacted_at: string | null; latitude: number | null; longitude: number | null; industry: string | null
+  contacted_at: string | null; latitude: number | null; longitude: number | null; industry: string | null; is_dead_lead: boolean | null
 }
 interface Scrape { id: string; prompt: string | null; zip: string | null; radius_miles: number | null; center_lat: number | null; center_lng: number | null; result_count: number | null; new_count: number | null; emails_found: number | null; created_at: string | null }
 interface Region { area: string; state: string; score: number; regulationAngle: string; demographicAngle: string; suggestedZips?: string[] }
@@ -31,6 +31,8 @@ export default function LeadsPage() {
   const [filter, setFilter] = useState<'all' | 'new' | 'contacted'>('all')
   const [visN, setVisN] = useState(200) // how many rows are shown (grows on scroll)
   const [userEmail, setUserEmail] = useState('')
+  const [enrolled, setEnrolled] = useState<Set<string>>(new Set()) // customer_ids active in a sequence
+  const [sequences, setSequences] = useState<{ id: string; name: string; status: string }[]>([])
 
   const [prompt, setPrompt] = useState('restaurants, fast food, cafes')
   const [zip, setZip] = useState('')
@@ -49,7 +51,7 @@ export default function LeadsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     // Supabase caps a response at 1000 rows — page through so imported leads (not just scrapes) all load.
-    const cols = 'id, company_name, email, phone, website, city, state, customer_status, pipeline_stage, is_scraped_lead, scraped_at, scrape_region, scrape_id, contacted_at, latitude, longitude, industry'
+    const cols = 'id, company_name, email, phone, website, city, state, customer_status, pipeline_stage, is_scraped_lead, scraped_at, scrape_region, scrape_id, contacted_at, latitude, longitude, industry, is_dead_lead'
     const all: Lead[] = []
     const SIZE = 1000
     for (let from = 0; from < 100000; from += SIZE) {
@@ -64,6 +66,10 @@ export default function LeadsPage() {
     const { data: s } = await sb.from('lead_scrapes').select('*').order('created_at', { ascending: false }).limit(500)
     setLeads(all)
     setScrapes((s as Scrape[]) || [])
+    const { data: enr } = await sb.from('sequence_enrollments').select('customer_id,status').eq('status', 'active')
+    setEnrolled(new Set(((enr as any[]) || []).map(r => r.customer_id)))
+    const { data: sq } = await sb.from('sequences').select('id,name,status').in('status', ['active', 'draft']).order('created_at', { ascending: false })
+    setSequences((sq as any[]) || [])
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
@@ -122,6 +128,12 @@ export default function LeadsPage() {
     setSel({}); load()
   }
   async function convertSelected(status: string) { const ids = selIds(); if (!ids.length) return; await sb.from('customers').update({ customer_status: status }).in('id', ids); setSel({}); load() }
+  async function enrollSelected(seqId: string) {
+    const ids = selIds(); if (!seqId || !ids.length) return
+    const rows = ids.map(cid => ({ sequence_id: seqId, customer_id: cid, enrolled_by: userEmail, status: 'active', current_step: 0, next_send_at: new Date().toISOString() }))
+    await sb.from('sequence_enrollments').upsert(rows, { onConflict: 'sequence_id,customer_id' })
+    setSel({}); load()
+  }
   async function deleteSelected() { const ids = selIds(); if (!ids.length || !confirm(`Delete ${ids.length} lead(s)?`)) return; await sb.from('customers').delete().in('id', ids); setSel({}); load() }
   async function deleteOne(id: string) { if (!confirm('Delete this lead?')) return; await sb.from('customers').delete().eq('id', id); load() }
   async function deleteGroup(rows: Lead[], key: string) {
@@ -163,7 +175,10 @@ export default function LeadsPage() {
                 <button onClick={() => markContacted(true)} className="px-2.5 py-1.5 rounded border bg-blue-50 text-blue-700">Mark Contacted</button>
                 <button onClick={() => markContacted(false)} className="px-2.5 py-1.5 rounded border bg-white">Mark Not Contacted</button>
                 <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border bg-white">Convert to Prospect</button>
-                <Link href="/sales/campaign" className="px-2.5 py-1.5 rounded border bg-emerald-50 text-emerald-700">Add to Campaign →</Link>
+                <select value="" onChange={e => { if (e.target.value) enrollSelected(e.target.value) }} className="px-2 py-1.5 rounded border bg-indigo-50 text-indigo-700">
+                  <option value="">+ Add to sequence…</option>
+                  {sequences.map(s => <option key={s.id} value={s.id}>{s.name}{s.status !== 'active' ? ' (draft)' : ''}</option>)}
+                </select>
                 <button onClick={deleteSelected} className="px-2.5 py-1.5 rounded border bg-red-50 text-red-600">Delete</button>
               </div>
             )}
@@ -191,9 +206,13 @@ export default function LeadsPage() {
                           <td className="p-2 whitespace-nowrap">{l.scraped_at
                             ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">{sourceLabel(l)}</span>
                             : <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">Manually added</span>}</td>
-                          <td className="p-2">{contacted
-                            ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Contacted</span>
-                            : <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">New</span>}</td>
+                          <td className="p-2 whitespace-nowrap">{l.is_dead_lead
+                            ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-semibold">☠ Dead</span>
+                            : enrolled.has(l.id)
+                              ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">In sequence</span>
+                              : contacted
+                                ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Contacted</span>
+                                : <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">New</span>}</td>
                           <td className="p-2 text-right"><button onClick={() => deleteOne(l.id)} title="Delete lead" className="text-red-500 hover:text-red-700">🗑</button></td>
                         </tr>
                       )
