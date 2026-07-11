@@ -101,7 +101,9 @@ export async function GET(req: NextRequest) {
           const next = new Date(Date.now() + (nextStep.delay_days || 1) * 86400000).toISOString()
           await sb.from('sequence_enrollments').update({ current_step: enr.current_step + 1, last_step_sent_at: nowIso, next_send_at: next, updated_at: nowIso }).eq('id', enr.id)
         } else {
+          // Last step just went out with no reply → the lead exhausted the sequence. Mark it dead.
           await sb.from('sequence_enrollments').update({ current_step: enr.current_step + 1, last_step_sent_at: nowIso, status: 'finished', updated_at: nowIso }).eq('id', enr.id)
+          try { await sb.from('customers').update({ is_dead_lead: true, pipeline_stage: 'Dead' }).eq('id', c.id) } catch { /* ignore */ }
         }
         sent++; budget--; totalSent++
       } catch (err) {
