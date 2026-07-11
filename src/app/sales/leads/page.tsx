@@ -47,12 +47,21 @@ export default function LeadsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: l }, { data: s }] = await Promise.all([
-      sb.from('customers').select('id, company_name, email, phone, website, city, state, customer_status, pipeline_stage, is_scraped_lead, scraped_at, scrape_region, scrape_id, contacted_at, latitude, longitude, industry')
-        .or('is_scraped_lead.eq.true,customer_status.eq.Lead').order('scraped_at', { ascending: false, nullsFirst: false }).limit(5000),
-      sb.from('lead_scrapes').select('*').order('created_at', { ascending: false }).limit(500),
-    ])
-    setLeads((l as Lead[]) || [])
+    // Supabase caps a response at 1000 rows — page through so imported leads (not just scrapes) all load.
+    const cols = 'id, company_name, email, phone, website, city, state, customer_status, pipeline_stage, is_scraped_lead, scraped_at, scrape_region, scrape_id, contacted_at, latitude, longitude, industry'
+    const all: Lead[] = []
+    const SIZE = 1000
+    for (let from = 0; from < 100000; from += SIZE) {
+      const { data, error } = await sb.from('customers').select(cols)
+        .or('is_scraped_lead.eq.true,customer_status.eq.Lead')
+        .order('scraped_at', { ascending: false, nullsFirst: false })
+        .range(from, from + SIZE - 1)
+      if (error || !data || !data.length) break
+      all.push(...(data as Lead[]))
+      if (data.length < SIZE) break
+    }
+    const { data: s } = await sb.from('lead_scrapes').select('*').order('created_at', { ascending: false }).limit(500)
+    setLeads(all)
     setScrapes((s as Scrape[]) || [])
     setLoading(false)
   }, [])
@@ -179,7 +188,7 @@ export default function LeadsPage() {
                             <th className="p-2">Company</th><th className="p-2">Location</th><th className="p-2">Email</th><th className="p-2">Phone</th><th className="p-2">Status</th><th className="p-2 w-10"></th>
                           </tr></thead>
                           <tbody>
-                            {shown.map(l => {
+                            {shown.slice(0, 300).map(l => {
                               const contacted = isContacted(l)
                               return (
                                 <tr key={l.id} className={`border-b border-gray-50 ${!contacted ? 'bg-amber-50/40' : ''}`}>
@@ -195,6 +204,7 @@ export default function LeadsPage() {
                                 </tr>
                               )
                             })}
+                            {shown.length > 300 && <tr><td colSpan={7} className="p-3 text-center text-gray-500 bg-indigo-50/40">Showing 300 of {shown.length.toLocaleString()} in this group. <Link href="/sales/leads/prospector" className="text-indigo-600 font-semibold">Open all in Lead Prospector →</Link></td></tr>}
                             {shown.length === 0 && <tr><td colSpan={7} className="p-3 text-center text-gray-400">No leads match this filter in this group.</td></tr>}
                           </tbody>
                         </table>
