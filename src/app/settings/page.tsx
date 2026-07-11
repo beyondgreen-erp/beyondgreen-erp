@@ -75,6 +75,18 @@ const cards = [
     color: 'text-pink-400',
     border: 'hover:border-pink-500/40',
   },
+  {
+    href: '/settings/dev-center',
+    title: 'Dev Center',
+    description: 'Password-protected. Add new boards and manage the ERP structure — build it like Monday.com',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+      </svg>
+    ),
+    color: 'text-violet-400',
+    border: 'hover:border-violet-500/40',
+  },
 ]
 
 export default function SettingsPage() {
