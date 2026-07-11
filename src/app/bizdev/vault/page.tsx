@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { accentColor } from '@/lib/statusColors'
 import Comments from '@/components/Comments'
@@ -30,6 +30,7 @@ export default function VaultPage() {
   const [pwErr, setPwErr] = useState('')
   const [checking, setChecking] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const pwRef = useRef<HTMLInputElement>(null)
 
   const [rows, setRows] = useState<VaultItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,10 +50,12 @@ export default function VaultPage() {
 
   async function tryUnlock(e: React.FormEvent) {
     e.preventDefault()
+    const candidate = (pwRef.current?.value ?? pw).trim()
+    if (!candidate) { setPwErr('Enter the Vault password.'); return }
     setChecking(true); setPwErr('')
-    const { data, error } = await sb.rpc('verify_vault_password', { pw })
+    const { data, error } = await sb.rpc('verify_vault_password', { pw: candidate })
     setChecking(false)
-    if (!error && data === true) { setUnlocked(true); sessionStorage.setItem('vault_ok', '1'); setPw('') }
+    if (!error && data === true) { setUnlocked(true); sessionStorage.setItem('vault_ok', '1'); setPw(''); if (pwRef.current) pwRef.current.value = '' }
     else setPwErr('Incorrect password.')
   }
 
@@ -111,9 +114,9 @@ export default function VaultPage() {
           <div className="mon-modal-head h-purple"><div><h2 className="text-lg">🔒 The Vault</h2><p className="text-white/80 text-xs mt-0.5">Leadership only · password protected</p></div></div>
           <div className="p-6 space-y-3">
             <p className="text-xs text-gray-500">Enter the Vault password to view secure credentials.</p>
-            <input type="password" autoFocus value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className={inp} />
+            <input ref={pwRef} type="password" autoFocus value={pw} onChange={e => setPw(e.target.value)} onInput={e => setPw((e.target as HTMLInputElement).value)} placeholder="Password" className={inp} />
             {pwErr && <p className="text-xs text-red-600">{pwErr}</p>}
-            <button type="submit" disabled={checking || !pw} className="mon-btn w-full justify-center !py-2.5" style={{ background: '#A25DDC', borderColor: '#6C2FA0' }}>{checking ? 'Checking…' : 'Unlock Vault'}</button>
+            <button type="submit" disabled={checking} className="mon-btn w-full justify-center !py-2.5" style={{ background: '#A25DDC', borderColor: '#6C2FA0' }}>{checking ? 'Checking…' : 'Unlock Vault'}</button>
           </div>
         </form>
       </div>
