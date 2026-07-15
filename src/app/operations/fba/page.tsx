@@ -142,7 +142,7 @@ export default function FbaBoard() {
   ]
 
   return (
-    <div className="min-h-screen mon-page">
+    <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
@@ -206,9 +206,9 @@ export default function FbaBoard() {
                           <th className="w-8" />
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-[#F4F5F8]">
-                        {gr.map(r => (
-                          <tr key={r.id} className="group mon-row" onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
+                      <tbody className="divide-y divide-[#EAECF2]">
+                        {gr.map((r, i) => (
+                          <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
                             <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab select-none" draggable onDragStart={() => { dragId.current = r.id }} title="Drag to reorder or move">&#8942;&#8942;</td>
                             <td className={cellCls + ' font-semibold'}><TextCell r={r} field="name" ph="Item name" /></td>
                             <td className="px-3 py-1.5 w-[150px]"><StatusCell r={r} /></td>
