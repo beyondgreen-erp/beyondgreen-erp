@@ -40,6 +40,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/production/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', nav_group: 'Sales', href: '/production/shipping-queue', sort_order: 3 },
   { board_key: '/shipments', label: 'Shipments', icon: 'ti-package-export', nav_group: 'Sales', href: '/shipments', sort_order: 4 },
   { board_key: '/operations/fba', label: 'FBA / WFS', icon: 'ti-brand-amazon', nav_group: 'Sales', href: '/operations/fba', sort_order: 5 },
+  { board_key: '/sales/daily-ship-report', label: '2026 Daily Ship Report', icon: 'ti-chart-dots', nav_group: 'Sales', href: '/sales/daily-ship-report', sort_order: 6 },
   { board_key: '/production/reports', label: 'Production Reports', icon: 'ti-chart-line', nav_group: 'Production', href: '/production/reports', sort_order: 0 },
   { board_key: '/production/daily-plan', label: 'Daily Plan', icon: 'ti-calendar-week', nav_group: 'Production', href: '/production/daily-plan', sort_order: 1 },
   { board_key: '/production/work-orders', label: 'Work Orders', icon: 'ti-tool', nav_group: 'Production', href: '/production/work-orders', sort_order: 2 },
