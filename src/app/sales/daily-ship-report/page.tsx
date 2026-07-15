@@ -21,16 +21,13 @@ const rowTotal = (r: Row) => (Number(r.amazon) || 0) + (Number(r.shopify) || 0) 
 const money = (n: number, dec = 2) => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH_KEYS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+const MONTH_HEX: Record<string, string> = { Jan: '#0086C0', Feb: '#9D50DD', Mar: '#00C875', Apr: '#FDAB3D', May: '#E2445C', Jun: '#2B76E5', Jul: '#00A89D', Aug: '#FF9900', Sep: '#037f4c', Oct: '#df2f4a', Nov: '#579bfc', Dec: '#9d50dd' }
 function monthColor(title: string): string {
   const t = (title || '').trim().toLowerCase()
-  if (t.startsWith('january')) return '#0086C0'
-  if (t.startsWith('february')) return '#9D50DD'
-  if (t.startsWith('march')) return '#00C875'
-  if (t.startsWith('april')) return '#FDAB3D'
-  if (t.startsWith('may')) return '#E2445C'
-  if (t.startsWith('june')) return '#2B76E5'
-  if (t.startsWith('july')) return '#00A89D'
-  return '#9699A6'
+  const idx = MONTH_KEYS.findIndex(k => t.startsWith(k))
+  return idx >= 0 ? MONTH_HEX[MONTHS[idx]] : '#9699A6'
 }
 
 function Stat({ label, value, c }: { label: string; value: string | number; c?: string }) {
@@ -48,6 +45,7 @@ export default function DailyShipReportPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [statMode, setStatMode] = useState<'channel' | 'month'>('channel')
   const [edit, setEdit] = useState<{ id: string; field: string } | null>(null)
   const dragId = useRef<string | null>(null)
 
@@ -100,13 +98,32 @@ export default function DailyShipReportPage() {
       if (cur === undefined) m.set(key, d)
       else if (d && (!cur || d < cur)) m.set(key, d)
     }
+    // newest week on top, oldest at the bottom
     return [...m.entries()]
       .map(([key, minDate]) => ({ key, color: monthColor(key), minDate }))
-      .sort((a, b) => (a.minDate || '9999').localeCompare(b.minDate || '9999') || a.key.localeCompare(b.key))
+      .sort((a, b) => (b.minDate || '0000').localeCompare(a.minDate || '0000') || b.key.localeCompare(a.key))
   }, [rows])
 
   const shown = groups.reduce((a, g) => a + groupRows(g.key).length, 0)
   const grand = rows.reduce((a, r) => a + rowTotal(r), 0)
+
+  // Monthly aggregation for the "By Month" tile view
+  const monthAgg = useMemo(() => {
+    const m = new Map<string, { label: string; sort: number; total: number }>()
+    for (const r of rows) {
+      let label = 'Other', sort = 9999
+      if (r.ship_date) {
+        const d = new Date(r.ship_date + 'T00:00:00')
+        sort = d.getFullYear() * 12 + d.getMonth(); label = MONTHS[d.getMonth()]
+      } else {
+        const idx = MONTH_KEYS.findIndex(k => (r.group_name || '').trim().toLowerCase().startsWith(k))
+        if (idx >= 0) { sort = 2026 * 12 + idx; label = MONTHS[idx] }
+      }
+      const cur = m.get(label) || { label, sort, total: 0 }
+      cur.total += rowTotal(r); m.set(label, cur)
+    }
+    return [...m.values()].sort((a, b) => a.sort - b.sort)
+  }, [rows])
 
   const inpCls = 'w-full bg-white border border-[#0086C0] rounded px-2 py-1 text-[13px] focus:outline-none'
   const Cell = ({ r, field, type = 'text', money: isMoney = false }: { r: Row; field: keyof Row; type?: 'text' | 'num' | 'date'; money?: boolean }) => {
@@ -139,9 +156,20 @@ export default function DailyShipReportPage() {
       </div>
 
       {!loading && (
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
-          <Stat label="Total Shipped" value={money(grand, 0)} c="#00A84F" />
-          {CHANNELS.map(c => <Stat key={c.field} label={c.label} value={money(rows.reduce((a, r) => a + (Number(r[c.field]) || 0), 0), 0)} c={c.color} />)}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{statMode === 'channel' ? 'Total sales by channel' : 'Total sales by month'}</p>
+            <div className="inline-flex rounded-lg border border-[#E4E6EE] bg-white p-0.5 text-xs">
+              <button onClick={() => setStatMode('channel')} className={`px-3 py-1.5 rounded-md ${statMode === 'channel' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Channel</button>
+              <button onClick={() => setStatMode('month')} className={`px-3 py-1.5 rounded-md ${statMode === 'month' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Month</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            <Stat label="Total Shipped" value={money(grand, 0)} c="#00A84F" />
+            {statMode === 'channel'
+              ? CHANNELS.map(c => <Stat key={c.field} label={c.label} value={money(rows.reduce((a, r) => a + (Number(r[c.field]) || 0), 0), 0)} c={c.color} />)
+              : monthAgg.map(mo => <Stat key={mo.label} label={mo.label} value={money(mo.total, 0)} c={MONTH_HEX[mo.label] || '#9699A6'} />)}
+          </div>
         </div>
       )}
 
