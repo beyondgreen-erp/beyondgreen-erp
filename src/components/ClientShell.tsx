@@ -1,7 +1,6 @@
 'use client'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import Sidebar from './Sidebar'
 import TopNav from './TopNav'
 import PresenceTracker from './PresenceTracker'
 import Chat from './Chat'
@@ -99,10 +98,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
       <AuthWatcher />
       <InstallPrompt />
       <div className="flex min-h-screen" style={{ background: '#F5F6FA' }}>
-        {/* Sidebar renders itself as fixed + spacer */}
-        <Sidebar />
-
-        {/* Main area */}
+        {/* Top-nav-only layout (sidebar removed) */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Sticky top navigation: group dropdowns + global search + user menu */}
           <TopNav

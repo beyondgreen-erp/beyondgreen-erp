@@ -117,13 +117,6 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   return (
     <header className="shrink-0 sticky top-0 z-30" style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}>
       <div ref={navRef} className="flex items-center gap-2 px-3 sm:px-5" style={{ height: 64 }}>
-        {/* sidebar toggle */}
-        <button
-          onClick={() => window.dispatchEvent(new Event('toggle-sidebar'))}
-          className="shrink-0 w-9 h-9 rounded-lg hidden md:flex items-center justify-center text-gray-500 hover:bg-[#F0F1F5] hover:text-[#1A1D2E]"
-          title="Toggle sidebar"
-        ><i className="ti ti-menu-2 text-lg" /></button>
-
         <h1 className="font-bold text-base sm:text-lg truncate shrink-0 max-w-[36vw] md:max-w-none" style={{ color: '#1A1D2E' }}>{activeTitle}</h1>
 
         {/* group dropdowns */}
