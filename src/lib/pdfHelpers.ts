@@ -46,6 +46,11 @@ const GRAY: [number, number, number] = [120, 120, 120]
 const fmt$ = (n: number) => '$' + n.toFixed(2)
 
 const fmtMoney = (n: number) => (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtCost = (n: number) => {
+  if (!n) return ''
+  if (n < 1) { let str = n.toFixed(4).replace(/0+$/, ''); const dec = str.split('.')[1]; if (!dec || dec.length < 2) str = n.toFixed(2); return str }
+  return fmtMoney(n)
+}
 const COMPANY = { name: 'beyondGREEN biotech, Inc.', addr: ['1202 E Wakeham Ave', 'Santa Ana, CA 92705', 'dba beyondGREEN'] }
 
 let _bgLogoCache: string | null | undefined
@@ -364,13 +369,20 @@ export async function generateOrderPDF(
   })
 
   // Line items
+  // If no line has an explicit unit price but the order has a total, derive cost/unit from the total
+  const totalQty = lines.reduce((s, l) => s + (l.quantity || 0), 0)
+  const anyPriced = lines.some(l => (l.unit_price || 0) > 0)
+  const derivedUnit = (!anyPriced && (order.total || 0) > 0 && totalQty > 0) ? (order.total as number) / totalQty : 0
+  const unitOf = (l: PDFLine) => ((l.unit_price || 0) > 0 ? l.unit_price : derivedUnit)
+  const lineTotalOf = (l: PDFLine) => l.quantity * unitOf(l) * (1 - (l.discount_pct || 0) / 100)
   const bodyRows = lines.map(l => {
-    const total = l.quantity * l.unit_price * (1 - (l.discount_pct || 0) / 100)
+    const u = unitOf(l)
+    const total = lineTotalOf(l)
     return [
       l.sku ?? '',
       l.description ?? '',
       l.quantity ? String(l.quantity) : '',
-      l.unit_price ? fmtMoney(l.unit_price) : '',
+      u ? fmtCost(u) : '',
       l.unit_of_measure ?? '',
       total ? fmtMoney(total) : '',
     ]
@@ -393,7 +405,7 @@ export async function generateOrderPDF(
     },
   })
 
-  const grand = lines.reduce((sum, l) => sum + l.quantity * l.unit_price * (1 - (l.discount_pct || 0) / 100), 0) || (order.total ?? 0)
+  const grand = lines.reduce((sum, l) => sum + lineTotalOf(l), 0) || (order.total ?? 0)
   let afterY = (doc as any).lastAutoTable.finalY + 22
   if (afterY > H - 120) afterY = H - 120
 
