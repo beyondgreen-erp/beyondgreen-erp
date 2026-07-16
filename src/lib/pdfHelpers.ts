@@ -395,13 +395,13 @@ export async function generateOrderPDF(
 
   const grand = lines.reduce((sum, l) => sum + l.quantity * l.unit_price * (1 - (l.discount_pct || 0) / 100), 0) || (order.total ?? 0)
   let afterY = (doc as any).lastAutoTable.finalY + 22
-  if (afterY > H - 80) afterY = H - 80
+  if (afterY > H - 120) afterY = H - 120
 
   // Footer notes (left)
   doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
   const notes = [
-    '(1) This SO confirms no any extra deductions or charges by customer and full amount will be paid against the Invoice submission within the terms',
-    '(2) Any quality issues, please inform within 7 days from receipt of the goods.',
+    'Payment: Custom projects require a 40% deposit to confirm the order; the balance is due at time of shipment unless approved credit terms apply. First custom-project orders are not eligible for credit terms - to apply, email finance@beyondgreenbiotech.com.',
+    'Freight is billed on an actual basis. Report any quality or shortage claims within 7 days of receipt. This sale is subject to the Terms & Conditions of Sale on the following page.',
   ]
   let ny = afterY
   notes.forEach(n => {
@@ -419,7 +419,73 @@ export async function generateOrderPDF(
   doc.setFontSize(14)
   doc.text('$' + fmtMoney(grand), tbX + tbW - 12, tbY + 26, { align: 'right' })
 
+  // ---- Page 2: Terms & Conditions of Sale ----
+  drawTermsPage(doc, order)
+
   doc.save(`sales-order-${(order.order_number || 'SO').replace(/[^\w.-]+/g, '_')}.pdf`)
+}
+
+const SO_TERMS: [string, string][] = [
+  ['1. Acceptance', 'This Sales Order and these Terms & Conditions of Sale constitute the entire agreement between beyondGREEN biotech, Inc. ("Seller") and the customer named above ("Buyer") and supersede any prior understandings. Seller\'s acceptance is expressly limited to these terms. Any additional or conflicting terms in Buyer\'s documents are rejected unless expressly agreed to in writing by Seller.'],
+  ['2. Prices & Taxes', 'Prices are in U.S. dollars and exclude all sales, use, excise, and similar taxes, duties, and fees, which are the responsibility of Buyer unless a valid exemption certificate is provided. Quoted prices are valid for 30 days unless otherwise stated.'],
+  ['3. Payment Terms', 'For custom projects, a 40% deposit is required to confirm and schedule the order, with the remaining balance due at the time of shipment, unless credit terms have been applied for and approved by Seller in writing. Approved credit terms are Net 30 days from the invoice date. First orders for custom projects are not eligible for credit terms. To apply for credit terms, email finance@beyondgreenbiotech.com.'],
+  ['4. Deposits', 'Deposits are non-refundable once production has been scheduled or materials have been procured, given the custom, made-to-order nature of the goods.'],
+  ['5. Late Payment', 'Past-due balances accrue interest at 1.5% per month (or the maximum rate permitted by law). Buyer is responsible for reasonable costs of collection, including attorneys\' fees. Seller may suspend performance or shipment while any balance is past due.'],
+  ['6. Delivery, Title & Risk of Loss', 'Unless otherwise stated on the face of this order, shipments are FOB Origin, Santa Ana, California. Title and risk of loss pass to Buyer upon delivery of the goods to the carrier. Delivery and completion dates are good-faith estimates and are not guaranteed.'],
+  ['7. Freight', 'Freight, handling, and insurance are billed to Buyer on an actual basis unless otherwise agreed in writing. Seller may select the carrier and routing absent written instructions from Buyer.'],
+  ['8. Inspection & Claims', 'Buyer shall inspect all goods promptly upon receipt. Claims for shortages, defects, damage, or non-conformance must be submitted in writing within 7 days of receipt. Failure to notify Seller within this period constitutes irrevocable acceptance of the goods.'],
+  ['9. Cancellation & Returns', 'Custom and made-to-order goods are non-cancellable and non-returnable once production has commenced. Any authorized return of standard stock items requires Seller\'s prior written authorization and may be subject to a restocking fee.'],
+  ['10. Limited Warranty', 'Seller warrants that the goods will materially conform to the agreed specifications and be free from defects in material and workmanship under normal use for twelve (12) months from delivery. Buyer\'s sole and exclusive remedy, at Seller\'s option, is the repair, replacement, or refund of the purchase price of non-conforming goods.'],
+  ['11. Disclaimer of Warranties', 'EXCEPT AS EXPRESSLY SET FORTH ABOVE, SELLER DISCLAIMS ALL OTHER WARRANTIES, EXPRESS OR IMPLIED, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.'],
+  ['12. Limitation of Liability', 'Seller\'s total liability arising out of or relating to this order shall not exceed the purchase price of the goods giving rise to the claim. In no event shall Seller be liable for any indirect, incidental, special, punitive, or consequential damages, including lost profits, even if advised of the possibility of such damages.'],
+  ['13. Buyer-Supplied Content & Compliance', 'Buyer is responsible for ensuring that any artwork, labeling, dimensions, or specifications it provides are accurate, comply with applicable laws, and do not infringe any third-party rights. Buyer shall indemnify and hold Seller harmless from any claims arising out of Buyer-supplied content or instructions.'],
+  ['14. Force Majeure', 'Seller shall not be liable for any delay or failure to perform due to causes beyond its reasonable control, including acts of God, government action, supply or material shortages, labor disputes, utility or transportation interruptions, or public-health events.'],
+  ['15. Governing Law', 'This agreement is governed by the laws of the State of California, without regard to its conflict-of-laws principles. The exclusive venue for any dispute shall be the state or federal courts located in Orange County, California. If any provision is held unenforceable, the remaining provisions remain in full force.'],
+]
+
+function drawTermsPage(doc: jsPDF, order: PDFOrder) {
+  doc.addPage()
+  const W = doc.internal.pageSize.getWidth()
+  const H = doc.internal.pageSize.getHeight()
+  const L = 36, R = W - 36, CW = R - L
+  let y = 54
+  doc.setTextColor(0, 0, 0)
+  doc.setFont('times', 'bold'); doc.setFontSize(15)
+  doc.text('Terms & Conditions of Sale', L, y)
+  doc.setFont('times', 'normal'); doc.setFontSize(8.5)
+  doc.text(`${COMPANY.name}  |  Sales Order ${order.order_number || ''}`.trim(), R, y, { align: 'right' })
+  y += 8
+  doc.setDrawColor(120, 120, 120); doc.setLineWidth(0.6); doc.line(L, y, R, y)
+  y += 16
+
+  const ensure = (need: number) => { if (y + need > H - 60) { doc.addPage(); y = 54 } }
+
+  SO_TERMS.forEach(([title, body]) => {
+    doc.setFont('times', 'bold'); doc.setFontSize(9)
+    const headLines = doc.splitTextToSize(title, CW) as string[]
+    doc.setFont('times', 'normal'); doc.setFontSize(8.5)
+    const bodyLines = doc.splitTextToSize(body, CW) as string[]
+    ensure(headLines.length * 10.5 + bodyLines.length * 9.8 + 8)
+    doc.setFont('times', 'bold'); doc.setFontSize(9)
+    doc.text(headLines, L, y); y += headLines.length * 10.5
+    doc.setFont('times', 'normal'); doc.setFontSize(8.5)
+    doc.text(bodyLines, L, y); y += bodyLines.length * 9.8 + 7
+  })
+
+  // Acknowledgement / signature line
+  ensure(48)
+  y += 6
+  doc.setDrawColor(120, 120, 120); doc.setLineWidth(0.5)
+  doc.line(L, y, L + 240, y)
+  doc.line(R - 150, y, R, y)
+  doc.setFont('times', 'normal'); doc.setFontSize(8)
+  doc.setTextColor(90, 90, 90)
+  doc.text('Accepted & Agreed (Buyer Signature)', L, y + 11)
+  doc.text('Date', R - 150, y + 11)
+
+  // Footer
+  doc.setFontSize(7.5); doc.setTextColor(120, 120, 120)
+  doc.text(`${COMPANY.name}  -  1202 E Wakeham Ave, Santa Ana, CA 92705  -  finance@beyondgreenbiotech.com`, W / 2, H - 30, { align: 'center' })
 }
 
 export function generateQuotePDF(
