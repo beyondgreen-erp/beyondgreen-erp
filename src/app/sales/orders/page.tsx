@@ -267,7 +267,7 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
 const emptyForm = {
   notes: '', order_section: '', order_number: '', status: 'Pending', facility: '',
   monday_item_id: '', order_date: '', production_start: '', estimated_completion: '',
-  ship_date: '', customer_id: '', customer_email: '', customer_phone: '',
+  ship_date: '', customer_id: '', customer_label: '', customer_email: '', customer_phone: '',
   shipping_address: '', total_amount: '', purchase_order_url: '', packing_slip_url: '',
   bol: '', additional_comments: '',
   terms: 'Net 30', fob: 'Santa Ana', sales_rep: 'RP',
@@ -291,7 +291,7 @@ interface EditLineState {
 
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
-  customers, products, err, saving, onClose, onSave, onDelete, onDownloadSalesOrder,
+  customers, products, err, saving, onClose, onSave, onDelete, onDownloadSalesOrder, onSearchLeads,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -307,9 +307,37 @@ function EditPanel({
   onSave: () => void
   onDelete: () => void
   onDownloadSalesOrder: () => void
+  onSearchLeads: (q: string) => Promise<{ id: string; company_name: string }[]>
 }) {
   const [skuDropdown, setSkuDropdown] = useState<number | null>(null)
   const [skuQ, setSkuQ] = useState('')
+  // Customer / lead linking
+  const [custMode, setCustMode] = useState<'customer' | 'lead'>('customer')
+  const [custQ, setCustQ] = useState('')
+  const [custOpen, setCustOpen] = useState(false)
+  const [leadQ, setLeadQ] = useState('')
+  const [leadResults, setLeadResults] = useState<{ id: string; company_name: string }[]>([])
+  const [leadSearching, setLeadSearching] = useState(false)
+  const [pickedLead, setPickedLead] = useState(false)
+  useEffect(() => {
+    if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false) }
+  }, [open, editing])
+  useEffect(() => {
+    if (custMode !== 'lead') return
+    const q = leadQ.trim()
+    if (q.length < 2) { setLeadResults([]); setLeadSearching(false); return }
+    let active = true
+    setLeadSearching(true)
+    const t = setTimeout(async () => {
+      const res = await onSearchLeads(q)
+      if (active) { setLeadResults(res); setLeadSearching(false) }
+    }, 250)
+    return () => { active = false; clearTimeout(t) }
+  }, [leadQ, custMode, onSearchLeads])
+  const custMatches = customers.filter(c => c.company_name.toLowerCase().includes(custQ.toLowerCase())).slice(0, 50)
+  function pickCustomer(c: Customer) { setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name })); setPickedLead(false); setCustOpen(false); setCustQ('') }
+  function pickLead(l: { id: string; company_name: string }) { setForm(p => ({ ...p, customer_id: l.id, customer_label: l.company_name })); setPickedLead(true); setLeadQ(''); setLeadResults([]) }
+  function clearLinkedCustomer() { setForm(p => ({ ...p, customer_id: '', customer_label: '' })); setPickedLead(false) }
   const skuMatches = products.filter(p =>
     skuQ.length > 0 && (p.sku.toLowerCase().includes(skuQ.toLowerCase()) || p.product_name.toLowerCase().includes(skuQ.toLowerCase()))
   ).slice(0, 8)
@@ -465,11 +493,48 @@ function EditPanel({
             <p className="text-xs font-semibold uppercase tracking-wider mb-3">Customer Info</p>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Link to Customer</label>
-                <select value={form.customer_id} onChange={e => setForm(p => ({ ...p, customer_id: e.target.value }))} className={inp + ' cursor-pointer'}>
-                  <option value="">— None —</option>
-                  {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-                </select>
+                <label className="block text-xs text-gray-400 mb-1.5">Customer</label>
+                {form.customer_id ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 flex items-center gap-2 bg-white border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm text-[#1A1D2E] min-w-0">
+                      <span className="truncate">{form.customer_label || 'Linked customer'}</span>
+                      {pickedLead && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 whitespace-nowrap">Lead → Customer on save</span>}
+                    </div>
+                    <button type="button" onClick={clearLinkedCustomer} className="text-xs px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 transition-colors whitespace-nowrap">Change</button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="inline-flex rounded-lg border border-[#E4E6EE] p-0.5 mb-2">
+                      <button type="button" onClick={() => setCustMode('customer')} className={`text-xs px-3 py-1.5 rounded-md transition-colors ${custMode === 'customer' ? 'bg-[#037f4c] text-white' : 'text-gray-500 hover:text-gray-700'}`}>Existing customer</button>
+                      <button type="button" onClick={() => setCustMode('lead')} className={`text-xs px-3 py-1.5 rounded-md transition-colors ${custMode === 'lead' ? 'bg-[#037f4c] text-white' : 'text-gray-500 hover:text-gray-700'}`}>Convert a lead (first order)</button>
+                    </div>
+                    {custMode === 'customer' ? (
+                      <div className="relative">
+                        <input value={custQ} onChange={e => { setCustQ(e.target.value); setCustOpen(true) }} onFocus={() => setCustOpen(true)} onBlur={() => setTimeout(() => setCustOpen(false), 150)} placeholder="Search customers…" className={inp}/>
+                        {custOpen && custQ && (
+                          <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto bg-white border border-[#E4E6EE] rounded-lg shadow-lg">
+                            {custMatches.length ? custMatches.map(c => (
+                              <button type="button" key={c.id} onMouseDown={e => e.preventDefault()} onClick={() => pickCustomer(c)} className="block w-full text-left px-3 py-2 text-sm text-[#1A1D2E] hover:bg-gray-50 truncate">{c.company_name}</button>
+                            )) : <div className="px-3 py-2 text-sm text-gray-400">No matching customers</div>}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input value={leadQ} onChange={e => setLeadQ(e.target.value)} placeholder="Search leads to convert…" className={inp}/>
+                        {leadQ.trim().length >= 2 && (
+                          <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto bg-white border border-[#E4E6EE] rounded-lg shadow-lg">
+                            {leadSearching ? <div className="px-3 py-2 text-sm text-gray-400">Searching…</div>
+                              : leadResults.length ? leadResults.map(l => (
+                                <button type="button" key={l.id} onMouseDown={e => e.preventDefault()} onClick={() => pickLead(l)} className="block w-full text-left px-3 py-2 text-sm text-[#1A1D2E] hover:bg-gray-50 truncate">{l.company_name}</button>
+                              )) : <div className="px-3 py-2 text-sm text-gray-400">No matching leads</div>}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-amber-600 mt-1">Pick a lead — it moves from the Leads board to Customers when you save this order.</p>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -687,7 +752,7 @@ export default function OrdersPage() {
     setLoading(true); setLoadError('')
     const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }] = await Promise.all([
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone)').order('created_at', { ascending: false }),
-      sb.from('customers').select('id,company_name').eq('is_active', true).order('company_name'),
+      sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id').eq('sku_flagged', true),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
@@ -835,6 +900,18 @@ export default function OrdersPage() {
     await generateOrderPDF(buildPdfOrder(order), lines, customer)
   }
 
+  async function searchLeads(q: string): Promise<{ id: string; company_name: string }[]> {
+    const term = q.trim()
+    if (term.length < 2) return []
+    const { data } = await sb.from('customers')
+      .select('id,company_name')
+      .eq('board', 'Leads')
+      .ilike('company_name', `%${term}%`)
+      .order('company_name')
+      .limit(25)
+    return (data ?? []) as { id: string; company_name: string }[]
+  }
+
   // Build a customer-ready Sales Order straight from the current form (usable before saving)
   async function downloadFromForm() {
     const cust = await fetchCustomerForPdf(form.customer_id)
@@ -914,6 +991,7 @@ export default function OrdersPage() {
       estimated_completion: order.estimated_completion ?? '',
       ship_date: order.ship_date ?? order.required_ship_date ?? '',
       customer_id: order.customer_id ?? '',
+      customer_label: order.customer?.company_name ?? '',
       customer_email: order.customer_email ?? '',
       customer_phone: order.customer_phone ?? '',
       shipping_address: order.shipping_address ?? '',
@@ -1528,6 +1606,7 @@ export default function OrdersPage() {
         onSave={save}
         onDelete={() => editingOrder && handleDelete(editingOrder.id)}
         onDownloadSalesOrder={downloadFromForm}
+        onSearchLeads={searchLeads}
       />
       {confirmDeleteId && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
