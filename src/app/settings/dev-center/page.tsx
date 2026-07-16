@@ -74,6 +74,8 @@ export default function DevCenterPage() {
   // ── Manage boards ──
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [dragKey, setDragKey] = useState<string | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const allGroups = useMemo(() => groupBoards(boards, { includeHidden: true }), [boards])
   const groupOptions = useMemo(() => Array.from(new Set([...GROUP_ORDER, ...boards.map(b => b.nav_group)])), [boards])
   const q = search.trim().toLowerCase()
@@ -92,11 +94,36 @@ export default function DevCenterPage() {
     })
     if (!error) { boardsChanged(); reload() }
   }
-  async function moveBoard(group: string, idx: number, dir: -1 | 1) {
-    const items = allGroups.find(g => g.group === group)?.items || []
-    const j = idx + dir; if (j < 0 || j >= items.length) return
-    const a = items[idx], b = items[j]
-    await meta(a, { sort_order: b.sort_order }); await meta(b, { sort_order: a.sort_order })
+  const groupKeys = (group: string) => (allGroups.find(g => g.group === group)?.items || []).map(b => b.board_key)
+  // Rewrite the whole group's sort_order to sequential 0..n (deterministic — fixes duplicate/tied sort values),
+  // and re-home any board dragged in from another group. One refresh at the end.
+  async function persistOrder(group: string, orderedKeys: string[]) {
+    for (let i = 0; i < orderedKeys.length; i++) {
+      const b = boards.find(x => x.board_key === orderedKeys[i])
+      if (!b) continue
+      if (b.sort_order !== i || b.nav_group !== group) {
+        await sb.rpc('update_board_meta', {
+          p_pw: pw, p_key: b.board_key, p_label: b.label, p_icon: b.icon ?? null,
+          p_nav_group: group, p_sort_order: i, p_is_hidden: b.is_hidden ?? false,
+        })
+      }
+    }
+    boardsChanged(); reload()
+  }
+  function moveBoard(group: string, idx: number, dir: -1 | 1) {
+    const keys = groupKeys(group)
+    const j = idx + dir; if (j < 0 || j >= keys.length) return
+    const tmp = keys[idx]; keys[idx] = keys[j]; keys[j] = tmp
+    persistOrder(group, keys)
+  }
+  function onDropRow(group: string, targetKey: string | null) {
+    const from = dragKey; setDragKey(null); setDragOverKey(null)
+    if (!from) return
+    const keys = groupKeys(group).filter(k => k !== from)
+    let to = targetKey ? keys.indexOf(targetKey) : keys.length
+    if (to < 0) to = keys.length
+    keys.splice(to, 0, from)
+    persistOrder(group, keys)
   }
   async function removeBoard(b: Board) {
     if (!b.is_custom) return
@@ -209,11 +236,15 @@ export default function DevCenterPage() {
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: c + '26', color: c }}>{section.items.length}</span>
               </div>
               {!isCol && (
-                <div className="divide-y divide-[#EAECF2]">
+                <div className="divide-y divide-[#EAECF2]" onDragOver={e => e.preventDefault()} onDrop={() => onDropRow(section.group, null)}>
                   {section.items.map((b, idx) => {
                     const realIdx = fullItems.findIndex(x => x.board_key === b.board_key)
                     return (
-                      <div key={b.board_key} className={`mon-row flex items-center gap-2 px-3 py-2.5 ${idx % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`}>
+                      <div key={b.board_key}
+                        onDragOver={e => { e.preventDefault(); if (dragKey && dragOverKey !== b.board_key) setDragOverKey(b.board_key) }}
+                        onDrop={() => onDropRow(section.group, b.board_key)}
+                        className={`group mon-row flex items-center gap-2 px-3 py-2.5 ${idx % 2 ? 'bg-[#F6F8FB]' : 'bg-white'} ${dragKey && dragOverKey === b.board_key ? 'ring-2 ring-inset ring-[#A25DDC]/50' : ''}`}>
+                        <span draggable onDragStart={() => setDragKey(b.board_key)} onDragEnd={() => { setDragKey(null); setDragOverKey(null) }} className="cursor-grab active:cursor-grabbing text-gray-300 group-hover:text-gray-500 select-none shrink-0 px-0.5" title="Drag to reorder">&#8942;&#8942;</span>
                         <i className={`ti ${b.icon || 'ti-layout-board'} text-base w-5 text-center shrink-0`} style={{ color: c }} />
                         <input defaultValue={b.label} onBlur={e => { const v = e.target.value.trim(); if (v && v !== b.label) meta(b, { label: v }) }} className={inp + ' flex-1 min-w-0'} />
                         <select value={b.nav_group} onChange={e => meta(b, { nav_group: e.target.value })} className={inp + ' hidden sm:block'}>
