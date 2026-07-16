@@ -1030,7 +1030,6 @@ export default function OrdersPage() {
       facility: form.facility || null,
       production_start: form.production_start || null,
       estimated_completion: form.estimated_completion || null,
-      ship_date: form.ship_date || null,
       customer_email: form.customer_email || null,
       customer_phone: form.customer_phone || null,
       additional_comments: form.additional_comments || null,
