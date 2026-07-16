@@ -62,8 +62,31 @@ export default function UsersPage() {
   const [del, setDel] = useState<Profile | null>(null)
   const [delText, setDelText] = useState('')
   const [delBusy, setDelBusy] = useState(false)
+  const [pw, setPw] = useState('')
+  const [pwShow, setPwShow] = useState(false)
+  const [pwBusy, setPwBusy] = useState(false)
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setMeId(data.user?.id ?? null)) }, [sb])
+
+  const iAmAdmin = useMemo(() => profiles.some(p => p.user_id === meId && p.is_admin), [profiles, meId])
+
+  async function setPassword() {
+    if (!editing || pw.length < 8) return
+    setPwBusy(true)
+    try {
+      const res = await fetch('/api/users/set-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editing.id, password: pw, requesterId: meId }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Failed to set password')
+      setNotice({ ok: true, msg: `Password updated for ${editing.email}.` })
+      setPw(''); setPwShow(false)
+    } catch (e) {
+      setNotice({ ok: false, msg: (e as Error).message })
+    }
+    setPwBusy(false)
+  }
 
   async function confirmDelete() {
     if (!del) return
@@ -110,6 +133,7 @@ export default function UsersPage() {
       role: p.role,
       department: p.department ?? '',
     })
+    setPw(''); setPwShow(false)
     setNotice(null)
   }
 
@@ -304,6 +328,35 @@ export default function UsersPage() {
                 </select>
               </div>
             </div>
+            {/* Reset password (admins only) */}
+            {iAmAdmin && (
+              <div className="pt-3 border-t border-[#E4E6EE]">
+                <label className="block text-xs text-gray-400 mb-1.5">Reset Password <span className="text-gray-400/70">— set a new password for this user</span></label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={pwShow ? 'text' : 'password'}
+                      value={pw}
+                      onChange={e => setPw(e.target.value)}
+                      placeholder="New password (min 8 characters)"
+                      autoComplete="new-password"
+                      className={inp + ' pr-16'}
+                    />
+                    <button type="button" onClick={() => setPwShow(s => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600">
+                      {pwShow ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <button
+                    onClick={setPassword}
+                    disabled={pwBusy || pw.length < 8}
+                    className="text-sm px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium whitespace-nowrap transition-colors"
+                  >
+                    {pwBusy ? 'Setting…' : 'Set password'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">The user can sign in with this new password immediately. Share it with them securely.</p>
+              </div>
+            )}
             {notice && (
               <div className={`text-xs px-3 py-2.5 rounded-lg border ${notice.ok ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
                 {notice.msg}
