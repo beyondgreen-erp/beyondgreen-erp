@@ -13,7 +13,7 @@ import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
 import { statusColor } from '@/lib/statusColors'
-import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder } from '@/lib/pdfHelpers'
+import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
 import PoExtractUpload from '@/components/PoExtractUpload'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -41,10 +41,12 @@ interface SalesOrder {
   purchase_order_url: string | null
   packing_slip_url: string | null
   bol: string | null
-  load_id: string | null
   total_amount: number | null
   total: number | null
   subtotal: number | null
+  terms?: string | null
+  fob?: string | null
+  sales_rep?: string | null
   customer?: { id: string; company_name: string; email?: string | null; phone?: string | null } | null
 }
 
@@ -261,56 +263,14 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
   )
 }
 
-// ── Board inline SKU dropdown (order qty vs completed qty) ───────────────────
-function BoardOrderLines({ orderId }: { orderId: string }) {
-  const sb = useMemo(() => createSupabaseBrowserClient(), [])
-  const [lines, setLines] = useState<OrderLine[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      const { data } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', orderId).order('line_number', { ascending: true })
-      if (alive) { setLines((data ?? []) as OrderLine[]); setLoading(false) }
-    })()
-    return () => { alive = false }
-  }, [sb, orderId])
-
-  if (loading) return <div className="px-3 py-2.5 text-xs text-gray-500">Loading items…</div>
-  if (lines.length === 0) return <div className="px-3 py-2.5 text-xs text-gray-500">No line items.</div>
-
-  return (
-    <div className="px-3 py-2">
-      <div className="grid grid-cols-[minmax(120px,1.4fr)_minmax(140px,2fr)_60px_60px_70px] gap-2 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 border-b border-[#E4E6EE]">
-        <span>SKU</span><span>Description</span><span className="text-right">Order</span><span className="text-right">Done</span><span className="text-right">Progress</span>
-      </div>
-      {lines.map(line => {
-        const qty = line.quantity ?? 0
-        const done = line.completed_qty ?? line.quantity_shipped ?? 0
-        const pct = qty > 0 ? Math.min(100, Math.round((done / qty) * 100)) : 0
-        return (
-          <div key={line.id} className="grid grid-cols-[minmax(120px,1.4fr)_minmax(140px,2fr)_60px_60px_70px] gap-2 px-2 py-1.5 text-xs items-center border-b border-[#F4F5F8] last:border-0">
-            <span className="font-mono font-bold text-emerald-500 truncate">
-              {line.sku_flagged ? <span className="text-amber-500" title="Needs SKU">⚠ </span> : null}{line.sku || '—'}
-            </span>
-            <span className="text-gray-600 truncate">{line.description ?? line.added_details ?? '—'}</span>
-            <span className="text-right text-gray-700 font-semibold">{qty}</span>
-            <span className={`text-right font-semibold ${pct === 100 ? 'text-emerald-500' : pct > 0 ? 'text-blue-500' : 'text-gray-400'}`}>{done}</span>
-            <span className={`text-right font-medium ${pct === 100 ? 'text-emerald-500' : 'text-gray-500'}`}>{pct}%</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 // ── Edit form ──────────────────────────────────────────────────────────────
 const emptyForm = {
   notes: '', order_section: '', order_number: '', status: 'Pending', facility: '',
   monday_item_id: '', order_date: '', production_start: '', estimated_completion: '',
   ship_date: '', customer_id: '', customer_email: '', customer_phone: '',
   shipping_address: '', total_amount: '', purchase_order_url: '', packing_slip_url: '',
-  bol: '', load_id: '', additional_comments: '',
+  bol: '', additional_comments: '',
+  terms: 'Net 30', fob: 'Santa Ana', sales_rep: 'RP',
 }
 type F = typeof emptyForm
 
@@ -331,7 +291,7 @@ interface EditLineState {
 
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
-  customers, products, err, saving, onClose, onSave, onDelete,
+  customers, products, err, saving, onClose, onSave, onDelete, onDownloadSalesOrder,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -346,6 +306,7 @@ function EditPanel({
   onClose: () => void
   onSave: () => void
   onDelete: () => void
+  onDownloadSalesOrder: () => void
 }) {
   const [skuDropdown, setSkuDropdown] = useState<number | null>(null)
   const [skuQ, setSkuQ] = useState('')
@@ -379,8 +340,8 @@ function EditPanel({
         className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={{ background: 'rgba(26,32,53,0.48)', backdropFilter: 'blur(3px)' }}>
       <div onClick={e => e.stopPropagation()}
-        className={`relative w-full max-w-[660px] my-8 bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-3 scale-95 pointer-events-none'}`}
-        style={{ maxHeight: 'calc(100vh - 64px)' }}>
+        className={`relative w-full max-w-[660px] my-4 bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-3 scale-95 pointer-events-none'}`}
+        style={{ maxHeight: 'calc(100vh - 32px)' }}>
         <div className="mon-modal-head shrink-0">
           <div className="min-w-0">
             <h2 className="text-lg truncate">{editing ? (editing.order_number || 'Order') : 'New Order'}</h2>
@@ -463,6 +424,20 @@ function EditPanel({
                   <input value={form.facility} onChange={e => setForm(p => ({ ...p, facility: e.target.value }))} className={inp} placeholder="Santa Ana"/>
                 </div>
               </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Terms</label>
+                  <input value={form.terms} onChange={e => setForm(p => ({ ...p, terms: e.target.value }))} className={inp} placeholder="Net 30"/>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">FOB</label>
+                  <input value={form.fob} onChange={e => setForm(p => ({ ...p, fob: e.target.value }))} className={inp} placeholder="Santa Ana"/>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Sales Rep</label>
+                  <input value={form.sales_rep} onChange={e => setForm(p => ({ ...p, sales_rep: e.target.value }))} className={inp} placeholder="RP"/>
+                </div>
+              </div>
               {editing && (
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Monday Item ID</label>
@@ -543,13 +518,9 @@ function EditPanel({
                   <input value={form.packing_slip_url} onChange={e => setForm(p => ({ ...p, packing_slip_url: e.target.value }))} className={inp}/>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">BOL #</label>
+                  <label className="block text-xs text-gray-400 mb-1.5">BOL</label>
                   <input value={form.bol} onChange={e => setForm(p => ({ ...p, bol: e.target.value }))} className={inp}/>
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Load ID</label>
-                <input value={form.load_id} onChange={e => setForm(p => ({ ...p, load_id: e.target.value }))} className={inp} placeholder="Load / trailer reference"/>
               </div>
             </div>
           </div>
@@ -630,6 +601,12 @@ function EditPanel({
               </button>
             )}
             <button onClick={onClose} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
+            <button onClick={onDownloadSalesOrder} disabled={!editLines.some(l => l.sku || l.description)}
+              title="Download a customer-ready Sales Order PDF"
+              className="flex-1 justify-center inline-flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-emerald-600/40 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+              Sales Order
+            </button>
             <button onClick={onSave} disabled={saving}
               className="mon-btn flex-1 justify-center !py-2.5">
               {saving ? 'Saving…' : 'Save Order'}
@@ -646,7 +623,7 @@ function EditPanel({
 export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
-  const [view] = useState<'board'|'table'>('board') // Table view removed; Board is the only view
+  const [view, setView] = useState<'board'|'table'>('board')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
@@ -674,7 +651,7 @@ export default function OrdersPage() {
       if (result?.message) setFlowToast({ message: result.message, undoData: result.undoData })
     } catch { /* keep optimistic state */ }
   }
-  async function inlineField(id: string, field: 'required_ship_date' | 'load_id' | 'bol', value: string) {
+  async function inlineField(id: string, field: 'required_ship_date', value: string) {
     setOrders(prevOrders => prevOrders.map(x => x.id === id ? { ...x, [field]: value } : x))
     try { await sb.from('sales_orders').update({ [field]: value || null }).eq('id', id) } catch { /* */ }
   }
@@ -770,9 +747,7 @@ export default function OrdersPage() {
       (o.notes ?? '').toLowerCase().includes(q) ||
       (o.order_number ?? '').toLowerCase().includes(q) ||
       (o.po_number ?? '').toLowerCase().includes(q) ||
-      (o.customer_email ?? '').toLowerCase().includes(q) ||
-      (o.load_id ?? '').toLowerCase().includes(q) ||
-      (o.bol ?? '').toLowerCase().includes(q)
+      (o.customer_email ?? '').toLowerCase().includes(q)
   }, [search, statusFilter])
 
   const filtered = useMemo(() => tabPool.filter(o => !isCompleted(o) && orderMatches(o)), [tabPool, isCompleted, orderMatches])
@@ -840,13 +815,62 @@ export default function OrdersPage() {
       tax_pct: 0,
       total: val,
       notes: order.notes,
+      terms: order.terms ?? 'Net 30',
+      fob: order.fob ?? 'Santa Ana',
+      sales_rep: order.sales_rep ?? 'RP',
     }
+  }
+
+  async function fetchCustomerForPdf(id: string | null | undefined): Promise<PDFCustomer | null> {
+    if (!id) return null
+    const { data } = await sb.from('customers').select('company_name,contact_name,email,phone,billing_address,shipping_address').eq('id', id).maybeSingle()
+    if (!data) return null
+    const d = data as any
+    return { company_name: d.company_name, contact_name: d.contact_name, email: d.email, phone: d.phone, billing_address: d.billing_address, shipping_address: d.shipping_address }
   }
 
   async function handleDownloadOrderPdf(order: SalesOrder) {
     const lines = await fetchOrderLinesForPdf(order.id)
-    const customer = order.customer ? { company_name: order.customer.company_name, email: order.customer.email, phone: order.customer.phone } : null
-    generateOrderPDF(buildPdfOrder(order), lines, customer)
+    const customer = (await fetchCustomerForPdf(order.customer_id)) ?? (order.customer ? { company_name: order.customer.company_name, email: order.customer.email, phone: order.customer.phone } : null)
+    await generateOrderPDF(buildPdfOrder(order), lines, customer)
+  }
+
+  // Build a customer-ready Sales Order straight from the current form (usable before saving)
+  async function downloadFromForm() {
+    const cust = await fetchCustomerForPdf(form.customer_id)
+    const pdfLines: PDFLine[] = editLines
+      .filter(l => l.sku || l.description)
+      .map((l, i) => {
+        const prod = products.find(pr => pr.sku === l.sku)
+        return {
+          line_number: i + 1,
+          sku: l.sku || null,
+          description: l.description || prod?.product_name || '',
+          quantity: parseFloat(l.quantity) || 0,
+          unit_of_measure: l.unit_of_measure || prod?.unit_of_measure || null,
+          unit_price: prod?.unit_cost ?? 0,
+          discount_pct: 0,
+        }
+      })
+    const computed = pdfLines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0)
+    const total = computed || (parseFloat(form.total_amount) || 0)
+    const pdfOrder: PDFOrder = {
+      order_number: form.order_number.trim() || 'SO',
+      order_date: form.order_date || null,
+      required_ship_date: form.ship_date || null,
+      status: form.status,
+      po_number: form.order_number.trim() || null,
+      shipping_address: form.shipping_address || null,
+      carrier: form.facility || null,
+      subtotal: total,
+      tax_pct: 0,
+      total,
+      notes: form.notes,
+      terms: form.terms || 'Net 30',
+      fob: form.fob || 'Santa Ana',
+      sales_rep: form.sales_rep || 'RP',
+    }
+    await generateOrderPDF(pdfOrder, pdfLines, cust)
   }
 
   async function handleDownloadPackingListPdf(order: SalesOrder) {
@@ -897,8 +921,10 @@ export default function OrdersPage() {
       purchase_order_url: order.purchase_order_url ?? '',
       packing_slip_url: order.packing_slip_url ?? '',
       bol: order.bol ?? '',
-      load_id: order.load_id ?? '',
       additional_comments: order.additional_comments ?? '',
+      terms: order.terms ?? 'Net 30',
+      fob: order.fob ?? 'Santa Ana',
+      sales_rep: order.sales_rep ?? 'RP',
     })
     setErr(''); setEditOpen(true)
   }
@@ -933,9 +959,11 @@ export default function OrdersPage() {
       purchase_order_url: form.purchase_order_url || null,
       packing_slip_url: form.packing_slip_url || null,
       bol: form.bol || null,
-      load_id: form.load_id || null,
       total_amount: form.total_amount ? parseFloat(form.total_amount) : 0,
       monday_item_id: form.monday_item_id || null,
+      terms: form.terms || null,
+      fob: form.fob || null,
+      sales_rep: form.sales_rep || null,
     }
 
     let orderId = editingOrder?.id
@@ -1042,7 +1070,7 @@ export default function OrdersPage() {
     }
 
   return (
-    <div className="min-h-screen mon-page px-4 sm:px-6 lg:px-8 py-5">
+    <div className="min-h-screen mon-page">
       {loadError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4 flex items-center gap-3">
           <span className="text-red-400 text-sm flex-1">{loadError}</span>
@@ -1079,7 +1107,7 @@ export default function OrdersPage() {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input placeholder="Search customer, PO#, order #, Load ID, BOL #…" value={search} onChange={e => setSearch(e.target.value)}
+          <input placeholder="Search customer, PO#, order #…" value={search} onChange={e => setSearch(e.target.value)}
             className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
         </div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
@@ -1093,8 +1121,12 @@ export default function OrdersPage() {
         <span className="text-xs text-gray-400 ml-auto">{(view === 'board' ? orders.filter(orderMatches).length : filtered.length)} shown</span>
       </div>
 
-      {/* Board grouping (Table view removed — Board is the single view) */}
+      {/* View toggle + board grouping */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
+          <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
+          <button onClick={() => setView('table')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'table' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Table</button>
+        </div>
         {view === 'board' && (
           <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
             <span className="text-[11px] text-gray-400 pl-2 pr-1">Group by</span>
@@ -1156,21 +1188,13 @@ export default function OrdersPage() {
                     {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400 italic">Drop orders here</div>}
                     {items.map((o, idx) => {
                       const sc = statusColor(o.status)
-                      const expanded = expandedIds.has(o.id)
                       return (
-                      <div key={o.id}>
-                      <div draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
+                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
-                        <button onClick={(e) => { e.stopPropagation(); toggleExpand(o.id) }} className="shrink-0 text-gray-400 hover:text-gray-700 p-0.5" title="Show SKUs">
-                          <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
-                        </button>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{o.order_number || o.customer?.company_name || 'Order'}</p>
                           <p className="text-xs text-gray-500 truncate">{o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
                         </div>
-                        <input value={o.load_id || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'load_id', e.target.value)} onDragStart={e => e.stopPropagation()}
-                          placeholder="Load / BOL #"
-                          className="text-xs font-mono text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] focus:bg-white rounded px-1.5 py-0.5 w-[130px] hidden md:block focus:outline-none focus:border-[#00A84F] placeholder-gray-300" title="Load ID / BOL #"/>
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
                           className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0">
@@ -1179,12 +1203,6 @@ export default function OrdersPage() {
                         <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
                           className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-[#00A84F]" title="Required ship date"/>
                         <span className="text-xs font-semibold text-gray-700 w-20 text-right shrink-0">{fmt$(orderValue(o)) ?? ''}</span>
-                      </div>
-                      {expanded && (
-                        <div className="bg-[#F9FAFB] border-t border-[#EEF0F4]" onClick={e => e.stopPropagation()}>
-                          <BoardOrderLines orderId={o.id} />
-                        </div>
-                      )}
                       </div>
                     )})}
                   </div>
@@ -1509,6 +1527,7 @@ export default function OrdersPage() {
         onClose={() => { setEditOpen(false); setEditingOrder(null) }}
         onSave={save}
         onDelete={() => editingOrder && handleDelete(editingOrder.id)}
+        onDownloadSalesOrder={downloadFromForm}
       />
       {confirmDeleteId && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
