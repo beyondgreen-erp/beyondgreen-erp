@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Profile {
   id: string
+  user_id: string
   email: string
   full_name: string
   display_name: string | null
@@ -57,6 +58,30 @@ export default function UsersPage() {
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '', job_title: '', role: '', department: '' })
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [meId, setMeId] = useState<string | null>(null)
+  const [del, setDel] = useState<Profile | null>(null)
+  const [delText, setDelText] = useState('')
+  const [delBusy, setDelBusy] = useState(false)
+
+  useEffect(() => { sb.auth.getUser().then(({ data }) => setMeId(data.user?.id ?? null)) }, [sb])
+
+  async function confirmDelete() {
+    if (!del) return
+    setDelBusy(true)
+    try {
+      const res = await fetch('/api/users/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: del.id, requesterId: meId }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Delete failed')
+      setNotice({ ok: true, msg: `Deleted ${del.email}.` })
+      setDel(null); setDelText(''); load()
+    } catch (e) {
+      setNotice({ ok: false, msg: (e as Error).message })
+    }
+    setDelBusy(false)
+  }
 
   async function load() {
     const [{ data: pData }, { data: presData }] = await Promise.all([
@@ -192,9 +217,17 @@ export default function UsersPage() {
                         </button>
                         <button
                           onClick={() => toggleActive(p)}
-                          className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${p.is_active ? 'text-red-400 border-red-500/30 hover:bg-red-500/10' : 'text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10'}`}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${p.is_active ? 'text-amber-500 border-amber-500/30 hover:bg-amber-500/10' : 'text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10'}`}
                         >
                           {p.is_active ? 'Deactivate' : 'Restore'}
+                        </button>
+                        <button
+                          onClick={() => { setDel(p); setDelText(''); setNotice(null) }}
+                          disabled={!!meId && p.user_id === meId}
+                          title={!!meId && p.user_id === meId ? "You can't delete your own account" : 'Delete user'}
+                          className="text-xs px-2.5 py-1 rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          Delete
                         </button>
                       </div>
                     </td>
@@ -280,6 +313,43 @@ export default function UsersPage() {
               <button onClick={() => setEditing(null)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
               <button onClick={saveEdit} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
                 {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {del && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget && !delBusy) setDel(null) }}>
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 w-full max-w-md space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </div>
+              <div>
+                <h2 className="text-[#1A1D2E] font-semibold">Delete user</h2>
+                <p className="text-gray-500 text-xs">This can’t be undone.</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">
+              This permanently removes <strong className="text-[#1A1D2E]">{del.full_name}</strong> (<span className="font-mono">{del.email}</span>) — their login and profile will be deleted. Historical records they created are not affected.
+            </p>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Type <span className="font-mono text-[#1A1D2E]">{del.email}</span> to confirm</label>
+              <input autoFocus value={delText} onChange={e => setDelText(e.target.value)} className={inp} placeholder={del.email} />
+            </div>
+            {notice && !notice.ok && (
+              <div className="text-xs px-3 py-2.5 rounded-lg border bg-red-500/10 text-red-500 border-red-500/20">{notice.msg}</div>
+            )}
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setDel(null)} disabled={delBusy} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+              <button
+                onClick={confirmDelete}
+                disabled={delBusy || delText.trim().toLowerCase() !== del.email.toLowerCase()}
+                className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+              >
+                {delBusy ? 'Deleting…' : 'Delete user'}
               </button>
             </div>
           </div>
