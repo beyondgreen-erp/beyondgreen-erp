@@ -110,7 +110,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
           />
 
           {/* Content */}
-          <main className="flex-1 overflow-auto pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
+          <main className="flex-1 overflow-auto px-[10%] pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
             {children}
           </main>
         </div>
