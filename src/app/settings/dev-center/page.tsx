@@ -13,6 +13,15 @@ const COL_TYPES: { v: BoardColumn['type']; label: string }[] = [
 ]
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'field'
 
+function Stat({ label, value, c }: { label: string; value: string | number; c?: string }) {
+  return (
+    <div className="mon-stat stat-card" style={c ? ({ ['--c']: c } as any) : undefined}>
+      <p className="text-xs font-semibold text-gray-400">{label}</p>
+      <p className="mon-stat-val mt-0.5">{typeof value === 'number' ? value.toLocaleString() : value}</p>
+    </div>
+  )
+}
+
 export default function DevCenterPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const { boards, reload } = useBoards()
@@ -63,8 +72,14 @@ export default function DevCenterPage() {
   }
 
   // ── Manage boards ──
+  const [search, setSearch] = useState('')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const allGroups = useMemo(() => groupBoards(boards, { includeHidden: true }), [boards])
   const groupOptions = useMemo(() => Array.from(new Set([...GROUP_ORDER, ...boards.map(b => b.nav_group)])), [boards])
+  const q = search.trim().toLowerCase()
+  const shownGroups = useMemo(() => allGroups
+    .map(s => ({ ...s, items: s.items.filter(b => !q || b.label.toLowerCase().includes(q) || b.nav_group.toLowerCase().includes(q)) }))
+    .filter(s => s.items.length), [allGroups, q])
 
   async function meta(b: Board, patch: Partial<Board>) {
     const { error } = await sb.rpc('update_board_meta', {
@@ -109,15 +124,27 @@ export default function DevCenterPage() {
     )
   }
 
+  const totalBoards = boards.length
+  const customBoards = boards.filter(b => b.is_custom).length
+  const hiddenBoards = boards.filter(b => b.is_hidden).length
+
   return (
-    <div className="min-h-screen mon-page">
-      <div className="flex items-center justify-between mb-5">
+    <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
           <span className="mon-tag t-purple">🛠️ Dev Center</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Dev Center</h1>
           <p className="text-gray-500 text-sm mt-0.5">Add boards and manage the ERP structure — like building in Monday.com.</p>
         </div>
-        <button onClick={() => { sessionStorage.removeItem('devcenter_pw'); setUnlocked(false); setPw('') }} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E]">Lock</button>
+        <button onClick={() => { sessionStorage.removeItem('devcenter_pw'); setUnlocked(false); setPw('') }} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E] shrink-0"><i className="ti ti-lock text-sm mr-1" />Lock</button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <Stat label="Total Boards" value={totalBoards} c="#A25DDC" />
+        <Stat label="Custom Boards" value={customBoards} c="#00A84F" />
+        <Stat label="Nav Groups" value={allGroups.length} c="#0086C0" />
+        <Stat label="Hidden" value={hiddenBoards} c="#9699A6" />
       </div>
 
       {/* Create a board */}
@@ -160,39 +187,57 @@ export default function DevCenterPage() {
       </div>
 
       {/* Manage existing boards */}
-      <div className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm p-5">
-        <h2 className="font-bold text-[#1A1D2E] mb-3 flex items-center gap-2"><i className="ti ti-adjustments text-[#A25DDC]" />Manage boards</h2>
-        <div className="space-y-4">
-          {allGroups.map(section => {
-            const c = accentColor(section.group)
-            return (
-              <div key={section.group}>
-                <p className="text-xs font-bold mb-1.5" style={{ color: c.solid }}>{section.group}</p>
-                <div className="rounded-lg border border-[#ECEEF3] divide-y divide-[#F4F5F8]">
-                  {section.items.map((b, idx) => (
-                    <div key={b.board_key} className="flex items-center gap-2 px-3 py-2">
-                      <i className={`ti ${b.icon || 'ti-layout-board'} text-base text-gray-400 w-5 text-center shrink-0`} />
-                      <input defaultValue={b.label} onBlur={e => { const v = e.target.value.trim(); if (v && v !== b.label) meta(b, { label: v }) }} className={inp + ' flex-1 min-w-0'} />
-                      <select value={b.nav_group} onChange={e => meta(b, { nav_group: e.target.value })} className={inp + ' hidden sm:block'}>
-                        {groupOptions.map(g => <option key={g} value={g}>{g}</option>)}
-                      </select>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => moveBoard(section.group, idx, -1)} className="w-8 h-8 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E]" title="Move up"><i className="ti ti-arrow-up text-sm" /></button>
-                        <button onClick={() => moveBoard(section.group, idx, 1)} className="w-8 h-8 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E]" title="Move down"><i className="ti ti-arrow-down text-sm" /></button>
-                        <button onClick={() => meta(b, { is_hidden: !b.is_hidden })} className="w-8 h-8 rounded-lg border border-[#E4E6EE] shrink-0" style={{ color: b.is_hidden ? '#9CA3AF' : '#00A84F' }} title={b.is_hidden ? 'Hidden — click to show' : 'Visible — click to hide'}>
-                          <i className={`ti ${b.is_hidden ? 'ti-eye-off' : 'ti-eye'} text-sm`} />
-                        </button>
-                        {b.is_custom
-                          ? <button onClick={() => removeBoard(b)} className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50" title="Delete board"><i className="ti ti-trash text-sm" /></button>
-                          : <span className="w-8 h-8 flex items-center justify-center text-[9px] text-gray-300" title="Built-in board">CORE</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <h2 className="font-bold text-[#1A1D2E] flex items-center gap-2 mr-2"><i className="ti ti-adjustments text-[#A25DDC]" />Manage boards</h2>
+        <input placeholder="Search boards…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1 min-w-[200px] max-w-xs bg-white border border-[#E4E6EE] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#A25DDC]/30" />
+        <div className="flex items-center gap-1.5 ml-auto text-xs">
+          <button onClick={() => setCollapsed(Object.fromEntries(allGroups.map(g => [g.group, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
+          <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
         </div>
+      </div>
+
+      <div className="space-y-2.5 mb-6">
+        {shownGroups.map(section => {
+          const c = accentColor(section.group).solid
+          const isCol = collapsed[section.group]
+          const fullItems = allGroups.find(g => g.group === section.group)?.items || []
+          return (
+            <div key={section.group} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: c + '14', borderLeft: '5px solid ' + c }} onClick={() => setCollapsed(cc => ({ ...cc, [section.group]: !cc[section.group] }))}>
+                <span className="text-[10px]" style={{ color: c, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                <span className="font-bold text-sm" style={{ color: c }}>{section.group}</span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: c + '26', color: c }}>{section.items.length}</span>
+              </div>
+              {!isCol && (
+                <div className="divide-y divide-[#EAECF2]">
+                  {section.items.map((b, idx) => {
+                    const realIdx = fullItems.findIndex(x => x.board_key === b.board_key)
+                    return (
+                      <div key={b.board_key} className={`mon-row flex items-center gap-2 px-3 py-2.5 ${idx % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`}>
+                        <i className={`ti ${b.icon || 'ti-layout-board'} text-base w-5 text-center shrink-0`} style={{ color: c }} />
+                        <input defaultValue={b.label} onBlur={e => { const v = e.target.value.trim(); if (v && v !== b.label) meta(b, { label: v }) }} className={inp + ' flex-1 min-w-0'} />
+                        <select value={b.nav_group} onChange={e => meta(b, { nav_group: e.target.value })} className={inp + ' hidden sm:block'}>
+                          {groupOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => moveBoard(section.group, realIdx, -1)} className="w-8 h-8 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E]" title="Move up"><i className="ti ti-arrow-up text-sm" /></button>
+                          <button onClick={() => moveBoard(section.group, realIdx, 1)} className="w-8 h-8 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-[#1A1D2E]" title="Move down"><i className="ti ti-arrow-down text-sm" /></button>
+                          <button onClick={() => meta(b, { is_hidden: !b.is_hidden })} className="w-8 h-8 rounded-lg border border-[#E4E6EE] shrink-0" style={{ color: b.is_hidden ? '#9CA3AF' : '#00A84F' }} title={b.is_hidden ? 'Hidden — click to show' : 'Visible — click to hide'}>
+                            <i className={`ti ${b.is_hidden ? 'ti-eye-off' : 'ti-eye'} text-sm`} />
+                          </button>
+                          {b.is_custom
+                            ? <button onClick={() => removeBoard(b)} className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50" title="Delete board"><i className="ti ti-trash text-sm" /></button>
+                            : <span className="w-8 h-8 flex items-center justify-center text-[9px] text-gray-300" title="Built-in board">CORE</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {shownGroups.length === 0 && <p className="text-gray-400 text-sm px-1">No boards match “{search}”.</p>}
       </div>
     </div>
   )
