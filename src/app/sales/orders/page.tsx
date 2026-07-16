@@ -282,6 +282,7 @@ interface EditLineState {
   quantity: string
   completed_qty: string
   unit_of_measure: string
+  unit_price: string
   packaging: string
   production_status: string
   added_details: string
@@ -343,7 +344,7 @@ function EditPanel({
   ).slice(0, 8)
 
   function addLine() {
-    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null }])
+    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null }])
   }
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch } : l)) }
@@ -620,7 +621,7 @@ function EditPanel({
                         <div className="absolute top-full left-0 right-0 bg-white border border-[#E4E6EE] rounded-lg shadow-xl z-10 overflow-hidden mt-0.5 max-h-40 overflow-y-auto">
                           {skuMatches.map(p => (
                             <button key={p.id} onMouseDown={() => {
-                              updateLine(line._key, { sku: p.sku, description: p.product_name, product_id: p.id, sku_flagged: false })
+                              updateLine(line._key, { sku: p.sku, description: p.product_name, product_id: p.id, sku_flagged: false, unit_price: (p.unit_cost != null && !line.unit_price) ? String(p.unit_cost) : line.unit_price })
                               setSkuDropdown(null)
                             }} className="w-full text-left px-3 py-2 text-xs border-b border-[#E4E6EE] last:border-0 hover:bg-[#F5F6FA] transition-colors">
                               <span className="text-emerald-400 font-mono font-bold">{p.sku}</span>
@@ -641,6 +642,16 @@ function EditPanel({
                       <input key={key} value={(line as any)[key]} onChange={e => updateLine(line._key, { [key]: e.target.value })}
                         placeholder={label} className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 items-center">
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">$</span>
+                      <input value={line.unit_price} onChange={e => updateLine(line._key, { unit_price: e.target.value })} inputMode="decimal"
+                        placeholder="Unit price" className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded pl-5 pr-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                    </div>
+                    <div className="text-right text-xs text-gray-500 pr-1">
+                      Line total: <span className="font-semibold text-[#1A1D2E]">{(() => { const q = parseFloat(line.quantity) || 0; const u = parseFloat(line.unit_price) || 0; return u ? '$' + (q * u).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'; })()}</span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <input value={line.production_status} onChange={e => updateLine(line._key, { production_status: e.target.value })}
@@ -925,7 +936,7 @@ export default function OrdersPage() {
           description: l.description || prod?.product_name || '',
           quantity: parseFloat(l.quantity) || 0,
           unit_of_measure: l.unit_of_measure || prod?.unit_of_measure || null,
-          unit_price: prod?.unit_cost ?? 0,
+          unit_price: (parseFloat(l.unit_price) > 0 ? parseFloat(l.unit_price) : (prod?.unit_cost ?? 0)),
           discount_pct: 0,
         }
       })
@@ -972,6 +983,7 @@ export default function OrdersPage() {
       quantity: String(l.quantity ?? 1),
       completed_qty: String(l.completed_qty ?? l.quantity_shipped ?? 0),
       unit_of_measure: l.unit_of_measure ?? '',
+      unit_price: (l.unit_price && Number(l.unit_price) > 0) ? String(l.unit_price) : '',
       packaging: l.packaging ?? '',
       production_status: l.production_status ?? '',
       added_details: l.added_details ?? '',
@@ -1081,7 +1093,7 @@ export default function OrdersPage() {
         quantity: parseFloat(line.quantity) || 1,
         quantity_shipped: parseFloat(line.completed_qty) || 0,
         unit_of_measure: line.unit_of_measure || null,
-        unit_price: prod?.unit_cost ?? 0,
+        unit_price: (parseFloat(line.unit_price) > 0 ? parseFloat(line.unit_price) : (prod?.unit_cost ?? 0)),
         line_number: i + 1,
         discount_pct: 0,
       }
