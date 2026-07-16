@@ -26,6 +26,9 @@ export interface PDFOrder {
   tax_pct: number
   total: number
   notes?: string | null
+  terms?: string | null
+  fob?: string | null
+  sales_rep?: string | null
 }
 
 export interface PDFCustomer {
@@ -33,6 +36,7 @@ export interface PDFCustomer {
   email?: string | null
   phone?: string | null
   billing_address?: string | null
+  shipping_address?: string | null
   contact_name?: string | null
 }
 
@@ -40,6 +44,66 @@ const GREEN: [number, number, number] = [16, 185, 129]
 const DARK: [number, number, number] = [20, 20, 20]
 const GRAY: [number, number, number] = [120, 120, 120]
 const fmt$ = (n: number) => '$' + n.toFixed(2)
+
+const fmtMoney = (n: number) => (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const COMPANY = { name: 'beyondGREEN biotech, Inc.', addr: ['1202 E Wakeham Ave', 'Santa Ana, CA 92705', 'dba beyondGREEN'] }
+
+let _bgLogoCache: string | null | undefined
+async function loadBrandLogo(): Promise<string | null> {
+  if (_bgLogoCache !== undefined) return _bgLogoCache
+  try {
+    const res = await fetch('/bG-logo.png')
+    const blob = await res.blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader()
+      fr.onload = () => resolve(fr.result as string)
+      fr.onerror = reject
+      fr.readAsDataURL(blob)
+    })
+    _bgLogoCache = dataUrl
+    return dataUrl
+  } catch { _bgLogoCache = null; return null }
+}
+
+function fmtDate(d?: string | null, blankIfNull = false): string {
+  if (!d) return blankIfNull ? '' : new Date().toLocaleDateString('en-US')
+  const dt = new Date(d.length <= 10 ? d + 'T00:00:00' : d)
+  if (isNaN(dt.getTime())) return d
+  return dt.toLocaleDateString('en-US')
+}
+
+function drawAddrBox(doc: jsPDF, x: number, y: number, w: number, h: number, label: string, rows: string[]) {
+  const headH = 20
+  doc.setDrawColor(0); doc.setLineWidth(0.7)
+  doc.rect(x, y, w, h)
+  doc.line(x, y + headH, x + w, y + headH)
+  doc.setTextColor(0, 0, 0)
+  doc.setFont('times', 'bold'); doc.setFontSize(10)
+  doc.text(label, x + 8, y + 13.5)
+  doc.setFont('times', 'normal'); doc.setFontSize(10)
+  let ly = y + headH + 14
+  rows.forEach(t => {
+    const wrapped = doc.splitTextToSize(t, w - 16) as string[]
+    wrapped.forEach(ww => { if (ly < y + h - 3) { doc.text(ww, x + 8, ly); ly += 12 } })
+  })
+}
+
+function billToRows(order: PDFOrder, customer: PDFCustomer | null): string[] {
+  const out: string[] = []
+  if (customer?.company_name) out.push(customer.company_name)
+  const addr = customer?.billing_address || order.shipping_address || ''
+  if (addr) out.push(...addr.split(/\r?\n/).filter(Boolean))
+  return out
+}
+
+function shipToRows(order: PDFOrder, customer: PDFCustomer | null): string[] {
+  const out: string[] = []
+  if (customer?.company_name) out.push(customer.company_name)
+  const addr = order.shipping_address || customer?.shipping_address || customer?.billing_address || ''
+  if (addr) out.push(...addr.split(/\r?\n/).filter(Boolean))
+  return out
+}
+
 
 function header(doc: jsPDF, title: string) {
   const W = doc.internal.pageSize.getWidth()
@@ -232,98 +296,130 @@ export function generateBOL(order: PDFOrder, lines: PDFLine[], customer: PDFCust
   doc.save(`bol-${order.order_number}.pdf`)
 }
 
-export function generateOrderPDF(
+export async function generateOrderPDF(
   order: PDFOrder,
   lines: PDFLine[],
   customer: PDFCustomer | null
 ) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
-  header(doc, 'SALES ORDER')
+  const H = doc.internal.pageSize.getHeight()
+  const L = 36, R = W - 36
+  doc.setTextColor(0, 0, 0)
 
-  let y = 76
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'bold')
-  doc.text(order.order_number, 36, y); y += 14
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  if (order.order_date) { doc.text(`Order Date: ${order.order_date}`, 36, y); y += 12 }
-  if (order.required_ship_date) { doc.text(`Required Ship: ${order.required_ship_date}`, 36, y); y += 12 }
-  if (order.po_number) { doc.text(`PO #: ${order.po_number}`, 36, y); y += 12 }
-  doc.text(`Status: ${order.status}`, 36, y)
+  // Header: logo + title + Date/Sales Order # box
+  const logo = await loadBrandLogo()
+  if (logo) { try { doc.addImage(logo, 'PNG', L, 28, 122, 48) } catch { /* skip */ } }
+  doc.setFont('times', 'bold'); doc.setFontSize(28)
+  doc.text('Sales Order', R, 60, { align: 'right' })
 
-  if (customer) {
-    doc.setFontSize(8)
-    doc.setTextColor(...GRAY)
-    doc.text('BILL TO', W / 2, 76)
-    doc.setTextColor(...DARK)
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.text(customer.company_name, W / 2, 88)
-    doc.setFont('helvetica', 'normal')
-    let cy = 100
-    if (customer.contact_name) { doc.text(customer.contact_name, W / 2, cy); cy += 11 }
-    if (customer.email) { doc.text(customer.email, W / 2, cy); cy += 11 }
-    if (customer.phone) doc.text(customer.phone, W / 2, cy)
-  }
+  const boxW = 200, boxX = R - boxW, boxY = 74, colX = boxX + boxW / 2, rowH = 20
+  doc.setDrawColor(0); doc.setLineWidth(0.7)
+  doc.rect(boxX, boxY, boxW, rowH)
+  doc.rect(boxX, boxY + rowH, boxW, rowH)
+  doc.line(colX, boxY, colX, boxY + rowH * 2)
+  doc.setFont('times', 'bold'); doc.setFontSize(9.5)
+  doc.text('Date', boxX + boxW / 4, boxY + 13.5, { align: 'center' })
+  doc.text('Sales Order #', colX + boxW / 4, boxY + 13.5, { align: 'center' })
+  doc.setFont('times', 'normal')
+  doc.text(fmtDate(order.order_date), boxX + boxW / 4, boxY + rowH + 13.5, { align: 'center' })
+  doc.text(order.order_number || '-', colX + boxW / 4, boxY + rowH + 13.5, { align: 'center' })
 
+  // Company block
+  doc.setFont('times', 'bold'); doc.setFontSize(11)
+  doc.text(COMPANY.name, L, 100)
+  doc.setFont('times', 'normal'); doc.setFontSize(12)
+  let cyc = 118
+  COMPANY.addr.forEach(line => { doc.text(line, L, cyc); cyc += 15 })
+
+  // Bill To / Ship To
+  const bY = 176, boxH = 96, lbW = 250, rbX = 300, rbW = R - rbX
+  drawAddrBox(doc, L, bY, lbW, boxH, 'Name / Address', billToRows(order, customer))
+  drawAddrBox(doc, rbX, bY, rbW, boxH, 'Ship To', shipToRows(order, customer))
+
+  // Info row
+  const iY = bY + boxH + 12, infoRowH = 20
+  const infoCols = [
+    { label: 'P.O. No.', value: order.po_number || '', w: 120 },
+    { label: 'Ship By', value: fmtDate(order.required_ship_date, true), w: 120 },
+    { label: 'Terms', value: order.terms || 'Net 30', w: 120 },
+    { label: 'FOB', value: order.fob || 'Santa Ana', w: 96 },
+    { label: 'Sales Rep', value: order.sales_rep || 'RP', w: 84 },
+  ]
+  let ix = L
+  doc.setLineWidth(0.7); doc.setDrawColor(0)
+  infoCols.forEach(c => {
+    doc.setFillColor(238, 238, 238)
+    doc.rect(ix, iY, c.w, infoRowH, 'FD')
+    doc.setFont('times', 'bold'); doc.setFontSize(9.5); doc.setTextColor(0, 0, 0)
+    doc.text(c.label, ix + c.w / 2, iY + 13.5, { align: 'center' })
+    ix += c.w
+  })
+  ix = L
+  infoCols.forEach(c => {
+    doc.rect(ix, iY + infoRowH, c.w, infoRowH, 'S')
+    doc.setFont('times', 'normal'); doc.setFontSize(9.5)
+    doc.text(c.value || '', ix + c.w / 2, iY + infoRowH + 13.5, { align: 'center' })
+    ix += c.w
+  })
+
+  // Line items
+  const bodyRows = lines.map(l => {
+    const total = l.quantity * l.unit_price * (1 - (l.discount_pct || 0) / 100)
+    return [
+      l.sku ?? '',
+      l.description ?? '',
+      l.quantity ? String(l.quantity) : '',
+      l.unit_price ? fmtMoney(l.unit_price) : '',
+      l.unit_of_measure ?? '',
+      total ? fmtMoney(total) : '',
+    ]
+  })
   autoTable(doc, {
-    startY: 154,
-    head: [['#', 'SKU', 'Description', 'Qty', 'UOM', 'Unit Price', 'Disc%', 'Total']],
-    body: lines.map(l => {
-      const total = l.quantity * l.unit_price * (1 - l.discount_pct / 100)
-      return [l.line_number, l.sku ?? '—', l.description, l.quantity, l.unit_of_measure ?? '—', fmt$(l.unit_price), l.discount_pct ? l.discount_pct + '%' : '—', fmt$(total)]
-    }),
-    headStyles: { fillColor: GREEN, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 9 },
-    alternateRowStyles: { fillColor: [246, 250, 247] },
+    startY: iY + infoRowH * 2,
+    margin: { left: L, right: 36 },
+    head: [['Item', 'Description', 'Qty', 'Cost', 'U/M', 'Total']],
+    body: bodyRows,
+    theme: 'grid',
+    styles: { font: 'times', fontSize: 10, textColor: [0, 0, 0], lineColor: [120, 120, 120], lineWidth: 0.5, cellPadding: 3, valign: 'top' },
+    headStyles: { fillColor: [238, 238, 238], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center', lineColor: [90, 90, 90], lineWidth: 0.6 },
     columnStyles: {
-      0: { cellWidth: 24, halign: 'center' },
-      1: { cellWidth: 68, font: 'courier', fontSize: 8 },
-      3: { cellWidth: 44, halign: 'center' },
-      4: { cellWidth: 44 },
-      5: { cellWidth: 68, halign: 'right' },
-      6: { cellWidth: 44, halign: 'center' },
-      7: { cellWidth: 68, halign: 'right' },
+      0: { cellWidth: 74 },
+      1: { cellWidth: 236 },
+      2: { cellWidth: 52, halign: 'right' },
+      3: { cellWidth: 58, halign: 'right' },
+      4: { cellWidth: 40, halign: 'center' },
+      5: { cellWidth: 64, halign: 'right' },
     },
   })
 
-  const afterTable = (doc as any).lastAutoTable.finalY + 12
-  const tax = order.subtotal * (order.tax_pct ?? 0) / 100
+  const grand = lines.reduce((sum, l) => sum + l.quantity * l.unit_price * (1 - (l.discount_pct || 0) / 100), 0) || (order.total ?? 0)
+  let afterY = (doc as any).lastAutoTable.finalY + 22
+  if (afterY > H - 80) afterY = H - 80
 
-  const totals: [string, string][] = [
-    ['Subtotal:', fmt$(order.subtotal)],
-    [`Tax (${order.tax_pct ?? 0}%):`, fmt$(tax)],
-    ['TOTAL:', fmt$(order.total)],
+  // Footer notes (left)
+  doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
+  const notes = [
+    '(1) This SO confirms no any extra deductions or charges by customer and full amount will be paid against the Invoice submission within the terms',
+    '(2) Any quality issues, please inform within 7 days from receipt of the goods.',
   ]
-  let ty = afterTable
-  totals.forEach(([label, value], i) => {
-    doc.setFontSize(i === 2 ? 10 : 9)
-    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
-    doc.text(label, W - 160, ty)
-    doc.text(value, W - 36, ty, { align: 'right' })
-    if (i === 1) { doc.setDrawColor(...GRAY); doc.line(W - 160, ty + 4, W - 36, ty + 4) }
-    ty += i === 2 ? 0 : 14
+  let ny = afterY
+  notes.forEach(n => {
+    const wrapped = doc.splitTextToSize(n, 330) as string[]
+    doc.text(wrapped, L, ny)
+    ny += wrapped.length * 11 + 3
   })
 
-  if (order.shipping_address) {
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Ship To:', 36, afterTable)
-    doc.setFont('helvetica', 'normal')
-    doc.text(doc.splitTextToSize(order.shipping_address, (W - 80) / 2) as string[], 36, afterTable + 12)
-  } else if (order.notes) {
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Notes:', 36, afterTable)
-    doc.setFont('helvetica', 'normal')
-    doc.text(doc.splitTextToSize(order.notes, (W - 80) / 2) as string[], 36, afterTable + 12)
-  }
+  // Total box (right)
+  const tbW = 200, tbX = R - tbW, tbY = afterY - 8, tbH = 40
+  doc.setDrawColor(0); doc.setLineWidth(0.8)
+  doc.rect(tbX, tbY, tbW, tbH)
+  doc.setFont('times', 'bold'); doc.setFontSize(16)
+  doc.text('Total', tbX + 14, tbY + 26)
+  doc.setFontSize(14)
+  doc.text('$' + fmtMoney(grand), tbX + tbW - 12, tbY + 26, { align: 'right' })
 
-  doc.setFontSize(8)
-  doc.setTextColor(...GRAY)
-  doc.text(`Generated ${new Date().toLocaleString()} · beyondGREEN ERP`, W / 2, doc.internal.pageSize.getHeight() - 18, { align: 'center' })
-  doc.save(`order-${order.order_number}.pdf`)
+  doc.save(`sales-order-${(order.order_number || 'SO').replace(/[^\w.-]+/g, '_')}.pdf`)
 }
 
 export function generateQuotePDF(
