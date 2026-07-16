@@ -9,16 +9,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request })
   }
 
-  // Public pick-ticket scan flow (QR codes on printed pick tickets). Warehouse
-  // staff scan these on their phones without logging in; access is gated by an
-  // unguessable per-pallet token, not by session.
-  if (
-    pathname.startsWith('/pick/') || pathname.startsWith('/api/pick/') ||
-    pathname.startsWith('/ship-docs/') || pathname.startsWith('/api/ship-docs/')
-  ) {
-    return NextResponse.next({ request })
-  }
-
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -47,14 +37,33 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const isLoginPage = request.nextUrl.pathname === '/login'
+  const isAccessDenied = request.nextUrl.pathname === '/access-denied'
 
-  if (!user && !isLoginPage) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+  // The ERP is restricted to beyondGREEN company accounts. Other accounts in the
+  // shared Supabase project (e.g. the portal / epsilonpacific site) are blocked.
+  const ALLOWED_DOMAIN = /@(beyondgreenbiotech\.com|byndgrn\.com)$/i
+
+  if (!user) {
+    if (!isLoginPage) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return NextResponse.redirect(url)
+    }
+    return supabaseResponse
   }
 
-  if (user && isLoginPage) {
+  // Authenticated but not a company account → block from the ERP.
+  if (!ALLOWED_DOMAIN.test(user.email || '')) {
+    if (!isAccessDenied) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/access-denied'
+      return NextResponse.redirect(url)
+    }
+    return supabaseResponse
+  }
+
+  // Company account → keep them out of the login / access-denied pages.
+  if (isLoginPage || isAccessDenied) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
