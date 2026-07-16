@@ -666,8 +666,8 @@ function EditPanel({
               </button>
             )}
             <button onClick={onClose} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-            <button onClick={onDownloadSalesOrder} disabled={!editLines.some(l => l.sku || l.description)}
-              title="Download a customer-ready Sales Order PDF"
+            <button onClick={onDownloadSalesOrder} disabled={!(editing || form.notes.trim() || editLines.some(l => l.sku || l.description))}
+              title={(editing || form.notes.trim() || editLines.some(l => l.sku || l.description)) ? 'Download a customer-ready Sales Order PDF' : 'Add an order name or a line item to enable download'}
               className="flex-1 justify-center inline-flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-emerald-600/40 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
               Sales Order
