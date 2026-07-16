@@ -98,6 +98,20 @@ function initials(name:string){ return name.split(' ').map(w=>w[0]).join('').toU
 const AVATAR_COLORS = ['bg-blue-600','bg-violet-600','bg-emerald-600','bg-amber-600','bg-rose-600','bg-cyan-600']
 function avatarColor(str:string){ let h=0; for(let i=0;i<str.length;i++)h=str.charCodeAt(i)+((h<<5)-h); return AVATAR_COLORS[Math.abs(h)%AVATAR_COLORS.length] }
 
+// Monday Board Template — status group colors + order
+const CUST_STATUS_COLOR: Record<string,string> = {
+  'Active Customer':'#00A84F', 'Prospect':'#0086C0', 'Lead':'#9699A6', 'Inactive':'#C4C4C4', 'Do Not Contact':'#E2445C',
+}
+const CUST_GROUP_ORDER = ['Active Customer','Prospect','Lead','Inactive','Do Not Contact']
+function Stat({ label, value, c }: { label: string; value: string | number; c?: string }) {
+  return (
+    <div className="mon-stat stat-card" style={c ? ({ ['--c']: c } as any) : undefined}>
+      <p className="text-xs font-semibold text-gray-400">{label}</p>
+      <p className="mon-stat-val mt-0.5">{typeof value === 'number' ? value.toLocaleString() : value}</p>
+    </div>
+  )
+}
+
 export default function CustomersPage() {
   const supabase = useMemo(()=>createSupabaseBrowserClient(),[])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -109,6 +123,7 @@ export default function CustomersPage() {
   const [showArchived, setShowArchived] = useState(false)
   const [showMerged, setShowMerged] = useState(false)
   const [viewMode, setViewMode] = useState<'table'|'pipeline'>('table')
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [outreachCustomer, setOutreachCustomer] = useState<Customer | null>(null)
 
   // Panel
@@ -697,8 +712,15 @@ export default function CustomersPage() {
   const selectedCustomers = customers.filter(c => selectedIds.has(c.id))
   const displaySpend = editing ? (editing.manual_spend_override && editing.manual_lifetime_spend != null ? editing.manual_lifetime_spend : editing.lifetime_spend) : null
 
+  // Monday-style status groups derived from the filtered customers
+  const custGroups = (() => {
+    const present = Array.from(new Set(filtered.map(c => c.customer_status || 'Lead')))
+    const ordered = [...CUST_GROUP_ORDER.filter(s => present.includes(s)), ...present.filter(s => !CUST_GROUP_ORDER.includes(s))]
+    return ordered.map(key => ({ key, color: CUST_STATUS_COLOR[key] || '#9699A6' }))
+  })()
+
   return (
-    <div className="min-h-screen mon-page">
+    <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
       {/* Page header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
@@ -746,6 +768,17 @@ export default function CustomersPage() {
         </div>
       </div>
 
+      {/* Stats */}
+      {!loading && (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+          <Stat label="Total Customers" value={customers.length} c="#0086C0" />
+          <Stat label="Active" value={customers.filter(c => c.customer_status === 'Active Customer').length} c="#00A84F" />
+          <Stat label="Prospects" value={customers.filter(c => c.customer_status === 'Prospect').length} c="#00C7C7" />
+          <Stat label="Leads" value={customers.filter(c => (c.customer_status || 'Lead') === 'Lead').length} c="#9699A6" />
+          <Stat label="Lifetime Spend" value={fmt$(customers.reduce((s, c) => s + (c.lifetime_spend || 0), 0))} c="#A25DDC" />
+        </div>
+      )}
+
       {/* Search + filters */}
       <div className="flex flex-col gap-3 mb-4">
         <div className="flex items-center gap-3 flex-wrap">
@@ -779,15 +812,29 @@ export default function CustomersPage() {
 
       {/* ── TABLE VIEW ── */}
       {viewMode==='table'&&(
-        <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
-          {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
-          :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':showArchived?'No archived customers.':'No customers yet.'}</p></div>
-          :<table className="w-full min-w-[1080px] text-sm">
-            <thead><tr className="border-b border-[#E4E6EE]">
-              <th className="w-8 px-3 py-3"><span className="sr-only">Select</span></th>
-              {['Company','Primary Contact','Email','Status','Total Spent','Shipments','Last Purchase','Outreach'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}
-            </tr></thead>
-            <tbody>{filtered.map((c,i)=>{
+        loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':showArchived?'No archived customers.':'No customers yet.'}</p></div>
+        :<div className="space-y-2.5 mb-6">
+          {custGroups.map(g=>{
+            const rows = filtered.filter(c => (c.customer_status||'Lead') === g.key)
+            if (!rows.length) return null
+            const isCol = collapsedGroups[g.key]
+            const grpSpend = rows.reduce((s,c)=> s + (c.lifetime_spend||0), 0)
+            return (
+            <div key={g.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{background:g.color+'14', borderLeft:'5px solid '+g.color}} onClick={()=>setCollapsedGroups(cc=>({...cc,[g.key]:!cc[g.key]}))}>
+                <span className="text-[10px]" style={{color:g.color, display:'inline-block', transform:isCol?'none':'rotate(90deg)'}}>&#9654;</span>
+                <span className="font-bold text-sm" style={{color:g.color}}>{g.key}</span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{background:g.color+'26', color:g.color}}>{rows.length}</span>
+                <span className="ml-auto text-[12px] font-bold" style={{color:g.color}}>{fmt$2(grpSpend)}</span>
+              </div>
+              {!isCol && <div className="overflow-x-auto">
+                <table className="w-full min-w-[1000px] text-sm">
+                  <thead><tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
+                    <th className="w-8 px-3 py-2"><span className="sr-only">Select</span></th>
+                    {['Company','Outreach','Primary Contact','Email','Status','Total Spent','Shipments','Last Purchase'].map(h=><th key={h} className="text-left font-semibold px-4 py-2">{h}</th>)}
+                  </tr></thead>
+                  <tbody className="divide-y divide-[#EAECF2]">{rows.map((c,i)=>{
               const pc=primaryContacts[c.id]
               const isSelected=selectedIds.has(c.id)
               const isParent=c.is_parent_account===true
@@ -868,8 +915,11 @@ export default function CustomersPage() {
                   </tr>
                 }) : [])
               ]
-            })}</tbody>
-          </table>}
+                  })}</tbody>
+                </table>
+              </div>}
+            </div>
+            )})}
         </div>
       )}
 
