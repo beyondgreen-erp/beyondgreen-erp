@@ -29,8 +29,24 @@ const PROD_COLORS: Record<string, string> = {
   'Needs Packaging': '#ffcb00',
   'Completed and Picked Up': '#ff007f',
 }
+const STATUS_OPTIONS = Object.keys(STATUS_COLORS)
+const PROD_OPTIONS = Object.keys(PROD_COLORS)
 const statusColor = (s: string | null) => (s && STATUS_COLORS[s]) || '#c4c4c4'
 const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+
+type Line = {
+  id?: string
+  _new?: boolean
+  name?: string | null
+  part_number?: string | null
+  qty?: string | null
+  production_status?: string | null
+  completed_qty?: string | null
+  uom?: string | null
+  cost_each?: string | null
+  total_cost?: string | null
+  added_details?: string | null
+}
 
 export default function PrivateLabelStockPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
@@ -44,6 +60,13 @@ export default function PrivateLabelStockPage() {
   const [userEmail, setUserEmail] = useState('')
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // ── Edit / delete state ──────────────────────────────────────────────
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState<any>({})
+  const [lines, setLines] = useState<Line[]>([])
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   async function uploadRecordFile(order: any, file: File) {
     setUploading(true)
@@ -96,6 +119,118 @@ export default function PrivateLabelStockPage() {
   const total = orders.length
   const detailItems = detail ? itemsOf(detail.id) : []
 
+  // ── Open / close detail ──────────────────────────────────────────────
+  function openDetail(r: any) {
+    setEditing(false)
+    setDetail(r)
+  }
+  function closeDetail() {
+    setDetail(null)
+    setEditing(false)
+  }
+
+  function startEdit() {
+    if (!detail) return
+    setForm({
+      name: detail.name ?? '',
+      status: detail.status ?? '',
+      group_key: detail.group_key ?? GROUPS[0].key,
+      order_date: detail.order_date ?? '',
+      ship_due_date: detail.ship_due_date ?? '',
+      po_number: detail.po_number ?? '',
+      customer_email: detail.customer_email ?? '',
+      shipping_address: detail.shipping_address ?? '',
+    })
+    setLines(detailItems.map(i => ({
+      id: i.id,
+      name: i.name ?? '',
+      part_number: i.part_number ?? '',
+      qty: i.qty ?? '',
+      production_status: i.production_status ?? '',
+      completed_qty: i.completed_qty ?? '',
+      uom: i.uom ?? '',
+      cost_each: i.cost_each ?? '',
+      total_cost: i.total_cost ?? '',
+      added_details: i.added_details ?? '',
+    })))
+    setEditing(true)
+  }
+
+  const setLine = (idx: number, patch: Partial<Line>) =>
+    setLines(ls => ls.map((l, i) => i === idx ? { ...l, ...patch } : l))
+  const addLine = () => setLines(ls => [...ls, { _new: true, part_number: '', qty: '' }])
+  const removeLine = (idx: number) => setLines(ls => ls.filter((_, i) => i !== idx))
+
+  async function saveRecord() {
+    if (!detail) return
+    setSaving(true)
+    try {
+      const g = GROUPS.find(x => x.key === form.group_key)
+      const clean = (v: any) => { const s = String(v ?? '').trim(); return s === '' ? null : s }
+      const patch = {
+        name: clean(form.name) ?? detail.name,
+        status: clean(form.status),
+        group_key: form.group_key,
+        group_title: g?.title ?? detail.group_title,
+        order_date: form.order_date || null,
+        ship_due_date: form.ship_due_date || null,
+        po_number: clean(form.po_number),
+        customer_email: clean(form.customer_email),
+        shipping_address: clean(form.shipping_address),
+        updated_at: new Date().toISOString(),
+      }
+      const { error: upErr } = await sb.from('pl_stock_orders').update(patch).eq('id', detail.id)
+      if (upErr) { alert('Save failed: ' + upErr.message); return }
+
+      // Line items: delete removed, update existing, insert new
+      const keptIds = lines.filter(l => l.id && !l._new).map(l => l.id)
+      const toDelete = detailItems.map(i => i.id).filter(id => !keptIds.includes(id))
+      if (toDelete.length) await sb.from('pl_stock_order_items').delete().in('id', toDelete)
+
+      for (let idx = 0; idx < lines.length; idx++) {
+        const l = lines[idx]
+        const cln = (v: any) => { const s = String(v ?? '').trim(); return s === '' ? null : s }
+        const row: any = {
+          parent_id: detail.id,
+          name: cln(l.name),
+          part_number: cln(l.part_number),
+          qty: cln(l.qty),
+          production_status: cln(l.production_status),
+          completed_qty: cln(l.completed_qty),
+          uom: cln(l.uom),
+          cost_each: cln(l.cost_each),
+          total_cost: cln(l.total_cost),
+          added_details: cln(l.added_details),
+          position: idx,
+        }
+        if (l._new || !l.id) await sb.from('pl_stock_order_items').insert(row)
+        else await sb.from('pl_stock_order_items').update(row).eq('id', l.id)
+      }
+
+      const updated = { ...detail, ...patch }
+      setDetail(updated)
+      setEditing(false)
+      await load()
+    } finally { setSaving(false) }
+  }
+
+  async function deleteRecord() {
+    if (!detail) return
+    if (!confirm(`Delete "${detail.name}"?\n\nThis permanently removes the record, its ${detailItems.length} line item(s), and all of its comments. This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await sb.from('pl_stock_order_items').delete().eq('parent_id', detail.id)
+      await sb.rpc('delete_record_comments', { p_record_type: 'pl_stock_order', p_record_id: detail.id })
+      const { error } = await sb.from('pl_stock_orders').delete().eq('id', detail.id)
+      if (error) { alert('Delete failed: ' + error.message); return }
+      closeDetail()
+      await load()
+    } finally { setDeleting(false) }
+  }
+
+  const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
+  const cellCls = 'w-full bg-white border border-[#E4E6EE] rounded px-1.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
+
   return (
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
@@ -135,10 +270,10 @@ export default function PrivateLabelStockPage() {
                     <tbody>
                       {gr.map((r, i) => {
                         const its = itemsOf(r.id)
-                        const nFiles = (r.order_form_files?.length || 0) + (r.so_files?.length || 0)
+                        const nFiles = (r.order_form_files?.length || 0) + (r.so_files?.length || 0) + (r.attachments?.length || 0)
                         const nc = commentCounts[r.id] || 0
                         return (
-                          <tr key={r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => setDetail(r)}>
+                          <tr key={r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openDetail(r)}>
                             <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{r.name}</td>
                             <td className="px-3 py-2.5 text-gray-600">{fmtDate(r.order_date)}</td>
                             <td className="px-3 py-2.5"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: statusColor(r.status) }}>{r.status || '—'}</span></td>
@@ -160,7 +295,7 @@ export default function PrivateLabelStockPage() {
       </div>
 
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setDetail(null)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={closeDetail}>
           <div className="relative w-full max-w-[840px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: '#175a63' }}>
               <div className="min-w-0">
@@ -168,21 +303,114 @@ export default function PrivateLabelStockPage() {
                 <h2 className="text-xl font-bold leading-tight">{detail.name}</h2>
                 <span className="inline-block mt-1.5 text-[11px] font-semibold rounded-full px-2.5 py-0.5" style={{ background: statusColor(detail.status), color: '#fff' }}>{detail.status || '—'}</span>
               </div>
-              <button onClick={() => setDetail(null)} className="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
+              <div className="flex items-center gap-2 shrink-0">
+                {!editing && (
+                  <>
+                    <button onClick={startEdit} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">✎ Edit</button>
+                    <button onClick={deleteRecord} disabled={deleting} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-red-500 disabled:opacity-50 transition-colors">{deleting ? 'Deleting…' : '🗑 Delete'}</button>
+                  </>
+                )}
+                <button onClick={closeDetail} className="text-white/80 hover:text-white text-2xl leading-none pl-1">&times;</button>
+              </div>
             </div>
 
             <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                <Field label="Order Date" value={fmtDate(detail.order_date)} />
-                <Field label="Ship Due Date" value={fmtDate(detail.ship_due_date)} />
-                <Field label="PO #" value={detail.po_number} />
-                <Field label="Customer Email" value={detail.customer_email} />
-                <Field label="Shipping Address" value={detail.shipping_address} wide />
-              </div>
+              {/* ── Header fields ── */}
+              {editing ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                  <label className="col-span-2 sm:col-span-3">
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Order Name</span>
+                    <input className={inputCls} value={form.name} onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Status</span>
+                    <select className={inputCls} value={form.status} onChange={e => setForm((f: any) => ({ ...f, status: e.target.value }))}>
+                      <option value="">—</option>
+                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Group</span>
+                    <select className={inputCls} value={form.group_key} onChange={e => setForm((f: any) => ({ ...f, group_key: e.target.value }))}>
+                      {GROUPS.map(g => <option key={g.key} value={g.key}>{g.title}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Order Date</span>
+                    <input type="date" className={inputCls} value={form.order_date || ''} onChange={e => setForm((f: any) => ({ ...f, order_date: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Ship Due Date</span>
+                    <input type="date" className={inputCls} value={form.ship_due_date || ''} onChange={e => setForm((f: any) => ({ ...f, ship_due_date: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">PO #</span>
+                    <input className={inputCls} value={form.po_number} onChange={e => setForm((f: any) => ({ ...f, po_number: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Customer Email</span>
+                    <input className={inputCls} value={form.customer_email} onChange={e => setForm((f: any) => ({ ...f, customer_email: e.target.value }))} />
+                  </label>
+                  <label className="col-span-2 sm:col-span-3">
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Shipping Address</span>
+                    <input className={inputCls} value={form.shipping_address} onChange={e => setForm((f: any) => ({ ...f, shipping_address: e.target.value }))} />
+                  </label>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                  <Field label="Order Date" value={fmtDate(detail.order_date)} />
+                  <Field label="Ship Due Date" value={fmtDate(detail.ship_due_date)} />
+                  <Field label="PO #" value={detail.po_number} />
+                  <Field label="Customer Email" value={detail.customer_email} />
+                  <Field label="Shipping Address" value={detail.shipping_address} wide />
+                </div>
+              )}
 
+              {/* ── Line items ── */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Order Details</p>
-                {detailItems.length === 0 ? <p className="text-sm text-gray-400">No line items.</p> : (
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Order Details</p>
+                  {editing && <button onClick={addLine} className="text-xs px-2.5 py-1 rounded-lg bg-[#EAF0FC] text-[#3B6FE0] font-semibold hover:bg-[#DCE7FB]">＋ Add line</button>}
+                </div>
+                {editing ? (
+                  <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
+                    <table className="w-full text-sm min-w-[720px]">
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
+                        <th className="text-left px-2 py-2">P/N</th>
+                        <th className="text-left px-2 py-2 w-[70px]">Qty</th>
+                        <th className="text-left px-2 py-2 w-[150px]">Prod. Status</th>
+                        <th className="text-left px-2 py-2 w-[80px]">Completed</th>
+                        <th className="text-left px-2 py-2 w-[70px]">UOM</th>
+                        <th className="text-left px-2 py-2 w-[80px]">Cost Each</th>
+                        <th className="text-left px-2 py-2 w-[80px]">Total</th>
+                        <th className="px-1 py-2 w-[32px]"></th>
+                      </tr></thead>
+                      <tbody>
+                        {lines.map((l, idx) => (
+                          <tr key={l.id || `new-${idx}`} className="border-t border-[#F0F2F6] align-top">
+                            <td className="px-2 py-1.5">
+                              <input className={cellCls + ' font-mono'} value={l.part_number ?? ''} onChange={e => setLine(idx, { part_number: e.target.value })} placeholder="Part #" />
+                              <input className={cellCls + ' mt-1 text-[11px]'} value={l.added_details ?? ''} onChange={e => setLine(idx, { added_details: e.target.value })} placeholder="Details (optional)" />
+                            </td>
+                            <td className="px-2 py-1.5"><input className={cellCls} value={l.qty ?? ''} onChange={e => setLine(idx, { qty: e.target.value })} /></td>
+                            <td className="px-2 py-1.5">
+                              <select className={cellCls} value={l.production_status ?? ''} onChange={e => setLine(idx, { production_status: e.target.value })}>
+                                <option value="">—</option>
+                                {PROD_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-2 py-1.5"><input className={cellCls} value={l.completed_qty ?? ''} onChange={e => setLine(idx, { completed_qty: e.target.value })} /></td>
+                            <td className="px-2 py-1.5"><input className={cellCls} value={l.uom ?? ''} onChange={e => setLine(idx, { uom: e.target.value })} /></td>
+                            <td className="px-2 py-1.5"><input className={cellCls} value={l.cost_each ?? ''} onChange={e => setLine(idx, { cost_each: e.target.value })} /></td>
+                            <td className="px-2 py-1.5"><input className={cellCls} value={l.total_cost ?? ''} onChange={e => setLine(idx, { total_cost: e.target.value })} /></td>
+                            <td className="px-1 py-1.5 text-center"><button onClick={() => removeLine(idx)} className="text-gray-300 hover:text-red-500 text-base leading-none" title="Remove line">×</button></td>
+                          </tr>
+                        ))}
+                        {lines.length === 0 && <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-400 text-sm">No line items. Click “＋ Add line”.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : detailItems.length === 0 ? <p className="text-sm text-gray-400">No line items.</p> : (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[640px]">
                       <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
@@ -210,7 +438,7 @@ export default function PrivateLabelStockPage() {
                     </table>
                   </div>
                 )}
-                {detailItems.some(it => it.added_details) && (
+                {!editing && detailItems.some(it => it.added_details) && (
                   <div className="mt-2 space-y-1">
                     {detailItems.filter(it => it.added_details).map(it => (
                       <p key={it.id} className="text-xs text-gray-500"><span className="font-mono text-emerald-700">{it.part_number || it.name}</span>: {it.added_details}</p>
@@ -219,6 +447,18 @@ export default function PrivateLabelStockPage() {
                 )}
               </div>
 
+              {/* ── Edit action bar ── */}
+              {editing && (
+                <div className="flex items-center justify-between gap-3 border-t border-[#EEF0F4] pt-4">
+                  <button onClick={deleteRecord} disabled={deleting || saving} className="text-xs font-semibold rounded-lg px-3 py-2 text-red-600 hover:bg-red-50 disabled:opacity-50">{deleting ? 'Deleting…' : '🗑 Delete record'}</button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setEditing(false)} disabled={saving} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                    <button onClick={saveRecord} disabled={saving} className="text-sm px-4 py-2 rounded-lg text-white font-semibold disabled:opacity-50" style={{ background: '#175a63' }}>{saving ? 'Saving…' : 'Save changes'}</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Files ── */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Files</p>
