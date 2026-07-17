@@ -18,7 +18,11 @@ interface Vendor { id: string; company_name: string }
 interface Order { id: string; order_number: string | null }
 interface Cert { id: string; cert_name: string | null }
 interface Doc { id: string; title: string; category: string; version: string | null; effective_date: string | null; review_date: string | null; status: string; owner: string | null; customer_id: string | null; vendor_id: string | null; order_id: string | null; certification_id: string | null; source_file_path: string | null; notes: string | null; is_active: boolean; ai_summary: string | null; ai_key_facts: string[] | null; ai_suggested_category: string | null; ai_processed_at: string | null }
+interface Cat { id: string; name: string; sort_order: number }
+interface AccessRow { id: number; actor_email: string | null; action: string; record_id: string | null; document_title: string | null; file_name: string | null; created_at: string }
 const CATEGORIES = ['Contract','Spec Sheet','Certificate','SDS','Quality Record','Drawing','Policy','Other']
+const PALETTE = ['bg-blue-500/15 text-blue-600 border-blue-500/20','bg-violet-500/15 text-violet-600 border-violet-500/20','bg-emerald-500/15 text-emerald-600 border-emerald-500/20','bg-amber-500/15 text-amber-600 border-amber-500/20','bg-teal-500/15 text-teal-600 border-teal-500/20','bg-sky-500/15 text-sky-600 border-sky-500/20','bg-pink-500/15 text-pink-600 border-pink-500/20','bg-rose-500/15 text-rose-600 border-rose-500/20','bg-indigo-500/15 text-indigo-600 border-indigo-500/20','bg-lime-500/15 text-lime-700 border-lime-500/20']
+const AC: Record<string,{cls:string;icon:string;label:string}> = { upload:{cls:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20',icon:'ti-cloud-upload',label:'Upload'}, view:{cls:'bg-sky-500/15 text-sky-600 border-sky-500/20',icon:'ti-eye',label:'View'}, download:{cls:'bg-violet-500/15 text-violet-600 border-violet-500/20',icon:'ti-download',label:'Download'}, delete:{cls:'bg-red-500/15 text-red-600 border-red-500/20',icon:'ti-trash',label:'Delete'} }
 const STATUSES = ['Active','Under Review','Archived']
 const SC: Record<string,string> = { Active:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20', 'Under Review':'bg-amber-500/15 text-amber-600 border-amber-500/20', Archived:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]' }
 const CC: Record<string,string> = { Contract:'bg-blue-500/15 text-blue-600 border-blue-500/20', 'Spec Sheet':'bg-violet-500/15 text-violet-600 border-violet-500/20', Certificate:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20', SDS:'bg-amber-500/15 text-amber-600 border-amber-500/20', 'Quality Record':'bg-teal-500/15 text-teal-600 border-teal-500/20', Drawing:'bg-sky-500/15 text-sky-600 border-sky-500/20', Policy:'bg-pink-500/15 text-pink-600 border-pink-500/20', Other:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]' }
@@ -47,6 +51,16 @@ export default function DocumentsPage() {
   const [busy,setBusy]=useState(false)
   const [err,setErr]=useState('')
   const [userEmail,setUserEmail]=useState('')
+  const [cats,setCats]=useState<Cat[]>([])
+  const [view,setView]=useState<'board'|'history'>('board')
+  const [hist,setHist]=useState<AccessRow[]>([])
+  const [histLoading,setHistLoading]=useState(false)
+  const [histFilter,setHistFilter]=useState<'all'|'upload'|'view'|'download'>('all')
+  const [histSearch,setHistSearch]=useState('')
+  const [groupOpen,setGroupOpen]=useState(false)
+  const [groupName,setGroupName]=useState('')
+  const [groupSaving,setGroupSaving]=useState(false)
+  const [groupErr,setGroupErr]=useState('')
   const ref=useRef<HTMLDivElement>(null)
   const tagRef=useRef<TagInputHandle>(null)
 
@@ -60,6 +74,8 @@ export default function DocumentsPage() {
       sb.from('certifications').select('id,cert_name').eq('is_active',true).order('cert_name'),
       sb.from('file_attachments').select('record_id,storage_path,file_name,created_at').eq('record_type','documents').order('created_at',{ascending:false}),
     ])
+    const{data:dc}=await sb.from('document_categories').select('id,name,sort_order').order('sort_order').order('name')
+    if(dc) setCats(dc as Cat[])
     if(docs) setRows(docs as Doc[])
     if(c) setCustomers(c as Customer[])
     if(v) setVendors(v as Vendor[])
@@ -86,11 +102,16 @@ export default function DocumentsPage() {
     const q=search.toLowerCase()
     return r.title.toLowerCase().includes(q)||r.category.toLowerCase().includes(q)||r.status.toLowerCase().includes(q)||(r.owner||'').toLowerCase().includes(q)||(r.version||'').toLowerCase().includes(q)||(r.ai_summary||'').toLowerCase().includes(q)||(r.customer_id?cmap[r.customer_id]||'':'').toLowerCase().includes(q)||(r.vendor_id?vmap[r.vendor_id]||'':'').toLowerCase().includes(q)||(r.order_id?omap[r.order_id]||'':'').toLowerCase().includes(q)||(r.certification_id?cemap[r.certification_id]||'':'').toLowerCase().includes(q)
   })
+  const catNames=useMemo(()=>cats.length?cats.map(c=>c.name):CATEGORIES,[cats])
+  function catCls(name:string){ if(CC[name]) return CC[name]; let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))>>>0; return PALETTE[h%PALETTE.length] }
   const groups=useMemo(()=>{
     const byCat:Record<string,Doc[]>={}
     for(const r of filtered){ if(!byCat[r.category]) byCat[r.category]=[]; byCat[r.category].push(r) }
-    return Object.keys(byCat).sort((a,b)=>{const ia=CATEGORIES.indexOf(a),ib=CATEGORIES.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b)}).map(cat=>({cat,docs:byCat[cat]}))
-  },[filtered]) // eslint-disable-line
+    // show custom (user-created) groups even when empty so new groups appear right away
+    if(!search&&!archived) for(const n of catNames){ if(!byCat[n]&&!CATEGORIES.includes(n)) byCat[n]=[] }
+    const order=(c:string)=>{const i=catNames.indexOf(c);return i<0?99:i}
+    return Object.keys(byCat).sort((a,b)=>order(a)-order(b)||a.localeCompare(b)).map(cat=>({cat,docs:byCat[cat]}))
+  },[filtered,catNames,search,archived]) // eslint-disable-line
   function toggleCat(cat:string){setCollapsed(prev=>{const n=new Set(prev);if(n.has(cat))n.delete(cat);else n.add(cat);return n})}
 
   function resolveFile(r:Doc){ const fa=fileMap[r.id]; if(fa) return fa; if(r.source_file_path) return {path:r.source_file_path,name:r.source_file_path.split('/').pop()||'file'}; return null }
@@ -108,8 +129,23 @@ export default function DocumentsPage() {
     if(!f) return {icon:'ti-file-description',color:'#9CA3AF'}
     return {icon:'ti-file',color:'#6B7280'}
   }
-  async function viewFile(r:Doc){ const f=resolveFile(r); if(!f){alert('No file attached to this document.');return} const url=await getFileUrl(sb,f.path); if(url) window.open(url,'_blank'); else alert('Could not open the file.') }
-  async function downloadDoc(r:Doc){ const f=resolveFile(r); if(!f){alert('No file attached to this document.');return} await downloadFile(sb,f.path,f.name) }
+  function logAccess(action:'view'|'download',r:Doc){ const f=resolveFile(r); sb.from('file_access_log').insert({actor_email:userEmail||null,action,record_type:'documents',record_id:r.id,document_title:r.title,file_name:f?.name||null,storage_path:f?.path||null}).then(()=>{},()=>{}) }
+  async function viewFile(r:Doc){ const f=resolveFile(r); if(!f){alert('No file attached to this document.');return} const url=await getFileUrl(sb,f.path); if(url){window.open(url,'_blank');logAccess('view',r)} else alert('Could not open the file.') }
+  async function downloadDoc(r:Doc){ const f=resolveFile(r); if(!f){alert('No file attached to this document.');return} await downloadFile(sb,f.path,f.name); logAccess('download',r) }
+  async function loadHistory(){ setHistLoading(true); const{data}=await sb.from('file_access_log').select('id,actor_email,action,record_id,document_title,file_name,created_at').eq('record_type','documents').order('created_at',{ascending:false}).limit(400); setHist((data||[]) as AccessRow[]); setHistLoading(false) }
+  useEffect(()=>{ if(view==='history') loadHistory() },[view]) // eslint-disable-line
+  const histRows=hist.filter(h=>{ if(histFilter!=='all'&&h.action!==histFilter) return false; if(!histSearch) return true; const q=histSearch.toLowerCase(); return (h.document_title||'').toLowerCase().includes(q)||(h.file_name||'').toLowerCase().includes(q)||(h.actor_email||'').toLowerCase().includes(q) })
+  async function createGroup(){
+    const name=groupName.trim()
+    if(!name){setGroupErr('Group name is required.');return}
+    if(catNames.some(c=>c.toLowerCase()===name.toLowerCase())){setGroupErr('A group with this name already exists.');return}
+    setGroupSaving(true);setGroupErr('')
+    const{error}=await sb.from('document_categories').insert({name,sort_order:50+cats.length,created_by:userEmail||null})
+    if(error){setGroupErr(dbErr(error));setGroupSaving(false);return}
+    const{data:dc}=await sb.from('document_categories').select('id,name,sort_order').order('sort_order').order('name')
+    if(dc) setCats(dc as Cat[])
+    setGroupSaving(false);setGroupOpen(false);setGroupName('')
+  }
 
   function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
   function openEdit(r:Doc){setEditing(r);setForm({title:r.title,category:r.category,version:r.version??'',effective_date:r.effective_date??'',review_date:r.review_date??'',status:r.status,owner:r.owner??'',customer_id:r.customer_id??'',vendor_id:r.vendor_id??'',order_id:r.order_id??'',certification_id:r.certification_id??'',notes:r.notes??''});setErr('');setOpen(true)}
@@ -152,10 +188,41 @@ export default function DocumentsPage() {
             { header: 'Vendor Name', dbKey: 'vendor_name', example: '', lookup: { fromTable: 'vendors', matchField: 'company_name', storeAs: 'vendor_id' } },
             { header: 'Notes', dbKey: 'notes', example: '' },
           ]} onImportDone={load} />
+          <button onClick={()=>{setGroupName('');setGroupErr('');setGroupOpen(true)}} className="flex items-center gap-2 bg-white border border-[#E4E6EE] hover:border-violet-500/40 hover:text-violet-600 text-gray-600 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><i className="ti ti-folder-plus"/>New Group</button>
           <button onClick={openAdd} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><i className="ti ti-plus"/>Add Document</button>
         </div>
       </div>
       <KnowledgeCenter />
+      <div className="flex items-center gap-1 mb-4 bg-white border border-[#E4E6EE] rounded-lg p-1 w-fit">
+        <button onClick={()=>setView('board')} className={`flex items-center gap-1.5 text-sm font-medium px-3.5 py-1.5 rounded-md transition-colors ${view==='board'?'bg-violet-600 text-white':'text-gray-500 hover:text-gray-700'}`}><i className="ti ti-layout-grid text-sm"/>Documents</button>
+        <button onClick={()=>setView('history')} className={`flex items-center gap-1.5 text-sm font-medium px-3.5 py-1.5 rounded-md transition-colors ${view==='history'?'bg-violet-600 text-white':'text-gray-500 hover:text-gray-700'}`}><i className="ti ti-history text-sm"/>History</button>
+      </div>
+      {view==='history'?(
+      <div>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+          <div className="relative flex-1 max-w-sm"><i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"/><input placeholder="Search by document, file, or user…" value={histSearch} onChange={e=>setHistSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"/></div>
+          <div className="flex items-center gap-1">
+            {(['all','upload','view','download'] as const).map(f=><button key={f} onClick={()=>setHistFilter(f)} className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${histFilter===f?'bg-violet-600 text-white border-violet-600':'bg-white text-gray-500 border-[#E4E6EE] hover:border-violet-500/40'}`}>{f==='all'?'All':AC[f].label+'s'}</button>)}
+          </div>
+          <button onClick={loadHistory} className="text-xs font-medium px-3 py-1.5 rounded-full border bg-white text-gray-500 border-[#E4E6EE] hover:border-violet-500/40 transition-colors"><i className="ti ti-refresh mr-1"/>Refresh</button>
+        </div>
+        {histLoading?<div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20"><i className="ti ti-loader-2 animate-spin text-gray-400 text-xl"/></div>
+        :histRows.length===0?<div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20"><p className="text-gray-500 text-sm">No file activity yet.</p></div>
+        :<div className="rounded-xl border border-[#E4E6EE] bg-white overflow-hidden">
+          <div className="hidden md:grid grid-cols-[110px_1fr_1fr_1fr_170px] gap-3 px-5 py-2.5 border-b border-[#E4E6EE] bg-[#F9FAFB] text-[11px] font-semibold text-gray-400 uppercase tracking-wider"><span>Action</span><span>Document</span><span>File</span><span>User</span><span>When</span></div>
+          <div className="divide-y divide-[#E4E6EE]/70 max-h-[65vh] overflow-y-auto">
+            {histRows.map(h=>{const a=AC[h.action]||AC.view;return <div key={h.id} className="grid grid-cols-1 md:grid-cols-[110px_1fr_1fr_1fr_170px] gap-1 md:gap-3 px-5 py-3 hover:bg-[#F9FAFB] transition-colors text-sm">
+              <span><span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border font-medium ${a.cls}`}><i className={`ti ${a.icon} text-[11px]`}/>{a.label}</span></span>
+              <span className="text-[#1A1D2E] font-medium truncate" title={h.document_title||''}>{h.document_title||'—'}</span>
+              <span className="text-gray-500 truncate" title={h.file_name||''}>{h.file_name||'—'}</span>
+              <span className="text-gray-500 truncate" title={h.actor_email||''}>{h.actor_email||'Unknown'}</span>
+              <span className="text-gray-400 text-xs md:text-sm">{new Date(h.created_at).toLocaleString([],{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</span>
+            </div>})}
+          </div>
+          <div className="px-5 py-2.5 border-t border-[#E4E6EE] bg-[#F9FAFB] text-xs text-gray-400">{histRows.length} event{histRows.length!==1?'s':''} shown{hist.length>=400?' (latest 400)':''}</div>
+        </div>}
+      </div>
+      ):(<>
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm"><i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"/><input placeholder="Search documents, summaries, links…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"/></div>
         <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-violet-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Show Archived</span></label>
@@ -167,10 +234,11 @@ export default function DocumentsPage() {
         return <div key={g.cat} className="rounded-xl border border-[#E4E6EE] bg-white">
           <button onClick={()=>toggleCat(g.cat)} className="w-full flex items-center gap-2.5 px-5 py-3 hover:bg-[#F9FAFB] transition-colors text-left">
             <i className={`ti ti-chevron-${isCol?'right':'down'} text-gray-400`}/>
-            <span className={`text-xs px-2 py-1 rounded-full font-medium border ${CC[g.cat]||CC.Other}`}>{g.cat}</span>
+            <span className={`text-xs px-2 py-1 rounded-full font-medium border ${catCls(g.cat)}`}>{g.cat}</span>
             <span className="text-sm text-gray-500">{g.docs.length} document{g.docs.length!==1?'s':''}</span>
           </button>
-          {!isCol&&<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 p-4 border-t border-[#E4E6EE]">{g.docs.map(r=>{
+          {!isCol&&g.docs.length===0&&<div className="px-5 py-6 border-t border-[#E4E6EE] text-center text-xs text-gray-400">Empty group — add a document or drop a file to get started.</div>}
+          {!isCol&&g.docs.length>0&&<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 p-4 border-t border-[#E4E6EE]">{g.docs.map(r=>{
             const reviewDue=isDueForReview(r.review_date,r.status)
             const fi=fileIcon(r); const f=resolveFile(r)
             return <div key={r.id} id={'item-'+r.id} className="group relative">
@@ -185,7 +253,7 @@ export default function DocumentsPage() {
               </div>
               <div className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity absolute left-1/2 -translate-x-1/2 top-full mt-1 z-30 w-64 bg-white border border-[#E4E6EE] rounded-xl shadow-xl p-3 text-left">
                 <p className="text-sm font-semibold text-[#1A1D2E] break-words leading-snug">{r.title}</p>
-                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap"><span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${CC[r.category]||CC.Other}`}>{r.category}</span><span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${SC[r.status]||SC.Active}`}>{r.status}</span>{r.version&&<span className="text-[10px] text-gray-400 font-mono">v{r.version}</span>}</div>
+                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap"><span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${catCls(r.category)}`}>{r.category}</span><span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${SC[r.status]||SC.Active}`}>{r.status}</span>{r.version&&<span className="text-[10px] text-gray-400 font-mono">v{r.version}</span>}</div>
                 {r.ai_summary&&<p className="text-xs text-gray-500 mt-2 line-clamp-4 leading-relaxed">{r.ai_summary}</p>}
                 <div className="mt-2 pt-2 border-t border-[#E4E6EE]/60 space-y-1.5 text-[11px] text-gray-500">
                   {f?<div className="flex items-center gap-1.5 min-w-0"><i className={`ti ${fi.icon} shrink-0`} style={{color:fi.color}}/><span className="truncate">{f.name}</span></div>:<div className="text-gray-300">No file attached</div>}
@@ -204,6 +272,19 @@ export default function DocumentsPage() {
           })}</div>}
         </div>
       })}</div>}
+      </>)}
+      {groupOpen&&<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={()=>!groupSaving&&setGroupOpen(false)}>
+        <div className="bg-white rounded-2xl border border-[#E4E6EE] shadow-2xl w-full max-w-sm p-6" onClick={e=>e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4"><h3 className="text-[#1A1D2E] font-semibold flex items-center gap-2"><i className="ti ti-folder-plus text-violet-500"/>New Group</h3><button onClick={()=>setGroupOpen(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-[#F5F6FA]"><i className="ti ti-x"/></button></div>
+          <label className="block text-xs text-gray-400 mb-1.5">Group Name <span className="text-red-400">*</span></label>
+          <input autoFocus value={groupName} onChange={e=>setGroupName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')createGroup()}} placeholder="e.g. Compliance, Marketing…" className={inp}/>
+          {groupErr&&<p className="text-red-400 text-xs mt-2 flex items-center gap-1"><i className="ti ti-alert-circle"/>{groupErr}</p>}
+          <div className="flex gap-3 mt-5">
+            <button onClick={()=>setGroupOpen(false)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+            <button onClick={createGroup} disabled={groupSaving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{groupSaving?'Creating…':'Create Group'}</button>
+          </div>
+        </div>
+      </div>}
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
       <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit Document':'Add Document'}</h2><div className="flex items-center gap-2">{editing && <ShareLink id={editing.id} />}<button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><i className="ti ti-x text-lg"/></button></div></div>
@@ -218,7 +299,7 @@ export default function DocumentsPage() {
           )}
           <div><label className="block text-xs text-gray-400 mb-1.5">Document Title <span className="text-red-400">*</span></label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} className={inp}/></div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs text-gray-400 mb-1.5">Category</label><select value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))} className={inp+' cursor-pointer'}>{CATEGORIES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+            <div><label className="block text-xs text-gray-400 mb-1.5">Category</label><select value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))} className={inp+' cursor-pointer'}>{(catNames.includes(form.category)?catNames:[...catNames,form.category]).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Version</label><input value={form.version} placeholder="e.g. 1.0" onChange={e=>setForm(p=>({...p,version:e.target.value}))} className={inp}/></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
