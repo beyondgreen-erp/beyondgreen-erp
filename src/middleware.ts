@@ -10,6 +10,8 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/professional') ||
+    pathname.startsWith('/t/') ||
+    pathname.startsWith('/w/') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/offline') ||
