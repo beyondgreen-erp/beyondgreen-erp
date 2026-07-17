@@ -67,6 +67,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/sales/invoices', label: 'Invoices', icon: 'ti-receipt', nav_group: 'Finance', href: '/sales/invoices', sort_order: 1 },
   { board_key: '/compliance', label: 'Compliance Overview', icon: 'ti-shield-check', nav_group: 'Compliance', href: '/compliance', sort_order: 0 },
   { board_key: '/hr', label: 'HR Overview', icon: 'ti-users-group', nav_group: 'Human Resources', href: '/hr', sort_order: 0 },
+  { board_key: '/hr/time-off', label: 'Time Off', icon: 'ti-calendar-off', nav_group: 'Human Resources', href: '/hr/time-off', sort_order: 2 },
   { board_key: '/historicals/daily-ship-2025', label: 'Daily Ship Value 2025', icon: 'ti-chart-dots', nav_group: 'Historicals', href: '/historicals/daily-ship-2025', sort_order: 0 },
   { board_key: '/historicals/pipeline-2025', label: '2025 Pipeline', icon: 'ti-history', nav_group: 'Historicals', href: '/historicals/pipeline-2025', sort_order: 1 },
   { board_key: '/historicals/pipeline-2024', label: '2024 Pipeline', icon: 'ti-history', nav_group: 'Historicals', href: '/historicals/pipeline-2024', sort_order: 2 },
