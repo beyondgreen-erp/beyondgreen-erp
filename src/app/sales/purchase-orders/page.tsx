@@ -97,12 +97,12 @@ export default function PurchasingRequestsPage() {
               </div>
               {!isCol && (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[1050px]">
+                  <table className="w-full text-sm min-w-[1150px]">
                     <thead>
                       <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
                         <th className="text-left px-4 py-2 font-semibold">Item</th>
-                        <th className="text-left px-3 py-2 font-semibold w-[130px]">Location</th>
-                        <th className="text-left px-3 py-2 font-semibold w-[150px]">Status</th>
+                        <th className="text-left px-3 py-2 font-semibold w-[140px]">Location</th>
+                        <th className="text-left px-3 py-2 font-semibold w-[200px]">Status</th>
                         <th className="text-left px-3 py-2 font-semibold w-[130px]">Requested By</th>
                         <th className="text-left px-3 py-2 font-semibold w-[110px]">PO #</th>
                         <th className="text-left px-3 py-2 font-semibold w-[140px]">Supplier</th>
@@ -120,8 +120,8 @@ export default function PurchasingRequestsPage() {
                         return (
                           <tr key={r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => setDetail(r)}>
                             <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{r.name}</td>
-                            <td className="px-3 py-2.5">{r.location ? <span className="text-white text-[10px] font-semibold rounded-full px-2 py-0.5 inline-block" style={{ background: LOC_COLORS[r.location] || '#c4c4c4' }}>{r.location}</span> : <span className="text-gray-300">—</span>}</td>
-                            <td className="px-3 py-2.5">{r.status ? <span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: statusColor(r.status) }}>{r.status}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2.5">{r.location ? <span className="text-white text-[10px] font-semibold rounded-full px-2 py-0.5 inline-block whitespace-nowrap" style={{ background: LOC_COLORS[r.location] || '#c4c4c4' }}>{r.location}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2.5">{r.status ? <span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block whitespace-nowrap" style={{ background: statusColor(r.status) }}>{r.status}</span> : <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2.5 text-gray-600">{r.person_requesting || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{r.po_number || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{r.supplier || '—'}</td>
