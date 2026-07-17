@@ -13,7 +13,7 @@ export default function WarehousePortalPage() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`/api/wh/${token}`, { cache: 'no-store' })
+      const r = await fetch(`/api/wh/${token}?t=${Date.now()}`, { cache: 'no-store' })
       if (!r.ok) { setErr((await r.json()).error || 'Not found'); setLoading(false); return }
       setData(await r.json())
     } catch (e) { setErr('Could not load.') }
