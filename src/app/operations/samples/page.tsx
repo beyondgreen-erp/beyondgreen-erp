@@ -130,6 +130,7 @@ function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: strin
   const trackUrl = trackingUrl(carrier, tracking)
   const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td></tr>`).join('')
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
+  <div style="text-align:center;margin:0 0 18px"><img src="https://beyondgreen-erp.vercel.app/email-logo.png" alt="beyondGREEN Biotech" width="220" style="width:220px;max-width:80%;height:auto;display:inline-block" /></div>
   <h2 style="color:#16a34a;margin:0 0 8px">Your sample has shipped</h2>
   <p style="margin:0 0 12px">Hi${sample.name ? ' ' + escHtml(sample.name) : ''},</p>
   <p style="margin:0 0 12px">Good news! The beyondGREEN team has sent the samples you requested!</p>
@@ -142,6 +143,8 @@ function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: strin
   ${trackUrl ? `<div style="margin:2px 0 18px"><a href="${trackUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:14px;font-weight:600">Track your shipment</a></div>` : ''}
   ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
   <p style="margin:20px 0 0">Thank you,<br/>The beyondGREEN Team</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:22px 0 12px" />
+  <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6">This email was sent from erp@beyondgreenbiotech.com, an unmonitored inbox. If you have any questions, please contact your account manager or email <a href="mailto:info@byndgrn.com" style="color:#16a34a;text-decoration:underline">info@byndgrn.com</a>.</p>
 </div>`
 }
 
