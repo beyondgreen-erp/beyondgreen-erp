@@ -433,9 +433,193 @@ function DailyShip2025() {
   )
 }
 
+
+// ─────────────────────────── SATX → SACA Shipments ───────────────────────────
+const SATX_STATUS: { label: string; hex: string }[] = [
+  { label: 'In Transit', hex: '#fdab3d' },
+  { label: 'Received', hex: '#00c875' },
+  { label: 'Pending Shipment', hex: '#df2f4a' },
+]
+const SATX_STATUS_HEX: Record<string, string> = { 'In Transit': '#fdab3d', 'Received': '#00c875', 'Pending Shipment': '#df2f4a' }
+const SATX_GROUPS: { key: string; color: string }[] = [
+  { key: 'Pending Shipments', color: '#fdab3d' },
+  { key: 'Completed Shipments', color: '#00c875' },
+]
+
+function SATXShipments() {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [edit, setEdit] = useState<{ id: string; field: string } | null>(null)
+  const [statusOpen, setStatusOpen] = useState<string | null>(null)
+  const dragId = useRef<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await sb.from('historical_satx_shipments').select('*').eq('board_key', 'satx-shipments').order('position', { ascending: true, nullsFirst: false })
+    setRows(data || []); setLoading(false)
+  }, [sb])
+  useEffect(() => { load() }, [load])
+
+  async function patch(id: string, obj: any) {
+    setRows(rs => rs.map(r => r.id === id ? { ...r, ...obj } : r))
+    await sb.from('historical_satx_shipments').update({ ...obj, updated_at: new Date().toISOString() }).eq('id', id)
+  }
+  async function addItem(group: string) {
+    const max = Math.max(0, ...rows.filter(r => (r.group_name || '') === group).map(r => r.position || 0))
+    const { data } = await sb.from('historical_satx_shipments').insert({ board_key: 'satx-shipments', group_name: group, position: max + 1000, status: group === 'Pending Shipments' ? 'Pending Shipment' : 'Received' }).select('*').single()
+    if (data) { setRows(rs => [...rs, data]); setEdit({ id: (data as any).id, field: 'name' }) }
+  }
+  async function del(id: string) {
+    if (!confirm('Delete this shipment?')) return
+    setRows(rs => rs.filter(r => r.id !== id)); await sb.from('historical_satx_shipments').delete().eq('id', id)
+  }
+  function onDrop(group: string, beforeId: string | null) {
+    const id = dragId.current; dragId.current = null; if (!id) return
+    const list = rows.filter(r => (r.group_name || '') === group && r.id !== id).sort((a, b) => (a.position || 0) - (b.position || 0))
+    let idx = beforeId ? list.findIndex(r => r.id === beforeId) : list.length; if (idx < 0) idx = list.length
+    const prev = list[idx - 1]?.position, next = list[idx]?.position
+    const pos = prev != null && next != null ? (prev + next) / 2 : prev != null ? prev + 1000 : next != null ? next - 1000 : 1000
+    patch(id, { group_name: group, position: pos })
+  }
+
+  const q = search.trim().toLowerCase()
+  const match = (r: any) => !q || ['name', 'status', 'person', 'doc_name', 'notes'].some(k => String(r[k] ?? '').toLowerCase().includes(q))
+  const groupRows = (key: string) => rows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
+  const extraGroups = Array.from(new Set(rows.map(r => r.group_name || 'Other'))).filter(k => !SATX_GROUPS.some(g => g.key === k)).map(k => ({ key: k, color: '#9699A6' }))
+  const groups = [...SATX_GROUPS.filter(g => rows.some(r => (r.group_name || '') === g.key)), ...extraGroups]
+
+  const stats = useMemo(() => {
+    const c = (st: string) => rows.filter(r => r.status === st).length
+    return [
+      { label: 'Total Shipments', value: rows.length, c: '#0086C0' },
+      { label: 'Received', value: c('Received'), c: '#00c875' },
+      { label: 'In Transit', value: c('In Transit'), c: '#fdab3d' },
+      { label: 'Pending Shipment', value: c('Pending Shipment'), c: '#df2f4a' },
+      { label: 'Documents', value: rows.filter(r => r.doc_url).length, c: '#9d50dd' },
+    ]
+  }, [rows])
+
+  const shown = groups.reduce((a, g) => a + groupRows(g.key).length, 0)
+  const inpCls = 'w-full bg-white border border-[#0086C0] rounded px-2 py-1 text-[13px] focus:outline-none'
+
+  const TextCell = ({ r, field, type = 'text' }: { r: any; field: string; type?: 'text' | 'date' }) => {
+    const editing = edit?.id === r.id && edit?.field === field
+    const val = r[field]
+    if (editing) {
+      return <input type={type === 'date' ? 'date' : 'text'} autoFocus defaultValue={val ?? ''}
+        onBlur={e => { const v = e.target.value; patch(r.id, { [field]: v === '' ? null : v.trim() }); setEdit(null) }}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEdit(null) }}
+        className={inpCls} />
+    }
+    const show = type === 'date' ? fmtD(val) : (val || '')
+    return <div onClick={() => setEdit({ id: r.id, field })} className="cursor-text min-h-[22px] rounded px-1 hover:bg-[#F0F4F9]">{show || <span className="text-gray-300">+</span>}</div>
+  }
+
+  const NC = 6
+  return (
+    <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+        <div>
+          <span className="mon-tag">🚚 SATX → SACA</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Shipments to SACA from SATX</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${shown} of ${rows.length} shipments`}</p>
+        </div>
+        <button onClick={() => addItem('Pending Shipments')} className="mon-btn">+ New shipment</button>
+      </div>
+
+      {!loading && (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+          {stats.map(st => <Stat key={st.label} {...st} />)}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <input placeholder="Search shipment, status, person, document…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1 min-w-[240px] max-w-md bg-white border border-[#E4E6EE] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <div className="flex items-center gap-1.5 ml-auto text-xs">
+          <button onClick={() => setCollapsed(Object.fromEntries(groups.map(g => [g.key, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
+          <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
+        </div>
+      </div>
+
+      {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
+        <div className="space-y-2.5 mb-6">
+          {groups.map(group => {
+            const gr = groupRows(group.key); const isCol = collapsed[group.key]
+            return (
+              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, null)}>
+                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
+                  <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                  <span className="font-bold text-sm" style={{ color: group.color }}>{group.key}</span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: group.color + '26', color: group.color }}>{gr.length}</span>
+                </div>
+                {!isCol && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[900px]">
+                      <thead>
+                        <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
+                          <th className="w-6" />
+                          <th className="text-left font-semibold px-3 py-2 min-w-[260px]">Shipment</th>
+                          <th className="text-left font-semibold px-3 py-2 w-[150px]">Status</th>
+                          <th className="text-left font-semibold px-3 py-2 w-[120px]">Ship Date</th>
+                          <th className="text-left font-semibold px-3 py-2 min-w-[180px]">Person</th>
+                          <th className="text-left font-semibold px-3 py-2 min-w-[220px]">Document</th>
+                          <th className="w-8" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EAECF2]">
+                        {gr.map((r, i) => {
+                          const isOpen = statusOpen === r.id
+                          return (
+                            <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
+                              <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={() => { dragId.current = r.id }}>&#8942;&#8942;</td>
+                              <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800 align-top"><TextCell r={r} field="name" /></td>
+                              <td className="px-3 py-2.5 align-top">
+                                <div className="relative">
+                                  <button onClick={() => setStatusOpen(isOpen ? null : r.id)} className="w-full text-white text-[11px] font-semibold rounded-full px-2 py-1 text-center truncate" style={{ background: r.status ? (SATX_STATUS_HEX[r.status] || '#c4c4c4') : '#c4c4c4' }}>{r.status || '—'}</button>
+                                  {isOpen && (<>
+                                    <div className="fixed inset-0 z-10" onClick={() => setStatusOpen(null)} />
+                                    <div className="absolute z-20 mt-1 left-0 w-44 bg-white rounded-lg shadow-xl border border-[#E4E6EE] p-1">
+                                      {SATX_STATUS.map(o => <button key={o.label} onClick={() => { patch(r.id, { status: o.label }); setStatusOpen(null) }} className="block w-full text-white text-[11px] font-semibold rounded px-2 py-1.5 mb-1 text-center" style={{ background: o.hex }}>{o.label}</button>)}
+                                      <button onClick={() => { patch(r.id, { status: null }); setStatusOpen(null) }} className="block w-full text-gray-500 text-[11px] rounded px-2 py-1.5 hover:bg-gray-100">Clear</button>
+                                    </div></>)}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-[13px] text-gray-600 align-top"><TextCell r={r} field="ship_date" type="date" /></td>
+                              <td className="px-3 py-2.5 text-[12px] text-gray-500 align-top max-w-[240px]"><div className="truncate" title={r.person || ''}>{r.person || <span className="text-gray-300">—</span>}</div></td>
+                              <td className="px-3 py-2.5 text-[13px] align-top">
+                                {r.doc_url
+                                  ? <a href={r.doc_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[12px] text-[#0086C0] hover:underline"><i className="ti ti-file-type-pdf text-[#E2445C]" />{r.doc_name || 'View document'}</a>
+                                  : (edit?.id === r.id && edit?.field === 'doc_url'
+                                      ? <input autoFocus defaultValue="" placeholder="/satx-shipments/…" onBlur={e => { const v = e.target.value; patch(r.id, { doc_url: v === '' ? null : v.trim() }); setEdit(null) }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEdit(null) }} className={inpCls} />
+                                      : <button onClick={() => setEdit({ id: r.id, field: 'doc_url' })} className="text-gray-300 hover:text-[#0086C0] text-xs">+ Add file</button>)}
+                                {r.notes ? <div className="text-[11px] text-gray-400 mt-0.5">{r.notes}</div> : null}
+                              </td>
+                              <td className="text-center align-top"><button onClick={() => del(r.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="ti ti-trash" /></button></td>
+                            </tr>
+                          )
+                        })}
+                        {gr.length === 0 && <tr><td colSpan={NC + 1} className="px-4 py-3 text-center text-gray-400 text-xs italic">Drop shipments here or add one below</td></tr>}
+                        <tr><td /><td colSpan={NC} className="px-3 py-2"><button onClick={() => addItem(group.key)} className="text-[13px] text-gray-400 hover:text-[#0086C0]">+ Add shipment</button></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─────────────────────────── dispatcher ───────────────────────────
 export default function HistoricalBoard({ boardKey }: { boardKey: string }) {
   if (boardKey === 'daily-ship-2025') return <DailyShip2025 />
+  if (boardKey === 'satx-shipments') return <SATXShipments />
   const cfg = PIPELINES[boardKey]
   if (!cfg) return <div className="min-h-screen mon-page p-8"><p className="text-gray-500">Unknown board: {boardKey}</p></div>
   return <PipelineBoard cfg={cfg} />
