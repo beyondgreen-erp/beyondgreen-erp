@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
-import { generateQuotePDF, type PDFLine } from '@/lib/pdfHelpers'
+import { generateQuotePDF, generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
 
 interface Quote {
   id: string
@@ -367,6 +367,41 @@ export default function QuotationsPage() {
         subtotal,
         total,
         notes: form.notes || null,
+      },
+      pdfLines,
+      customer ? { company_name: customer.company_name } : null
+    )
+  }
+
+  function handleDownloadRfq() {
+    const src = editing || (form as any)
+    const rfqNumber = editing?.quote_number || `RFQ-${Date.now().toString().slice(-6)}`
+    const customer = customers.find(c => c.id === form.customer_id)
+    const pdfLines: PDFLine[] = lines
+      .filter(l => l.product_name || l.sku || l.description)
+      .map((l, i) => ({
+        line_number: i + 1,
+        sku: l.sku ?? null,
+        description: l.product_name ?? l.description ?? '',
+        quantity: l.quantity ?? 1,
+        unit_of_measure: (l as any).uom ?? (l as any).unit_of_measure ?? null,
+        unit_price: 0,
+        discount_pct: 0,
+      }))
+    if (pdfLines.length === 0) {
+      alert('Add at least one line item before downloading an RFQ.')
+      return
+    }
+    generateRFQPDF(
+      {
+        quote_number: rfqNumber,
+        quote_date: form.quote_date || new Date().toISOString().split('T')[0],
+        expiry_date: form.expiry_date || null,
+        notes: form.notes || null,
+        delivery_address: (customer as any)?.shipping_address || (customer as any)?.billing_address || null,
+        delivery_by: (src as any)?.required_by || null,
+        reply_to_email: userEmail || 'sourcing@beyondgreenbiotech.com',
+        reply_to_name: null,
       },
       pdfLines,
       customer ? { company_name: customer.company_name } : null
@@ -976,12 +1011,21 @@ export default function QuotationsPage() {
             <button onClick={closePanel} className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>
               Cancel
             </button>
+            <button
+              onClick={handleDownloadRfq}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-emerald-50"
+              style={{ borderColor: '#10B981', color: '#10B981' }}
+              title="Download as RFQ (no pricing) to send to suppliers for sourcing"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+              Download RFQ
+            </button>
             {editing && (
               <button
                 onClick={handleDownloadPdf}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50"
                 style={{ borderColor: '#1A2035', color: '#1A2035' }}
-                title="Download PDF"
+                title="Download customer-ready quote PDF (with pricing)"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
                 Download PDF
