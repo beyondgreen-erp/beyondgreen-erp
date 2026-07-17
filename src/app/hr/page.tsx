@@ -6,7 +6,7 @@ interface Card { title: string; description: string; href: string; icon: string;
 
 const CARDS: Card[] = [
   { title: 'Team Directory', description: 'Employees, roles, contact info, and reporting structure.', href: '/hr/directory', icon: 'ti-users', color: '#5559df', badge: 'Coming soon' },
-  { title: 'Time Off & PTO', description: 'Vacation, sick leave, and time-off requests with approvals.', href: '/hr/time-off', icon: 'ti-calendar-off', color: '#00c875', badge: 'Coming soon' },
+  { title: 'Time Off', description: 'Vacation, sick leave, and time-off requests with approvals.', href: '/hr/time-off', icon: 'ti-calendar-off', color: '#00c875' },
   { title: 'Onboarding', description: 'New-hire checklists, orientation, and first-week tasks.', href: '/hr/onboarding', icon: 'ti-user-plus', color: '#579bfc', badge: 'Coming soon' },
   { title: 'Training & Certifications', description: 'Employee training records, expirations, and required certifications.', href: '/hr/training', icon: 'ti-school', color: '#a25ddc', badge: 'Coming soon' },
   { title: 'Performance Reviews', description: 'Reviews, goals, and 1-on-1 tracking for each team member.', href: '/hr/reviews', icon: 'ti-chart-arrows-vertical', color: '#fdab3d', badge: 'Coming soon' },
