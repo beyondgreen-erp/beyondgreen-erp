@@ -19,7 +19,7 @@ export interface Board {
 export interface BoardColumn { key: string; label: string; type: 'text' | 'longtext' | 'number' | 'date' | 'status' | 'link' | 'person' }
 export interface BuilderConfig { columns: BoardColumn[]; groups: string[]; primary?: string; color?: string }
 
-export const GROUP_ORDER = ['Overview', 'CRM', 'Sales', 'Production', 'Inventory', 'Business', 'Finance', 'Historicals']
+export const GROUP_ORDER = ['Overview', 'CRM', 'Sales', 'Production', 'Inventory', 'Warehouse', 'Business', 'Finance', 'Historicals']
 
 // Which built-in boards show a live badge (kept in code, keyed by href/board_key)
 export const BADGE_BY_KEY: Record<string, string> = {
@@ -52,7 +52,8 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/operations/private-label-stock', label: 'Warehouse Stock', icon: 'ti-tag', nav_group: 'Inventory', href: '/operations/private-label-stock', sort_order: 1 },
   { board_key: '/imports', label: 'Import Tracker', icon: 'ti-ship', nav_group: 'Inventory', href: '/imports', sort_order: 2 },
   { board_key: '/sales/purchase-orders', label: 'Purchase Order Request', icon: 'ti-clipboard-list', nav_group: 'Inventory', href: '/sales/purchase-orders', sort_order: 3 },
-  { board_key: '/operations/containers', label: 'Containers', icon: 'ti-container', nav_group: 'Inventory', href: '/operations/containers', sort_order: 4 },
+  { board_key: '/operations/containers', label: 'Containers', icon: 'ti-container', nav_group: 'Warehouse', href: '/operations/containers', sort_order: 0 },
+  { board_key: '/warehouse/tickets', label: 'Pull & Add Tickets', icon: 'ti-clipboard-check', nav_group: 'Warehouse', href: '/warehouse/tickets', sort_order: 1 },
   { board_key: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox', nav_group: 'Business', href: '/bizdev/tasks', sort_order: 0 },
   { board_key: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette', nav_group: 'Business', href: '/bizdev/certifications', sort_order: 1 },
   { board_key: '/bizdev/documents', label: 'Documents & Knowledge', icon: 'ti-folder', nav_group: 'Business', href: '/bizdev/documents', sort_order: 2 },
