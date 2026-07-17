@@ -974,86 +974,102 @@ export default function QuotationsPage() {
         </div>
 
         {/* Panel Footer */}
-        <div className="px-6 py-4 border-t flex items-center justify-between shrink-0" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
-          <div className="flex items-center gap-3">
-            {editing && (
+        <div className="px-4 py-3 border-t shrink-0" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
+          {editing && editing.status !== 'Converted' && confirmConvert === editing.id ? (
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-sm font-medium whitespace-nowrap" style={{ color: '#374151' }}>
+                Convert {editing.quote_number} → Sales Order?
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setConfirmConvert(null)}
+                  className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border"
+                  style={{ borderColor: '#E4E6EE', color: '#6B7280' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => doConvertToSO(editing)}
+                  disabled={saving}
+                  className="h-9 px-4 rounded-lg text-sm font-semibold text-white whitespace-nowrap disabled:opacity-50 transition-colors"
+                  style={{ background: '#059669' }}
+                >
+                  {saving ? 'Converting…' : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Cancel — left */}
               <button
-                onClick={() => setRfqModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors text-white"
-                style={{ background: '#10b981' }}
-                title="Send RFQ to suppliers"
+                onClick={closePanel}
+                className="h-9 px-4 rounded-lg text-sm font-medium whitespace-nowrap border transition-colors hover:bg-gray-100"
+                style={{ borderColor: '#E4E6EE', color: '#6B7280' }}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                Send RFQ
+                Cancel
               </button>
-            )}
-            {editing && editing.status !== 'Converted' && (
-              confirmConvert === editing.id ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium" style={{ color: '#374151' }}>
-                    Convert {editing.quote_number} → SO?
-                  </span>
-                  <button
-                    onClick={() => doConvertToSO(editing)}
-                    disabled={saving}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 transition-colors"
-                    style={{ background: '#059669' }}
-                  >
-                    {saving ? 'Converting…' : 'Confirm'}
-                  </button>
-                  <button
-                    onClick={() => setConfirmConvert(null)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{ background: '#F0F2F7', color: '#6B7280' }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
+
+              {/* Spacer pushes primary actions to the right */}
+              <div className="flex-1" />
+
+              {/* Secondary action group — icon buttons with tooltips */}
+              {editing && (
+                <button
+                  onClick={() => setRfqModalOpen(true)}
+                  className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap border transition-colors hover:bg-emerald-50 flex items-center gap-1.5"
+                  style={{ borderColor: '#10B981', color: '#10B981' }}
+                  title="Send RFQ to suppliers via email"
+                >
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                  <span>Send RFQ</span>
+                </button>
+              )}
+
+              {editing && editing.status !== 'Converted' && (
                 <button
                   onClick={() => setConfirmConvert(editing.id)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap transition-colors hover:opacity-90 flex items-center gap-1.5"
                   style={{ background: '#ECFDF5', color: '#059669' }}
+                  title="Convert this quote into a Sales Order"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-                  Convert to Sales Order
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                  <span>Convert to SO</span>
                 </button>
-              )
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={closePanel} className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50" style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>
-              Cancel
-            </button>
-            <button
-              onClick={handleDownloadRfq}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-emerald-50"
-              style={{ borderColor: '#10B981', color: '#10B981' }}
-              title="Download as RFQ (no pricing) to send to suppliers for sourcing"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-              Download RFQ
-            </button>
-            {editing && (
+              )}
+
               <button
-                onClick={handleDownloadPdf}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50"
-                style={{ borderColor: '#1A2035', color: '#1A2035' }}
-                title="Download customer-ready quote PDF (with pricing)"
+                onClick={handleDownloadRfq}
+                className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap border transition-colors hover:bg-emerald-50 flex items-center gap-1.5"
+                style={{ borderColor: '#10B981', color: '#10B981' }}
+                title="Download as RFQ PDF (no pricing) to send to suppliers"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
-                Download PDF
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                <span>RFQ PDF</span>
               </button>
-            )}
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-5 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 hover:opacity-90"
-              style={{ background: '#3B6FE0' }}
-            >
-              {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Quote'}
-            </button>
-          </div>
+
+              {editing && (
+                <button
+                  onClick={handleDownloadPdf}
+                  className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap border transition-colors hover:bg-gray-100 flex items-center gap-1.5"
+                  style={{ borderColor: '#1A2035', color: '#1A2035' }}
+                  title="Download customer-ready quote PDF (with pricing)"
+                >
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                  <span>Quote PDF</span>
+                </button>
+              )}
+
+              {/* Primary — Save */}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="h-9 px-5 rounded-lg text-sm font-semibold text-white whitespace-nowrap transition-colors disabled:opacity-50 hover:opacity-90"
+                style={{ background: '#3B6FE0' }}
+              >
+                {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
