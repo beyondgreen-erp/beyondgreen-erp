@@ -52,6 +52,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/operations/private-label-stock', label: 'Warehouse Stock', icon: 'ti-tag', nav_group: 'Inventory', href: '/operations/private-label-stock', sort_order: 1 },
   { board_key: '/imports', label: 'Import Tracker', icon: 'ti-ship', nav_group: 'Inventory', href: '/imports', sort_order: 2 },
   { board_key: '/sales/purchase-orders', label: 'Purchase Order Request', icon: 'ti-clipboard-list', nav_group: 'Inventory', href: '/sales/purchase-orders', sort_order: 3 },
+  { board_key: '/operations/containers', label: 'Containers', icon: 'ti-container', nav_group: 'Inventory', href: '/operations/containers', sort_order: 4 },
   { board_key: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox', nav_group: 'Business', href: '/bizdev/tasks', sort_order: 0 },
   { board_key: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette', nav_group: 'Business', href: '/bizdev/certifications', sort_order: 1 },
   { board_key: '/bizdev/documents', label: 'Documents & Knowledge', icon: 'ti-folder', nav_group: 'Business', href: '/bizdev/documents', sort_order: 2 },
