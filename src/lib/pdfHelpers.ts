@@ -2,6 +2,49 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
+/**
+ * Draw text so it fits inside a cell of `maxWidth`.
+ * Tries reducing font size down to `minSize`; if it still doesn't fit,
+ * wraps to a second line (or truncates with ellipsis).
+ */
+function fitText(
+  doc: jsPDF,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  opts: { align?: 'left' | 'center' | 'right'; maxSize?: number; minSize?: number; padding?: number } = {}
+) {
+  const { align = 'center', maxSize, minSize = 6.5, padding = 4 } = opts
+  const startSize = maxSize ?? doc.getFontSize()
+  const usable = Math.max(0, maxWidth - padding * 2)
+  if (!text) { doc.setFontSize(startSize); return }
+  let size = startSize
+  doc.setFontSize(size)
+  while (doc.getTextWidth(text) > usable && size > minSize) {
+    size -= 0.5
+    doc.setFontSize(size)
+  }
+  if (doc.getTextWidth(text) <= usable) {
+    doc.text(text, x, y, { align })
+  } else {
+    // Try wrapping to two lines
+    const lines = doc.splitTextToSize(text, usable) as string[]
+    if (lines.length <= 2 && lines.every(l => doc.getTextWidth(l) <= usable)) {
+      const line1Y = y - size * 0.35
+      const line2Y = y + size * 0.5
+      doc.text(lines[0], x, line1Y, { align })
+      doc.text(lines[1] || '', x, line2Y, { align })
+    } else {
+      // Truncate with ellipsis at the smallest font
+      let t = text
+      while (doc.getTextWidth(t + '…') > usable && t.length > 1) t = t.slice(0, -1)
+      doc.text(t + '…', x, y, { align })
+    }
+  }
+  doc.setFontSize(startSize)
+}
+
 export interface PDFLine {
   line_number: number
   sku: string | null
@@ -327,8 +370,8 @@ export async function generateOrderPDF(
   doc.text('Date', boxX + boxW / 4, boxY + 13.5, { align: 'center' })
   doc.text('Sales Order #', colX + boxW / 4, boxY + 13.5, { align: 'center' })
   doc.setFont('times', 'normal')
-  doc.text(fmtDate(order.order_date), boxX + boxW / 4, boxY + rowH + 13.5, { align: 'center' })
-  doc.text(order.order_number || '-', colX + boxW / 4, boxY + rowH + 13.5, { align: 'center' })
+  fitText(doc, fmtDate(order.order_date), boxX + boxW / 4, boxY + rowH + 13.5, boxW / 2, { align: 'center', maxSize: 9.5 })
+  fitText(doc, order.order_number || '-', colX + boxW / 4, boxY + rowH + 13.5, boxW / 2, { align: 'center', maxSize: 9.5 })
 
   // Company block
   doc.setFont('times', 'bold'); doc.setFontSize(11)
@@ -364,7 +407,7 @@ export async function generateOrderPDF(
   infoCols.forEach(c => {
     doc.rect(ix, iY + infoRowH, c.w, infoRowH, 'S')
     doc.setFont('times', 'normal'); doc.setFontSize(9.5)
-    doc.text(c.value || '', ix + c.w / 2, iY + infoRowH + 13.5, { align: 'center' })
+    fitText(doc, c.value || '', ix + c.w / 2, iY + infoRowH + 13.5, c.w, { align: 'center', maxSize: 9.5 })
     ix += c.w
   })
 
