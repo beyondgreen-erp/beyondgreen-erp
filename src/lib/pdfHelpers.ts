@@ -637,3 +637,154 @@ export function generateQuotePDF(
 
   doc.save(`quote-${quote.quote_number}.pdf`)
 }
+
+/**
+ * Request For Quote (RFQ) — sent OUT to suppliers when we need pricing on a sourcing project.
+ * Same product details as a quote, but pricing columns are blank for the supplier to fill in
+ * and return in whatever format they prefer.
+ */
+export function generateRFQPDF(
+  rfq: {
+    quote_number: string
+    quote_date: string | null
+    expiry_date: string | null
+    notes?: string | null
+    delivery_address?: string | null
+    delivery_by?: string | null
+    reply_to_email?: string | null
+    reply_to_name?: string | null
+  },
+  lines: PDFLine[],
+  buyer: PDFCustomer | null
+) {
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  const W = doc.internal.pageSize.getWidth()
+  const H = doc.internal.pageSize.getHeight()
+  const L = 36, R = W - 36
+  header(doc, 'REQUEST FOR QUOTE')
+
+  // Left column: RFQ meta
+  let y = 78
+  doc.setTextColor(...DARK)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14)
+  doc.text(`RFQ ${rfq.quote_number}`, L, y)
+  y += 16
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+  if (rfq.quote_date) { doc.text(`Issued: ${fmtDate(rfq.quote_date)}`, L, y); y += 12 }
+  if (rfq.expiry_date) {
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(226, 68, 92)
+    doc.text(`Response due by: ${fmtDate(rfq.expiry_date)}`, L, y)
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...DARK)
+    y += 12
+  }
+  if (rfq.delivery_by) { doc.text(`Requested delivery: ${fmtDate(rfq.delivery_by)}`, L, y); y += 12 }
+
+  // Right column: prepared by
+  const rx = W / 2 + 20
+  let ry = 78
+  doc.setFontSize(8); doc.setTextColor(...GRAY); doc.text('PREPARED BY', rx, ry); ry += 12
+  doc.setTextColor(...DARK); doc.setFontSize(9); doc.setFont('helvetica', 'bold')
+  doc.text(COMPANY.name, rx, ry); ry += 11
+  doc.setFont('helvetica', 'normal')
+  COMPANY.addr.forEach(line => { doc.text(line, rx, ry); ry += 11 })
+  ry += 4
+  if (rfq.reply_to_name) { doc.text(`Attn: ${rfq.reply_to_name}`, rx, ry); ry += 11 }
+  if (rfq.reply_to_email) {
+    doc.setTextColor(0, 102, 204)
+    doc.text(rfq.reply_to_email, rx, ry); ry += 11
+    doc.setTextColor(...DARK)
+  }
+
+  // Buyer / project reference block (optional)
+  const boxY = Math.max(y, ry) + 8
+  if (buyer && buyer.company_name) {
+    doc.setFontSize(8); doc.setTextColor(...GRAY); doc.text('FOR PROJECT / END CUSTOMER', L, boxY)
+    doc.setTextColor(...DARK); doc.setFontSize(9)
+    doc.text(buyer.company_name, L, boxY + 12)
+  }
+
+  // Items table — pricing left blank on purpose
+  autoTable(doc, {
+    startY: boxY + 26,
+    margin: { left: L, right: 36 },
+    head: [['#', 'SKU / Part #', 'Description', 'Qty', 'UOM', 'Unit Price', 'Lead Time', 'Notes']],
+    body: lines.map(l => [
+      l.line_number,
+      l.sku ?? '—',
+      l.description,
+      l.quantity ?? '',
+      l.unit_of_measure ?? '',
+      '', // supplier fills in
+      '', // supplier fills in
+      '', // supplier fills in
+    ]),
+    theme: 'grid',
+    headStyles: { fillColor: GREEN, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold', halign: 'center' },
+    bodyStyles: { fontSize: 9, minCellHeight: 26, valign: 'middle' },
+    alternateRowStyles: { fillColor: [246, 250, 247] },
+    columnStyles: {
+      0: { cellWidth: 22, halign: 'center' },
+      1: { cellWidth: 78, font: 'courier', fontSize: 8 },
+      2: { cellWidth: 170 },
+      3: { cellWidth: 38, halign: 'center' },
+      4: { cellWidth: 42, halign: 'center' },
+      5: { cellWidth: 66, halign: 'right' },
+      6: { cellWidth: 60, halign: 'center' },
+      7: { cellWidth: 64 },
+    },
+  })
+
+  let ay = (doc as any).lastAutoTable.finalY + 14
+  const ensure = (need: number) => { if (ay + need > H - 60) { doc.addPage(); ay = 60 } }
+
+  // Delivery details
+  if (rfq.delivery_address || rfq.delivery_by) {
+    ensure(60)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...DARK)
+    doc.text('Delivery Details', L, ay); ay += 14
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    if (rfq.delivery_address) {
+      const lines2 = doc.splitTextToSize(`Ship to: ${rfq.delivery_address}`, R - L) as string[]
+      doc.text(lines2, L, ay); ay += lines2.length * 12
+    }
+    if (rfq.delivery_by) { doc.text(`Requested delivery date: ${fmtDate(rfq.delivery_by)}`, L, ay); ay += 12 }
+    ay += 8
+  }
+
+  // Project notes
+  if (rfq.notes) {
+    ensure(60)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+    doc.text('Project Notes & Requirements', L, ay); ay += 14
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    const wrapped = doc.splitTextToSize(rfq.notes, R - L) as string[]
+    doc.text(wrapped, L, ay); ay += wrapped.length * 12 + 8
+  }
+
+  // How to respond
+  ensure(80)
+  doc.setDrawColor(...GREEN); doc.setLineWidth(1)
+  doc.rect(L, ay, R - L, 66, 'S')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...DARK)
+  doc.text('How to respond', L + 10, ay + 16)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+  const replyLines = [
+    'Please provide your best pricing, lead time, MOQ (if any), and any assumptions or exclusions.',
+    'You may reply in the format that works best for you (fill in this PDF, send a quote sheet, or reply in email).',
+    rfq.reply_to_email
+      ? `Send your response to ${rfq.reply_to_email}${rfq.reply_to_name ? ` (Attn: ${rfq.reply_to_name})` : ''}.`
+      : 'Reply directly to the person who sent you this RFQ.',
+  ]
+  let ry2 = ay + 30
+  replyLines.forEach(line => {
+    const wrapped = doc.splitTextToSize(line, R - L - 20) as string[]
+    doc.text(wrapped, L + 10, ry2)
+    ry2 += wrapped.length * 11
+  })
+
+  // Footer
+  doc.setFontSize(8); doc.setTextColor(...GRAY)
+  doc.text(`Generated ${new Date().toLocaleString()} · beyondGREEN ERP · RFQ ${rfq.quote_number}`, W / 2, H - 18, { align: 'center' })
+
+  doc.save(`RFQ-${(rfq.quote_number || 'RFQ').replace(/[^\w.-]+/g, '_')}.pdf`)
+}
