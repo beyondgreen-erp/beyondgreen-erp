@@ -95,6 +95,8 @@ export default function QuotationsPage() {
   const [rfqModalOpen, setRfqModalOpen] = useState(false)
   const [rfqSending, setRfqSending] = useState(false)
   const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set())
+  // Record Board: collapsed state per status group
+  const [rbCollapsedState, rbSetCollapsed] = useState<Record<string, boolean>>({ Rejected: true, Expired: true })
 
   // Form state
   const [form, setForm] = useState({
@@ -466,220 +468,169 @@ export default function QuotationsPage() {
   const inp = 'w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors'
   const inpStyle = { borderColor: '#E4E6EE', color: '#1A1D2E', background: '#fff' }
 
-  return (
-    <div className="min-h-screen mon-page">
+  // Record Board groups by status (matches PLS / Purchasing Requests / Employee Directory look)
+  const RB_GROUPS: { key: string; title: string; color: string }[] = [
+    { key: 'Draft',     title: 'Draft',      color: '#5559df' },
+    { key: 'Sent',      title: 'Sent',       color: '#007eb5' },
+    { key: 'Accepted',  title: 'Accepted',   color: '#00c875' },
+    { key: 'Converted', title: 'Converted',  color: '#a25ddc' },
+    { key: 'Rejected',  title: 'Rejected',   color: '#df2f4a' },
+    { key: 'Expired',   title: 'Expired',    color: '#fdab3d' },
+  ]
+  const rbStatusColor = (s: string | null) => RB_GROUPS.find(g => g.key === s)?.color || '#c4c4c4'
+  const rbMatch = (q: Quote) => {
+    const t = search.toLowerCase()
+    if (!t) return true
+    return (q.quote_number ?? '').toLowerCase().includes(t) || (cmap[q.customer_id ?? ''] ?? '').toLowerCase().includes(t)
+  }
+  const rbGroupRows = (key: string) => quotes.filter(q => (q.status || 'Draft') === key && rbMatch(q))
+  const [collapsed, setCollapsed] = [rbCollapsedState, rbSetCollapsed] as const
 
-      {/* Page Header */}
-      <div className="bg-white border-b px-8 py-5 flex items-center justify-between" style={{ borderColor: '#E4E6EE' }}>
+  return (
+    <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
+
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
           <span className="mon-tag t-pink">💬 Quotes</span>
-          <h1 className="text-2xl font-bold mt-1.5" style={{ color: '#1A1D2E' }}>Quotations</h1>
-          <p className="text-sm mt-0.5" style={{ color: '#9CA3AF' }}>
-            {loading ? 'Loading…' : `${filtered.length} quotation${filtered.length !== 1 ? 's' : ''}${statusFilter !== 'All' ? ` · ${statusFilter}` : ''}`}
-          </p>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Quotations</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${quotes.length} quote${quotes.length !== 1 ? 's' : ''} · ${fmt$(quotes.filter(q => !['Rejected','Converted'].includes(q.status)).reduce((s, q) => s + (q.total ?? 0), 0))} pipeline`}</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={openNew}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
-            style={{ background: '#3B6FE0' }}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            New Quote
-          </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search quote # or customer…"
+            className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40"
+          />
+          {selected.size > 0 && (
+            <button onClick={bulkDelete} disabled={deleting} className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              Delete {selected.size}
+            </button>
+          )}
           <a
             href="/sales/costing"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
-            style={{ background: '#8b5cf6' }}
+            className="flex items-center gap-1.5 bg-white border border-[#E4E6EE] hover:border-violet-500/40 hover:text-violet-600 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             title="Create quote with AI assistance"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             Create with AI
           </a>
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1.5 bg-[#3B6FE0] hover:bg-[#2E5CC7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            New Quote
+          </button>
         </div>
       </div>
 
-      <div className="px-8 py-6">
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {[
-            { label: 'Total Quotes', value: quotes.length, color: '#3B6FE0' },
-            { label: 'Pending / Sent', value: quotes.filter(q => q.status === 'Sent').length, color: '#D97706' },
-            { label: 'Accepted', value: quotes.filter(q => q.status === 'Accepted').length, color: '#059669' },
-            { label: 'Pipeline Value', value: fmt$(quotes.filter(q => !['Rejected','Converted'].includes(q.status)).reduce((s, q) => s + (q.total ?? 0), 0)), color: '#7C3AED' },
-          ].map(s => (
-            <div key={s.label} className="bg-white rounded-xl border p-5" style={{ borderColor: '#E4E6EE' }}>
-              <p className="text-sm mb-1" style={{ color: '#9CA3AF' }}>{s.label}</p>
-              <p className="text-2xl font-bold" style={{ color: s.color }}>{loading ? '—' : s.value}</p>
-            </div>
-          ))}
+      {loading ? (
+        <div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20">
+          <div className="w-6 h-6 border-2 border-[#3B6FE0]/30 border-t-[#3B6FE0] rounded-full animate-spin" />
         </div>
-
-        {/* Filters */}
-        <div className="bg-white rounded-xl border p-4 mb-4 flex flex-wrap items-center gap-4" style={{ borderColor: '#E4E6EE' }}>
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <svg className="absolute left-3 top-2.5 w-4 h-4" style={{ color: '#9CA3AF' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by quote # or customer…"
-              className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors"
-              style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }}
-            />
-          </div>
-          <div className="flex gap-1 p-1 rounded-lg" style={{ background: '#F0F2F7' }}>
-            {STATUSES.map(s => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className="px-3 py-1.5 rounded-md text-sm font-medium transition-all"
-                style={{
-                  background: statusFilter === s ? '#fff' : 'transparent',
-                  color: statusFilter === s ? '#1A1D2E' : '#9CA3AF',
-                  boxShadow: statusFilter === s ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-          {selected.size > 0 && (
-            <button
-              onClick={bulkDelete}
-              disabled={deleting}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-              style={{ background: '#FEF2F2', color: '#DC2626' }}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              Delete {selected.size}
-            </button>
-          )}
-        </div>
-
-        {/* Table */}
-        <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#E4E6EE' }}>
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <svg className="w-12 h-12 mb-4" style={{ color: '#D1D5DB' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              <p className="text-sm font-medium mb-1" style={{ color: '#6B7280' }}>No quotations found</p>
-              <p className="text-xs mb-4" style={{ color: '#9CA3AF' }}>
-                {search ? 'Try a different search term' : 'Create your first quotation to get started'}
-              </p>
-              {!search && (
-                <button onClick={openNew} className="px-4 py-2 rounded-lg text-sm font-medium text-white hover:opacity-90" style={{ background: '#3B6FE0' }}>
-                  New Quote
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <table className="w-full">
-                <thead>
-                  <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E4E6EE' }}>
-                    <th className="px-4 py-3 w-10">
-                      <input
-                        type="checkbox"
-                        checked={selected.size === filtered.length && filtered.length > 0}
-                        onChange={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map(q => q.id)))}
-                        className="w-4 h-4 rounded cursor-pointer accent-blue-600"
-                      />
-                    </th>
-                    {['Quote #', 'Customer', 'Date', 'Expiry', 'Status', 'Lines', 'Total', ''].map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: '#9CA3AF' }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(quote => (
-                    <tr
-                      key={quote.id}
-                      className="group cursor-pointer hover:bg-[#F9FAFB] transition-colors"
-                      style={{ borderBottom: '1px solid #F3F4F6' }}
-                      onClick={() => openEdit(quote)}
-                    >
-                      <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selected.has(quote.id)}
-                          onChange={() => {
-                            const next = new Set(selected)
-                            if (next.has(quote.id)) next.delete(quote.id)
-                            else next.add(quote.id)
-                            setSelected(next)
-                          }}
-                          className="w-4 h-4 rounded cursor-pointer accent-blue-600"
-                        />
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className="text-sm font-semibold" style={{ color: '#3B6FE0' }}>{quote.quote_number || '—'}</span>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className="text-sm font-medium" style={{ color: '#1A1D2E' }}>{cmap[quote.customer_id ?? ''] || '—'}</span>
-                      </td>
-                      <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
-                        {quote.quote_date ? new Date(quote.quote_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                      </td>
-                      <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
-                        {quote.expiry_date ? new Date(quote.expiry_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <StatusBadge status={quote.status ?? 'Draft'} />
-                      </td>
-                      <td className="px-4 py-3.5 text-sm" style={{ color: '#6B7280' }}>
-                        {lineCounts[quote.id] ?? 0}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className="text-sm font-semibold" style={{ color: '#1A1D2E' }}>{fmt$(quote.total)}</span>
-                      </td>
-                      <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => openEdit(quote)}
-                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-gray-100"
-                            style={{ background: '#F0F2F7', color: '#6B7280' }}
-                          >
-                            Edit
-                          </button>
-                          {quote.status !== 'Converted' && (
-                            <button
-                              onClick={() => { openEdit(quote); setConfirmConvert(quote.id) }}
-                              className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
-                              style={{ background: '#ECFDF5', color: '#059669' }}
-                            >
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-                              SO
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDelete(quote.id)}
-                            className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
-                            style={{ color: '#DC2626' }}
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="px-4 py-3 flex items-center justify-between border-t" style={{ borderColor: '#F3F4F6', background: '#F9FAFB' }}>
-                <p className="text-xs" style={{ color: '#9CA3AF' }}>{filtered.length} of {quotes.length} quotations</p>
-                <p className="text-xs font-semibold" style={{ color: '#1A1D2E' }}>
-                  Total: {fmt$(filtered.reduce((s, q) => s + (q.total ?? 0), 0))}
-                </p>
+      ) : (
+        <div className="space-y-4">
+          {RB_GROUPS.map(group => {
+            const gr = rbGroupRows(group.key)
+            const isCol = collapsed[group.key]
+            const groupTotal = gr.reduce((s, q) => s + (q.total ?? 0), 0)
+            return (
+              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
+                  <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                  <span className="font-bold text-sm" style={{ color: group.color }}>{group.title}</span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: group.color + '26', color: group.color }}>{gr.length}</span>
+                  {gr.length > 0 && <span className="ml-auto text-[11px] font-semibold text-gray-500">{fmt$(groupTotal)}</span>}
+                </div>
+                {!isCol && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[900px]">
+                      <thead>
+                        <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                          <th className="text-left px-3 py-2 font-semibold w-[36px]">
+                            <input
+                              type="checkbox"
+                              checked={gr.length > 0 && gr.every(q => selected.has(q.id))}
+                              onChange={() => {
+                                const next = new Set(selected)
+                                const allSelected = gr.every(q => selected.has(q.id))
+                                if (allSelected) gr.forEach(q => next.delete(q.id))
+                                else gr.forEach(q => next.add(q.id))
+                                setSelected(next)
+                              }}
+                              className="w-4 h-4 rounded cursor-pointer accent-blue-600"
+                              onClick={e => e.stopPropagation()}
+                            />
+                          </th>
+                          <th className="text-left px-3 py-2 font-semibold">Quote #</th>
+                          <th className="text-left px-3 py-2 font-semibold">Customer</th>
+                          <th className="text-left px-3 py-2 font-semibold w-[110px]">Date</th>
+                          <th className="text-left px-3 py-2 font-semibold w-[110px]">Expiry</th>
+                          <th className="text-left px-3 py-2 font-semibold w-[120px]">Status</th>
+                          <th className="text-left px-3 py-2 font-semibold w-[70px]">Lines</th>
+                          <th className="text-right px-3 py-2 font-semibold w-[110px]">Total</th>
+                          <th className="text-right px-3 py-2 font-semibold w-[110px]"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gr.map((quote, i) => (
+                          <tr key={quote.id} className={`group cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openEdit(quote)}>
+                            <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selected.has(quote.id)}
+                                onChange={() => {
+                                  const next = new Set(selected)
+                                  if (next.has(quote.id)) next.delete(quote.id); else next.add(quote.id)
+                                  setSelected(next)
+                                }}
+                                className="w-4 h-4 rounded cursor-pointer accent-blue-600"
+                              />
+                            </td>
+                            <td className="px-3 py-2.5 font-semibold text-[#3B6FE0]">{quote.quote_number || '—'}</td>
+                            <td className="px-3 py-2.5 text-[#1A1D2E] truncate max-w-[280px]">{cmap[quote.customer_id ?? ''] || '—'}</td>
+                            <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{quote.quote_date ? new Date(quote.quote_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                            <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{quote.expiry_date ? new Date(quote.expiry_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                            <td className="px-3 py-2.5">
+                              <span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block whitespace-nowrap" style={{ background: rbStatusColor(quote.status) }}>{quote.status || 'Draft'}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-600">{lineCounts[quote.id] ?? 0}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold text-[#1A1D2E]">{fmt$(quote.total)}</td>
+                            <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
+                              <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {quote.status !== 'Converted' && (
+                                  <button
+                                    onClick={() => { openEdit(quote); setConfirmConvert(quote.id) }}
+                                    className="px-2 py-1 rounded-md text-[11px] font-semibold border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
+                                    title="Convert to Sales Order"
+                                  >
+                                    → SO
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleDelete(quote.id)}
+                                  className="p-1 rounded-md text-red-500 hover:bg-red-50 transition-colors"
+                                  title="Delete"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {gr.length === 0 && <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400 text-sm">{search ? 'No matches.' : `No ${group.title.toLowerCase()} quotes`}</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            )
+          })}
         </div>
-      </div>
+      )}
 
       {/* OVERLAY */}
       <div
