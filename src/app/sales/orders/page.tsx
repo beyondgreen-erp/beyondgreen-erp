@@ -265,7 +265,7 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
 
 // ── Edit form ──────────────────────────────────────────────────────────────
 const emptyForm = {
-  notes: '', order_section: '', order_number: '', status: 'Pending', facility: '',
+  notes: '', order_section: '', order_number: '', po_number: '', status: 'Pending', facility: '',
   monday_item_id: '', order_date: '', production_start: '', estimated_completion: '',
   ship_date: '', customer_id: '', customer_label: '', customer_email: '', customer_phone: '',
   shipping_address: '', total_amount: '', purchase_order_url: '', packing_slip_url: '',
@@ -343,8 +343,8 @@ function EditPanel({
     skuQ.length > 0 && (p.sku.toLowerCase().includes(skuQ.toLowerCase()) || p.product_name.toLowerCase().includes(skuQ.toLowerCase()))
   ).slice(0, 8)
 
-  function addLine() {
-    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null }])
+  function addLine(preset?: Partial<EditLineState>) {
+    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, ...preset }])
   }
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch } : l)) }
@@ -443,10 +443,14 @@ function EditPanel({
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">PO Number</label>
-                  <input value={form.order_number} onChange={e => setForm(p => ({ ...p, order_number: e.target.value }))} className={inp}/>
+                  <label className="block text-xs text-gray-400 mb-1.5">SO # <span className="normal-case text-gray-300">(auto if blank)</span></label>
+                  <input value={form.order_number} onChange={e => setForm(p => ({ ...p, order_number: e.target.value }))} className={inp} placeholder="Auto-generated"/>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">PO # <span className="normal-case text-gray-300">(customer)</span></label>
+                  <input value={form.po_number} onChange={e => setForm(p => ({ ...p, po_number: e.target.value }))} className={inp} placeholder="Customer PO #"/>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Facility</label>
@@ -599,9 +603,13 @@ function EditPanel({
 
           {/* Line Items */}
           <div>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-1.5">
               <p className="text-xs font-semibold uppercase tracking-wider">Line Items</p>
-              <button onClick={addLine} className="text-xs px-2.5 py-1 rounded bg-[#F5F6FA] hover:bg-gray-600 text-gray-500 transition-colors">+ Add Line</button>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button onClick={() => addLine({ description: 'Freight & Delivery', unit_of_measure: 'ea' })} className="text-xs px-2.5 py-1 rounded bg-[#EEF4FF] hover:bg-[#E0EAFE] text-[#3B6FE0] font-medium transition-colors">+ Freight &amp; Delivery</button>
+                <button onClick={() => addLine({ description: 'Sales Tax', unit_of_measure: 'ea' })} className="text-xs px-2.5 py-1 rounded bg-[#EEF4FF] hover:bg-[#E0EAFE] text-[#3B6FE0] font-medium transition-colors">+ Sales Tax</button>
+                <button onClick={() => addLine()} className="text-xs px-2.5 py-1 rounded bg-[#F5F6FA] hover:bg-gray-600 text-gray-500 transition-colors">+ Add Line</button>
+              </div>
             </div>
             <div className="space-y-2">
               {editLines.map((line, i) => (
@@ -947,7 +955,7 @@ export default function OrdersPage() {
       order_date: form.order_date || null,
       required_ship_date: form.ship_date || null,
       status: form.status,
-      po_number: form.order_number.trim() || null,
+      po_number: form.po_number.trim() || null,
       shipping_address: form.shipping_address || null,
       carrier: form.facility || null,
       subtotal: total,
@@ -994,7 +1002,8 @@ export default function OrdersPage() {
     setForm({
       notes: order.notes ?? '',
       order_section: order.order_section ?? '',
-      order_number: order.order_number ?? order.po_number ?? '',
+      order_number: order.order_number ?? '',
+      po_number: order.po_number ?? '',
       status: order.status,
       facility: order.facility ?? order.carrier ?? '',
       monday_item_id: order.monday_item_id ?? '',
@@ -1023,11 +1032,11 @@ export default function OrdersPage() {
     if (!form.notes.trim()) { setErr('Order name is required.'); return }
     setErr(''); setSaving(true)
 
+    const soNum = form.order_number.trim()
     const basePayload: Record<string,any> = {
       notes: form.notes.trim(),
-      order_number: form.order_number.trim() || ('SO-' + Date.now()),
       status: form.status,
-      po_number: form.order_number.trim() || null,
+      po_number: form.po_number.trim() || null,
       order_date: form.order_date || null,
       required_ship_date: form.ship_date || null,
       carrier: form.facility || null,
@@ -1037,6 +1046,10 @@ export default function OrdersPage() {
       tax_pct: 0,
       shipping_address: form.shipping_address || null,
     }
+    // SO# (order_number): use what was typed; if blank keep the existing number when editing,
+    // or leave it off for a new order so the database assigns the next sequence value.
+    if (soNum) basePayload.order_number = soNum
+    else if (editingOrder) basePayload.order_number = editingOrder.order_number
     const extPayload: Record<string,any> = {
       order_section: form.order_section || null,
       facility: form.facility || null,
