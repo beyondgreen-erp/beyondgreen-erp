@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
@@ -9,6 +10,7 @@ import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
+import RecordModal, { StatusCell } from '@/components/RecordModal'
 
 type PaymentTerms = 'Net 15' | 'Net 30' | 'Net 45' | 'COD'
 
@@ -29,17 +31,28 @@ interface Vendor {
 const PAYMENT_TERMS: PaymentTerms[] = ['Net 15', 'Net 30', 'Net 45', 'COD']
 
 const emptyForm = {
-  company_name: '',
-  contact_name: '',
-  email: '',
-  phone: '',
-  address: '',
-  payment_terms: 'Net 30' as PaymentTerms,
-  lead_time_days: '',
-  notes: '',
+  company_name: '', contact_name: '', email: '', phone: '', address: '',
+  payment_terms: 'Net 30' as PaymentTerms, lead_time_days: '', notes: '',
+}
+type FormState = typeof emptyForm
+
+// ── Supplier-name → vendor matching ────────────────────────────────
+// Purchase requests store the supplier as free text. Vendors were de-duplicated,
+// so a few supplier spellings need to be aliased onto their canonical vendor.
+const loose = (s: any) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+const VENDOR_ALIASES: Record<string, string> = {
+  homedeport: 'Home Depot', thehomedepot: 'Home Depot',
+  kcphoto: 'KC Photo Engraving', kcpe: 'KC Photo Engraving',
+  natureworks: 'NatureWorks LLC',
+  modifiedplastics: 'Modified Plastics Inc',
+  krishmetro: 'Krish Biotech - Metro Biogreen', krishbiotechmetro: 'Krish Biotech - Metro Biogreen',
+  krishumiya: 'Krish Biotech - Umiya Packaging', umiyakrish: 'Krish Biotech - Umiya Packaging',
+  paraswebcoatkrish: 'Krish Biotech - Paras Webcoat', paraswebcoatpvtltd: 'Krish Biotech - Paras Webcoat',
+  rossari: 'Krish Biotech - Rossari', rumitkrish: 'Krish Biotech - Rumit',
 }
 
-type FormState = typeof emptyForm
+const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+const money = (n: any) => (n === null || n === undefined || n === '') ? '' : '$' + Number(n).toFixed(2)
 
 function supabaseError(error: { code?: string; message: string; details?: string; hint?: string }) {
   const parts = [error.message]
@@ -54,97 +67,121 @@ export default function VendorsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
 
   const [vendors, setVendors] = useState<Vendor[]>([])
-  useItemDeepLink(vendors, openEdit)
+  const [products, setProducts] = useState<any[]>([])
+  const [requests, setRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [editing, setEditing] = useState<Vendor | null>(null)
+  // modal state
+  const [openVendor, setOpenVendor] = useState<Vendor | null>(null)
+  const [mode, setMode] = useState<'' | 'view' | 'edit' | 'create'>('')
   const [form, setForm] = useState<FormState>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [formError, setFormError] = useState('')
   const [userEmail, setUserEmail] = useState('')
-  const panelRef = useRef<HTMLDivElement>(null)
   const tagRef = useRef<TagInputHandle>(null)
 
-  // ── Fetch ──────────────────────────────────────────────────
-  async function fetchVendors() {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('vendors')
-      .select('*')
-      .order('company_name', { ascending: true })
+  useItemDeepLink(vendors, (v: Vendor) => { setOpenVendor(v); setMode('view') })
 
-    if (error) {
-      console.error('[fetchVendors]', error)
-    } else if (data) {
-      setVendors(data as Vendor[])
-    }
+  // ── Fetch ──────────────────────────────────────────────────
+  async function fetchAll() {
+    setLoading(true)
+    const [{ data: v }, { data: p }, { data: r }] = await Promise.all([
+      supabase.from('vendors').select('*').order('company_name', { ascending: true }),
+      supabase.from('products').select('id,sku,product_name,unit_cost,case_cost,unit_of_measure').order('product_name', { ascending: true }),
+      supabase.from('purchasing_requests').select('id,name,supplier,supplier_pn,po_number,qty_ordered,po_date,status,location,group_title,date_received').order('po_date', { ascending: false, nullsFirst: false }),
+    ])
+    if (v) setVendors(v as Vendor[])
+    setProducts(p || [])
+    setRequests(r || [])
     setLoading(false)
   }
-
   useEffect(() => {
-    fetchVendors()
+    fetchAll()
     supabase.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Derived: link purchase requests + inventory price to each vendor ──
+  const productIndex = useMemo(() => {
+    const bySku: Record<string, any> = {}, byName: Record<string, any> = {}
+    for (const p of products) { if (p.sku) bySku[loose(p.sku)] = p; if (p.product_name) byName[loose(p.product_name)] = p }
+    return { bySku, byName }
+  }, [products])
+
+  const priceFor = (name: any, pn: any) => {
+    const p = (pn && productIndex.bySku[loose(pn)]) || (name && productIndex.byName[loose(name)])
+    return p ? p.unit_cost : null
+  }
+
+  const requestsByVendorId = useMemo(() => {
+    const byLoose: Record<string, Vendor> = {}
+    for (const v of vendors) byLoose[loose(v.company_name)] = v
+    const findVendor = (supplier: any): Vendor | undefined => {
+      const k = loose(supplier)
+      if (!k) return undefined
+      if (byLoose[k]) return byLoose[k]
+      const canon = VENDOR_ALIASES[k]
+      if (canon) return byLoose[loose(canon)]
+      return undefined
+    }
+    const map: Record<string, any[]> = {}
+    for (const r of requests) {
+      const v = findVendor(r.supplier)
+      if (v) (map[v.id] ||= []).push(r)
+    }
+    return map
+  }, [requests, vendors])
+
+  // Distinct items purchased from a vendor (grouped from the purchase request board)
+  const itemsForVendor = (vid: string) => {
+    const rows = requestsByVendorId[vid] || []
+    const groups: Record<string, any> = {}
+    for (const r of rows) {
+      const key = loose(r.name) || loose(r.supplier_pn) || r.id
+      if (!groups[key]) groups[key] = { name: r.name || r.supplier_pn || '—', pn: r.supplier_pn || '', count: 0, lastDate: null as string | null, lastStatus: null as string | null }
+      const g = groups[key]
+      g.count++
+      if (!g.pn && r.supplier_pn) g.pn = r.supplier_pn
+      if (r.po_date && (!g.lastDate || r.po_date > g.lastDate)) { g.lastDate = r.po_date; g.lastStatus = r.status }
+    }
+    return Object.values(groups).sort((a: any, b: any) => (b.lastDate || '').localeCompare(a.lastDate || ''))
+  }
+
   // ── Filtering ─────────────────────────────────────────────
   const filtered = vendors.filter((v) => {
-    if (!showArchived && !v.is_active) return false
-    if (showArchived && v.is_active) return false
+    if (v.is_active === showArchived) return false
     if (!search) return true
     const q = search.toLowerCase()
-    return (
-      v.company_name.toLowerCase().includes(q) ||
-      (v.contact_name ?? '').toLowerCase().includes(q) ||
-      (v.email ?? '').toLowerCase().includes(q) ||
-      (v.phone ?? '').toLowerCase().includes(q)
-    )
+    return v.company_name.toLowerCase().includes(q)
+      || (v.contact_name ?? '').toLowerCase().includes(q)
+      || (v.email ?? '').toLowerCase().includes(q)
+      || (v.phone ?? '').toLowerCase().includes(q)
+      || (requestsByVendorId[v.id] || []).some((r: any) => String(r.name ?? '').toLowerCase().includes(q))
   })
 
-  // ── Panel helpers ──────────────────────────────────────────
-  function openAdd() {
-    setEditing(null)
-    setForm(emptyForm)
-    setFormError('')
-    setPanelOpen(true)
-  }
-
-  function openEdit(vendor: Vendor) {
-    setEditing(vendor)
+  // ── Modal helpers ─────────────────────────────────────────
+  function openRecord(v: Vendor) { setOpenVendor(v); setMode('view'); setFormError('') }
+  function openAdd() { setOpenVendor(null); setForm(emptyForm); setFormError(''); setMode('create') }
+  function startEdit() {
+    if (!openVendor) return
+    const v = openVendor
     setForm({
-      company_name: vendor.company_name,
-      contact_name: vendor.contact_name ?? '',
-      email: vendor.email ?? '',
-      phone: vendor.phone ?? '',
-      address: vendor.address ?? '',
-      payment_terms: vendor.payment_terms ?? 'Net 30',
-      lead_time_days: vendor.lead_time_days !== null ? String(vendor.lead_time_days) : '',
-      notes: vendor.notes ?? '',
+      company_name: v.company_name, contact_name: v.contact_name ?? '', email: v.email ?? '',
+      phone: v.phone ?? '', address: v.address ?? '', payment_terms: v.payment_terms ?? 'Net 30',
+      lead_time_days: v.lead_time_days !== null ? String(v.lead_time_days) : '', notes: v.notes ?? '',
     })
-    setFormError('')
-    setPanelOpen(true)
+    setFormError(''); setMode('edit')
   }
-
-  function closePanel() {
-    setPanelOpen(false)
-    setTimeout(() => { setEditing(null); setForm(emptyForm) }, 300)
-  }
-
+  function closeModal() { setMode(''); setTimeout(() => setOpenVendor(null), 50) }
 
   // ── Save ──────────────────────────────────────────────────
   async function handleSave() {
-    if (!form.company_name.trim()) {
-      setFormError('Company Name is required.')
-      return
-    }
-    setFormError('')
-    setSaving(true)
-
+    if (!form.company_name.trim()) { setFormError('Company Name is required.'); return }
+    setFormError(''); setSaving(true)
     const leadDays = form.lead_time_days !== '' ? parseInt(form.lead_time_days, 10) : null
-
     const payload = {
       company_name: form.company_name.trim(),
       contact_name: form.contact_name.trim() || null,
@@ -155,117 +192,64 @@ export default function VendorsPage() {
       lead_time_days: isNaN(leadDays as number) ? null : leadDays,
       notes: form.notes.trim() || null,
     }
-
-    if (editing) {
-      const { error } = await supabase
-        .from('vendors')
-        .update({ ...payload, updated_at: new Date().toISOString() })
-        .eq('id', editing.id)
+    if (mode === 'edit' && openVendor) {
+      const { error } = await supabase.from('vendors').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', openVendor.id)
       if (error) { setFormError(supabaseError(error)); setSaving(false); return }
     } else {
       const { error } = await supabase.from('vendors').insert({ ...payload, is_active: true })
       if (error) { setFormError(supabaseError(error)); setSaving(false); return }
     }
-
     setSaving(false)
     await tagRef.current?.sendNotifications()
-    closePanel()
-    fetchVendors()
+    closeModal()
+    fetchAll()
   }
 
-  // ── Delete ────────────────────────────────────────────────
   async function handleDelete() {
-    if (!editing) return
+    if (!openVendor) return
     if (!confirm('Permanently delete this vendor? This cannot be undone.')) return
-    const { error } = await supabase.from('vendors').delete().eq('id', editing.id)
+    const { error } = await supabase.from('vendors').delete().eq('id', openVendor.id)
     if (error) { alert('Delete failed: ' + error.message); return }
-    closePanel()
-    fetchVendors()
+    closeModal(); fetchAll()
   }
-
-  // ── Archive / Restore ─────────────────────────────────────
-  async function handleArchive() {
-    if (!editing) return
+  async function handleArchiveToggle() {
+    if (!openVendor) return
     setArchiving(true)
-    await supabase
-      .from('vendors')
-      .update({ is_active: false, updated_at: new Date().toISOString() })
-      .eq('id', editing.id)
-    setArchiving(false)
-    closePanel()
-    fetchVendors()
+    await supabase.from('vendors').update({ is_active: !openVendor.is_active, updated_at: new Date().toISOString() }).eq('id', openVendor.id)
+    setArchiving(false); closeModal(); fetchAll()
   }
 
-  async function handleRestore() {
-    if (!editing) return
-    setArchiving(true)
-    await supabase
-      .from('vendors')
-      .update({ is_active: true, updated_at: new Date().toISOString() })
-      .eq('id', editing.id)
-    setArchiving(false)
-    closePanel()
-    fetchVendors()
-  }
-
-  // ── Field helper ──────────────────────────────────────────
-  function field(
-    key: keyof FormState,
-    label: string,
-    opts?: { type?: string; required?: boolean; textarea?: boolean; dropdown?: boolean }
-  ) {
-    const base =
-      'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
-
+  // ── Field helper (edit/create form) ───────────────────────
+  function field(key: keyof FormState, label: string, opts?: { type?: string; required?: boolean; textarea?: boolean; dropdown?: boolean }) {
+    const base = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40 focus:border-transparent transition'
     return (
       <div>
-        <label className="block text-xs text-gray-400 mb-1.5">
-          {label}{opts?.required && <span className="text-red-400 ml-0.5">*</span>}
-        </label>
+        <label className="block text-xs text-gray-400 mb-1.5">{label}{opts?.required && <span className="text-red-400 ml-0.5">*</span>}</label>
         {opts?.dropdown ? (
-          <select
-            value={form[key]}
-            onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-            className={base + ' cursor-pointer'}
-          >
+          <select value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} className={base + ' cursor-pointer'}>
             {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         ) : opts?.textarea ? (
-          <textarea
-            rows={3}
-            value={form[key]}
-            onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-            className={base + ' resize-none'}
-          />
+          <textarea rows={2} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} className={base + ' resize-none'} />
         ) : (
-          <input
-            type={opts?.type ?? 'text'}
-            value={form[key]}
-            onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-            className={base}
-          />
+          <input type={opts?.type ?? 'text'} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} className={base} />
         )}
       </div>
     )
   }
 
+  const activeCount = vendors.filter(v => v.is_active).length
+  const detailItems = openVendor ? itemsForVendor(openVendor.id) : []
+  const detailPurchases = openVendor ? (requestsByVendorId[openVendor.id] || []) : []
+
   // ── Render ────────────────────────────────────────────────
   return (
-    <div className="p-4 md:p-8 min-h-screen">
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+    <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-500/20 text-blue-300 border-blue-500/30">
-              SALES
-            </span>
-          </div>
-          <h1 className="text-2xl font-semibold text-[#1A1D2E]">Vendors</h1>
-          <p className="text-gray-500 text-sm mt-0.5">
-            {loading
-              ? 'Loading…'
-              : `${filtered.length} ${showArchived ? 'archived' : 'active'} vendor${filtered.length !== 1 ? 's' : ''}`}
-          </p>
+          <span className="mon-tag t-teal">🏭 Vendors</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Vendors</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${activeCount} active vendor${activeCount !== 1 ? 's' : ''}`}</p>
         </div>
         <div className="flex items-center gap-2">
           <ImportExportBar
@@ -276,20 +260,15 @@ export default function VendorsPage() {
               { header: 'Contact Name', dbKey: 'contact_name', example: 'Bob Lee' },
               { header: 'Email', dbKey: 'email', example: 'bob@globalpkg.com' },
               { header: 'Phone', dbKey: 'phone', example: '555-987-6543' },
-              { header: 'Address', dbKey: 'address', example: '456 Industrial Blvd, Hamilton ON' },
+              { header: 'Address', dbKey: 'address', example: '456 Industrial Blvd' },
               { header: 'Payment Terms', dbKey: 'payment_terms', example: 'Net 30' },
               { header: 'Lead Time (Days)', dbKey: 'lead_time_days', example: '14' },
               { header: 'Notes', dbKey: 'notes', example: 'Primary supplier' },
             ]}
-            onImportDone={fetchVendors}
+            onImportDone={fetchAll}
           />
-          <button
-            onClick={openAdd}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
+          <button onClick={openAdd} className="flex items-center gap-1.5 whitespace-nowrap bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
             Add Vendor
           </button>
         </div>
@@ -297,222 +276,200 @@ export default function VendorsPage() {
 
       {/* Controls */}
       <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search vendors…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-          />
-        </div>
-
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <div
-            onClick={() => setShowArchived((v) => !v)}
-            className={`w-9 h-5 rounded-full transition-colors relative ${showArchived ? 'bg-blue-600' : 'bg-[#F5F6FA]'}`}
-          >
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor, contact, or item purchased…" className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-96 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40" />
+        <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
+          <div onClick={() => setShowArchived(v => !v)} className={`w-9 h-5 rounded-full transition-colors relative ${showArchived ? 'bg-[#3B6FE0]' : 'bg-gray-200'}`}>
             <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showArchived ? 'translate-x-4' : 'translate-x-0.5'}`} />
           </div>
-          <span className="text-sm text-gray-400">Show Archived</span>
+          <span className="text-sm text-gray-500">Show Archived</span>
         </label>
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto">
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <svg className="w-8 h-8 text-gray-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-            <p className="text-gray-500 text-sm">
-              {search
-                ? 'No vendors match your search.'
-                : showArchived
-                ? 'No archived vendors.'
-                : 'No vendors yet. Add one to get started.'}
-            </p>
-          </div>
-        ) : (
-          <table className="w-full min-w-[600px] text-sm">
-            <thead>
-              <tr className="border-b border-[#E4E6EE]">
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Company Name</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Contact Name</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Email</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Phone</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Lead Time</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Payment Terms</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((v, i) => (
-                <tr
-                  key={v.id}
-                  onClick={() => openEdit(v)}
-                  className={`border-b border-[#E4E6EE]/60 last:border-0 cursor-pointer hover:bg-[#F9FAFB] transition-colors ${i % 2 === 0 ? '' : 'bg-[#F5F6FA]/10'}`}
-                >
-                  <td className="px-5 py-3.5 text-[#1A1D2E] font-medium">{v.company_name}</td>
-                  <td className="px-5 py-3.5 text-gray-400">{v.contact_name || <span className="text-gray-700">—</span>}</td>
-                  <td className="px-5 py-3.5 text-gray-400">{v.email || <span className="text-gray-700">—</span>}</td>
-                  <td className="px-5 py-3.5 text-gray-400">{v.phone || <span className="text-gray-700">—</span>}</td>
-                  <td className="px-5 py-3.5">
-                    {v.lead_time_days !== null ? (
-                      <span className="text-xs px-2 py-1 rounded-md bg-[#F9FAFB] text-gray-500 border border-[#E4E6EE]">
-                        {v.lead_time_days} day{v.lead_time_days !== 1 ? 's' : ''}
-                      </span>
-                    ) : <span className="text-gray-700">—</span>}
-                  </td>
-                  <td className="px-5 py-3.5">
-                    {v.payment_terms ? (
-                      <span className="text-xs px-2 py-1 rounded-md bg-[#F9FAFB] text-gray-500 border border-[#E4E6EE]">
-                        {v.payment_terms}
-                      </span>
-                    ) : <span className="text-gray-700">—</span>}
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                      v.is_active
-                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                        : 'bg-[#F5F6FA]/40 text-gray-500 border border-[#E4E6EE]'
-                    }`}>
-                      {v.is_active ? 'Active' : 'Archived'}
-                    </span>
-                  </td>
+      {/* Record board group */}
+      <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+        <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: '#00C7C714', borderLeft: '5px solid #00C7C7' }} onClick={() => setCollapsed(c => !c)}>
+          <span className="text-[10px]" style={{ color: '#017070', display: 'inline-block', transform: collapsed ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+          <span className="font-bold text-sm" style={{ color: '#017070' }}>{showArchived ? 'Archived Vendors' : 'Vendors'}</span>
+          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#00C7C726', color: '#017070' }}>{filtered.length}</span>
+        </div>
+        {!collapsed && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
+              <thead>
+                <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                  <th className="text-left px-4 py-2 font-semibold">Vendor</th>
+                  <th className="text-left px-3 py-2 font-semibold w-[150px]">Contact</th>
+                  <th className="text-left px-3 py-2 font-semibold w-[200px]">Email</th>
+                  <th className="text-left px-3 py-2 font-semibold w-[80px]">Items</th>
+                  <th className="text-left px-3 py-2 font-semibold w-[90px]">Purchases</th>
+                  <th className="text-left px-3 py-2 font-semibold w-[110px]">Terms</th>
+                  <th className="text-left px-3 py-2 font-semibold w-[100px]">Lead Time</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">Loading…</td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">{search ? 'No vendors match your search.' : showArchived ? 'No archived vendors.' : 'No vendors yet. Add one to get started.'}</td></tr>
+                ) : filtered.map((v, i) => {
+                  const rows = requestsByVendorId[v.id] || []
+                  const nItems = itemsForVendor(v.id).length
+                  return (
+                    <tr key={v.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openRecord(v)}>
+                      <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{v.company_name}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.contact_name || '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.email || '—'}</td>
+                      <td className="px-3 py-2.5">{nItems ? <span className="text-[#017070] bg-[#00C7C71a] text-xs font-semibold rounded-full px-2 py-0.5">{nItems}</span> : <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5">{rows.length ? <span className="text-[#3B6FE0] text-xs font-semibold">🧾 {rows.length}</span> : <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.payment_terms || '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.lead_time_days != null ? `${v.lead_time_days} day${v.lead_time_days !== 1 ? 's' : ''}` : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* Overlay */}
-      <div
-        onClick={closePanel}
-        className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${panelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-      />
-
-      {/* Slide-out panel */}
-      <div
-        ref={panelRef}
-        onClick={(e) => e.stopPropagation()}
-        className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${panelOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      {/* Record modal */}
+      <RecordModal
+        open={mode !== ''}
+        onClose={closeModal}
+        title={mode === 'create' ? 'Add Vendor' : (openVendor?.company_name || 'Vendor')}
+        subtitle={mode === 'create' ? 'New vendor' : (mode === 'edit' ? 'Editing vendor' : (openVendor?.contact_name || 'Vendor'))}
+        maxWidth={mode === 'view' ? 820 : 560}
+        headerRight={mode === 'view' && openVendor ? <ShareLink id={openVendor.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-white/90 hover:text-white border border-white/30 hover:border-white/50 px-2.5 py-1.5 rounded-lg transition-colors" /> : undefined}
+        footer={
+          mode === 'view' && openVendor ? (
+            <>
+              <button onClick={handleDelete} className="text-sm px-3 py-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors mr-auto">Delete</button>
+              <button onClick={handleArchiveToggle} disabled={archiving} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50">{openVendor.is_active ? 'Archive' : 'Restore'}</button>
+              <button onClick={startEdit} className="text-sm font-semibold px-4 py-2 rounded-lg bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white transition-colors">Edit</button>
+            </>
+          ) : (
+            <>
+              <button onClick={closeModal} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white transition-colors disabled:opacity-60">
+                {saving ? 'Saving…' : 'Save Vendor'}
+              </button>
+            </>
+          )
+        }
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
-          <h2 className="text-[#1A1D2E] font-semibold">
-            {editing ? 'Edit Vendor' : 'Add Vendor'}
-          </h2>
-          {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
-          <button
-            onClick={closePanel}
-            className="text-gray-500 hover:text-gray-700 transition-colors p-1 rounded-lg hover:bg-[#F5F6FA]"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {field('company_name', 'Company Name', { required: true })}
-          {field('contact_name', 'Contact Name')}
-          {field('email', 'Email', { type: 'email' })}
-          {field('phone', 'Phone', { type: 'tel' })}
-          {field('address', 'Address', { textarea: true })}
-          {field('payment_terms', 'Payment Terms', { dropdown: true })}
-          {field('lead_time_days', 'Lead Time (days)', { type: 'number' })}
-          <TagInput ref={tagRef} value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} page="Vendors" className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none" />
-          {editing && (<>
-            <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={supabase} recordType="vendors" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="vendor" recordId={editing.id} currentUserEmail={userEmail}/></div>
-          </>)}
-        </div>
-
-        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
-          {formError && (
-            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
-              <svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-red-400 text-xs">{formError}</p>
+        {mode === 'view' && openVendor ? (
+          <div className="space-y-5">
+            {/* Info */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+              <Info label="Contact" value={openVendor.contact_name} />
+              <Info label="Email" value={openVendor.email} />
+              <Info label="Phone" value={openVendor.phone} />
+              <Info label="Payment Terms" value={openVendor.payment_terms} />
+              <Info label="Lead Time" value={openVendor.lead_time_days != null ? `${openVendor.lead_time_days} days` : null} />
+              <Info label="Status" value={openVendor.is_active ? 'Active' : 'Archived'} />
+              {openVendor.address && <div className="col-span-2 sm:col-span-3"><Info label="Address" value={openVendor.address} /></div>}
+              {openVendor.notes && <div className="col-span-2 sm:col-span-3"><Info label="Notes" value={openVendor.notes} /></div>}
             </div>
-          )}
 
-          <div className="flex items-center gap-3">
-            {editing && (
-              <button
-                onClick={handleDelete}
-                className="flex items-center gap-1.5 text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
-                title="Permanently delete"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              </button>
-            )}
-            {editing && (
-              <button
-                onClick={editing.is_active ? handleArchive : handleRestore}
-                disabled={archiving}
-                className="flex items-center gap-1.5 text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {archiving ? (
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                ) : editing.is_active ? (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1 12a2 2 0 002 2h8a2 2 0 002-2L19 8m-9 4v6m4-6v6" />
-                    </svg>
-                    Archive
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                    Restore
-                  </>
-                )}
-              </button>
-            )}
+            {/* Items from this vendor */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Items From This Vendor <span className="text-gray-300 normal-case font-normal">({detailItems.length})</span></p>
+              {detailItems.length === 0 ? <p className="text-sm text-gray-400">No purchases recorded for this vendor yet.</p> : (
+                <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm min-w-[560px]">
+                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
+                      <th className="text-left px-3 py-2">Item</th>
+                      <th className="text-left px-3 py-2">Part #</th>
+                      <th className="text-right px-3 py-2">Times Ordered</th>
+                      <th className="text-left px-3 py-2">Last Ordered</th>
+                      <th className="text-right px-3 py-2">Last Price</th>
+                    </tr></thead>
+                    <tbody>
+                      {detailItems.map((it: any, idx: number) => {
+                        const price = priceFor(it.name, it.pn)
+                        return (
+                          <tr key={idx} className="border-t border-[#F0F2F6]">
+                            <td className="px-3 py-2 font-medium text-[#1A1D2E]">{it.name}</td>
+                            <td className="px-3 py-2 font-mono text-emerald-700 text-xs">{it.pn || '—'}</td>
+                            <td className="px-3 py-2 text-right text-gray-600">{it.count}</td>
+                            <td className="px-3 py-2 text-gray-600">{fmtDate(it.lastDate) || '—'}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{money(price) || <span className="text-gray-300">—</span>}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400 mt-1.5">Items &amp; purchases are pulled from the Purchasing Requests board. Last Price shows the matching Inventory unit cost where the item exists on the Inventory board.</p>
+            </div>
 
-            <button
-              onClick={closePanel}
-              className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 hover:border-gray-600 transition-colors"
-            >
-              Cancel
-            </button>
+            {/* Purchase history */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Purchase History <span className="text-gray-300 normal-case font-normal">({detailPurchases.length})</span></p>
+              {detailPurchases.length === 0 ? <p className="text-sm text-gray-400">No purchase requests found for this vendor.</p> : (
+                <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto max-h-72 overflow-y-auto">
+                  <table className="w-full text-sm min-w-[620px]">
+                    <thead className="sticky top-0"><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
+                      <th className="text-left px-3 py-2">Item</th>
+                      <th className="text-left px-3 py-2">PO #</th>
+                      <th className="text-right px-3 py-2">Qty</th>
+                      <th className="text-left px-3 py-2">PO Date</th>
+                      <th className="text-left px-3 py-2">Status</th>
+                    </tr></thead>
+                    <tbody>
+                      {detailPurchases.map((r: any) => (
+                        <tr key={r.id} className="border-t border-[#F0F2F6]">
+                          <td className="px-3 py-2 text-[#1A1D2E]">{r.name || '—'}</td>
+                          <td className="px-3 py-2 text-gray-600">{r.po_number || '—'}</td>
+                          <td className="px-3 py-2 text-right text-gray-600">{r.qty_ordered || '—'}</td>
+                          <td className="px-3 py-2 text-gray-600">{fmtDate(r.po_date) || '—'}</td>
+                          <td className="px-3 py-2">{r.status ? <StatusCell status={r.status} /> : <span className="text-gray-300">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
 
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-            >
-              {saving ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Saving…
-                </>
-              ) : 'Save Vendor'}
-            </button>
+            {/* Files + Comments */}
+            <div className="border-t border-[#EEF0F4] pt-4"><FileUpload supabase={supabase} recordType="vendors" recordId={openVendor.id} currentUserEmail={userEmail} /></div>
+            <div className="border-t border-[#EEF0F4] pt-4"><Comments recordType="vendor" recordId={openVendor.id} currentUserEmail={userEmail} /></div>
           </div>
-        </div>
-      </div>
+        ) : (
+          <div className="space-y-4">
+            {field('company_name', 'Company Name', { required: true })}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {field('contact_name', 'Contact Name')}
+              {field('email', 'Email', { type: 'email' })}
+              {field('phone', 'Phone', { type: 'tel' })}
+              {field('payment_terms', 'Payment Terms', { dropdown: true })}
+              {field('lead_time_days', 'Lead Time (days)', { type: 'number' })}
+            </div>
+            {field('address', 'Address', { textarea: true })}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Notes</label>
+              <TagInput ref={tagRef} value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} page="Vendors" className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40 transition resize-none" />
+            </div>
+            {formError && (
+              <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
+                <svg className="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <p className="text-red-600 text-xs">{formError}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </RecordModal>
+    </div>
+  )
+}
+
+function Info({ label, value }: { label: string; value: any }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="text-gray-800 mt-0.5 break-words">{value || <span className="text-gray-300">—</span>}</p>
     </div>
   )
 }
