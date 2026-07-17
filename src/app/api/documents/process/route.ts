@@ -107,7 +107,8 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
     const aiTitle: string = (parsed.title || '').toString().trim()
     const fileBase = file ? file.file_name.replace(/\.[^.]+$/, '') : ''
     const titleLooksAuto = !doc.title || doc.title === fileBase || doc.title === (file?.file_name || '') || /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|txt|csv|md)$/i.test(doc.title)
-    const applyTitle = ((autotitle || titleLooksAuto) && aiTitle) ? aiTitle : doc.title
+    // Titles are never changed by AI — keep the user's title; only fill in when a document has no title at all
+    const applyTitle = (doc.title && String(doc.title).trim()) ? doc.title : (aiTitle || doc.title)
     const knowledgeText = [summary, keyFacts.map(f => `• ${f}`).join('\n')].filter(Boolean).join('\n\n')
 
     // AI-suggested cross-board links — only fill what isn't already set
