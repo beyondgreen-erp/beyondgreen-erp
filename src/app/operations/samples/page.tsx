@@ -110,8 +110,24 @@ function AddSampleModal({ open, onClose, onCreated, sb }: { open: boolean; onClo
   )
 }
 
+function trackingUrl(carrier: string | null, tracking: string | null): string | null {
+  const t = (tracking || '').trim()
+  if (!t) return null
+  const enc = encodeURIComponent(t)
+  const c = (carrier || '').toLowerCase()
+  if (c.includes('ups')) return `https://www.ups.com/track?loc=en_US&tracknum=${enc}`
+  if (c.includes('fedex') || c.includes('fed ex')) return `https://www.fedex.com/fedextrack/?trknbr=${enc}`
+  if (c.includes('usps') || c.includes('postal') || c.includes('mail')) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${enc}`
+  if (c.includes('dhl')) return `https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id=${enc}`
+  if (/^1Z[0-9A-Z]{16}$/i.test(t)) return `https://www.ups.com/track?loc=en_US&tracknum=${enc}`
+  if (/^(94|93|92|95|420)\d{15,26}$/.test(t) || /^\d{20,22}$/.test(t)) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${enc}`
+  if (/^\d{12}$|^\d{15}$/.test(t)) return `https://www.fedex.com/fedextrack/?trknbr=${enc}`
+  return null
+}
+
 function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: string; tracking: string; shipTo: string }): string {
   const { sample, items, carrier, tracking, shipTo } = opts
+  const trackUrl = trackingUrl(carrier, tracking)
   const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td></tr>`).join('')
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
   <h2 style="color:#16a34a;margin:0 0 8px">Your sample has shipped</h2>
@@ -119,10 +135,11 @@ function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: strin
   <p style="margin:0 0 12px">Good news! The beyondGREEN team has sent the samples you requested!</p>
   <table style="border-collapse:collapse;width:100%;margin:8px 0 16px;font-size:14px">
     <tr><td style="padding:4px 0;color:#6b7280;width:120px">Carrier</td><td style="padding:4px 0;font-weight:600">${escHtml(carrier || '—')}</td></tr>
-    <tr><td style="padding:4px 0;color:#6b7280">Tracking #</td><td style="padding:4px 0;font-weight:600;font-family:monospace">${escHtml(tracking || '—')}</td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280">Tracking #</td><td style="padding:4px 0;font-weight:600;font-family:monospace">${trackUrl ? `<a href="${trackUrl}" style="color:#16a34a;text-decoration:underline">${escHtml(tracking)}</a>` : escHtml(tracking || '—')}</td></tr>
     <tr><td style="padding:4px 0;color:#6b7280">Ship to</td><td style="padding:4px 0">${escHtml(shipTo || '—')}</td></tr>
     ${sample.product ? `<tr><td style="padding:4px 0;color:#6b7280">Product</td><td style="padding:4px 0">${escHtml(sample.product)}</td></tr>` : ''}
   </table>
+  ${trackUrl ? `<div style="margin:2px 0 18px"><a href="${trackUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:14px;font-weight:600">Track your shipment</a></div>` : ''}
   ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
   <p style="margin:20px 0 0">Thank you,<br/>The beyondGREEN Team</p>
 </div>`
