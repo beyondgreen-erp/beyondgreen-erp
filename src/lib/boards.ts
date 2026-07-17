@@ -69,6 +69,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/historicals/pipeline-2022', label: '2022 Pipeline', icon: 'ti-history', nav_group: 'Historicals', href: '/historicals/pipeline-2022', sort_order: 4 },
   { board_key: '/historicals/pipeline-2021', label: '2021 Pipeline', icon: 'ti-history', nav_group: 'Historicals', href: '/historicals/pipeline-2021', sort_order: 5 },
   { board_key: '/historicals/pipeline-2020', label: '2020 Pipeline', icon: 'ti-history', nav_group: 'Historicals', href: '/historicals/pipeline-2020', sort_order: 6 },
+  { board_key: '/historicals/satx-shipments', label: 'Shipments to SACA from SATX', icon: 'ti-truck-delivery', nav_group: 'Historicals', href: '/historicals/satx-shipments', sort_order: 7 },
 ]
 
 export interface NavGroup { group: string; items: Board[] }
