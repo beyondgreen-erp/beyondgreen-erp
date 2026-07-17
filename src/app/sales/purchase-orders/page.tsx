@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = 'force-dynamic'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
 import Comments from '@/components/Comments'
@@ -24,13 +24,51 @@ const STATUS_COLORS: Record<string, string> = {
 const LOC_COLORS: Record<string, string> = {
   'SAN ANTONIO, TX': '#5559df', 'SANTA ANA, CA': '#00c875', 'SNA -> SATX': '#df2f4a', 'SNA & SATX': '#007eb5',
 }
+const STATUS_OPTIONS = Object.keys(STATUS_COLORS)
+const LOCATION_OPTIONS = Object.keys(LOC_COLORS)
+const PO_REQUIRED_OPTIONS = ['Yes', 'No', 'Unsure']
 const statusColor = (s: string | null) => (s && STATUS_COLORS[s]) || '#c4c4c4'
 const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+
+const emptyCreate = {
+  group_key: 'group_mkzk3jaa',
+  location: 'SAN ANTONIO, TX',
+  status: 'Pending Order',
+  person_requesting: '',
+  po_required: 'Yes',
+  po_number: '',
+  customer_project: '',
+  po_date: '',
+  qty_ordered: '',
+  // item
+  itemMode: 'search' as 'search' | 'new',
+  productId: '',
+  itemName: '',
+  partNumber: '',
+  description: '',
+  addToInventory: true,
+  // vendor
+  vendorMode: 'search' as 'search' | 'new',
+  vendorId: '',
+  vendorName: '',
+}
+type CreateForm = typeof emptyCreate
+
+function supabaseError(error: { code?: string; message: string; details?: string; hint?: string }) {
+  const parts = [error.message]
+  if (error.code) parts.push(`(code: ${error.code})`)
+  if (error.details) parts.push(error.details)
+  if (error.hint) parts.push(`Hint: ${error.hint}`)
+  console.error('[Supabase error]', error)
+  return parts.join(' — ')
+}
 
 export default function PurchasingRequestsPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<any[]>([])
   const [items, setItems] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
+  const [vendors, setVendors] = useState<any[]>([])
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
@@ -38,14 +76,23 @@ export default function PurchasingRequestsPage() {
   const [detail, setDetail] = useState<any | null>(null)
   const [userEmail, setUserEmail] = useState('')
 
+  // create-modal state
+  const [showCreate, setShowCreate] = useState(false)
+  const [form, setForm] = useState<CreateForm>(emptyCreate)
+  const [saving, setSaving] = useState(false)
+  const [createError, setCreateError] = useState('')
+
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: o }, { data: it }, { data: cm }] = await Promise.all([
+    const [{ data: o }, { data: it }, { data: cm }, { data: pr }, { data: vn }] = await Promise.all([
       sb.from('purchasing_requests').select('*').order('position', { nullsFirst: false }),
       sb.from('purchasing_request_items').select('*').order('position', { nullsFirst: false }),
       sb.from('comments').select('record_id').eq('record_type', 'purchasing_request'),
+      sb.from('products').select('id,sku,product_name,unit_cost,vendor_id').order('product_name', { ascending: true }),
+      sb.from('vendors').select('id,company_name,is_active').order('company_name', { ascending: true }),
     ])
     setRows(o || []); setItems(it || [])
+    setProducts(pr || []); setVendors(vn || [])
     const counts: Record<string, number> = {}
     ;(cm || []).forEach((c: any) => { counts[c.record_id] = (counts[c.record_id] || 0) + 1 })
     setCommentCounts(counts)
@@ -69,6 +116,98 @@ export default function PurchasingRequestsPage() {
     if (url) window.open(url, '_blank'); else alert('Could not open the file.')
   }
 
+  // ── Create request ─────────────────────────────────────────
+  function openCreate() {
+    setForm(emptyCreate)
+    setCreateError('')
+    setShowCreate(true)
+  }
+  const selectedProduct = useMemo(() => products.find(p => p.id === form.productId) || null, [products, form.productId])
+
+  function pickProduct(p: any) {
+    setForm(f => ({
+      ...f,
+      productId: p.id,
+      itemName: p.product_name || '',
+      partNumber: p.sku || '',
+    }))
+  }
+
+  async function createRequest() {
+    const itemName = (form.itemMode === 'search' ? (selectedProduct?.product_name || '') : form.itemName).trim()
+    if (!itemName) { setCreateError('Please choose an item from inventory or enter a new item name.'); return }
+
+    const partNumber = (form.itemMode === 'search' ? (selectedProduct?.sku || '') : form.partNumber).trim()
+    const vendorName = form.vendorName.trim()
+    if (form.vendorMode === 'new' && !vendorName) { setCreateError('Enter the new vendor / supplier name, or switch to "Existing vendor".'); return }
+
+    setCreateError('')
+    setSaving(true)
+
+    // 1) New vendor → add to vendor board
+    let vendorId: string | null = form.vendorId || null
+    if (form.vendorMode === 'new' && vendorName) {
+      const { data, error } = await sb.from('vendors')
+        .insert({ company_name: vendorName, is_active: true, notes: 'Added from Purchasing Requests' })
+        .select('id, company_name').single()
+      if (error) { setCreateError('Vendor: ' + supabaseError(error)); setSaving(false); return }
+      vendorId = data?.id || null
+    }
+
+    // 2) New item → optionally add to Inventory board (needs a part number for the SKU)
+    if (form.itemMode === 'new' && form.addToInventory) {
+      if (partNumber) {
+        const { error } = await sb.from('products').insert({
+          sku: partNumber, product_name: itemName, vendor_id: vendorId, is_active: true, category: 'Uncategorized',
+        })
+        if (error && error.code !== '23505') { // ignore duplicate-SKU conflicts, otherwise surface
+          setCreateError('Inventory item: ' + supabaseError(error)); setSaving(false); return
+        }
+      }
+    }
+
+    // 3) The purchasing request row itself
+    const group = GROUPS.find(g => g.key === form.group_key) || GROUPS[1]
+    const posBase = Math.max(0, ...rows.filter(r => r.group_key === group.key).map(r => Number(r.position) || 0)) + 1
+    const reqId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const { error: reqErr } = await sb.from('purchasing_requests').insert({
+      id: reqId,
+      name: itemName,
+      group_key: group.key,
+      group_title: group.title,
+      position: posBase,
+      location: form.location || null,
+      status: form.status || null,
+      person_requesting: form.person_requesting.trim() || null,
+      po_required: form.po_required || null,
+      po_number: form.po_number.trim() || null,
+      customer_project: form.customer_project.trim() || null,
+      supplier: vendorName || null,
+      supplier_pn: partNumber || null,
+      po_date: form.po_date || null,
+      qty_ordered: form.qty_ordered.trim() || null,
+    })
+    if (reqErr) { setCreateError(supabaseError(reqErr)); setSaving(false); return }
+
+    // 4) A matching line item so the Details view is populated
+    const lineId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    await sb.from('purchasing_request_items').insert({
+      id: lineId,
+      parent_id: reqId,
+      name: itemName,
+      part_number: partNumber || null,
+      description: form.description.trim() || null,
+      qty_ordered: form.qty_ordered.trim() || null,
+      date_ordered: form.po_date || null,
+      position: 0,
+    })
+
+    setSaving(false)
+    setShowCreate(false)
+    setCollapsed(c => ({ ...c, [group.key]: false }))
+    load()
+  }
+
   const total = rows.length
   const detailItems = detail ? itemsOf(detail.id) : []
   const detailFiles = detail ? filesOf(detail) : []
@@ -81,7 +220,13 @@ export default function PurchasingRequestsPage() {
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Purchasing Requests</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${total} requests`}</p>
         </div>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search item, PO#, supplier, person…" className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40" />
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search item, PO#, supplier, person…" className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm flex-1 sm:w-72 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40" />
+          <button onClick={openCreate} className="flex items-center gap-1.5 whitespace-nowrap bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+            New Request
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -141,6 +286,89 @@ export default function PurchasingRequestsPage() {
           )
         })}
       </div>
+
+      {/* ── Create modal ─────────────────────────────────────── */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => !saving && setShowCreate(false)}>
+          <div className="relative w-full max-w-[640px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: '#3B6FE0' }}>
+              <div>
+                <p className="text-white/70 text-xs uppercase tracking-wide">New</p>
+                <h2 className="text-xl font-bold leading-tight">New Purchase Request</h2>
+              </div>
+              <button onClick={() => !saving && setShowCreate(false)} className="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
+            </div>
+
+            <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
+              {/* Item */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Item</p>
+                  <ModeToggle value={form.itemMode} onChange={(m) => setForm(f => ({ ...f, itemMode: m, productId: '', itemName: '', partNumber: '' }))} a="search" aLabel="From inventory" b="new" bLabel="New item" />
+                </div>
+                {form.itemMode === 'search' ? (
+                  <ProductPicker products={products} selectedId={form.productId} onPick={pickProduct} onClear={() => setForm(f => ({ ...f, productId: '', itemName: '', partNumber: '' }))} />
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <TextField label="Item name" required value={form.itemName} onChange={v => setForm(f => ({ ...f, itemName: v }))} placeholder="e.g. 18x12x12 Kraft Box" />
+                    <TextField label="Part # / SKU" value={form.partNumber} onChange={v => setForm(f => ({ ...f, partNumber: v }))} placeholder="e.g. 99181212" />
+                    <div className="sm:col-span-2">
+                      <TextField label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Optional" />
+                    </div>
+                    <label className="sm:col-span-2 flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                      <input type="checkbox" checked={form.addToInventory} onChange={e => setForm(f => ({ ...f, addToInventory: e.target.checked }))} className="w-4 h-4 accent-[#3B6FE0]" />
+                      Also add this item to the Inventory board {form.addToInventory && !form.partNumber.trim() && <span className="text-amber-500 text-xs">(needs a Part # / SKU)</span>}
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Vendor */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Vendor / Supplier</p>
+                  <ModeToggle value={form.vendorMode} onChange={(m) => setForm(f => ({ ...f, vendorMode: m, vendorId: '', vendorName: '' }))} a="search" aLabel="Existing" b="new" bLabel="New vendor" />
+                </div>
+                {form.vendorMode === 'search' ? (
+                  <VendorPicker vendors={vendors} selectedId={form.vendorId} onPick={(v) => setForm(f => ({ ...f, vendorId: v.id, vendorName: v.company_name }))} onClear={() => setForm(f => ({ ...f, vendorId: '', vendorName: '' }))} />
+                ) : (
+                  <TextField label="New vendor / supplier name" required value={form.vendorName} onChange={v => setForm(f => ({ ...f, vendorName: v }))} placeholder="e.g. Acme Packaging Co." hint="This will be added to the Vendor board." />
+                )}
+              </div>
+
+              {/* Details */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Request Details</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <SelectField label="Group" value={form.group_key} onChange={v => setForm(f => ({ ...f, group_key: v }))} options={GROUPS.map(g => ({ value: g.key, label: g.title }))} />
+                  <SelectField label="Location" value={form.location} onChange={v => setForm(f => ({ ...f, location: v }))} options={LOCATION_OPTIONS.map(o => ({ value: o, label: o }))} />
+                  <SelectField label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={STATUS_OPTIONS.map(o => ({ value: o, label: o }))} />
+                  <TextField label="Requested By" value={form.person_requesting} onChange={v => setForm(f => ({ ...f, person_requesting: v }))} />
+                  <SelectField label="PO Required?" value={form.po_required} onChange={v => setForm(f => ({ ...f, po_required: v }))} options={PO_REQUIRED_OPTIONS.map(o => ({ value: o, label: o }))} />
+                  <TextField label="PO Number" value={form.po_number} onChange={v => setForm(f => ({ ...f, po_number: v }))} />
+                  <TextField label="Customer / Project" value={form.customer_project} onChange={v => setForm(f => ({ ...f, customer_project: v }))} />
+                  <TextField label="Qty Ordered" value={form.qty_ordered} onChange={v => setForm(f => ({ ...f, qty_ordered: v }))} />
+                  <TextField label="PO Date" type="date" value={form.po_date} onChange={v => setForm(f => ({ ...f, po_date: v }))} />
+                </div>
+              </div>
+
+              {createError && (
+                <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
+                  <svg className="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <p className="text-red-600 text-xs">{createError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="shrink-0 px-6 py-4 border-t border-[#EEF0F4] flex items-center justify-end gap-3">
+              <button onClick={() => !saving && setShowCreate(false)} className="text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors">Cancel</button>
+              <button onClick={createRequest} disabled={saving} className="flex items-center justify-center gap-2 bg-[#3B6FE0] hover:bg-[#2f5bc0] disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors">
+                {saving ? (<><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Creating…</>) : 'Create Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {detail && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setDetail(null)}>
@@ -238,6 +466,124 @@ function Field({ label, value, wide }: { label: string; value: any; wide?: boole
     <div className={wide ? 'col-span-2 sm:col-span-3' : ''}>
       <p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p>
       <p className="text-gray-800 mt-0.5">{value || <span className="text-gray-300">—</span>}</p>
+    </div>
+  )
+}
+
+const inputBase = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40 focus:border-transparent transition'
+
+function TextField({ label, value, onChange, placeholder, type, required, hint }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; required?: boolean; hint?: string }) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-400 mb-1.5">{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
+      <input type={type || 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={inputBase} />
+      {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
+    </div>
+  )
+}
+
+function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-400 mb-1.5">{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} className={inputBase + ' cursor-pointer'}>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  )
+}
+
+function ModeToggle({ value, onChange, a, aLabel, b, bLabel }: { value: string; onChange: (m: any) => void; a: string; aLabel: string; b: string; bLabel: string }) {
+  return (
+    <div className="inline-flex rounded-lg border border-[#E4E6EE] overflow-hidden text-xs">
+      <button type="button" onClick={() => onChange(a)} className={`px-3 py-1.5 font-medium transition-colors ${value === a ? 'bg-[#3B6FE0] text-white' : 'bg-white text-gray-500 hover:bg-[#F5F7FB]'}`}>{aLabel}</button>
+      <button type="button" onClick={() => onChange(b)} className={`px-3 py-1.5 font-medium transition-colors ${value === b ? 'bg-[#3B6FE0] text-white' : 'bg-white text-gray-500 hover:bg-[#F5F7FB]'}`}>{bLabel}</button>
+    </div>
+  )
+}
+
+function ProductPicker({ products, selectedId, onPick, onClear }: { products: any[]; selectedId: string; onPick: (p: any) => void; onClear: () => void }) {
+  const [term, setTerm] = useState('')
+  const [open, setOpen] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const selected = products.find(p => p.id === selectedId) || null
+  useEffect(() => {
+    function onDoc(e: MouseEvent) { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc); return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const filtered = useMemo(() => {
+    const s = term.trim().toLowerCase()
+    const list = !s ? products : products.filter(p => String(p.product_name ?? '').toLowerCase().includes(s) || String(p.sku ?? '').toLowerCase().includes(s))
+    return list.slice(0, 30)
+  }, [term, products])
+
+  if (selected) {
+    return (
+      <div className="flex items-center justify-between gap-2 bg-[#F5F7FB] border border-[#E4E6EE] rounded-lg px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{selected.product_name}</p>
+          <p className="text-[11px] text-gray-400 font-mono">{selected.sku}</p>
+        </div>
+        <button type="button" onClick={onClear} className="text-xs text-[#3B6FE0] hover:underline shrink-0">Change</button>
+      </div>
+    )
+  }
+  return (
+    <div className="relative" ref={boxRef}>
+      <input value={term} onChange={e => { setTerm(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)} placeholder="Search inventory by name or SKU…" className={inputBase} />
+      {open && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-[#E4E6EE] rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-3 text-sm text-gray-400">No matching inventory items.</p>
+          ) : filtered.map(p => (
+            <button type="button" key={p.id} onClick={() => { onPick(p); setOpen(false); setTerm('') }} className="w-full text-left px-3 py-2 hover:bg-[#F2F6FF] border-b border-[#F4F5F8] last:border-0">
+              <p className="text-sm text-[#1A1D2E] truncate">{p.product_name}</p>
+              <p className="text-[11px] text-gray-400 font-mono">{p.sku}</p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VendorPicker({ vendors, selectedId, onPick, onClear }: { vendors: any[]; selectedId: string; onPick: (v: any) => void; onClear: () => void }) {
+  const [term, setTerm] = useState('')
+  const [open, setOpen] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const selected = vendors.find(v => v.id === selectedId) || null
+  useEffect(() => {
+    function onDoc(e: MouseEvent) { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc); return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const filtered = useMemo(() => {
+    const s = term.trim().toLowerCase()
+    const list = !s ? vendors : vendors.filter(v => String(v.company_name ?? '').toLowerCase().includes(s))
+    return list.slice(0, 30)
+  }, [term, vendors])
+
+  if (selected) {
+    return (
+      <div className="flex items-center justify-between gap-2 bg-[#F5F7FB] border border-[#E4E6EE] rounded-lg px-3 py-2.5">
+        <p className="text-sm font-semibold text-[#1A1D2E] truncate">{selected.company_name}</p>
+        <button type="button" onClick={onClear} className="text-xs text-[#3B6FE0] hover:underline shrink-0">Change</button>
+      </div>
+    )
+  }
+  return (
+    <div className="relative" ref={boxRef}>
+      <input value={term} onChange={e => { setTerm(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)} placeholder="Search vendors…" className={inputBase} />
+      {open && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-[#E4E6EE] rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-3 text-sm text-gray-400">No matching vendors. Switch to “New vendor” to add one.</p>
+          ) : filtered.map(v => (
+            <button type="button" key={v.id} onClick={() => { onPick(v); setOpen(false); setTerm('') }} className="w-full text-left px-3 py-2 hover:bg-[#F2F6FF] border-b border-[#F4F5F8] last:border-0">
+              <p className="text-sm text-[#1A1D2E] truncate">{v.company_name}{v.is_active === false && <span className="text-[10px] text-gray-400 ml-1.5">(archived)</span>}</p>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
