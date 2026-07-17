@@ -508,9 +508,14 @@ function drawTermsPage(doc: jsPDF, order: PDFOrder) {
   let y = 54
   doc.setTextColor(0, 0, 0)
   doc.setFont('times', 'bold'); doc.setFontSize(15)
-  doc.text('Terms & Conditions of Sale', L, y)
+  const title = 'Terms & Conditions of Sale'
+  doc.text(title, L, y)
+  const titleW = doc.getTextWidth(title)
+  // Right-aligned meta: company + order number. Shrink to fit the space right of the title.
   doc.setFont('times', 'normal'); doc.setFontSize(8.5)
-  doc.text(`${COMPANY.name}  |  Sales Order ${order.order_number || ''}`.trim(), R, y, { align: 'right' })
+  const meta = `${COMPANY.name}  |  Sales Order ${order.order_number || ''}`.trim()
+  const metaMaxW = R - (L + titleW + 20)
+  fitText(doc, meta, R, y, metaMaxW, { align: 'right', maxSize: 8.5, minSize: 6.5 })
   y += 7
   doc.setDrawColor(120, 120, 120); doc.setLineWidth(0.6); doc.line(L, y, R, y)
   y += 14
