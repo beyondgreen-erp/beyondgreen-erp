@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = 'force-dynamic'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 
@@ -42,6 +42,31 @@ export default function PrivateLabelStockPage() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [detail, setDetail] = useState<any | null>(null)
   const [userEmail, setUserEmail] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function uploadRecordFile(order: any, file: File) {
+    setUploading(true)
+    try {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `orders/${order.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`
+      const { error } = await sb.storage.from('record-board').upload(path, file)
+      if (error) { alert('Upload failed: ' + error.message); return }
+      const { data } = sb.storage.from('record-board').getPublicUrl(path)
+      const next = [...(order.attachments || []), { name: file.name, url: data.publicUrl }]
+      await sb.from('pl_stock_orders').update({ attachments: next }).eq('id', order.id)
+      setOrders(os => os.map(o => o.id === order.id ? { ...o, attachments: next } : o))
+      setDetail((d: any) => (d && d.id === order.id ? { ...d, attachments: next } : d))
+    } finally { setUploading(false) }
+  }
+
+  async function removeRecordFile(order: any, idx: number) {
+    const next = (order.attachments || []).filter((_: any, i: number) => i !== idx)
+    await sb.from('pl_stock_orders').update({ attachments: next }).eq('id', order.id)
+    setOrders(os => os.map(o => o.id === order.id ? { ...o, attachments: next } : o))
+    setDetail((d: any) => (d && d.id === order.id ? { ...d, attachments: next } : d))
+  }
+
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -194,19 +219,33 @@ export default function PrivateLabelStockPage() {
                 )}
               </div>
 
-              {((detail.order_form_files?.length || 0) + (detail.so_files?.length || 0)) > 0 && (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Files</p>
-                  <div className="flex flex-wrap gap-2">
-                    {[...(detail.order_form_files || []).map((f: any) => ({ ...f, tag: 'Order Form' })), ...(detail.so_files || []).map((f: any) => ({ ...f, tag: 'SO' }))].map((f: any, idx: number) => (
-                      <a key={idx} href={f.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs bg-[#F5F7FB] border border-[#E4E6EE] rounded-lg px-3 py-2 hover:bg-[#EAF0FC]">
-                        <span className="text-[#3B6FE0]">📄</span>
-                        <span className="min-w-0"><span className="block font-semibold text-gray-700 truncate max-w-[240px]">{f.name}</span><span className="text-[10px] text-gray-400">{f.tag}</span></span>
-                      </a>
-                    ))}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Files</p>
+                  <div>
+                    <input ref={fileRef} type="file" multiple className="hidden" onChange={async e => { const fs = Array.from(e.target.files || []); for (const f of fs) { await uploadRecordFile(detail, f) } if (e.target) e.target.value = '' }} />
+                    <button onClick={() => fileRef.current?.click()} disabled={uploading} className="text-xs px-2.5 py-1.5 rounded-lg bg-[#3B6FE0] text-white font-semibold hover:opacity-90 disabled:opacity-50">{uploading ? 'Uploading…' : '＋ Upload file'}</button>
                   </div>
                 </div>
-              )}
+                <div className="flex flex-wrap gap-2">
+                  {[...(detail.order_form_files || []).map((f: any) => ({ ...f, tag: 'Order Form' })), ...(detail.so_files || []).map((f: any) => ({ ...f, tag: 'SO' }))].map((f: any, idx: number) => (
+                    <a key={'m' + idx} href={f.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs bg-[#F5F7FB] border border-[#E4E6EE] rounded-lg px-3 py-2 hover:bg-[#EAF0FC]">
+                      <span className="text-[#3B6FE0]">📄</span>
+                      <span className="min-w-0"><span className="block font-semibold text-gray-700 truncate max-w-[240px]">{f.name}</span><span className="text-[10px] text-gray-400">{f.tag}</span></span>
+                    </a>
+                  ))}
+                  {(detail.attachments || []).map((f: any, idx: number) => (
+                    <div key={'a' + idx} className="flex items-center gap-2 text-xs bg-[#F5FBF7] border border-[#CDEBD9] rounded-lg px-3 py-2">
+                      <a href={f.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 min-w-0 hover:underline">
+                        <span className="text-emerald-600">📎</span>
+                        <span className="min-w-0"><span className="block font-semibold text-gray-700 truncate max-w-[220px]">{f.name}</span><span className="text-[10px] text-gray-400">Uploaded</span></span>
+                      </a>
+                      <button onClick={() => removeRecordFile(detail, idx)} className="text-gray-300 hover:text-red-500 leading-none text-base">×</button>
+                    </div>
+                  ))}
+                  {((detail.order_form_files?.length || 0) + (detail.so_files?.length || 0) + (detail.attachments?.length || 0)) === 0 && <p className="text-sm text-gray-400">No files yet — upload one above.</p>}
+                </div>
+              </div>
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="pl_stock_order" currentUserEmail={userEmail} title="Notes & Comments" />
