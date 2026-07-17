@@ -22,7 +22,15 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   const router = useRouter()
   const pathname = usePathname()
   const { boards } = useBoards()
-  const groups = useMemo(() => groupBoards(boards), [boards])
+  // Dashboard, beyondWORLD and Settings are promoted to dedicated buttons,
+  // so drop the "Overview" group and those two items from the dropdown nav.
+  const groups = useMemo(() => {
+    const PROMOTED = new Set(['/beyondworld', '/settings'])
+    return groupBoards(boards)
+      .filter(g => g.group !== 'Overview')
+      .map(g => ({ ...g, items: g.items.filter(it => !PROMOTED.has(it.href || '')) }))
+      .filter(g => g.items.length > 0)
+  }, [boards])
 
   // Header title reflects the current board's (possibly renamed) label.
   const activeTitle = useMemo(() => {
@@ -117,7 +125,25 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   return (
     <header className="shrink-0 sticky top-0 z-30" style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}>
       <div ref={navRef} className="flex items-center gap-2 px-3 sm:px-5" style={{ height: 64 }}>
-        <h1 className="font-bold text-base sm:text-lg truncate shrink-0 max-w-[36vw] md:max-w-none" style={{ color: '#1A1D2E' }}>{activeTitle}</h1>
+        {/* brand logo -> dashboard */}
+        <Link href="/" className="flex items-center shrink-0" title="beyondGREEN — Dashboard">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/bG-logo-clean.png" alt="beyondGREEN" className="w-auto" style={{ height: 34 }} />
+        </Link>
+
+        {/* Dashboard quick button */}
+        <Link
+          href="/"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors shrink-0"
+          style={pathname === '/' ? { color: '#00A84F', background: 'rgba(0,168,79,0.10)', border: '1px solid rgba(0,168,79,0.25)' } : { color: '#3A4056', background: '#F7F8FB', border: '1px solid #E4E6EE' }}
+        >
+          <i className="ti ti-layout-dashboard text-base" />
+          <span className="hidden sm:inline">Dashboard</span>
+        </Link>
+
+        {pathname !== '/' && (
+          <h1 className="font-bold text-base sm:text-lg truncate shrink-0 max-w-[28vw] md:max-w-none" style={{ color: '#1A1D2E' }}>{activeTitle}</h1>
+        )}
 
         {/* group dropdowns */}
         <nav className="hidden lg:flex items-center gap-0.5 ml-2">
@@ -164,6 +190,31 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
             <span className="hidden md:inline text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white border border-[#E4E6EE] text-gray-400">⌘K</span>
           </button>
           <NotificationBell />
+
+          {/* promoted quick-access buttons: beyondWORLD + Settings */}
+          <Link
+            href="/beyondworld"
+            title="beyondWORLD"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium whitespace-nowrap border transition-colors shrink-0"
+            style={pathname.startsWith('/beyondworld')
+              ? { color: '#00A84F', background: 'rgba(0,168,79,0.10)', borderColor: 'rgba(0,168,79,0.25)' }
+              : { color: '#5A6072', background: '#F7F8FB', borderColor: '#E4E6EE' }}
+          >
+            <i className="ti ti-device-gamepad-2 text-base" />
+            <span className="hidden md:inline">beyondWORLD</span>
+          </Link>
+          <Link
+            href="/settings"
+            title="Settings"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium whitespace-nowrap border transition-colors shrink-0"
+            style={pathname === '/settings' || pathname.startsWith('/settings/')
+              ? { color: '#00A84F', background: 'rgba(0,168,79,0.10)', borderColor: 'rgba(0,168,79,0.25)' }
+              : { color: '#5A6072', background: '#F7F8FB', borderColor: '#E4E6EE' }}
+          >
+            <i className="ti ti-settings text-base" />
+            <span className="hidden md:inline">Settings</span>
+          </Link>
+
           <div className="relative">
             <button onClick={() => setMenuOpen(m => !m)} className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-[#F0F1F5]">
               <UserAvatar email={userEmail} initials={userInitials} color={avatarColor} size={32} />
