@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import Comments from '@/components/Comments'
 
 // ─────────────────────────── shared helpers ───────────────────────────
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -454,12 +455,20 @@ function SATXShipments() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<{ id: string; field: string } | null>(null)
   const [statusOpen, setStatusOpen] = useState<string | null>(null)
+  const [detail, setDetail] = useState<any | null>(null)
+  const [userEmail, setUserEmail] = useState('')
+  const [counts, setCounts] = useState<Record<string, number>>({})
   const dragId = useRef<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data } = await sb.from('historical_satx_shipments').select('*').eq('board_key', 'satx-shipments').order('position', { ascending: true, nullsFirst: false })
-    setRows(data || []); setLoading(false)
+    setRows(data || [])
+    const { data: cm } = await sb.from('comments').select('record_id').eq('record_type', 'satx_shipment')
+    const cc: Record<string, number> = {}; for (const cr of (cm || []) as any[]) cc[cr.record_id] = (cc[cr.record_id] || 0) + 1
+    setCounts(cc)
+    sb.auth.getUser().then(({ data: u }) => { if (u.user?.email) setUserEmail(u.user.email) })
+    setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
 
@@ -575,7 +584,12 @@ function SATXShipments() {
                           return (
                             <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
                               <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={() => { dragId.current = r.id }}>&#8942;&#8942;</td>
-                              <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800 align-top"><TextCell r={r} field="name" /></td>
+                              <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800 align-top">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 min-w-0"><TextCell r={r} field="name" /></div>
+                                  <button onClick={() => setDetail(r)} className="shrink-0 inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-[#0086C0]" title="Open details & comments"><i className="ti ti-message-circle" />{counts[r.id] ? counts[r.id] : ''}</button>
+                                </div>
+                              </td>
                               <td className="px-3 py-2.5 align-top">
                                 <div className="relative">
                                   <button onClick={() => setStatusOpen(isOpen ? null : r.id)} className="w-full text-white text-[11px] font-semibold rounded-full px-2 py-1 text-center truncate" style={{ background: r.status ? (SATX_STATUS_HEX[r.status] || '#c4c4c4') : '#c4c4c4' }}>{r.status || '—'}</button>
@@ -610,6 +624,32 @@ function SATXShipments() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setDetail(null)}>
+          <div className="relative w-full max-w-[640px] my-6 bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between px-6 py-4 border-b border-[#E4E6EE]">
+              <div>
+                <p className="text-xs text-gray-400">Shipment</p>
+                <h2 className="text-lg font-semibold text-[#1A1D2E]">{detail.name || 'Shipment'}</h2>
+              </div>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
+            </div>
+            <div className="px-6 py-4 space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><p className="text-xs text-gray-400">Status</p><span className="inline-block mt-0.5 text-white text-[11px] font-semibold rounded-full px-2 py-0.5" style={{ background: detail.status ? (SATX_STATUS_HEX[detail.status] || '#c4c4c4') : '#c4c4c4' }}>{detail.status || '—'}</span></div>
+                <div><p className="text-xs text-gray-400">Ship Date</p><p className="text-[#1A1D2E]">{fmtD(detail.ship_date) || '—'}</p></div>
+              </div>
+              <div><p className="text-xs text-gray-400">Person</p><p className="text-[13px] text-gray-600">{detail.person || '—'}</p></div>
+              <div><p className="text-xs text-gray-400">Document</p>{detail.doc_url ? <a href={detail.doc_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] text-[#0086C0] hover:underline"><i className="ti ti-file-type-pdf text-[#E2445C]" />{detail.doc_name || 'View document'}</a> : <p className="text-gray-400 text-sm">No document</p>}</div>
+              {detail.notes ? <div><p className="text-xs text-gray-400">Notes</p><p className="text-[13px] text-gray-600">{detail.notes}</p></div> : null}
+              <div className="pt-3 border-t border-[#EEF0F4]">
+                <Comments recordId={detail.id} recordType="satx_shipment" currentUserEmail={userEmail} />
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
