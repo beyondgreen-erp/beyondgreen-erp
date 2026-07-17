@@ -7,7 +7,7 @@ const FROM_NAME = process.env.FROM_NAME || 'beyondGREEN ERP'
 export async function POST(req: NextRequest) {
   try {
     if (!RESEND_API_KEY) return NextResponse.json({ error: 'Email service not configured' }, { status: 500 })
-    const { to, cc, subject, html, text } = await req.json()
+    const { to, cc, subject, html, text, reply_to } = await req.json()
     if (!to || !subject || (!html && !text)) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
 
     const body: Record<string, unknown> = {
@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     if (html) body.html = html
     if (text) body.text = text
     if (cc) body.cc = Array.isArray(cc) ? cc : [cc]
+    if (reply_to) body.reply_to = Array.isArray(reply_to) ? reply_to : [reply_to]
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
