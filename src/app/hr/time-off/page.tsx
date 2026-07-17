@@ -21,6 +21,8 @@ const GROUPS = [
   { key: 'Cancelled', title: 'Cancelled', color: '#808080' },
 ]
 
+const NOTIFY_EMAILS = ['Rudyp@beyondgreenbiotech.com', 'Finance@beyondgreenbiotech.com', 'shea@beyondgreenbiotech.com', 'veejay.patell@byndgrn.com']
+const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const typeColor = (t: string | null) => (t && TYPE_COLORS[t]) || '#c4c4c4'
 const statusColor = (s: string | null) => (s && STATUS_COLORS[s]) || '#c4c4c4'
 const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
@@ -73,6 +75,27 @@ function RequestModal({ open, onClose, onCreated, sb, me }: { open: boolean; onC
       }
       const { error } = await sb.from('time_off_requests').insert(row)
       if (error) { setError(error.message); return }
+      // Notify approvers of the new request (non-blocking)
+      try {
+        const dates = row.start_date ? `${fmtDate(row.start_date)}${row.end_date && row.end_date !== row.start_date ? ' – ' + fmtDate(row.end_date) : ''}` : '—'
+        const trow = (l: string, v: any) => `<tr><td style="padding:4px 0;color:#6b7280;width:140px">${l}</td><td style="padding:4px 0;font-weight:600">${esc(v) || '—'}</td></tr>`
+        const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#1A1D2E">`
+          + `<h2 style="color:#5559df;margin:0 0 6px;font-size:18px">New time-off request</h2>`
+          + `<p style="margin:0 0 14px;font-size:14px">${esc(row.employee_name || 'A team member')} submitted a time-off request for review.</p>`
+          + `<table style="border-collapse:collapse;width:100%;font-size:14px">`
+          + trow('Employee', row.employee_name)
+          + trow('Type', row.type)
+          + `<tr><td style="padding:4px 0;color:#6b7280;width:140px">Dates</td><td style="padding:4px 0;font-weight:600">${dates}</td></tr>`
+          + trow('Days', row.half_day ? 'Half day' : (row.days != null ? row.days : ''))
+          + trow('Coverage / backup', row.coverage)
+          + trow('Reason / notes', row.reason)
+          + trow('Requested by', row.employee_email)
+          + `</table>`
+          + `<div style="margin:18px 0 6px"><a href="https://beyondgreen-erp.vercel.app/hr/time-off" style="display:inline-block;background:#5559df;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:14px;font-weight:600">Review in the ERP</a></div>`
+          + `<p style="margin:12px 0 0;font-size:12px;color:#9ca3af">Sent automatically by the beyondGREEN ERP Time Off board.</p>`
+          + `</div>`
+        fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: NOTIFY_EMAILS, subject: `New time-off request — ${row.employee_name || 'Employee'} (${row.type || 'Time off'})`, html, reply_to: row.employee_email || undefined }) }).catch(() => {})
+      } catch { /* non-blocking */ }
       setForm({ employee_name: me.name || '', type: 'Vacation', start_date: '', end_date: '', half_day: false, coverage: '', reason: '' })
       onClose(); onCreated()
     } finally { setSaving(false) }
