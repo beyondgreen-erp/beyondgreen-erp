@@ -180,7 +180,7 @@ export async function POST(
     if (resend) {
       const lineCount = body.line_items?.length || 0
       await resend.emails.send({
-        from: 'beyondGREEN ERP <onboarding@resend.dev>',
+        from: 'beyondGREEN ERP <erp@beyondgreenbiotech.com>',
         to: NOTIF_EMAIL,
         subject: `RFQ Pricing Submitted — ${quote.quote_number} — ${recipient}`,
         html: generateSubmissionNotificationHtml(
