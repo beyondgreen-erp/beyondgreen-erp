@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
+const NO_STORE = { 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0' }
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,7 +15,7 @@ const admin = createClient(
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const { data: portal } = await admin.from('warehouse_portal').select('id,label').eq('token', params.token).maybeSingle()
-  if (!portal) return NextResponse.json({ error: 'Portal not found' }, { status: 404 })
+  if (!portal) return NextResponse.json({ error: 'Portal not found' }, { status: 404, headers: NO_STORE })
 
   const { data: tickets } = await admin
     .from('container_tickets')
@@ -39,5 +43,5 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       done_count: lines.filter((l: any) => l.done).length,
     }
   })
-  return NextResponse.json({ label: portal.label, tickets: out })
+  return NextResponse.json({ label: portal.label, tickets: out }, { headers: NO_STORE })
 }
