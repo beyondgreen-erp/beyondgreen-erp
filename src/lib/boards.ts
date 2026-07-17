@@ -19,7 +19,7 @@ export interface Board {
 export interface BoardColumn { key: string; label: string; type: 'text' | 'longtext' | 'number' | 'date' | 'status' | 'link' | 'person' }
 export interface BuilderConfig { columns: BoardColumn[]; groups: string[]; primary?: string; color?: string }
 
-export const GROUP_ORDER = ['Overview', 'CRM', 'Sales', 'Production', 'Inventory', 'Warehouse', 'Business', 'Finance', 'Historicals']
+export const GROUP_ORDER = ['Overview', 'CRM', 'Sales', 'Production', 'Inventory', 'Warehouse', 'Compliance', 'Business', 'Human Resources', 'Finance', 'Historicals']
 
 // Which built-in boards show a live badge (kept in code, keyed by href/board_key)
 export const BADGE_BY_KEY: Record<string, string> = {
@@ -65,6 +65,8 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/settings', label: 'Settings', icon: 'ti-settings', nav_group: 'Business', href: '/settings', sort_order: 7 },
   { board_key: '/sales/vendors', label: 'Vendors', icon: 'ti-building-store', nav_group: 'Finance', href: '/sales/vendors', sort_order: 0 },
   { board_key: '/sales/invoices', label: 'Invoices', icon: 'ti-receipt', nav_group: 'Finance', href: '/sales/invoices', sort_order: 1 },
+  { board_key: '/compliance', label: 'Compliance Overview', icon: 'ti-shield-check', nav_group: 'Compliance', href: '/compliance', sort_order: 0 },
+  { board_key: '/hr', label: 'HR Overview', icon: 'ti-users-group', nav_group: 'Human Resources', href: '/hr', sort_order: 0 },
   { board_key: '/historicals/daily-ship-2025', label: 'Daily Ship Value 2025', icon: 'ti-chart-dots', nav_group: 'Historicals', href: '/historicals/daily-ship-2025', sort_order: 0 },
   { board_key: '/historicals/pipeline-2025', label: '2025 Pipeline', icon: 'ti-history', nav_group: 'Historicals', href: '/historicals/pipeline-2025', sort_order: 1 },
   { board_key: '/historicals/pipeline-2024', label: '2024 Pipeline', icon: 'ti-history', nav_group: 'Historicals', href: '/historicals/pipeline-2024', sort_order: 2 },
