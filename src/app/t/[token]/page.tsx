@@ -15,7 +15,7 @@ export default function WarehouseTicketPage() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`/api/ct/${token}`, { cache: 'no-store' })
+      const r = await fetch(`/api/ct/${token}?t=${Date.now()}`, { cache: 'no-store' })
       if (!r.ok) { setErr((await r.json()).error || 'Not found'); setLoading(false); return }
       setData(await r.json())
     } catch (e: any) { setErr('Could not load ticket.') }
