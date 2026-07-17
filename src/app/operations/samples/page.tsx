@@ -116,7 +116,7 @@ function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: strin
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
   <h2 style="color:#16a34a;margin:0 0 8px">Your sample has shipped</h2>
   <p style="margin:0 0 12px">Hi${sample.name ? ' ' + escHtml(sample.name) : ''},</p>
-  <p style="margin:0 0 12px">Good news — your beyondGREEN sample submission is on its way.</p>
+  <p style="margin:0 0 12px">Good news! The beyondGREEN team has sent the samples you requested!</p>
   <table style="border-collapse:collapse;width:100%;margin:8px 0 16px;font-size:14px">
     <tr><td style="padding:4px 0;color:#6b7280;width:120px">Carrier</td><td style="padding:4px 0;font-weight:600">${escHtml(carrier || '—')}</td></tr>
     <tr><td style="padding:4px 0;color:#6b7280">Tracking #</td><td style="padding:4px 0;font-weight:600;font-family:monospace">${escHtml(tracking || '—')}</td></tr>
@@ -134,7 +134,7 @@ function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Samp
   const [tracking, setTracking] = useState(sample.tracking_number || '')
   const [shipTo, setShipTo] = useState(sample.ship_to_address || '')
   const [recipient, setRecipient] = useState(sample.customer_email || sample.recipient_email || '')
-  const [subject, setSubject] = useState(`Your beyondGREEN sample has shipped${sample.name ? ` — ${sample.name}` : ''}`)
+  const [subject, setSubject] = useState(`Your beyondGREEN sample(s) have shipped${sample.name ? ` - ${sample.name}` : ''}`)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
