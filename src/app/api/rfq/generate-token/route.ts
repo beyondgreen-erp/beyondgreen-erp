@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       })
 
       await resend.emails.send({
-        from: 'beyondGREEN ERP <onboarding@resend.dev>',
+        from: 'beyondGREEN ERP <erp@beyondgreenbiotech.com>',
         to: recipient_email,
         subject: `RFQ Required — Quote ${quote.quote_number} — Price Input Needed`,
         html: generateRfqEmailHtml(
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
     // Send notification to Rudy
     if (resend) {
       await resend.emails.send({
-        from: 'beyondGREEN ERP <onboarding@resend.dev>',
+        from: 'beyondGREEN ERP <erp@beyondgreenbiotech.com>',
         to: NOTIF_EMAIL,
         subject: `RFQ Token Generated — ${quote.quote_number} — ${recipient}`,
         html: generateNotificationEmailHtml(
