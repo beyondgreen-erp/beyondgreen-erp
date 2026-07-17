@@ -42,6 +42,7 @@ interface QuoteLine {
 interface Customer {
   id: string
   company_name: string
+  board?: string | null
 }
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -135,12 +136,50 @@ export default function QuotationsPage() {
   }, [supabase])
 
   const fetchCustomers = useCallback(async () => {
+    // Initial load: real customers only (there are ~14k leads, so we search those on demand)
     const { data } = await supabase
       .from('customers')
-      .select('id, company_name')
+      .select('id, company_name, board')
+      .eq('board', 'customer')
       .order('company_name')
+      .limit(500)
     setCustomers(data ?? [])
   }, [supabase])
+
+  // Live search across BOTH customers and leads once user types ≥ 2 chars.
+  const [customerMatches, setCustomerMatches] = useState<Customer[]>([])
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false)
+  useEffect(() => {
+    const term = customerSearch.trim()
+    if (term.length < 2) { setCustomerMatches([]); return }
+    let cancelled = false
+    setCustomerSearchLoading(true)
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('customers')
+        .select('id, company_name, board')
+        .ilike('company_name', `%${term}%`)
+        .order('board', { ascending: true }) // 'customer' comes before 'Leads'
+        .order('company_name')
+        .limit(20)
+      if (!cancelled) { setCustomerMatches((data ?? []) as Customer[]); setCustomerSearchLoading(false) }
+    }, 200)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [customerSearch, supabase])
+
+  async function createLead(name: string): Promise<Customer | null> {
+    const clean = name.trim()
+    if (!clean) return null
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({ company_name: clean, board: 'Leads', is_active: true, pipeline_stage: 'New' })
+      .select('id, company_name, board')
+      .single()
+    if (error) { alert('Could not add as lead: ' + error.message); return null }
+    // add to local list so it shows immediately
+    setCustomers(prev => [...prev, data as Customer])
+    return data as Customer
+  }
 
   useEffect(() => {
     fetchQuotes()
@@ -697,7 +736,12 @@ export default function QuotationsPage() {
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: '#E4E6EE' }}>
           <div>
             <h2 className="font-semibold text-base" style={{ color: '#1A1D2E' }}>
-              {editing ? `Quote ${editing.quote_number}` : 'New Quotation'}
+              {(() => {
+                const isRfq = (editing?.type || form.type) === 'rfq'
+                const label = isRfq ? 'RFQ' : 'Quote'
+                if (editing) return `${label} ${editing.quote_number}`
+                return `New ${label}`
+              })()}
             </h2>
             {editing && <div className="mt-1"><StatusBadge status={editing.status ?? 'Draft'} /></div>}
           </div>
@@ -748,28 +792,65 @@ export default function QuotationsPage() {
                     style={inpStyle}
                   />
                   {showCustomerList && customerSearch.length > 0 && (() => {
-                    const q = customerSearch.toLowerCase()
-                    const matches = customers.filter(c => c.company_name.toLowerCase().includes(q)).slice(0, 8)
-                    if (matches.length === 0) return (
-                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-lg px-3 py-2 text-sm text-gray-400">No matches</div>
-                    )
+                    const q = customerSearch.trim().toLowerCase()
+                    // Combine local recent customers + server search results, dedupe by id
+                    const seen = new Set<string>()
+                    const combined: Customer[] = []
+                    for (const c of [...customerMatches, ...customers.filter(c => c.company_name.toLowerCase().includes(q))]) {
+                      if (seen.has(c.id)) continue
+                      seen.add(c.id); combined.push(c)
+                    }
+                    combined.sort((a, b) => (a.board === 'customer' ? 0 : 1) - (b.board === 'customer' ? 0 : 1))
+                    const list = combined.slice(0, 12)
+                    const exact = list.some(c => c.company_name.trim().toLowerCase() === q)
+                    const showCreate = q.length >= 2 && !exact
                     return (
-                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-lg overflow-hidden max-h-64 overflow-y-auto">
-                        {matches.map(c => (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-lg overflow-hidden max-h-72 overflow-y-auto">
+                        {customerSearchLoading && list.length === 0 && (
+                          <div className="px-3 py-2 text-sm text-gray-400">Searching customers &amp; leads…</div>
+                        )}
+                        {list.map(c => {
+                          const isCustomer = c.board === 'customer'
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onMouseDown={e => e.preventDefault()}
+                              onClick={() => {
+                                setForm(p => ({ ...p, customer_id: c.id }))
+                                setCustomerSearch(c.company_name)
+                                setShowCustomerList(false)
+                              }}
+                              className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2 text-sm hover:bg-[#F2F6FF] transition-colors ${form.customer_id === c.id ? 'bg-[#EFF6FF] text-[#3B6FE0]' : 'text-[#1A1D2E]'}`}
+                            >
+                              <span className="truncate">{c.company_name}</span>
+                              <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 shrink-0 ${isCustomer ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {isCustomer ? 'Customer' : 'Lead'}
+                              </span>
+                            </button>
+                          )
+                        })}
+                        {showCreate && (
                           <button
-                            key={c.id}
                             type="button"
                             onMouseDown={e => e.preventDefault()}
-                            onClick={() => {
-                              setForm(p => ({ ...p, customer_id: c.id }))
-                              setCustomerSearch(c.company_name)
-                              setShowCustomerList(false)
+                            onClick={async () => {
+                              const created = await createLead(customerSearch)
+                              if (created) {
+                                setForm(p => ({ ...p, customer_id: created.id }))
+                                setCustomerSearch(created.company_name)
+                                setShowCustomerList(false)
+                              }
                             }}
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-[#F2F6FF] transition-colors ${form.customer_id === c.id ? 'bg-[#EFF6FF] text-[#3B6FE0]' : 'text-[#1A1D2E]'}`}
+                            className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm border-t border-[#E4E6EE] bg-[#F9FAFB] hover:bg-emerald-50 text-emerald-700 font-medium"
                           >
-                            {c.company_name}
+                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                            Add as new lead: “{customerSearch.trim()}”
                           </button>
-                        ))}
+                        )}
+                        {!customerSearchLoading && list.length === 0 && !showCreate && (
+                          <div className="px-3 py-2 text-sm text-gray-400">No matches</div>
+                        )}
                       </div>
                     )
                   })()}
@@ -1066,7 +1147,7 @@ export default function QuotationsPage() {
                 className="h-9 px-5 rounded-lg text-sm font-semibold text-white whitespace-nowrap transition-colors disabled:opacity-50 hover:opacity-90"
                 style={{ background: '#3B6FE0' }}
               >
-                {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
+                {saving ? 'Saving…' : editing ? 'Save' : `Create ${form.type === 'rfq' ? 'RFQ' : 'Quote'}`}
               </button>
             </div>
           )}
