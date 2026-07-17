@@ -5,7 +5,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Public warehouse ticket pages + their API bypass auth entirely (no-login, token-gated).
-  if (pathname.startsWith('/t/') || pathname.startsWith('/api/ct/')) {
+  if (pathname.startsWith('/t/') || pathname.startsWith('/api/ct/') || pathname.startsWith('/w/') || pathname.startsWith('/api/wh/')) {
     return NextResponse.next({ request })
   }
 
