@@ -13,6 +13,7 @@ interface Comment {
   is_edited: boolean
   created_at: string
   updated_at: string
+  attachments?: { name: string; url: string }[]
 }
 
 interface TeamMember {
@@ -74,6 +75,8 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   const [posting, setPosting] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editBody, setEditBody] = useState('')
   const [showMention, setShowMention] = useState(false)
@@ -199,18 +202,31 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     }
   }
 
+  async function uploadToStorage(file: File): Promise<{ name: string; url: string } | null> {
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const path = `comments/${recordType}/${recordId}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`
+    const { error } = await sb.storage.from('record-board').upload(path, file)
+    if (error) { alert('Upload failed: ' + error.message); return null }
+    const { data } = sb.storage.from('record-board').getPublicUrl(path)
+    return { name: file.name, url: data.publicUrl }
+  }
+
   async function handlePost() {
-    if (!body.trim() || !recordId || posting) return
+    if ((!body.trim() && pendingFiles.length === 0) || !recordId || posting) return
     setPosting(true)
     try {
       const { data: { user } } = await sb.auth.getUser()
       if (!user) return
+
+      const uploaded: { name: string; url: string }[] = []
+      for (const f of pendingFiles) { const r = await uploadToStorage(f); if (r) uploaded.push(r) }
 
       const { error } = await sb.from('comments').insert({
         record_type: recordType,
         record_id: recordId,
         author_email: user.email!,
         content: body.trim(),
+        attachments: uploaded,
       })
       if (error) { alert('Error: ' + error.message); return }
 
@@ -235,6 +251,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       }
 
       setBody('')
+      setPendingFiles([])
       fetchComments()
     } finally {
       setPosting(false)
@@ -367,6 +384,15 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                       >
                         {renderContent(c.content)}
                       </div>
+                      {c.attachments && c.attachments.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {c.attachments.map((a, ai) => (
+                            <a key={ai} href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] bg-white border rounded-md px-2 py-1 hover:bg-gray-50" style={{ borderColor: '#E4E6EE', color: '#374151' }}>
+                              <span>📎</span><span className="truncate max-w-[200px]">{a.name}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       {isOwn && (
                         <div className="flex gap-3 mt-1">
                           <button
@@ -438,18 +464,32 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             </div>
           </div>
 
-          <div className="flex items-center justify-between mt-2 ml-9">
-            <p className="text-[10px]" style={{ color: '#9CA3AF' }}>
-              Type @ to mention · ⌘↵ to post
-            </p>
-            <button
-              onClick={handlePost}
-              disabled={posting || !body.trim()}
-              className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40 transition-colors"
-              style={{ background: '#3B6FE0' }}
-            >
-              {posting ? 'Posting…' : 'Post'}
-            </button>
+          <div className="ml-9 mt-2 space-y-2">
+            {pendingFiles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {pendingFiles.map((f, i) => (
+                  <span key={i} className="flex items-center gap-1 text-[11px] bg-blue-50 border border-blue-200 rounded-md px-2 py-1" style={{ color: '#1D4ED8' }}>
+                    <span className="truncate max-w-[160px]">{f.name}</span>
+                    <button onClick={() => setPendingFiles(pf => pf.filter((_, j) => j !== i))} className="text-blue-400 hover:text-blue-700 leading-none">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => { const fs = Array.from(e.target.files || []); setPendingFiles(pf => [...pf, ...fs]); if (e.target) e.target.value = '' }} />
+                <button onClick={() => fileInputRef.current?.click()} className="text-[11px] flex items-center gap-1 transition-colors" style={{ color: '#6B7280' }}>📎 Attach</button>
+                <p className="text-[10px]" style={{ color: '#9CA3AF' }}>@ to mention · ⌘↵ to post</p>
+              </div>
+              <button
+                onClick={handlePost}
+                disabled={posting || (!body.trim() && pendingFiles.length === 0)}
+                className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40 transition-colors"
+                style={{ background: '#3B6FE0' }}
+              >
+                {posting ? 'Posting…' : 'Post'}
+              </button>
+            </div>
           </div>
         </div>
       )}
