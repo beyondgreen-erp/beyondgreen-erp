@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
+const NO_STORE = { 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0' }
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,22 +22,22 @@ async function fetchFull(token: string) {
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const data = await fetchFull(params.token)
-  if (!data) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
-  return NextResponse.json(data)
+  if (!data) return NextResponse.json({ error: 'Ticket not found' }, { status: 404, headers: NO_STORE })
+  return NextResponse.json(data, { headers: NO_STORE })
 }
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   const body = await req.json().catch(() => ({}))
   const { data: t } = await admin.from('container_tickets').select('id,status').eq('token', params.token).maybeSingle()
-  if (!t) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
-  if ((t as any).status === 'completed' && body.action !== 'noop') return NextResponse.json({ error: 'This ticket is already completed.' }, { status: 400 })
+  if (!t) return NextResponse.json({ error: 'Ticket not found' }, { status: 404, headers: NO_STORE })
+  if ((t as any).status === 'completed' && body.action !== 'noop') return NextResponse.json({ error: 'This ticket is already completed.' }, { status: 400, headers: NO_STORE })
 
   if (body.action === 'toggle' && body.lineId) {
     await admin.from('container_ticket_lines').update({ done: !!body.done, done_at: body.done ? new Date().toISOString() : null }).eq('id', body.lineId).eq('ticket_id', (t as any).id)
   } else if (body.action === 'complete') {
     const { error } = await admin.rpc('complete_container_ticket', { p_ticket: (t as any).id, p_by: (body.by || 'Warehouse').toString().slice(0, 80) })
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: NO_STORE })
   }
   const data = await fetchFull(params.token)
-  return NextResponse.json(data)
+  return NextResponse.json(data, { headers: NO_STORE })
 }
