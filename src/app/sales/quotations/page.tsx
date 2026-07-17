@@ -22,6 +22,7 @@ interface Quote {
   payment_terms: string | null
   notes: string | null
   created_at: string
+  type?: 'quote' | 'rfq' | null
   customers?: { company_name: string } | null
   quotation_lines?: QuoteLine[]
 }
@@ -97,6 +98,11 @@ export default function QuotationsPage() {
   const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set())
   // Record Board: collapsed state per status group
   const [rbCollapsedState, rbSetCollapsed] = useState<Record<string, boolean>>({ Rejected: true, Expired: true })
+  // Tab: 'quote' or 'rfq'
+  const [activeTab, setActiveTab] = useState<'quote' | 'rfq'>('quote')
+  // Customer typeahead
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [showCustomerList, setShowCustomerList] = useState(false)
 
   // Form state
   const [form, setForm] = useState({
@@ -107,6 +113,7 @@ export default function QuotationsPage() {
     payment_terms: 'Net 30',
     notes: '',
     tax_rate: '0',
+    type: 'quote' as 'quote' | 'rfq',
   })
   const [lines, setLines] = useState<Partial<QuoteLine>[]>([])
   const [productSearch, setProductSearch] = useState('')
@@ -154,8 +161,9 @@ export default function QuotationsPage() {
     return matchSearch && matchStatus
   })
 
-  function openNew() {
+  function openNew(kind: 'quote' | 'rfq' = 'quote') {
     setEditing(null)
+    setCustomerSearch('')
     setForm({
       customer_id: '',
       status: 'Draft',
@@ -164,6 +172,7 @@ export default function QuotationsPage() {
       payment_terms: 'Net 30',
       notes: '',
       tax_rate: '0',
+      type: kind,
     })
     setLines([{ sku: '', product_name: '', description: '', quantity: 1, unit_price: 0, line_total: 0, product_id: null }])
     setPanelTab('overview')
@@ -172,6 +181,7 @@ export default function QuotationsPage() {
 
   async function openEdit(q: Quote) {
     setEditing(q)
+    setCustomerSearch(cmap[q.customer_id ?? ''] ?? '')
     setForm({
       customer_id: q.customer_id ?? '',
       status: q.status ?? 'Draft',
@@ -180,6 +190,7 @@ export default function QuotationsPage() {
       payment_terms: q.payment_terms ?? 'Net 30',
       notes: q.notes ?? '',
       tax_rate: '0',
+      type: (q.type as 'quote' | 'rfq') || 'quote',
     })
     setLines([])
     setPanelTab('overview')
@@ -286,14 +297,10 @@ export default function QuotationsPage() {
   }
 
   async function handleSave() {
-    if (!form.customer_id) {
-      alert('Please select a customer')
-      return
-    }
     setSaving(true)
     try {
       const quoteData = {
-        customer_id: form.customer_id,
+        customer_id: form.customer_id || null,
         status: form.status,
         quote_date: form.quote_date || null,
         expiry_date: form.expiry_date || null,
@@ -302,6 +309,7 @@ export default function QuotationsPage() {
         subtotal,
         tax_pct: taxRate,
         total: total,
+        type: form.type,
       }
 
       let quoteId = editing?.id
@@ -483,24 +491,26 @@ export default function QuotationsPage() {
     if (!t) return true
     return (q.quote_number ?? '').toLowerCase().includes(t) || (cmap[q.customer_id ?? ''] ?? '').toLowerCase().includes(t)
   }
-  const rbGroupRows = (key: string) => quotes.filter(q => (q.status || 'Draft') === key && rbMatch(q))
+  const rbGroupRows = (key: string) => quotes.filter(q => ((q.type || 'quote') === activeTab) && (q.status || 'Draft') === key && rbMatch(q))
+  const tabQuotes = quotes.filter(q => (q.type || 'quote') === activeTab)
+  const tabPipeline = tabQuotes.filter(q => !['Rejected','Converted'].includes(q.status)).reduce((s, q) => s + (q.total ?? 0), 0)
   const [collapsed, setCollapsed] = [rbCollapsedState, rbSetCollapsed] as const
 
   return (
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
 
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
         <div>
-          <span className="mon-tag t-pink">💬 Quotes</span>
-          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Quotations</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${quotes.length} quote${quotes.length !== 1 ? 's' : ''} · ${fmt$(quotes.filter(q => !['Rejected','Converted'].includes(q.status)).reduce((s, q) => s + (q.total ?? 0), 0))} pipeline`}</p>
+          <span className="mon-tag t-pink">💬 Sales</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Quotes &amp; RFQs</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${tabQuotes.length} ${activeTab === 'rfq' ? 'RFQ' : 'quote'}${tabQuotes.length !== 1 ? 's' : ''} · ${fmt$(tabPipeline)} pipeline`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search quote # or customer…"
+            placeholder={`Search ${activeTab === 'rfq' ? 'RFQ' : 'quote'} # or customer…`}
             className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40"
           />
           {selected.size > 0 && (
@@ -509,22 +519,45 @@ export default function QuotationsPage() {
               Delete {selected.size}
             </button>
           )}
-          <a
-            href="/sales/costing"
-            className="flex items-center gap-1.5 bg-white border border-[#E4E6EE] hover:border-violet-500/40 hover:text-violet-600 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            title="Create quote with AI assistance"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            Create with AI
-          </a>
           <button
-            onClick={openNew}
+            onClick={() => openNew('quote')}
             className="flex items-center gap-1.5 bg-[#3B6FE0] hover:bg-[#2E5CC7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             New Quote
           </button>
+          <button
+            onClick={() => openNew('rfq')}
+            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            New RFQ
+          </button>
         </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 mb-4 bg-white border border-[#E4E6EE] rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setActiveTab('quote')}
+          className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-md transition-colors ${activeTab === 'quote' ? 'bg-[#3B6FE0] text-white' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          Quotes
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${activeTab === 'quote' ? 'bg-white/25' : 'bg-[#F0F2F7] text-gray-500'}`}>
+            {quotes.filter(q => (q.type || 'quote') === 'quote').length}
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveTab('rfq')}
+          className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-md transition-colors ${activeTab === 'rfq' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+          RFQs
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${activeTab === 'rfq' ? 'bg-white/25' : 'bg-[#F0F2F7] text-gray-500'}`}>
+            {quotes.filter(q => q.type === 'rfq').length}
+          </span>
+        </button>
       </div>
 
       {loading ? (
@@ -702,14 +735,44 @@ export default function QuotationsPage() {
           {panelTab === 'overview' && (
             <div className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>
-                    Customer <span className="text-red-500">*</span>
-                  </label>
-                  <select value={form.customer_id} onChange={e => setForm(p => ({ ...p, customer_id: e.target.value }))} className={inp} style={inpStyle}>
-                    <option value="">Select customer…</option>
-                    {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-                  </select>
+                <div className="col-span-2 relative">
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Customer</label>
+                  <input
+                    type="text"
+                    value={customerSearch}
+                    onChange={e => { setCustomerSearch(e.target.value); setShowCustomerList(true); if (!e.target.value) setForm(p => ({ ...p, customer_id: '' })) }}
+                    onFocus={() => setShowCustomerList(true)}
+                    onBlur={() => setTimeout(() => setShowCustomerList(false), 150)}
+                    placeholder="Type to search customers (optional)…"
+                    className={inp}
+                    style={inpStyle}
+                  />
+                  {showCustomerList && customerSearch.length > 0 && (() => {
+                    const q = customerSearch.toLowerCase()
+                    const matches = customers.filter(c => c.company_name.toLowerCase().includes(q)).slice(0, 8)
+                    if (matches.length === 0) return (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-lg px-3 py-2 text-sm text-gray-400">No matches</div>
+                    )
+                    return (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+                        {matches.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                              setForm(p => ({ ...p, customer_id: c.id }))
+                              setCustomerSearch(c.company_name)
+                              setShowCustomerList(false)
+                            }}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-[#F2F6FF] transition-colors ${form.customer_id === c.id ? 'bg-[#EFF6FF] text-[#3B6FE0]' : 'text-[#1A1D2E]'}`}
+                          >
+                            {c.company_name}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Quote Date</label>
