@@ -4,6 +4,11 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Public warehouse ticket pages + their API bypass auth entirely (no-login, token-gated).
+  if (pathname.startsWith('/t/') || pathname.startsWith('/api/ct/')) {
+    return NextResponse.next({ request })
+  }
+
   // Public static assets (catalog PDF, images, fonts, docs) bypass auth entirely.
   if (/\.(?:pdf|png|jpe?g|gif|svg|webp|ico|txt|xml|json|webmanifest|woff2?|ttf|csv|zip|map|html)$/i.test(pathname)) {
     return NextResponse.next({ request })
