@@ -69,7 +69,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   }, [])
 
   useEffect(() => {
-    if (pathname === '/login') return
+    if (pathname === '/login' || pathname.startsWith('/t/')) return
     const sb = createSupabaseBrowserClient()
     sb.auth.getUser().then(({ data }) => {
       const email = data.user?.email ?? ''
@@ -89,6 +89,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     })
   }, [pathname])
 
+  if (pathname.startsWith('/t/')) return <>{children}</>
   if (pathname === '/login') return <>{children}<AuthWatcher /></>
 
   const pageTitle = getPageTitle(pathname)
