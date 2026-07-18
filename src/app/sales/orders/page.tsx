@@ -15,6 +15,7 @@ import InventoryCheckModal from '@/components/InventoryCheckModal'
 import { statusColor } from '@/lib/statusColors'
 import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
 import PoExtractUpload from '@/components/PoExtractUpload'
+import WalmartBoard from '@/components/WalmartBoard'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -723,7 +724,7 @@ function EditPanel({
 export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
-  const [view, setView] = useState<'board'|'table'>('board')
+  const [view, setView] = useState<'board'|'table'|'walmart'>('board')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
@@ -1214,7 +1215,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Stats bar */}
-      {!loading && (
+      {!loading && view !== 'walmart' && (
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
           <Stat label="Active Orders" value={String(stats.total)} c="#0086C0"/>
           <Stat label="In Production" value={String(stats.inProd)} c="#FDAB3D"/>
@@ -1226,6 +1227,7 @@ export default function OrdersPage() {
       )}
 
       {/* Search + status filter — applies to both Board and Table */}
+      {view !== 'walmart' && (
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -1242,12 +1244,14 @@ export default function OrdersPage() {
         )}
         <span className="text-xs text-gray-400 ml-auto">{(view === 'board' ? orders.filter(orderMatches).length : filtered.length)} shown</span>
       </div>
+      )}
 
       {/* View toggle + board grouping */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
           <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
           <button onClick={() => setView('table')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'table' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Table</button>
+          <button onClick={() => setView('walmart')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'walmart' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Walmart Orders</button>
         </div>
         {view === 'board' && (
           <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
@@ -1269,6 +1273,8 @@ export default function OrdersPage() {
           </div>
         )}
       </div>
+
+      {view === 'walmart' && <WalmartBoard />}
 
       {view === 'board' && (() => {
         // Include any status present on active orders that isn't in the canonical list,
@@ -1337,7 +1343,7 @@ export default function OrdersPage() {
       })()}
       
             {/* Section tabs */}
-      <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-4" style={{ display: view === 'board' ? 'none' : undefined }}>
+      <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-4" style={{ display: view === 'table' ? undefined : 'none' }}>
         {SECTION_TABS.map(t => (
           <button key={t} onClick={() => setSectionTab(t)}
             className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${sectionTab === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-700'}`}>
@@ -1349,7 +1355,7 @@ export default function OrdersPage() {
       {/* (search + status filter moved to the top bar, shared by Board and Table) */}
 
       {/* Orders table */}
-      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF", display: view === 'board' ? 'none' : undefined}}>
+      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF", display: view === 'table' ? undefined : 'none'}}>
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
