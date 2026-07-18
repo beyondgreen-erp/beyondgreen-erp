@@ -2,14 +2,37 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useState } from 'react'
-import { STAGE_TONE, TONES } from '@/lib/portalStages'
+import { TONES } from '@/lib/portalStages'
 
 const GREEN = '#037f4c'
+const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
 
-function StatusBadge({ status }: { status: string | null }) {
-  if (!status) return <span className="text-[11px] text-gray-300">—</span>
-  const t = TONES[STAGE_TONE[status] || 'gray'] || TONES.gray
-  return <span className="text-[11px] font-bold rounded-full px-2.5 py-1 inline-block whitespace-nowrap" style={{ background: t.bg, color: t.text }}>{status}</span>
+function Badge({ stage }: { stage: { label: string; tone: string } }) {
+  const t = TONES[(stage?.tone as keyof typeof TONES)] || TONES.gray
+  return <span className="text-[11px] font-bold rounded-full px-2.5 py-1 inline-block whitespace-nowrap" style={{ background: t.bg, color: t.text }}>{stage?.label || '—'}</span>
+}
+
+function Timeline({ items }: { items: any[] }) {
+  if (!items || items.length === 0) return null
+  const rows = items.slice().reverse() // newest first
+  return (
+    <ol className="mt-1">
+      {rows.map((it, i) => {
+        const t = TONES[(it.tone as keyof typeof TONES)] || TONES.gray
+        const isCurrent = i === 0
+        return (
+          <li key={i} className="flex items-start gap-3 pb-3 last:pb-0 relative">
+            {i < rows.length - 1 && <span className="absolute left-[5px] top-4 bottom-0 w-px bg-[#E4E6EE]" />}
+            <span className="mt-1 w-[11px] h-[11px] rounded-full shrink-0 z-10" style={{ background: isCurrent ? t.text : '#CBD3E0' }} />
+            <div className="min-w-0">
+              <p className={`text-sm ${isCurrent ? 'font-bold text-[#1A1D2E]' : 'font-medium text-gray-500'}`}>{it.label}</p>
+              <p className="text-[11px] text-gray-400">{fmtDate(it.date)}</p>
+            </div>
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
 export default function ClientPortalPage() {
@@ -100,15 +123,16 @@ export default function ClientPortalPage() {
             ) : projects.map((p: any) => (
               <div key={p.id} className="bg-white rounded-xl border border-[#E4E6EE] overflow-hidden">
                 <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#F1F3F9]">
-                  <p className="font-bold text-[#1A1D2E]">{p.name}</p>
-                  <StatusBadge status={p.status} />
-                </div>
-                {p.notes && p.notes.trim() ? (
-                  <div className="px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Notes</p>
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{p.notes}</p>
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">{p.kind}</p>
+                    <p className="font-bold text-[#1A1D2E] truncate">{p.name}</p>
                   </div>
-                ) : null}
+                  <Badge stage={p.current} />
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Progress</p>
+                  <Timeline items={p.timeline} />
+                </div>
               </div>
             ))}
           </div>
