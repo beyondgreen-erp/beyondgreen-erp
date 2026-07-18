@@ -47,6 +47,8 @@ interface SalesOrder {
   terms?: string | null
   fob?: string | null
   sales_rep?: string | null
+  client_portal_visible?: boolean | null
+  client_portal_name?: string | null
   customer?: { id: string; company_name: string; email?: string | null; phone?: string | null } | null
 }
 
@@ -271,6 +273,7 @@ const emptyForm = {
   shipping_address: '', total_amount: '', purchase_order_url: '', packing_slip_url: '',
   bol: '', additional_comments: '',
   terms: 'Net 30', fob: 'Santa Ana', sales_rep: 'RP',
+  client_portal_visible: false, client_portal_name: '',
 }
 type F = typeof emptyForm
 
@@ -470,6 +473,19 @@ function EditPanel({
                   <label className="block text-xs text-gray-400 mb-1.5">Sales Rep</label>
                   <input value={form.sales_rep} onChange={e => setForm(p => ({ ...p, sales_rep: e.target.value }))} className={inp} placeholder="RP"/>
                 </div>
+              </div>
+              <div className="rounded-xl border border-[#CDE9DA] bg-[#F0FBF5] p-3">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input type="checkbox" checked={form.client_portal_visible} onChange={e => setForm(p => ({ ...p, client_portal_visible: e.target.checked }))} className="w-4 h-4 accent-[#037f4c]"/>
+                  <span className="text-sm font-semibold text-[#0F5132]">Show this order in the client portal</span>
+                </label>
+                {form.client_portal_visible && (
+                  <div className="mt-2.5">
+                    <label className="block text-xs text-gray-500 mb-1.5">Client-facing project name <span className="text-gray-400">(optional)</span></label>
+                    <input value={form.client_portal_name} onChange={e => setForm(p => ({ ...p, client_portal_name: e.target.value }))} className={inp} placeholder={`Defaults to ${form.order_number || 'the SO #'}`}/>
+                    <p className="text-[11px] text-gray-500 mt-1">The client sees this name, its live status, and a progress timeline — never internal notes, costs, or comments.</p>
+                  </div>
+                )}
               </div>
               {editing && (
                 <div>
@@ -1024,6 +1040,8 @@ export default function OrdersPage() {
       terms: order.terms ?? 'Net 30',
       fob: order.fob ?? 'Santa Ana',
       sales_rep: order.sales_rep ?? 'RP',
+      client_portal_visible: order.client_portal_visible ?? false,
+      client_portal_name: order.client_portal_name ?? '',
     })
     setErr(''); setEditOpen(true)
   }
@@ -1066,6 +1084,8 @@ export default function OrdersPage() {
       terms: form.terms || null,
       fob: form.fob || null,
       sales_rep: form.sales_rep || null,
+      client_portal_visible: !!form.client_portal_visible,
+      client_portal_name: form.client_portal_name || null,
     }
 
     let orderId = editingOrder?.id
