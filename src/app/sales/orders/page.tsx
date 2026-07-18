@@ -296,7 +296,7 @@ interface EditLineState {
 
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
-  customers, products, err, saving, onClose, onSave, onDelete, onDownloadSalesOrder, onSearchLeads,
+  customers, products, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -311,6 +311,7 @@ function EditPanel({
   onClose: () => void
   onSave: () => void
   onDelete: () => void
+  onDuplicate: () => void
   onDownloadSalesOrder: () => void
   onSearchLeads: (q: string) => Promise<{ id: string; company_name: string }[]>
 }) {
@@ -701,6 +702,12 @@ function EditPanel({
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
               </button>
             )}
+            {editing && (
+              <button onClick={onDuplicate} disabled={saving} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-[#F0F2F7] disabled:opacity-50 transition-colors inline-flex items-center gap-1.5" title="Duplicate this order">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/></svg>
+                Duplicate
+              </button>
+            )}
             <button onClick={onClose} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
             <button onClick={onDownloadSalesOrder} disabled={!(editing || form.notes.trim() || editLines.some(l => l.sku || l.description))}
               title={(editing || form.notes.trim() || editLines.some(l => l.sku || l.description)) ? 'Download a customer-ready Sales Order PDF' : 'Add an order name or a line item to enable download'}
@@ -1080,7 +1087,6 @@ export default function OrdersPage() {
       purchase_order_url: form.purchase_order_url || null,
       packing_slip_url: form.packing_slip_url || null,
       bol: form.bol || null,
-      total_amount: form.total_amount ? parseFloat(form.total_amount) : 0,
       monday_item_id: form.monday_item_id || null,
       terms: form.terms || null,
       fob: form.fob || null,
@@ -1157,6 +1163,26 @@ export default function OrdersPage() {
     }
 
     setEditingOrder(null); load()
+  }
+
+  async function duplicateOrder(order: SalesOrder) {
+    setSaving(true); setErr('')
+    try {
+      const { data: full, error: fe } = await sb.from('sales_orders').select('*').eq('id', order.id).single()
+      if (fe || !full) { setErr(fe?.message || 'Could not load order to duplicate'); setSaving(false); return }
+      const src: any = full
+      const { id: _id, created_at: _c, updated_at: _u, total_amount: _ta, order_number: origNum, monday_item_id: _mid, docs_token: _dt, board_position: _bp, ...rest } = src
+      const copyNum = `${origNum || 'ORDER'} (COPY ${Date.now().toString().slice(-4)})`
+      const { data: ins, error: ie } = await sb.from('sales_orders').insert({ ...rest, order_number: copyNum, monday_item_id: null, archived: false }).select('id').single()
+      if (ie || !ins) { setErr(ie?.message || 'Duplicate failed'); setSaving(false); return }
+      const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', order.id)
+      if (lines && (lines as any[]).length) {
+        const newLines = (lines as any[]).map(l => { const { id, created_at, updated_at, ...rl } = l; return { ...rl, sales_order_id: ins.id } })
+        await sb.from('sales_order_lines').insert(newLines)
+      }
+      setSaving(false); setEditOpen(false); setEditingOrder(null)
+      await load()
+    } catch (e: any) { setErr(e?.message || 'Duplicate failed'); setSaving(false) }
   }
 
   async function handleUndoFlow(undoData: any) {
@@ -1655,6 +1681,7 @@ export default function OrdersPage() {
         onClose={() => { setEditOpen(false); setEditingOrder(null) }}
         onSave={save}
         onDelete={() => editingOrder && handleDelete(editingOrder.id)}
+        onDuplicate={() => editingOrder && duplicateOrder(editingOrder)}
         onDownloadSalesOrder={downloadFromForm}
         onSearchLeads={searchLeads}
       />
