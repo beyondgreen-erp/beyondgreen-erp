@@ -168,8 +168,26 @@ export default function LeadsPage() {
     load()
   }
   async function sendNextNow(customerId: string) {
-    await sb.from('sequence_enrollments').update({ next_send_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('customer_id', customerId).eq('status', 'active')
-    try { await fetch('/api/leads/sequence-run') } catch { /* noop */ }
+    // If a pending review send already exists for this lead, approve THAT one.
+    // Otherwise force-run the sequence bypassing the send-day check.
+    const enr = enrByCustomer[customerId]
+    if (!enr) return
+    const { data: pending } = await sb.from('sequence_sends')
+      .select('id').eq('enrollment_id', enr.id).eq('status', 'review').limit(1)
+    if (pending && pending.length) {
+      const r = await fetch('/api/leads/sequence-approve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ send_ids: [pending[0].id] }),
+      })
+      const j = await r.json()
+      alert(j.message || j.error || 'Sent.')
+    } else {
+      await sb.from('sequence_enrollments').update({ next_send_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', enr.id)
+      // Passing sequence_id bypasses the Mon-Fri send-day check for one-off manual sends.
+      const r = await fetch(`/api/leads/sequence-run?sequence_id=${encodeURIComponent(enr.sequence_id)}`)
+      const j = await r.json()
+      alert(j.message || j.error || 'Sent.')
+    }
     load()
   }
   async function deleteSelected() { const ids = selIds(); if (!ids.length || !confirm(`Delete ${ids.length} lead(s)?`)) return; await sb.from('customers').delete().in('id', ids); setSel({}); load() }
