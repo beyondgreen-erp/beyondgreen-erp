@@ -120,6 +120,11 @@ export default function QuotationsPage() {
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<any[]>([])
 
+  // Custom payment methods (added inline; persisted per-browser and via saved quotes)
+  const [customTerms, setCustomTerms] = useState<string[]>([])
+  const [addingTerm, setAddingTerm] = useState(false)
+  const [newTerm, setNewTerm] = useState('')
+
   const fetchQuotes = useCallback(async () => {
     setLoading(true)
     const [{ data: qData }, { data: lData }] = await Promise.all([
@@ -199,6 +204,31 @@ export default function QuotationsPage() {
     const matchStatus = statusFilter === 'All' || q.status === statusFilter
     return matchSearch && matchStatus
   })
+
+  // Load custom payment methods; reset the inline add-field when the panel closes
+  useEffect(() => {
+    try { if (typeof window !== 'undefined') { const raw = localStorage.getItem('bg_payment_terms'); if (raw) setCustomTerms(JSON.parse(raw)) } } catch { /* ignore */ }
+  }, [])
+  useEffect(() => { if (!panelOpen) { setAddingTerm(false); setNewTerm('') } }, [panelOpen])
+  const paymentTermOptions = useMemo(() => {
+    const used = quotes.map(q => (q.payment_terms || '').trim()).filter(Boolean)
+    const seen = new Set<string>(); const out: string[] = []
+    for (const t of [...PAYMENT_TERMS, ...used, ...customTerms, (form.payment_terms || '').trim()]) {
+      const v = (t || '').trim(); if (v && !seen.has(v)) { seen.add(v); out.push(v) }
+    }
+    return out
+  }, [quotes, customTerms, form.payment_terms])
+  function addPaymentTerm() {
+    const t = newTerm.trim()
+    if (!t) { setAddingTerm(false); return }
+    setCustomTerms(prev => {
+      const next = prev.includes(t) ? prev : [...prev, t]
+      try { if (typeof window !== 'undefined') localStorage.setItem('bg_payment_terms', JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+    setForm(p => ({ ...p, payment_terms: t }))
+    setNewTerm(''); setAddingTerm(false)
+  }
 
   function openNew(kind: 'quote' | 'rfq' = 'quote') {
     setEditing(null)
@@ -870,10 +900,20 @@ export default function QuotationsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Payment Terms</label>
-                  <select value={form.payment_terms} onChange={e => setForm(p => ({ ...p, payment_terms: e.target.value }))} className={inp} style={inpStyle}>
-                    {PAYMENT_TERMS.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium" style={{ color: '#374151' }}>Payment Terms</label>
+                    <button type="button" onClick={() => { setAddingTerm(v => !v); setNewTerm('') }} className="text-[11px] font-semibold text-[#3B6FE0] hover:underline">{addingTerm ? 'Cancel' : '+ Add new'}</button>
+                  </div>
+                  {addingTerm ? (
+                    <div className="flex items-center gap-2">
+                      <input autoFocus value={newTerm} onChange={e => setNewTerm(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPaymentTerm() } }} placeholder="e.g. Net 90, 2/10 Net 30, Wire…" className={inp} style={inpStyle} />
+                      <button type="button" onClick={addPaymentTerm} className="shrink-0 text-sm font-semibold px-3 py-2 rounded-lg bg-[#3B6FE0] hover:bg-[#2E5CC7] text-white transition-colors">Add</button>
+                    </div>
+                  ) : (
+                    <select value={form.payment_terms} onChange={e => setForm(p => ({ ...p, payment_terms: e.target.value }))} className={inp} style={inpStyle}>
+                      {paymentTermOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  )}
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Notes / Scope</label>
