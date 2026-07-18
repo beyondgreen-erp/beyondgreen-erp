@@ -439,7 +439,7 @@ export default function InventoryPage() {
     if (!form.sku.trim() || !form.product_name.trim()) { setErr('SKU and Product Name are required.'); return }
     setErr(''); setSaving(true)
     const payload: Record<string, any> = {
-      sku: form.sku.trim().toUpperCase(),
+      sku: form.sku.trim(),
       product_name: form.product_name.trim(),
       product_category: form.product_category || null,
       category: form.category || null,
@@ -462,7 +462,7 @@ export default function InventoryPage() {
       is_discontinued: form.is_discontinued,
     }
     const { error } = editing
-      ? await sb.from('products').update(payload).eq('sku', editing.sku)
+      ? await sb.from('products').update(payload).eq('id', editing.id)
       : await sb.from('products').insert(payload)
     if (error) { setErr(error.message); setSaving(false); return }
     setSaving(false); closeEdit(); load()
