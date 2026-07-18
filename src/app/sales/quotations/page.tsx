@@ -76,12 +76,20 @@ function fmt$(n: number | null | undefined) {
 const STATUSES = ['All', 'Draft', 'Sent', 'Accepted', 'Rejected', 'Converted']
 const PAYMENT_TERMS = ['Net 15', 'Net 30', 'Net 45', 'Net 60', 'COD', 'Upfront', '50/50']
 
+interface PortalClient { id: string; customer_id: string | null; company_name: string | null; name: string | null; email: string | null }
+function portalCustomerOptions(portals: PortalClient[]): { customer_id: string; label: string }[] {
+  const seen = new Set<string>(); const out: { customer_id: string; label: string }[] = []
+  for (const p of portals) { if (!p.customer_id || seen.has(p.customer_id)) continue; seen.add(p.customer_id); out.push({ customer_id: p.customer_id, label: p.company_name || p.name || p.email || 'Client' }) }
+  return out.sort((a, b) => a.label.localeCompare(b.label))
+}
+
 export default function QuotationsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
   const router = useRouter()
   const [quotes, setQuotes] = useState<Quote[]>([])
   useItemDeepLink(quotes, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [portals, setPortals] = useState<PortalClient[]>([])
   const [lineCounts, setLineCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -153,6 +161,11 @@ export default function QuotationsPage() {
       .order('company_name')
       .limit(500)
     setCustomers(data ?? [])
+    const { data: pc } = await supabase
+      .from('portal_clients')
+      .select('id, customer_id, company_name, name, email')
+      .eq('is_active', true)
+    setPortals((pc ?? []) as PortalClient[])
   }, [supabase])
 
   // Live search across BOTH customers and leads once user types ≥ 2 chars.
@@ -949,15 +962,38 @@ export default function QuotationsPage() {
                   />
                 </div>
                 <div className="col-span-2 rounded-xl border border-[#CDE9DA] bg-[#F0FBF5] p-3">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input type="checkbox" checked={form.client_portal_visible} onChange={e => setForm(p => ({ ...p, client_portal_visible: e.target.checked }))} className="w-4 h-4 accent-[#037f4c]" />
-                    <span className="text-sm font-semibold text-[#0F5132]">Show this quote in the client portal</span>
-                  </label>
+                  <label className="block text-sm font-semibold text-[#0F5132] mb-1.5">Client portal</label>
+                  {(() => {
+                    const portalOpts = portalCustomerOptions(portals)
+                    const selVal = form.client_portal_visible ? (form.customer_id || '') : ''
+                    const showCurrent = form.client_portal_visible && !!form.customer_id && !portalOpts.some(o => o.customer_id === form.customer_id)
+                    return (
+                      <select
+                        value={selVal}
+                        onChange={e => {
+                          const cid = e.target.value
+                          if (!cid) { setForm(p => ({ ...p, client_portal_visible: false })); return }
+                          const opt = portalOpts.find(o => o.customer_id === cid)
+                          setForm(p => ({ ...p, client_portal_visible: true, customer_id: cid }))
+                          if (opt) setCustomerSearch(opt.label)
+                        }}
+                        className={inp}
+                        style={{ ...inpStyle, cursor: 'pointer' }}
+                      >
+                        <option value="">— Not shared to a portal —</option>
+                        {showCurrent && <option value={form.customer_id}>{(cmap[form.customer_id] || customerSearch || 'Current customer') + ' (current)'}</option>}
+                        {portalOpts.map(o => <option key={o.customer_id} value={o.customer_id}>{o.label}</option>)}
+                      </select>
+                    )
+                  })()}
+                  {portalCustomerOptions(portals).length === 0 && (
+                    <p className="text-[11px] mt-1.5" style={{ color: '#6B7280' }}>No client portals yet. Create one under <span style={{ fontWeight: 600 }}>Client Portals</span>, then connect quotes here.</p>
+                  )}
                   {form.client_portal_visible && (
                     <div className="mt-2.5">
                       <label className="block text-xs mb-1.5" style={{ color: '#6B7280' }}>Client-facing project name <span style={{ color: '#9CA3AF' }}>(optional)</span></label>
                       <input value={form.client_portal_name} onChange={e => setForm(p => ({ ...p, client_portal_name: e.target.value }))} className={inp} style={inpStyle} placeholder="Defaults to the quote #" />
-                      <p className="text-[11px] mt-1" style={{ color: '#6B7280' }}>The client sees this name, its live status, and a progress timeline — never pricing, internal notes, or comments.</p>
+                      <p className="text-[11px] mt-1" style={{ color: '#6B7280' }}>Connecting a quote links it to that client&rsquo;s portal. They see this name, its live status, and a progress timeline — never pricing, internal notes, or comments.</p>
                     </div>
                   )}
                 </div>
