@@ -2,11 +2,16 @@
  * Public marketing landing page. Rendered outside the ERP auth boundary
  * (see middleware.ts). Server-fetches the page config from Supabase and
  * fires a visit-tracking beacon on load.
+ *
+ * The gov-pet-waste-bags slug renders a special interactive layout with
+ * ad-revenue calculator, sample-request form, and product gallery. Other
+ * slugs fall back to the generic hero + benefits template driven by DB config.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { notFound } from 'next/navigation'
 import Script from 'next/script'
 import { createClient } from '@supabase/supabase-js'
+import GovPetWasteLanding from '@/components/lp/GovPetWasteLanding'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -17,38 +22,49 @@ async function getPage(slug: string) {
   return data
 }
 
+function TrackingBeacon({ slug }: { slug: string }) {
+  return (
+    <Script id="lp-track" strategy="afterInteractive">{`
+      (function() {
+        try {
+          var K = 'bg_session';
+          var sid = localStorage.getItem(K);
+          if (!sid) { sid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now()); localStorage.setItem(K, sid); }
+          var q = new URLSearchParams(location.search);
+          var body = JSON.stringify({
+            slug: ${JSON.stringify(slug)}, session_id: sid,
+            recipient_id: q.get('r') || null,
+            utm_source: q.get('utm_source'), utm_medium: q.get('utm_medium'), utm_campaign: q.get('utm_campaign'),
+            referrer: document.referrer || null,
+          });
+          if (navigator.sendBeacon) navigator.sendBeacon('/api/lp/track', new Blob([body], { type: 'application/json' }));
+          else fetch('/api/lp/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function(){});
+        } catch (e) { /* ignore */ }
+      })();
+    `}</Script>
+  )
+}
+
 export default async function LandingPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   const page = await getPage(slug)
   if (!page) notFound()
 
+  // Special interactive layout for the government pet-waste campaign
+  if (slug === 'gov-pet-waste-bags') {
+    return (
+      <>
+        <TrackingBeacon slug={slug} />
+        <GovPetWasteLanding slug={slug} ctaUrl={page.cta_url} />
+      </>
+    )
+  }
+
   const benefits: { title: string; desc: string }[] = Array.isArray(page.benefits) ? page.benefits : []
 
   return (
     <div style={{ margin: 0, background: '#F5F7FA', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif', color: '#1A1D2E' }}>
-      {/* Tracking beacon — fires once per page load with query params */}
-      <Script id="lp-track" strategy="afterInteractive">{`
-        (function() {
-          try {
-            var K = 'bg_session';
-            var sid = localStorage.getItem(K);
-            if (!sid) { sid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now()); localStorage.setItem(K, sid); }
-            var q = new URLSearchParams(location.search);
-            var body = JSON.stringify({
-              slug: ${JSON.stringify(slug)},
-              session_id: sid,
-              recipient_id: q.get('r') || null,
-              utm_source: q.get('utm_source'), utm_medium: q.get('utm_medium'), utm_campaign: q.get('utm_campaign'),
-              referrer: document.referrer || null,
-            });
-            if (navigator.sendBeacon) {
-              navigator.sendBeacon('/api/lp/track', new Blob([body], { type: 'application/json' }));
-            } else {
-              fetch('/api/lp/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function(){});
-            }
-          } catch (e) { /* ignore */ }
-        })();
-      `}</Script>
+      <TrackingBeacon slug={slug} />
 
       {/* Green branded header */}
       <div style={{ background: 'linear-gradient(135deg, #00A84F 0%, #037f4c 100%)', color: '#fff', padding: '28px 20px' }}>
