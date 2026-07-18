@@ -180,7 +180,7 @@ export default function BeyondWorldPage() {
   const myNameStyle = equippedNameStyle(equipped, itemsById)
   const myFrame = equippedFrame(equipped, itemsById)
   const myBadge = equippedBadge(equipped, itemsById)
-  const previewUrl = avatarUrl(draft, equipped, itemsById)
+  const previewUrl = avatarUrl(draft, {}, itemsById) // base avatar so every customizer choice is visible; equipped shop cosmetics show on the hero above
   const cats = Array.from(new Set(items.map(i => i.category)))
   const today = new Date().toISOString().slice(0, 10)
   const claimedToday = me.last_daily === today
@@ -253,7 +253,7 @@ export default function BeyondWorldPage() {
 
         {tab === 'avatar' && (() => {
           const CATS = [['body','Body'],['clothes','Clothes'],['face','Face'],['hair','Hair'],['accessories','Accessories']] as const
-          const thumb = (field: string, value: string) => avatarUrl({ ...draft, [field]: value }, equipped, itemsById, 120)
+          const thumb = (field: string, value: string) => avatarUrl({ ...draft, [field]: value }, {}, itemsById, 120)
           const optGrid = (field: string, options: string[]) => (
             <div className="grid grid-cols-4 sm:grid-cols-5 gap-2.5 mb-1">
               {options.map(o => {
