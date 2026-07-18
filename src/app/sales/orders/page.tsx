@@ -104,6 +104,13 @@ const fmtD = (d: string | null) =>
   d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 
+interface PortalClient { id: string; customer_id: string | null; company_name: string | null; name: string | null; email: string | null }
+function portalCustomerOptions(portals: PortalClient[]): { customer_id: string; label: string }[] {
+  const seen = new Set<string>(); const out: { customer_id: string; label: string }[] = []
+  for (const p of portals) { if (!p.customer_id || seen.has(p.customer_id)) continue; seen.add(p.customer_id); out.push({ customer_id: p.customer_id, label: p.company_name || p.name || p.email || 'Client' }) }
+  return out.sort((a, b) => a.label.localeCompare(b.label))
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 function orderCustomerName(o: SalesOrder): string {
   const typed = (o.notes ?? '').trim()
@@ -302,7 +309,7 @@ interface EditLineState {
 
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
-  customers, products, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads,
+  customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -312,6 +319,7 @@ function EditPanel({
   setEditLines: React.Dispatch<React.SetStateAction<EditLineState[]>>
   customers: Customer[]
   products: Product[]
+  portals: PortalClient[]
   err: string
   saving: boolean
   onClose: () => void
@@ -483,15 +491,36 @@ function EditPanel({
                 </div>
               </div>
               <div className="rounded-xl border border-[#CDE9DA] bg-[#F0FBF5] p-3">
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input type="checkbox" checked={form.client_portal_visible} onChange={e => setForm(p => ({ ...p, client_portal_visible: e.target.checked }))} className="w-4 h-4 accent-[#037f4c]"/>
-                  <span className="text-sm font-semibold text-[#0F5132]">Show this order in the client portal</span>
-                </label>
+                <label className="block text-sm font-semibold text-[#0F5132] mb-1.5">Client portal</label>
+                {(() => {
+                  const portalOpts = portalCustomerOptions(portals)
+                  const selVal = form.client_portal_visible ? (form.customer_id || '') : ''
+                  const showCurrent = form.client_portal_visible && !!form.customer_id && !portalOpts.some(o => o.customer_id === form.customer_id)
+                  return (
+                    <select
+                      value={selVal}
+                      onChange={e => {
+                        const cid = e.target.value
+                        if (!cid) { setForm(p => ({ ...p, client_portal_visible: false })); return }
+                        const opt = portalOpts.find(o => o.customer_id === cid)
+                        setForm(p => ({ ...p, client_portal_visible: true, customer_id: cid, customer_label: opt?.label ?? p.customer_label }))
+                      }}
+                      className={inp + ' cursor-pointer'}
+                    >
+                      <option value="">— Not shared to a portal —</option>
+                      {showCurrent && <option value={form.customer_id}>{(form.customer_label || 'Current customer') + ' (current)'}</option>}
+                      {portalOpts.map(o => <option key={o.customer_id} value={o.customer_id}>{o.label}</option>)}
+                    </select>
+                  )
+                })()}
+                {portalCustomerOptions(portals).length === 0 && (
+                  <p className="text-[11px] text-gray-500 mt-1.5">No client portals yet. Create one under <span className="font-medium">Client Portals</span>, then connect orders here.</p>
+                )}
                 {form.client_portal_visible && (
                   <div className="mt-2.5">
                     <label className="block text-xs text-gray-500 mb-1.5">Client-facing project name <span className="text-gray-400">(optional)</span></label>
                     <input value={form.client_portal_name} onChange={e => setForm(p => ({ ...p, client_portal_name: e.target.value }))} className={inp} placeholder={`Defaults to ${form.order_number || 'the SO #'}`}/>
-                    <p className="text-[11px] text-gray-500 mt-1">The client sees this name, its live status, and a progress timeline — never internal notes, costs, or comments.</p>
+                    <p className="text-[11px] text-gray-500 mt-1">Connecting an order links it to that client&rsquo;s portal. They see this name, its live status, and a progress timeline — never internal notes, costs, or comments.</p>
                   </div>
                 )}
               </div>
@@ -772,6 +801,7 @@ export default function OrdersPage() {
   useItemDeepLink(orders, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [portals, setPortals] = useState<PortalClient[]>([])
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
   const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
   const [userEmail, setUserEmail] = useState('')
@@ -799,13 +829,14 @@ export default function OrdersPage() {
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError('')
-    const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }] = await Promise.all([
+    const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }, { data: pc }] = await Promise.all([
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone)').eq('archived', false).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id').eq('sku_flagged', true),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
       sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
+      sb.from('portal_clients').select('id, customer_id, company_name, name, email').eq('is_active', true),
     ])
     if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) }) }
     if (oErr) setLoadError('Failed to load orders: ' + oErr.message)
@@ -828,6 +859,7 @@ export default function OrdersPage() {
     if (sh) {
       setShippedOrderIds(new Set((sh as any[]).map(r => r.sales_order_id).filter(Boolean)))
     }
+    if (pc) setPortals(pc as PortalClient[])
     setLoading(false)
   }, [sb])
 
@@ -1682,7 +1714,7 @@ export default function OrdersPage() {
         editing={editingOrder}
         form={form} setForm={setForm}
         editLines={editLines} setEditLines={setEditLines}
-        customers={customers} products={products}
+        customers={customers} products={products} portals={portals}
         err={err} saving={saving}
         onClose={() => { setEditOpen(false); setEditingOrder(null) }}
         onSave={save}
