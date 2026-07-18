@@ -430,7 +430,7 @@ function EditPanel({
             <p className="text-xs font-semibold uppercase tracking-wider mb-3">Order Info</p>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Order Name / Customer <span className="text-red-400">*</span></label>
+                <label className="block text-xs text-gray-400 mb-1.5">Order Name / Customer <span className="text-gray-300">(optional)</span></label>
                 <input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className={inp} placeholder="Customer Name | PO Reference"/>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1055,12 +1055,12 @@ export default function OrdersPage() {
   }
 
   async function save() {
-    if (!form.notes.trim()) { setErr('Order name is required.'); return }
+    if (!editingOrder && !form.notes.trim() && !form.order_number.trim()) { setErr('Enter an order name or SO#.'); return }
     setErr(''); setSaving(true)
 
     const soNum = form.order_number.trim()
     const basePayload: Record<string,any> = {
-      notes: form.notes.trim(),
+      notes: form.notes.trim() || null,
       status: form.status,
       po_number: form.po_number.trim() || null,
       order_date: form.order_date || null,
