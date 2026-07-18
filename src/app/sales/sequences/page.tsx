@@ -9,7 +9,7 @@ interface Step { id?: string; step_number: number; delay_days: number; subject: 
 interface Sequence {
   id: string; name: string; description: string | null; status: string
   from_email: string | null; from_name: string | null; reply_to: string | null; daily_cap: number
-  send_days: string[] | null; created_at: string
+  send_days: string[] | null; created_at: string; review_before_send?: boolean
 }
 interface Enrollment {
   id: string; sequence_id: string; customer_id: string; status: string; current_step: number
@@ -68,6 +68,7 @@ export default function SequencesPage() {
 
   const [detail, setDetail] = useState<Sequence | null>(null)
   const [detailTab, setDetailTab] = useState<'enrollments' | 'sends'>('enrollments')
+  const [pendingCount, setPendingCount] = useState(0)
 
   const [editing, setEditing] = useState<Sequence | null>(null)
   const [open, setOpen] = useState(false)
@@ -128,13 +129,15 @@ export default function SequencesPage() {
     })
     setSendsBySeq(sendsBy)
     setSentTodayBySeq(todayCount)
+    const { count: pending } = await sb.from('sequence_sends').select('id', { count: 'exact', head: true }).eq('status', 'review')
+    setPendingCount(pending || 0)
     setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
 
   function openNew() {
     setEditing(null); setAllowProtected(false)
-    setForm({ name: '', description: '', from_name: 'Rudy Perrier', from_email: outreachDefault?.email || '', reply_to: '', daily_cap: 40, send_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], status: 'draft' })
+    setForm({ name: '', description: '', from_name: 'Rudy Patel', from_email: outreachDefault?.email || '', reply_to: '', daily_cap: 40, send_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], status: 'draft', review_before_send: true })
     setSteps(DEFAULT_STEPS.map(s => ({ ...s })))
     setOpen(true)
   }
@@ -162,7 +165,9 @@ export default function SequencesPage() {
     const payload = {
       name: form.name.trim(), description: form.description || null, from_email: form.from_email || null,
       from_name: form.from_name || null, reply_to: form.reply_to || null, daily_cap: Number(form.daily_cap) || 40,
-      send_days: form.send_days, status: form.status || 'draft', updated_at: new Date().toISOString(),
+      send_days: form.send_days, status: form.status || 'draft',
+      review_before_send: form.review_before_send !== false, // default ON
+      updated_at: new Date().toISOString(),
     }
     let seqId = editing?.id
     if (editing?.id) await sb.from('sequences').update(payload).eq('id', editing.id)
@@ -206,8 +211,12 @@ export default function SequencesPage() {
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Outreach Sequences</h1>
           <p className="text-gray-500 text-sm mt-0.5">Multi-step follow-up cadences. Sends run every 10 min via cron — no manual trigger needed.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {running && <span className="text-xs text-gray-500">{running}</span>}
+          <Link href="/sales/sequences/review" className={`text-sm px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 ${pendingCount ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200' : 'border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]'}`}>
+            📥 Review queue{pendingCount ? ` (${pendingCount})` : ''}
+          </Link>
+          <Link href="/settings/email-signature" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Signature</Link>
           <button onClick={scanReplies} disabled={!!running} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50">Scan replies</button>
           <button onClick={runNow} disabled={!!running} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50">Send due now</button>
           <button onClick={openNew} className="text-sm px-4 py-2 rounded-lg bg-[#3B6FE0] text-white hover:bg-[#2E5CC7] font-semibold">+ New Sequence</button>
@@ -439,6 +448,17 @@ export default function SequencesPage() {
                 <label className="block text-xs text-gray-500 mb-1">Send days</label>
                 <div className="flex gap-1">{DAYS.map(d => { const on = (form.send_days || []).includes(d); return <button key={d} onClick={() => setForm((f: any) => ({ ...f, send_days: on ? f.send_days.filter((x: string) => x !== d) : [...(f.send_days || []), d] }))} className={`text-xs px-2.5 py-1.5 rounded-md border ${on ? 'bg-[#3B6FE0] text-white border-[#3B6FE0]' : 'border-[#E4E6EE] text-gray-500'}`}>{d}</button> })}</div>
               </div>
+
+              <div className="rounded-lg border border-[#E4E6EE] p-3 bg-[#F8FAFF]">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" checked={form.review_before_send !== false} onChange={e => setForm((f: any) => ({ ...f, review_before_send: e.target.checked }))} className="mt-0.5 accent-[#3B6FE0]" />
+                  <div>
+                    <p className="text-sm font-semibold text-[#1A1D2E]">Require review before sending</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Each email waits in the <Link href="/sales/sequences/review" className="text-[#3B6FE0] underline">Review queue</Link> for you to preview per recipient. Fix a name once and it re-renders every pending copy.</p>
+                  </div>
+                </label>
+              </div>
+              <p className="text-[11px] text-gray-500">Your <Link href="/settings/email-signature" className="text-[#3B6FE0] underline">global signature</Link> is auto-appended to every email — you don't paste it into the step body.</p>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
