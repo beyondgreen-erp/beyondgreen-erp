@@ -440,7 +440,7 @@ export async function generateOrderPDF(
     headStyles: { fillColor: [238, 238, 238], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center', lineColor: [90, 90, 90], lineWidth: 0.6 },
     columnStyles: {
       0: { cellWidth: 74 },
-      1: { cellWidth: 236 },
+      1: { cellWidth: 252 },
       2: { cellWidth: 52, halign: 'right' },
       3: { cellWidth: 58, halign: 'right' },
       4: { cellWidth: 40, halign: 'center' },
@@ -686,10 +686,10 @@ async function renderSalesDocumentPDF(
   const iY = bY + boxH + 12, infoRowH = 20
   const infoCols = kind === 'rfq'
     ? [
-      { label: 'P.O. No.',       value: order.po_number || '', w: 140 },
-      { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 160 },
+      { label: 'P.O. No.',       value: order.po_number || '', w: 120 },
+      { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 120 },
       { label: 'Terms',          value: order.terms || 'Reply with DDP pricing', w: 200 },
-      { label: 'Sourced By',     value: order.sales_rep || 'RP', w: 96 },
+      { label: 'Sourced By',     value: order.sales_rep || 'RP', w: 100 },
     ]
     : [
       { label: 'P.O. No.',       value: order.po_number || '', w: 120 },
@@ -743,7 +743,7 @@ async function renderSalesDocumentPDF(
     headStyles: { fillColor: [238, 238, 238], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center', lineColor: [90, 90, 90], lineWidth: 0.6 },
     columnStyles: {
       0: { cellWidth: 74 },
-      1: { cellWidth: 236 },
+      1: { cellWidth: 252 },
       2: { cellWidth: 52, halign: 'right' },
       3: { cellWidth: 58, halign: 'right' },
       4: { cellWidth: 40, halign: 'center' },
