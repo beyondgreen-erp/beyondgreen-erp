@@ -33,12 +33,12 @@ const IMAGES = {
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
 const BENEFITS = [
-  { emoji: '💰', title: 'Turn cost into revenue', desc: "Sell local ad space on every bag — vets, pet stores, groomers, insurance. Your city collects the cost of the bags, plus profit." },
-  { emoji: '🇺🇸', title: 'Made in the USA', desc: 'Domestic manufacturing in Santa Ana, CA. No overseas tariffs, no supply-chain surprises, no political headline risk.' },
-  { emoji: '🌱', title: 'Certified compostable', desc: 'BPI-certified, ASTM D6400. Breaks down alongside actual pet waste — no PLA-lined claims-only greenwash.' },
-  { emoji: '🏷️', title: 'Your city, your branding', desc: 'City seal, park logo, sponsor ad, QR code, whatever fits. First run in 4 weeks.' },
-  { emoji: '📦', title: 'Turn-key logistics', desc: 'Auto-ship on your parks schedule. We handle warehousing and staging. Your team just refills.' },
-  { emoji: '📈', title: 'Real revenue model', desc: 'Public-works departments in TX, CA and NC are already using ad-supported bags. We can share their playbook.' },
+  { img: 'https://byndgrn.com/cdn/shop/files/dog-waste-bags-200-count-core-roll-8-x-13-bulk-refill-made-in-usa-beyondgreen-3667880.png', title: 'Volume pricing from $0.032/bag', desc: 'Tiered wholesale that gets aggressive above 250k bags. Simple flat pricing on your PO — no ad-rev fine print required.' },
+  { img: 'https://byndgrn.com/cdn/shop/files/dog-waste-bags-200-count-core-roll-8-x-13-bulk-refill-made-in-usa-beyondgreen-3705470.png', title: 'Domestic manufacturing', desc: 'Made in Santa Ana, CA. No overseas tariffs, no supply-chain surprises, no political headline risk.' },
+  { img: 'https://byndgrn.com/cdn/shop/files/beyondgreen-single-pull-dog-waste-bag-dispenser-wallpole-mount-compatible-with-single-pull-header-packs-heavy-duty-construction-black-poop-bag-dispenser-beyondg-8532421.png', title: 'Free dispenser program', desc: 'Waste bag stations at zero upfront cost when you commit to volume — pole-mount or wall-mount, heavy-duty steel.' },
+  { img: 'https://byndgrn.com/cdn/shop/files/beyondgreen-single-pull-dog-waste-bag-dispenser-wallpole-mount-compatible-with-single-pull-header-packs-heavy-duty-construction-gray-poop-bag-dispenser-beyondgr-4954045.png', title: 'Your city, your branding', desc: 'City seal, park district logo, sponsor slots, QR code — whatever fits. First run in 4 weeks.' },
+  { img: 'https://byndgrn.com/cdn/shop/files/dog-poop-bag-dispenser-wall-pole-mount-dog-waste-station-front-load-made-in-usa-beyondgreen-black-poop-bag-dispenser-beyondgreen-1585543.png', title: 'Sponsor-friendly layout', desc: 'Room for 1–4 local sponsor slots on every bag. Vets, groomers, pet stores, insurance — sell them yourself.' },
+  { img: 'https://byndgrn.com/cdn/shop/files/dog-poop-bag-dispenser-wall-pole-mount-dog-waste-station-front-load-made-in-usa-beyondgreen-gray-poop-bag-dispenser-beyondgreen-1814244.png', title: 'Turn-key logistics', desc: 'Auto-ship on your parks schedule. We stage inventory in warehouse. Your team just refills.' },
 ]
 
 const FAQS = [
@@ -51,16 +51,16 @@ const FAQS = [
     a: 'Local businesses that reach dog owners: veterinary practices, groomers, pet food stores, doggy daycare, dog trainers, plus regional insurance and real estate. Two common pricing structures: a flat annual sponsorship (typical $250–$1,500/slot/year for one sponsor to appear on every bag that year), or per print run ($10–$30 per 1,000 bags per slot). Cities pick whichever their finance office prefers to invoice.'
   },
   {
-    q: 'What does the city pay?',
-    a: 'You have three options: (1) Buy bags outright at $0.037 each. (2) Buy at cost, then sell ad space yourself and keep the margin. (3) Zero-cost program — beyondGREEN sells the ads and revenue-shares with your city. Most cities pick option 2.'
+    q: 'What does the city actually pay?',
+    a: 'Bags start at $0.032 each unprinted, $0.035 printed. Volume tiers kick in at 100k, 250k and 500k bags per year. Pay directly, or offset some or all of it with sponsor slots — your call. No hidden fees.'
   },
   {
     q: 'How long from PO to first shipment?',
     a: '4 weeks for a first custom run, then auto-ship on the cadence your parks team sets (usually every 30 or 60 days). Rush orders in 10 business days when you need them.'
   },
   {
-    q: 'Are they actually compostable in the field?',
-    a: 'Yes. Home-compostable in typical park compost setups, industrial-compostable in municipal facilities. Certifications on request: BPI, ASTM D6400, TÜV OK Compost HOME.'
+    q: 'What material are the bags made from?',
+    a: 'Made from certified compostable materials per California green-guide standards. We can share the material spec sheet and certifications on request. Most cities do not use the material claim as their public messaging — the value prop is USA-made, sponsored, and affordable.'
   },
   {
     q: 'Can we start with a small pilot?',
@@ -68,24 +68,29 @@ const FAQS = [
   },
 ]
 
-export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
-  // Ad revenue calculator state — physical-product pricing, not impressions.
-  // Two realistic pricing models cities actually use:
-  //   'annual'   → charge each advertiser a flat annual fee for their slot on every bag.
-  //   'per-order' → charge per print run (per 1,000 bags per slot).
-  const [pricingModel, setPricingModel] = useState<'annual' | 'per-order'>('annual')
-  const [bagsPerYear, setBagsPerYear] = useState(500_000)
-  const [adsPerBag, setAdsPerBag] = useState(2)
-  const [annualFeePerSlot, setAnnualFeePerSlot] = useState(500)   // $ per advertiser per year
-  const [ratePer1000Bags, setRatePer1000Bags] = useState(15)      // $ per 1,000 printed bags per slot
-  const bagCost = 0.037
+// Volume-tiered wholesale pricing. As-low-as prices at 500k+ bags/year.
+function pricePerBag(style: 'unprinted' | 'printed', bags: number): number {
+  const base = style === 'unprinted' ? 0.032 : 0.035
+  if (bags >= 500_000) return base
+  if (bags >= 250_000) return base + 0.001
+  if (bags >= 100_000) return base + 0.003
+  if (bags >= 50_000)  return base + 0.005
+  return base + 0.008
+}
 
-  const annualCost = bagsPerYear * bagCost
-  const annualRevenue = pricingModel === 'annual'
-    ? adsPerBag * annualFeePerSlot
-    : Math.round((bagsPerYear / 1000) * ratePer1000Bags * adsPerBag)
-  const netToCity = Math.round(annualRevenue - annualCost)
-  const isProfit = netToCity > 0
+export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
+  // Bag + sponsor break-even calculator state.
+  // The math: you buy bags at a volume-tiered wholesale price. Local sponsors
+  // pay to appear on the bag. We show the target sponsor rate that covers the
+  // entire bag budget — a positive framing that gives procurement the number
+  // they need to quote to potential sponsors.
+  const [bagStyle, setBagStyle] = useState<'unprinted' | 'printed'>('printed')
+  const [bagsPerYear, setBagsPerYear] = useState(500_000)
+  const [sponsorSlots, setSponsorSlots] = useState(2)
+  const perBag = pricePerBag(bagStyle, bagsPerYear)
+  const annualBagCost = Math.round(perBag * bagsPerYear)
+  const breakEvenAnnualPerSlot = sponsorSlots > 0 ? Math.round(annualBagCost / sponsorSlots) : 0
+  const breakEvenPer1000PerSlot = sponsorSlots > 0 ? +((annualBagCost / bagsPerYear) * 1000 / sponsorSlots).toFixed(2) : 0
 
   // FAQ open state
   const [openFaq, setOpenFaq] = useState<number | null>(0)
@@ -143,7 +148,7 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
             <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, lineHeight: 1 }}>beyondGREEN</div>
             <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', color: '#B6F0D0', marginTop: 4 }}>biotech · professional</div>
           </div>
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', textAlign: 'right' }}>Made in USA<br />Certified Compostable</div>
+          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', textAlign: 'right' }}>Made in USA<br />From $0.032 / bag</div>
         </div>
       </div>
 
@@ -155,19 +160,19 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
               For city parks & procurement teams
             </div>
             <h1 style={{ margin: '0 0 14px', fontSize: 42, fontWeight: 800, lineHeight: 1.1, letterSpacing: -1 }}>
-              Turn pet waste bags into a <span style={{ color: '#00A84F' }}>revenue stream</span> for your city.
+              <span style={{ color: '#00A84F' }}>beyondGREEN dog waste bags</span> — priced for parks, sponsored by locals.
             </h1>
             <p style={{ margin: '0 0 20px', fontSize: 17, lineHeight: 1.55, color: '#4A5A73' }}>
-              Made-in-USA, certified-compostable bags — customized with your city seal, park logo, or <b>local business ads that pay for the whole program</b>. Free samples, no obligation.
+              Made in Santa Ana, CA. Wholesale from <b>$0.032/bag</b> unprinted, or <b>$0.035/bag</b> printed with your city seal — plus sponsor slots so local vets and pet stores can cover the cost.
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <a href="#request" style={btnPrimary}>Request free samples →</a>
-              <a href="#calculator" style={btnSecondary}>See the revenue math</a>
+              <a href="#calculator" style={btnSecondary}>See the pricing math</a>
             </div>
             <div style={{ marginTop: 20, fontSize: 12, color: '#5A6E8A', display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-              <span>✅ BPI-certified compostable</span>
+              <span>✅ USA-made</span>
               <span>✅ 4-week lead time</span>
-              <span>✅ No minimums for pilots</span>
+              <span>✅ Free dispensers for volume programs</span>
             </div>
           </div>
           <div style={{ position: 'relative' }}>
@@ -192,18 +197,18 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
           <div style={{ display: 'inline-block', background: 'rgba(0,230,140,0.15)', color: '#00E68C', fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', padding: '6px 14px', borderRadius: 999, marginBottom: 14 }}>
             The math your council will ask about
           </div>
-          <h2 style={{ margin: '0 0 8px', fontSize: 30, fontWeight: 800, letterSpacing: -0.5 }}>Ad-revenue calculator</h2>
+          <h2 style={{ margin: '0 0 8px', fontSize: 30, fontWeight: 800, letterSpacing: -0.5 }}>Pricing & sponsor break-even</h2>
           <p style={{ color: '#93A5C5', fontSize: 13, margin: '0 0 20px', lineHeight: 1.55 }}>
-            Pick how your city wants to charge sponsors. Bags are a physical product, so pricing is either a flat annual sponsorship fee or per print run — not CPM.
+            Pick your bag style and volume — we quote the tiered wholesale price. Then see the target sponsor rate that would zero out your bag budget. Anything above that is bonus revenue.
           </p>
 
-          {/* Pricing model toggle */}
+          {/* Bag style toggle */}
           <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 4, marginBottom: 24 }}>
-            <button onClick={() => setPricingModel('annual')} style={{ ...pillBtn, background: pricingModel === 'annual' ? '#00E68C' : 'transparent', color: pricingModel === 'annual' ? '#0F1C2E' : '#B8C3D2' }}>
-              Flat annual fee per slot
+            <button onClick={() => setBagStyle('unprinted')} style={{ ...pillBtn, background: bagStyle === 'unprinted' ? '#00E68C' : 'transparent', color: bagStyle === 'unprinted' ? '#0F1C2E' : '#B8C3D2' }}>
+              Black unprinted bags
             </button>
-            <button onClick={() => setPricingModel('per-order')} style={{ ...pillBtn, background: pricingModel === 'per-order' ? '#00E68C' : 'transparent', color: pricingModel === 'per-order' ? '#0F1C2E' : '#B8C3D2' }}>
-              Rate per 1,000 bags
+            <button onClick={() => setBagStyle('printed')} style={{ ...pillBtn, background: bagStyle === 'printed' ? '#00E68C' : 'transparent', color: bagStyle === 'printed' ? '#0F1C2E' : '#B8C3D2' }}>
+              Green bags · black print
             </button>
           </div>
 
@@ -211,50 +216,64 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               <div>
                 <label style={calcLabel}>Bags your parks use per year</label>
-                <input type="range" min={50_000} max={5_000_000} step={50_000} value={bagsPerYear} onChange={e => setBagsPerYear(Number(e.target.value))} style={sliderStyle} />
+                <input type="range" min={25_000} max={5_000_000} step={25_000} value={bagsPerYear} onChange={e => setBagsPerYear(Number(e.target.value))} style={sliderStyle} />
                 <div style={calcValue}>{bagsPerYear.toLocaleString()} bags</div>
+                <div style={{ color: '#93A5C5', fontSize: 12, marginTop: 6 }}>Your unit price: <b style={{ color: '#00E68C' }}>${perBag.toFixed(3)}</b> / bag</div>
               </div>
               <div>
-                <label style={calcLabel}>Ad slots on each bag <span style={{ color: '#93A5C5', fontWeight: 500 }}>(one sponsor per slot per year)</span></label>
-                <input type="range" min={1} max={4} step={1} value={adsPerBag} onChange={e => setAdsPerBag(Number(e.target.value))} style={sliderStyle} />
-                <div style={calcValue}>{adsPerBag} slot{adsPerBag > 1 ? 's' : ''}</div>
+                <label style={calcLabel}>Sponsor slots on each bag <span style={{ color: '#93A5C5', fontWeight: 500 }}>(one sponsor per slot)</span></label>
+                <input type="range" min={1} max={4} step={1} value={sponsorSlots} onChange={e => setSponsorSlots(Number(e.target.value))} style={sliderStyle} />
+                <div style={calcValue}>{sponsorSlots} slot{sponsorSlots > 1 ? 's' : ''}</div>
+                <div style={{ color: '#93A5C5', fontSize: 12, marginTop: 6 }}>{bagStyle === 'unprinted' ? 'Unprinted bags — sponsors would need branded stickers or dispenser signage.' : 'Green bags with sponsor logos printed alongside your city seal.'}</div>
               </div>
-              {pricingModel === 'annual' ? (
-                <div>
-                  <label style={calcLabel}>Annual sponsorship fee per slot <span style={{ color: '#93A5C5', fontWeight: 500 }}>(typical: $250–$1,500 depending on city size)</span></label>
-                  <input type="range" min={100} max={3000} step={50} value={annualFeePerSlot} onChange={e => setAnnualFeePerSlot(Number(e.target.value))} style={sliderStyle} />
-                  <div style={calcValue}>${annualFeePerSlot.toLocaleString()} / slot / year</div>
-                </div>
-              ) : (
-                <div>
-                  <label style={calcLabel}>Rate charged per 1,000 bags per slot <span style={{ color: '#93A5C5', fontWeight: 500 }}>(sponsor pays with each print run)</span></label>
-                  <input type="range" min={5} max={60} step={1} value={ratePer1000Bags} onChange={e => setRatePer1000Bags(Number(e.target.value))} style={sliderStyle} />
-                  <div style={calcValue}>${ratePer1000Bags} / 1,000 bags</div>
-                </div>
-              )}
+
+              {/* Tier reference card */}
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 14, fontSize: 11, color: '#B8C3D2' }}>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 12, marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: 1 }}>Volume tier pricing</div>
+                {[
+                  ['25k – 49k', 0.008],
+                  ['50k – 99k', 0.005],
+                  ['100k – 249k', 0.003],
+                  ['250k – 499k', 0.001],
+                  ['500k +', 0],
+                ].map(([lbl, up]) => {
+                  const p = (bagStyle === 'unprinted' ? 0.032 : 0.035) + (up as number)
+                  const active = perBag.toFixed(3) === p.toFixed(3)
+                  return (
+                    <div key={lbl as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: active ? '#00E68C' : '#B8C3D2', fontWeight: active ? 700 : 400 }}>
+                      <span>{lbl}</span>
+                      <span>${p.toFixed(3)} / bag{active ? '  ← you' : ''}</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
             <div>
               <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 16, padding: 24, border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <span style={{ color: '#B8C3D2', fontSize: 13 }}>Annual bag cost</span>
-                  <span style={{ fontSize: 22, fontWeight: 700 }}>{money(annualCost)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 14, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <span style={{ color: '#B8C3D2', fontSize: 13 }}>Annual bag budget</span>
+                  <span style={{ fontSize: 26, fontWeight: 700 }}>{money(annualBagCost)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <span style={{ color: '#B8C3D2', fontSize: 13 }}>Annual sponsorship revenue</span>
-                  <span style={{ fontSize: 22, fontWeight: 700, color: '#00E68C' }}>+{money(annualRevenue)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingTop: 14 }}>
-                  <span style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>{isProfit ? 'Net to your budget' : 'Remaining program cost'}</span>
-                  <span style={{ fontSize: 32, fontWeight: 800, color: isProfit ? '#00E68C' : '#FFB86B' }}>{isProfit ? '+' : ''}{money(netToCity)}</span>
+                <div style={{ paddingTop: 14 }}>
+                  <div style={{ color: '#00E68C', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' as const, marginBottom: 8 }}>To fully cover your bag cost, each sponsor pays</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ background: 'rgba(0,230,140,0.08)', border: '1px solid rgba(0,230,140,0.25)', borderRadius: 12, padding: 12 }}>
+                      <div style={{ color: '#B8C3D2', fontSize: 11 }}>Flat annual</div>
+                      <div style={{ color: '#fff', fontSize: 22, fontWeight: 800, marginTop: 2 }}>{money(breakEvenAnnualPerSlot)}</div>
+                      <div style={{ color: '#93A5C5', fontSize: 10, marginTop: 3 }}>per slot / year</div>
+                    </div>
+                    <div style={{ background: 'rgba(0,230,140,0.08)', border: '1px solid rgba(0,230,140,0.25)', borderRadius: 12, padding: 12 }}>
+                      <div style={{ color: '#B8C3D2', fontSize: 11 }}>Per print run</div>
+                      <div style={{ color: '#fff', fontSize: 22, fontWeight: 800, marginTop: 2 }}>${breakEvenPer1000PerSlot.toFixed(2)}</div>
+                      <div style={{ color: '#93A5C5', fontSize: 10, marginTop: 3 }}>per 1,000 bags / slot</div>
+                    </div>
+                  </div>
                 </div>
                 <p style={{ color: '#93A5C5', fontSize: 11, marginTop: 14, lineHeight: 1.55 }}>
-                  {pricingModel === 'annual'
-                    ? <>Based on $0.037/bag wholesale × {bagsPerYear.toLocaleString()} bags + {adsPerBag} slot{adsPerBag > 1 ? 's' : ''} × ${annualFeePerSlot} annual sponsorship fee. Slot totals do not scale with print volume — they scale with how many sponsors you sign.</>
-                    : <>Based on $0.037/bag wholesale × {bagsPerYear.toLocaleString()} bags + {adsPerBag} slot{adsPerBag > 1 ? 's' : ''} × ${ratePer1000Bags} per 1,000 bags. Sponsors are billed against each print run.</>
-                  }
+                  {bagsPerYear.toLocaleString()} bags × ${perBag.toFixed(3)} = {money(annualBagCost)} annual bag budget. Split across {sponsorSlots} sponsor slot{sponsorSlots > 1 ? 's' : ''}. Anything a sponsor pays <b>above</b> the break-even rate is revenue to the parks budget.
                 </p>
               </div>
-              <a href="#request" style={{ ...btnPrimary, marginTop: 16, width: '100%', textAlign: 'center' as const, display: 'block' }}>Get the pilot proposal →</a>
+              <a href="#request" style={{ ...btnPrimary, marginTop: 16, width: '100%', textAlign: 'center' as const, display: 'block' }}>Get a formal quote →</a>
             </div>
           </div>
         </div>
@@ -313,9 +332,9 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
         <h2 style={sectionH2}>How the program works</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginTop: 20 }}>
           {[
-            { n: '1', title: 'We ship samples', desc: 'Free 50-bag sample kit + printed proposal. Your parks team tests in the field for two weeks.', img: IMAGES.bagRoll1 },
-            { n: '2', title: 'Pick your revenue model', desc: 'Buy at cost, sell ads yourself, or let us handle the ads and revenue-share. Attorney-reviewed template included.', img: IMAGES.dispBlack2 },
-            { n: '3', title: 'First shipment in 4 weeks', desc: 'Custom-printed with your city seal + advertiser logos. Auto-ship on your cadence. We keep inventory for you.', img: IMAGES.parkStation2 },
+            { n: '1', title: 'We ship real samples', desc: 'Free 200ct roll + 100ct dispenser pack + a printed pricing/tier sheet. Your parks team tests in the field for two weeks.', img: IMAGES.bagRoll1 },
+            { n: '2', title: 'Pick your pricing model', desc: 'Straight wholesale, sponsor-covered, or hybrid. Attorney-reviewed sponsor agreement template is included.', img: IMAGES.dispBlack2 },
+            { n: '3', title: 'First shipment in 4 weeks', desc: 'Custom-printed with your city seal + sponsor logos. Auto-ship on your cadence. We keep inventory staged for you.', img: IMAGES.parkStation2 },
           ].map(s => (
             <div key={s.n} style={{ background: '#fff', borderRadius: 20, padding: 24, border: '1px solid #EAEEF3' }}>
               <div style={{ width: 36, height: 36, background: '#00A84F', color: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, marginBottom: 14 }}>{s.n}</div>
@@ -332,8 +351,10 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
         <h2 style={sectionH2}>Why cities pick beyondGREEN</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginTop: 20 }}>
           {BENEFITS.map((b, i) => (
-            <div key={i} style={{ background: '#fff', borderRadius: 16, padding: 22, border: '1px solid #EAEEF3' }}>
-              <div style={{ fontSize: 26, marginBottom: 8 }}>{b.emoji}</div>
+            <div key={i} style={{ background: '#fff', borderRadius: 16, padding: 22, border: '1px solid #EAEEF3', display: 'flex', flexDirection: 'column' as const }}>
+              <div style={{ width: 72, height: 72, borderRadius: 12, background: '#F5F7FA', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, overflow: 'hidden' }}>
+                <img src={b.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              </div>
               <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>{b.title}</div>
               <div style={{ fontSize: 13, color: '#5A6E8A', lineHeight: 1.55 }}>{b.desc}</div>
             </div>
@@ -347,7 +368,7 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
         <p style={{ color: '#5A6E8A', fontSize: 14, marginTop: 6 }}>Bags are just the start. Same domestic supply chain covers dispensers and even on-site composters.</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginTop: 20 }}>
           {[
-            { img: IMAGES.bagRoll2, title: 'Compostable dog-poop bags', tag: '$0.037/bag' },
+            { img: IMAGES.bagRoll2, title: 'beyondGREEN dog waste bags', tag: 'From $0.032' },
             { img: IMAGES.dispGray, title: 'Single-pull wall dispensers', tag: 'Refill-ready' },
             { img: IMAGES.parkStationG, title: 'Full park waste stations', tag: 'Pole-mount' },
           ].map((p, i) => (
@@ -368,15 +389,15 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 40 }}>
             <div>
               <div style={{ display: 'inline-block', background: '#DBFCE8', color: '#0D6B3E', fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', padding: '6px 12px', borderRadius: 999, marginBottom: 12 }}>Free samples</div>
-              <h2 style={{ margin: '0 0 10px', fontSize: 28, fontWeight: 800, letterSpacing: -0.5 }}>Get 50 sample bags for your parks team</h2>
+              <h2 style={{ margin: '0 0 10px', fontSize: 28, fontWeight: 800, letterSpacing: -0.5 }}>Send real product samples to your parks team</h2>
               <p style={{ color: '#5A6E8A', fontSize: 15, lineHeight: 1.55, marginBottom: 18 }}>
-                We ship the free sample kit within 1 business day. Includes: 50 unbranded bags in your preferred gallon size, printed pilot proposal, and the ad-revenue playbook you can bring to your city council.
+                Free sample kit includes a full <b>200-count roll</b> of beyondGREEN dog waste bags, plus a <b>100-count single-pull pack</b> that fits the standard dispenser station. Ships in 1 business day.
               </p>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, color: '#1A1D2E', fontSize: 13.5 }}>
-                <li style={{ padding: '6px 0' }}>✅ No cost, no shipping, no obligation</li>
-                <li style={{ padding: '6px 0' }}>✅ Goes directly to your parks facility address</li>
+                <li style={{ padding: '6px 0' }}>✅ 200ct core roll (8×13, refill for park trash cans)</li>
+                <li style={{ padding: '6px 0' }}>✅ 100ct single-pull pack (fits the dispenser station header)</li>
                 <li style={{ padding: '6px 0' }}>✅ Ships from Santa Ana, CA — arrives in 2–3 days</li>
-                <li style={{ padding: '6px 0' }}>✅ Follow-up is a real human (Rudy), not a drip funnel</li>
+                <li style={{ padding: '6px 0' }}>✅ Zero cost, zero obligation, real human follow-up (Rudy)</li>
               </ul>
             </div>
             <form onSubmit={submitSampleRequest} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -403,7 +424,7 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
                 <textarea value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} rows={3} placeholder="We manage 12 parks, currently spending ~$18k/yr on bags. Curious if the ad revenue model works for a mid-size city." style={{ ...fieldInput, resize: 'vertical' as const }} />
               </div>
               <button type="submit" disabled={submitting} style={{ ...btnPrimary, width: '100%', textAlign: 'center', border: 0, cursor: submitting ? 'wait' : 'pointer', opacity: submitting ? 0.7 : 1, marginTop: 4 }}>
-                {submitting ? 'Sending…' : 'Send me the free sample kit →'}
+                {submitting ? 'Sending…' : 'Ship me the samples →'}
               </button>
               {done && (
                 <div style={{ padding: 12, borderRadius: 10, background: done.ok ? '#E7F9EF' : '#FCECEC', color: done.ok ? '#0D6B3E' : '#8B1A1A', fontSize: 13, lineHeight: 1.5 }}>
