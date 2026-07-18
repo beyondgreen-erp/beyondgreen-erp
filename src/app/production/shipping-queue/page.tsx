@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 import { statusColor } from '@/lib/statusColors'
-import { buildCaseLabels, buildPalletLabels, missingUpcSkus, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
+import { buildCaseLabels, buildPalletLabels, missingUpcSkus, loadBarcodePng, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
 import { generatePickTickets, type PickTicketPallet } from '@/lib/labelGenerator'
 import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase } from '@/lib/shipping/bol'
 import QRCode from 'qrcode'
@@ -422,7 +422,22 @@ export default function ShippingQueuePage() {
     setBusy('labels')
     const urls = [...new Set(plan.map(r => r.gtinImageUrl).filter(Boolean))] as string[]
     const map: Record<string, string> = {}
-    await Promise.all(urls.map(async u => { const d = await loadImageDataUrl(u); if (d) map[u] = d }))
+    // The GTIN image lives in a PRIVATE storage bucket, so its public URL 404s for the browser.
+    // Download it through the authenticated session, then re-encode to PNG so jsPDF can embed it
+    // (handles webp/jpeg too). Falls back to a UPC-generated barcode later if this can't be loaded.
+    await Promise.all(urls.map(async u => {
+      try {
+        const m = u.match(/\/erp-images\/(.+)$/)
+        let blob: Blob | null = null
+        if (m) { const { data } = await sb.storage.from('erp-images').download(decodeURIComponent(m[1])); blob = (data as Blob) || null }
+        if (!blob) { const res = await fetch(u); if (res.ok) blob = await res.blob() }
+        if (!blob) return
+        const obj = URL.createObjectURL(blob)
+        const png = await loadBarcodePng(obj)
+        URL.revokeObjectURL(obj)
+        if (png) map[u] = png
+      } catch { /* leave unmapped → barcode fallback */ }
+    }))
     const cases: CaseLabel[] = []
     for (const r of plan) for (let n = 1; n <= r.cases; n++) cases.push({
       sku: r.sku, description: r.description, upcGtin: r.upc,
