@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { clientStage, type StageTone } from '@/lib/portalStages'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -48,13 +49,49 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
   if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const company = await companyName(client)
-  const { data: projs } = await admin.from('portal_projects')
-    .select('id, name, status, notes')
-    .eq('portal_client_id', client.id)
-    .order('position', { ascending: true }).order('created_at', { ascending: true })
+  const projects: any[] = []
+
+  if (client.customer_id) {
+    const [{ data: sos }, { data: qs }] = await Promise.all([
+      admin.from('sales_orders').select('id, order_number, po_number, status, client_portal_name, created_at, updated_at').eq('customer_id', client.customer_id).eq('client_portal_visible', true),
+      admin.from('quotations').select('id, quote_number, type, status, client_portal_name, created_at, updated_at').eq('customer_id', client.customer_id).eq('client_portal_visible', true).eq('is_active', true),
+    ])
+    const soList = (sos || []) as any[]
+    const qList = (qs || []) as any[]
+    const soIds = soList.map(o => o.id)
+    const qIds = qList.map(q => q.id)
+
+    const histMap: Record<string, any[]> = {}
+    const collect = (rows: any[]) => rows.forEach((h: any) => { const k = h.source_type + ':' + h.source_id; if (!histMap[k]) histMap[k] = []; histMap[k].push(h) })
+    if (soIds.length) { const { data } = await admin.from('portal_status_history').select('source_type, source_id, status, created_at').eq('source_type', 'sales_order').in('source_id', soIds).order('created_at', { ascending: true }); collect(data || []) }
+    if (qIds.length) { const { data } = await admin.from('portal_status_history').select('source_type, source_id, status, created_at').eq('source_type', 'quotation').in('source_id', qIds).order('created_at', { ascending: true }); collect(data || []) }
+
+    const build = (kind: 'so' | 'quote', srcType: string, rec: any) => {
+      const hist = histMap[srcType + ':' + rec.id] || []
+      const raw = hist.length ? hist : [{ status: rec.status, created_at: rec.created_at || rec.updated_at }]
+      const timeline: { label: string; tone: StageTone; date: string }[] = []
+      for (const h of raw) {
+        const st = clientStage(kind, h.status)
+        const last = timeline[timeline.length - 1]
+        if (last && last.label === st.label) continue
+        timeline.push({ label: st.label, tone: st.tone, date: h.created_at })
+      }
+      const cur = timeline[timeline.length - 1] || clientStage(kind, rec.status)
+      return { current: { label: cur.label, tone: cur.tone }, timeline }
+    }
+
+    for (const o of soList) {
+      const t = build('so', 'sales_order', o)
+      projects.push({ id: o.id, kind: 'Order', name: o.client_portal_name || o.order_number || o.po_number || 'Order', current: t.current, timeline: t.timeline })
+    }
+    for (const q of qList) {
+      const t = build('quote', 'quotation', q)
+      projects.push({ id: q.id, kind: q.type === 'rfq' ? 'RFQ' : 'Quote', name: q.client_portal_name || q.quote_number || 'Quote', current: t.current, timeline: t.timeline })
+    }
+  }
 
   return NextResponse.json(
-    { client: { name: client.name, company }, projects: projs || [] },
+    { client: { name: client.name, company }, projects },
     { headers: { 'Cache-Control': 'no-store' } }
   )
 }
