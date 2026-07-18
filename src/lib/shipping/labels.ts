@@ -9,7 +9,7 @@ export interface CaseLabel {
   caseNumber: number; totalCases: number; unitsInCase?: number
   gtinImageDataUrl?: string | null   // uploaded GTIN barcode image (data URL); used instead of generating one
 }
-export interface PalletLabel { palletNumber: number; totalPallets: number; sscc?: string | null; caseCount: number; weight?: number; skus?: string[] }
+export interface PalletLabel { palletNumber: number; totalPallets: number; sscc?: string | null; caseCount: number; weight?: number; skus?: string[]; dims?: string }
 
 const SHIP_FROM = ['BEYONDGREEN BIOTECH, INC.', '1202 E. WAKEHAM AVE.,', 'SANTA ANA, CA 92705']
 const digitsOnly = (s: string) => (s || '').replace(/[^0-9]/g, '')
@@ -101,6 +101,7 @@ export function buildPalletLabels(order: LabelOrder, pallets: PalletLabel[], doc
     y = ctext(doc, `PALLET ${p.palletNumber} of ${p.totalPallets}`, cx, y, 26, 'bold', maxW, 0.42)
     y += 0.06
     y = ctext(doc, `Cases: ${p.caseCount}${p.weight ? '    Weight: ' + Math.round(p.weight) + ' lb' : ''}`, cx, y, 13, 'normal', maxW, 0.24)
+    if (p.dims) y = ctext(doc, p.dims, cx, y, 12, 'normal', maxW, 0.22)
     y += 0.12
     const id = p.sscc || `PLT-${order.poNumber}-${p.palletNumber}`
     if (typeof document !== 'undefined') {
