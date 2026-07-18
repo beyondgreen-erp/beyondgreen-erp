@@ -334,6 +334,7 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [tabFilter, setTabFilter] = useState('All')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<F>(emptyForm)
@@ -513,148 +514,119 @@ export default function InventoryPage() {
         </button>
       </div>
 
-      {/* Stats bar — updates with active tab */}
+      {/* Stats bar */}
       {!loading && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <StatCard label="Total SKUs" value={String(tabPool.length)} sub={tabFilter !== 'All' ? tabFilter : 'all categories'}/>
-          <StatCard label="Inventory Value" value={fmtV(stats.totalValue)} accent="text-emerald-400" sub="on-hand × unit cost"/>
+          <StatCard label="Total SKUs" value={String(rows.length)} sub="all categories"/>
+          <StatCard label="Inventory Value" value={fmtV(stats.totalValue)} accent="text-emerald-600" sub="on-hand x unit cost"/>
           <StatCard label="Finished Goods" value={String(stats.finishedGoods)} sub="category = Finished Goods"/>
-          <StatCard label="Out of Stock" value={String(stats.outOfStock)} accent={stats.outOfStock > 0 ? 'text-red-400' : 'text-[#1A1D2E]'} sub="qty = 0"/>
+          <StatCard label="Out of Stock" value={String(stats.outOfStock)} accent={stats.outOfStock > 0 ? 'text-red-600' : 'text-[#1A1D2E]'} sub="qty = 0"/>
         </div>
       )}
 
-      {/* Tab filters */}
-      <div className="flex gap-1 bg-[#F0F2F7] rounded-lg p-1 overflow-x-auto mb-4">
-        {PRODUCT_TABS.map(t => (
-          <button key={t} onClick={() => setTabFilter(t)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${tabFilter === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-700'}`}>
-            {t}{tabCounts[t] != null ? ` (${tabCounts[t]})` : ''}
-          </button>
-        ))}
+      {/* Search + collapse controls */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="relative flex-1 min-w-[240px] max-w-md">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input placeholder="Search SKU or product name..." value={search} onChange={e => setSearch(e.target.value)}
+            className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+        </div>
+        <span className="text-xs text-gray-400">{filtered.length} shown</span>
+        <div className="flex items-center gap-1.5 ml-auto text-xs">
+          <button onClick={() => setCollapsed(Object.fromEntries(PRODUCT_TAB_OPTIONS.concat('Uncategorized').map(g => [g, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
+          <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
+        </div>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-4 max-w-md">
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-        <input placeholder="Search SKU or product name…" value={search} onChange={e => setSearch(e.target.value)}
-          className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
-        {search && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">{filtered.length} results</span>}
-      </div>
-
-      {/* Table */}
-      <div className="rounded-xl overflow-x-auto" style={{border:"1px solid #E4E6EE",background:"#FFFFFF"}}>
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+      {/* Grouped record board */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20 bg-white rounded-xl border border-[#E4E6EE]">
+          <svg className="w-5 h-5 animate-spin text-gray-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-16 text-center text-gray-500 text-sm">No products found.</div>
+      ) : (() => {
+        const COLORS: Record<string, string> = { 'BAGS':'#0086C0','CUTLERY':'#00A84F','STRAW-CUPS':'#A25DDC','RAW MATERIAL':'#E2445C','ADDITIVES':'#FDAB3D','WIP':'#00C7C7','PACKAGING':'#579BFC','PRINT PLATE':'#9699A6','MOLDING':'#FF6D3B','COMPOSTER':'#037F4C','Uncategorized':'#9699A6' }
+        const gmap: Record<string, Product[]> = {}
+        for (const p of filtered) { const k = p.product_category || 'Uncategorized'; (gmap[k] ||= []).push(p) }
+        const extra = Object.keys(gmap).filter(k => !PRODUCT_TAB_OPTIONS.includes(k) && k !== 'Uncategorized').sort()
+        const keys = [...PRODUCT_TAB_OPTIONS.filter(k => gmap[k]), ...extra, ...(gmap['Uncategorized'] ? ['Uncategorized'] : [])]
+        return (
+          <div className="space-y-2.5 mb-6">
+            {keys.map(cat => {
+              const items = gmap[cat]; const isCol = collapsed[cat]; const color = COLORS[cat] || '#9699A6'
+              const gVal = items.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
+              return (
+                <div key={cat} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                  <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: color + '14', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [cat]: !c[cat] }))}>
+                    <span className="text-[10px]" style={{ color, display:'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                    <span className="font-bold text-sm" style={{ color }}>{cat}</span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: color + '26', color }}>{items.length}</span>
+                    {gVal > 0 && <span className="ml-auto text-[11px] text-gray-400">{fmtV(gVal)}</span>}
+                  </div>
+                  {!isCol && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm min-w-[920px]">
+                        <thead>
+                          <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
+                            <th className="w-9 px-3 py-2.5"><input type="checkbox" checked={items.length>0 && items.every(p=>ms.isSelected(p.id))} onChange={()=>ms.toggleAll(items)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
+                            <th className="text-left font-semibold px-3 py-2.5 w-[140px]">SKU</th>
+                            <th className="text-left font-semibold px-3 py-2.5 min-w-[200px]">Product</th>
+                            <th className="text-left font-semibold px-3 py-2.5 w-[130px]">Type</th>
+                            <th className="text-left font-semibold px-3 py-2.5 w-[64px]">UOM</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[84px]">On Hand</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[92px]">Unit Cost</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[110px]">Inv. Value</th>
+                            <th className="text-left font-semibold px-3 py-2.5 w-[150px]">UPC</th>
+                            <th className="text-center font-semibold px-2 py-2.5 w-[54px]">BOM</th>
+                            <th className="text-left font-semibold px-3 py-2.5 w-[184px]">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#F1F3F7]">
+                          {items.map((p, i) => {
+                            const invValue = (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0)
+                            const isOut = !p.on_hand_qty || p.on_hand_qty === 0
+                            const isLow = !isOut && (p.on_hand_qty ?? 0) <= 10
+                            const isDisc = p.is_discontinued === true
+                            const bomCount = bomMap[p.sku] ?? 0
+                            const needsBom = p.requires_bom === true
+                            const isFG = p.category === 'Finished Goods'
+                            return (
+                              <tr key={p.id} id={'item-'+p.id}
+                                style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }}
+                                className={`transition-colors ${ms.isSelected(p.id) ? 'bg-blue-50' : i % 2 ? 'bg-[#FBFCFE]' : 'bg-white'} hover:bg-[#F2F6FF] ${isDisc ? 'opacity-60' : ''}`}>
+                                <td className="px-3 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
+                                <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="font-mono font-semibold text-[13px] text-[#0F7A4E] truncate block max-w-[130px]">{p.sku}</span></td>
+                                <td className={`px-3 py-3 cursor-pointer text-[#1A1D2E] font-medium ${isDisc ? 'line-through text-gray-400' : ''}`} onClick={()=>openEdit(p)}><span className="block truncate max-w-[320px]">{p.product_name}</span></td>
+                                <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{p.category ? <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[#EEF2FB] text-[#3A4A6B] border border-[#DCE3F2] truncate inline-block max-w-[118px] align-middle">{p.category}</span> : <span className="text-gray-300">-</span>}</td>
+                                <td className="px-3 py-3 text-gray-500 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{p.unit_of_measure ?? '-'}</td>
+                                <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
+                                <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
+                                <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
+                                <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="text-gray-500 text-xs font-mono truncate block max-w-[140px]">{p.upc_gtin ?? '-'}</span></td>
+                                <td className="px-2 py-3 text-center">{bomCount > 0 ? <svg className="w-4 h-4 text-emerald-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg> : needsBom ? <svg className="w-4 h-4 text-amber-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg> : <span className="text-gray-300 text-xs">-</span>}</td>
+                                <td className="px-3 py-3" onClick={e=>e.stopPropagation()}>
+                                  <div className="flex items-center gap-1">
+                                    <button onClick={() => openEdit(p)} className="text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
+                                    <button onClick={() => setBomProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>
+                                    {isFG && <button onClick={() => setLabelProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
+                                    <button onClick={() => handleDelete(p.id, p.sku)} className="text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
-        ) : filtered.length === 0 ? (
-          <p className="text-center text-gray-500 py-20 text-sm">No products found.</p>
-        ) : (
-          <table className="w-full min-w-[1100px] text-sm">
-            <thead>
-              <tr className="border-b border-[#E4E6EE]">
-                <th className="w-10 px-3 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
-                {['SKU','Product Name','Tab','Type','UOM','On Hand','Inv. Value','Unit Cost','BOM','UPC','Actions'].map(h => (
-                  <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-3">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p, i) => {
-                const invValue = (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0)
-                const isOut  = !p.on_hand_qty || p.on_hand_qty === 0
-                const isLow  = !isOut && (p.on_hand_qty ?? 0) <= 10
-                const isDisc = p.is_discontinued === true
-                const bomCount = bomMap[p.sku] ?? 0
-                const needsBom = p.requires_bom === true
-                const isFG = p.category === 'Finished Goods'
+        )
+      })()}
 
-                return (
-                  <tr key={p.id}
-                    style={isOut ? { borderLeft: '3px solid rgb(239 68 68)' } : isLow ? { borderLeft: '3px solid rgb(245 158 11)' } : {}}
-                    className={`border-b border-[#F3F4F6] last:border-0 transition-colors
-                      ${isDisc ? 'opacity-50' : ''}
-                      ${ms.isSelected(p.id) ? 'bg-blue-500/5' : isOut ? 'bg-red-950/20 hover:bg-red-950/30' : isLow ? 'bg-amber-950/20 hover:bg-amber-950/30' : i % 2 === 1 ? 'bg-[#FAFAFA] hover:bg-[#F9FAFB]' : 'hover:bg-[#F9FAFB]'}`}>
-                    <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
-                      <input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/>
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <span className="text-emerald-400 font-mono font-bold text-xs">{p.sku}</span>
-                    </td>
-                    <td className={`px-3 py-3.5 text-[#1A1D2E] font-medium max-w-[200px] truncate ${isDisc ? 'line-through text-gray-500' : ''}`}>
-                      {p.product_name}
-                    </td>
-                    <td className="px-3 py-3.5">
-                      {p.product_category && (
-                        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
-                          {p.product_category}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3.5">
-                      {p.category && (
-                        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-[#F5F6FA]/50 text-gray-400 border border-[#E4E6EE]">
-                          {p.category}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3.5 text-gray-400 text-xs">{p.unit_of_measure ?? '—'}</td>
-                    <td className={`px-3 py-3.5 font-semibold text-sm ${isOut ? 'text-red-400' : isLow ? 'text-amber-400' : 'text-gray-200'}`}>
-                      {p.on_hand_qty ?? 0}
-                    </td>
-                    <td className="px-3 py-3.5 text-xs font-medium">
-                      {invValue > 0
-                        ? <span className="text-emerald-400">{fmtV(invValue)}</span>
-                        : <span className="text-gray-700">—</span>
-                      }
-                    </td>
-                    <td className="px-3 py-3.5 text-gray-400 text-xs">{fmt$(p.unit_cost)}</td>
-                    <td className="px-3 py-3.5">
-                      {bomCount > 0
-                        ? <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                        : needsBom
-                        ? <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                        : <span className="text-gray-700 text-xs">—</span>
-                      }
-                    </td>
-                    <td className="px-3 py-3.5 text-gray-500 text-xs font-mono">{p.upc_gtin ?? '—'}</td>
-                    <td className="px-3 py-3.5">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => openEdit(p)}
-                          className="text-xs px-2 py-1 rounded bg-[#F5F6FA]/50 hover:bg-[#F5F6FA] text-gray-500 transition-colors">Edit</button>
-                        <button onClick={() => setBomProduct(p)}
-                          className="text-xs px-2 py-1 rounded bg-violet-700/50 hover:bg-violet-700 text-violet-300 transition-colors">BOM</button>
-                        {isFG && (
-                          <button onClick={() => setLabelProduct(p)}
-                            className="text-xs px-2 py-1 rounded bg-amber-700/50 hover:bg-amber-700 text-amber-300 transition-colors">Label</button>
-                        )}
-                        <button onClick={() => handleDelete(p.id, p.sku)}
-                          className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-900/70 text-red-400 transition-colors">Del</button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-            {/* Totals footer */}
-            <tfoot>
-              <tr className="border-t border-[#E4E6EE] bg-[#F5F6FA]">
-                <td className="px-3 py-3"/>
-                <td colSpan={5} className="px-3 py-3 text-xs text-gray-500 font-medium">
-                  {filtered.length} products shown
-                </td>
-                <td className="px-3 py-3 text-xs font-semibold text-gray-500">
-                  {filtered.reduce((s, p) => s + (p.on_hand_qty ?? 0), 0).toLocaleString()}
-                </td>
-                <td className="px-3 py-3 text-xs font-bold text-emerald-400">
-                  {fmtV(filtered.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0))}
-                </td>
-                <td colSpan={4}/>
-              </tr>
-            </tfoot>
-          </table>
-        )}
-      </div>
 
       <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
 
