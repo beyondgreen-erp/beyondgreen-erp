@@ -33,44 +33,6 @@ async function clientFromRequest(req: NextRequest): Promise<PortalClient | null>
   return c as any
 }
 
-type StageTone = 'green' | 'blue' | 'amber' | 'red' | 'violet' | 'gray'
-function clientStage(kind: 'so' | 'quote', status: string | null): { label: string; tone: StageTone } {
-  const s = (status || '').trim().toLowerCase()
-  if (kind === 'quote') {
-    if (s.includes('accept')) return { label: 'Accepted', tone: 'green' }
-    if (s.includes('sent')) return { label: 'Quote Sent', tone: 'blue' }
-    if (s.includes('reject') || s.includes('declin')) return { label: 'Not Proceeding', tone: 'red' }
-    if (s.includes('expire')) return { label: 'Expired', tone: 'gray' }
-    return { label: 'Being Prepared', tone: 'gray' }
-  }
-  const map: [string, { label: string; tone: StageTone }][] = [
-    ['cancel', { label: 'Cancelled', tone: 'red' }],
-    ['hold', { label: 'On Hold', tone: 'amber' }],
-    ['partial', { label: 'Partially Shipped', tone: 'blue' }],
-    ['shipped', { label: 'Shipped', tone: 'green' }],
-    ['deliver', { label: 'Delivered', tone: 'green' }],
-    ['closed', { label: 'Completed', tone: 'green' }],
-    ['complete', { label: 'Completed', tone: 'green' }],
-    ['ready to ship', { label: 'Ready to Ship', tone: 'blue' }],
-    ['waiting for pu', { label: 'Ready for Pickup', tone: 'blue' }],
-    ['will call', { label: 'Ready for Pickup', tone: 'blue' }],
-    ['qc', { label: 'Quality Check', tone: 'violet' }],
-    ['quality', { label: 'Quality Check', tone: 'violet' }],
-    ['production queue', { label: 'Preparing Production', tone: 'blue' }],
-    ['in production', { label: 'In Production', tone: 'blue' }],
-    ['production', { label: 'In Production', tone: 'blue' }],
-    ['bom', { label: 'Preparing Production', tone: 'blue' }],
-    ['component', { label: 'Preparing Production', tone: 'blue' }],
-    ['resubmit', { label: 'Awaiting Confirmation', tone: 'amber' }],
-    ['awaiting confirmation', { label: 'Awaiting Confirmation', tone: 'amber' }],
-    ['confirm', { label: 'Order Confirmed', tone: 'blue' }],
-    ['pending', { label: 'Order Received', tone: 'gray' }],
-    ['new', { label: 'Order Received', tone: 'gray' }],
-  ]
-  for (const [k, v] of map) if (s.includes(k)) return v
-  return { label: status || 'In Progress', tone: 'gray' }
-}
-
 async function companyName(client: PortalClient): Promise<string | null> {
   if (client.company_name) return client.company_name
   if (client.customer_id) {
@@ -86,27 +48,15 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
   if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const company = await companyName(client)
-  const orders: any[] = []
-  const quotes: any[] = []
-  if (client.customer_id) {
-    const { data: sos } = await admin.from('sales_orders')
-      .select('id, order_number, po_number, status, order_date, estimated_completion, ship_date, required_ship_date')
-      .eq('customer_id', client.customer_id).order('order_date', { ascending: false, nullsFirst: false })
-    ;(sos || []).forEach((o: any) => orders.push({
-      ref: o.order_number || o.po_number || '—', po: o.po_number || null,
-      stage: clientStage('so', o.status),
-      dates: [['Ordered', o.order_date], ['Est. completion', o.estimated_completion], ['Ship date', o.ship_date || o.required_ship_date]],
-    }))
-    const { data: qs } = await admin.from('quotations')
-      .select('id, quote_number, status, type, quote_date, expiry_date')
-      .eq('customer_id', client.customer_id).eq('is_active', true).order('quote_date', { ascending: false, nullsFirst: false })
-    ;(qs || []).forEach((q: any) => quotes.push({
-      ref: q.quote_number || '—', kind: q.type === 'rfq' ? 'RFQ' : 'Quote',
-      stage: clientStage('quote', q.status),
-      dates: [['Dated', q.quote_date], ['Valid until', q.expiry_date]],
-    }))
-  }
-  return NextResponse.json({ client: { name: client.name, company }, orders, quotes }, { headers: { 'Cache-Control': 'no-store' } })
+  const { data: projs } = await admin.from('portal_projects')
+    .select('id, name, status, notes')
+    .eq('portal_client_id', client.id)
+    .order('position', { ascending: true }).order('created_at', { ascending: true })
+
+  return NextResponse.json(
+    { client: { name: client.name, company }, projects: projs || [] },
+    { headers: { 'Cache-Control': 'no-store' } }
+  )
 }
 
 export async function POST(req: NextRequest, { params }: { params: { action: string } }) {
