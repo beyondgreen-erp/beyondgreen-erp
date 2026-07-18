@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Step { id?: string; step_number: number; delay_days: number; subject: string; body: string }
@@ -10,7 +11,14 @@ interface Sequence {
   from_email: string | null; from_name: string | null; reply_to: string | null; daily_cap: number
   send_days: string[] | null; created_at: string
 }
-interface Enr { sequence_id: string; status: string }
+interface Enrollment {
+  id: string; sequence_id: string; customer_id: string; status: string; current_step: number
+  next_send_at: string | null; last_step_sent_at: string | null; enrolled_at: string | null
+}
+interface Send {
+  id: string; enrollment_id: string; sequence_id: string; customer_id: string
+  step_number: number; to_email: string; subject: string; status: string; sent_at: string | null; error: string | null
+}
 interface Mailbox { email: string; connected_at?: string; is_protected?: boolean; is_outreach_default?: boolean }
 
 const VARS = ['{{company}}', '{{contact}}', '{{first_name}}', '{{city}}', '{{state}}', '{{industry}}', '{{website}}', '{{my_name}}']
@@ -22,15 +30,44 @@ const DEFAULT_STEPS: Step[] = [
   { step_number: 4, delay_days: 4, subject: 'Still worth a look?', body: 'Hi {{first_name}},\n\nNo worries if the timing is off — should I circle back next quarter, or is there a better person at {{company}} to talk to?\n\n{{my_name}}' },
 ]
 
+const STATUS_GROUPS = [
+  { key: 'active', title: 'Active', color: '#00C875', dotBg: '#E6F7EE', dotFg: '#036B34' },
+  { key: 'paused', title: 'Paused', color: '#FDAB3D', dotBg: '#FFF3E0', dotFg: '#9A5B00' },
+  { key: 'draft',  title: 'Draft',  color: '#9699A6', dotBg: '#EDEEF2', dotFg: '#5A5E6B' },
+]
+const ENR_COLOR: Record<string, string> = {
+  active: 'bg-emerald-100 text-emerald-700',
+  finished: 'bg-gray-100 text-gray-600',
+  replied: 'bg-blue-100 text-blue-700',
+  interested: 'bg-emerald-100 text-emerald-700',
+  stopped: 'bg-amber-100 text-amber-700',
+  dnc: 'bg-red-100 text-red-700',
+}
+const SEND_COLOR: Record<string, string> = {
+  sent: 'bg-emerald-100 text-emerald-700',
+  queued: 'bg-amber-100 text-amber-700',
+  failed: 'bg-red-100 text-red-700',
+}
+
+const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
+const fmtDT = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+
 export default function SequencesPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [seqs, setSeqs] = useState<Sequence[]>([])
   const [stepsBySeq, setStepsBySeq] = useState<Record<string, Step[]>>({})
-  const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
+  const [enrollmentsBySeq, setEnrollmentsBySeq] = useState<Record<string, Enrollment[]>>({})
+  const [customerNames, setCustomerNames] = useState<Record<string, { name: string; email: string }>>({})
+  const [sendsBySeq, setSendsBySeq] = useState<Record<string, Send[]>>({})
+  const [sentTodayBySeq, setSentTodayBySeq] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [userEmail, setUserEmail] = useState('')
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([])
   const [allowProtected, setAllowProtected] = useState(false)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const [detail, setDetail] = useState<Sequence | null>(null)
+  const [detailTab, setDetailTab] = useState<'enrollments' | 'sends'>('enrollments')
 
   const [editing, setEditing] = useState<Sequence | null>(null)
   const [open, setOpen] = useState(false)
@@ -40,9 +77,7 @@ export default function SequencesPage() {
   const [running, setRunning] = useState('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [sb])
-  useEffect(() => {
-    fetch('/api/outlook/status').then(r => r.json()).then(d => setMailboxes(d.mailboxes || [])).catch(() => {})
-  }, [])
+  useEffect(() => { fetch('/api/outlook/status').then(r => r.json()).then(d => setMailboxes(d.mailboxes || [])).catch(() => {}) }, [])
 
   const outreachDefault = useMemo(() => mailboxes.find(m => m.is_outreach_default) || mailboxes.find(m => !m.is_protected), [mailboxes])
   const selectedMailbox = useMemo(() => mailboxes.find(m => m.email === form.from_email), [mailboxes, form.from_email])
@@ -61,18 +96,38 @@ export default function SequencesPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: s }, { data: st }, { data: en }] = await Promise.all([
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+    const [{ data: s }, { data: st }, { data: en }, { data: sends }] = await Promise.all([
       sb.from('sequences').select('*').order('created_at', { ascending: false }),
       sb.from('sequence_steps').select('*').order('step_number'),
-      sb.from('sequence_enrollments').select('sequence_id,status'),
+      sb.from('sequence_enrollments').select('*'),
+      sb.from('sequence_sends').select('id,enrollment_id,sequence_id,customer_id,step_number,to_email,subject,status,sent_at,error').order('sent_at', { ascending: false, nullsFirst: false }).limit(500),
     ])
     setSeqs((s as Sequence[]) || [])
     const bs: Record<string, Step[]> = {}
-    ;(st as Step[] || []).forEach((x: any) => { (bs[x.sequence_id] ||= []).push(x) })
+    ;((st as Step[]) || []).forEach((x: any) => { (bs[x.sequence_id] ||= []).push(x) })
     setStepsBySeq(bs)
-    const c: Record<string, Record<string, number>> = {}
-    ;(en as Enr[] || []).forEach(e => { (c[e.sequence_id] ||= {}); c[e.sequence_id][e.status] = (c[e.sequence_id][e.status] || 0) + 1 })
-    setCounts(c)
+
+    const enrByS: Record<string, Enrollment[]> = {}
+    const custIds = new Set<string>()
+    ;((en as Enrollment[]) || []).forEach(e => { (enrByS[e.sequence_id] ||= []).push(e); custIds.add(e.customer_id) })
+    setEnrollmentsBySeq(enrByS)
+
+    if (custIds.size) {
+      const { data: cs } = await sb.from('customers').select('id,company_name,contact_name,email').in('id', [...custIds])
+      const m: Record<string, { name: string; email: string }> = {}
+      ;((cs as any[]) || []).forEach(c => { m[c.id] = { name: c.company_name || c.contact_name || '(no name)', email: c.email || '' } })
+      setCustomerNames(m)
+    }
+
+    const sendsBy: Record<string, Send[]> = {}
+    const todayCount: Record<string, number> = {}
+    ;((sends as Send[]) || []).forEach(sd => {
+      (sendsBy[sd.sequence_id] ||= []).push(sd)
+      if (sd.status === 'sent' && sd.sent_at && sd.sent_at >= startOfDay.toISOString()) todayCount[sd.sequence_id] = (todayCount[sd.sequence_id] || 0) + 1
+    })
+    setSendsBySeq(sendsBy)
+    setSentTodayBySeq(todayCount)
     setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
@@ -102,7 +157,7 @@ export default function SequencesPage() {
     if (!form.name?.trim()) { alert('Give the sequence a name.'); return }
     if (!form.from_email) { alert('Choose a sending mailbox (From email).'); return }
     if (!mailboxes.find(m => m.email === form.from_email)) { alert('That sending mailbox isn’t connected. Connect it in Settings → Email first.'); return }
-    if (protectedChosen && !allowProtected) { alert('That mailbox is marked as protected (your primary business email). Tick the confirmation box if you really want to send from it — otherwise pick your outreach mailbox.'); return }
+    if (protectedChosen && !allowProtected) { alert('That mailbox is marked as protected. Tick the confirm box if you really want to send from it.'); return }
     setSaving(true)
     const payload = {
       name: form.name.trim(), description: form.description || null, from_email: form.from_email || null,
@@ -122,64 +177,220 @@ export default function SequencesPage() {
   async function setStatus(s: Sequence, status: string) { await sb.from('sequences').update({ status, updated_at: new Date().toISOString() }).eq('id', s.id); load() }
   async function del(s: Sequence) { if (!confirm(`Delete sequence "${s.name}"? Enrollments will be removed.`)) return; await sb.from('sequences').delete().eq('id', s.id); load() }
 
+  async function stopEnrollment(enr: Enrollment) {
+    if (!confirm('Stop this enrollment? No further steps will be sent.')) return
+    await sb.from('sequence_enrollments').update({ status: 'stopped', updated_at: new Date().toISOString() }).eq('id', enr.id)
+    load()
+  }
+  async function sendNext(enr: Enrollment) {
+    // Force next_send_at = now so the cron picks it up on the next tick
+    await sb.from('sequence_enrollments').update({ next_send_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', enr.id)
+    setRunning('Sending due emails…')
+    try { const r = await fetch('/api/leads/sequence-run'); const j = await r.json(); alert(j.message || j.error || 'Done') } catch { alert('Send run failed.') }
+    setRunning(''); load()
+  }
+
+  const grouped = useMemo(() => {
+    const g: Record<string, Sequence[]> = { active: [], paused: [], draft: [] }
+    seqs.forEach(s => { const k = s.status === 'active' ? 'active' : s.status === 'paused' ? 'paused' : 'draft'; g[k].push(s) })
+    return g
+  }, [seqs])
+
   const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0086C0]/30'
-  const pill = (st: string) => st === 'active' ? { bg: '#E6F7EE', fg: '#036B34', label: 'Active' } : st === 'paused' ? { bg: '#FFF3E0', fg: '#9A5B00', label: 'Paused' } : { bg: '#EDEEF2', fg: '#5A5E6B', label: 'Draft' }
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] p-4 md:p-6">
-      <div className="flex items-center justify-between mb-5">
+    <div className="min-h-screen mon-page p-4 md:p-6">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
         <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-white text-[#0086C0] border-[#CDE6F5]">SEQUENCES</span>
-          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5 flex items-center gap-2"><i className="ti ti-mail-forward text-[#0086C0]" />Outreach Sequences</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Multi-step follow-up cadences. Enroll leads from the Lead Prospector.</p>
+          <span className="mon-tag t-blue">📧 CRM · Sequences</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Outreach Sequences</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Multi-step follow-up cadences. Sends run every 10 min via cron — no manual trigger needed.</p>
         </div>
         <div className="flex items-center gap-2">
           {running && <span className="text-xs text-gray-500">{running}</span>}
-          <button onClick={scanReplies} disabled={!!running} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50"><i className="ti ti-mail-search mr-1" />Scan replies</button>
-          <button onClick={runNow} disabled={!!running} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50"><i className="ti ti-player-play mr-1" />Send due now</button>
-          <button onClick={openNew} className="text-sm px-4 py-2.5 rounded-lg bg-[#0086C0] text-white hover:bg-[#0074a6] font-medium">+ New Sequence</button>
+          <button onClick={scanReplies} disabled={!!running} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50">Scan replies</button>
+          <button onClick={runNow} disabled={!!running} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50">Send due now</button>
+          <button onClick={openNew} className="text-sm px-4 py-2 rounded-lg bg-[#3B6FE0] text-white hover:bg-[#2E5CC7] font-semibold">+ New Sequence</button>
         </div>
       </div>
 
-      {loading ? <p className="text-gray-400 text-sm">Loading…</p> : seqs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-[#ECEEF3] p-12 text-center">
-          <i className="ti ti-mail-forward text-4xl text-gray-300" />
-          <p className="text-gray-500 mt-2 text-sm">No sequences yet. Create your first follow-up cadence.</p>
-          <button onClick={openNew} className="mt-3 text-sm px-4 py-2 rounded-lg bg-[#0086C0] text-white">+ New Sequence</button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {seqs.map(s => {
-            const p = pill(s.status); const c = counts[s.id] || {}; const nSteps = (stepsBySeq[s.id] || []).length
-            const active = c.active || 0, replied = (c.replied || 0) + (c.interested || 0), finished = c.finished || 0
+      {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
+        <div className="space-y-4">
+          {STATUS_GROUPS.map(group => {
+            const list = grouped[group.key] || []
+            const isCol = collapsed[group.key]
             return (
-              <div key={s.id} className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm p-4">
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-[#1A1D2E] truncate">{s.name}</h3>
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: p.bg, color: p.fg }}>{p.label}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 truncate">{s.from_email ? `From ${s.from_email}` : 'No sending address set'} · {nSteps} step{nSteps !== 1 ? 's' : ''} · cap {s.daily_cap}/day</p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {s.status !== 'active' ? <button onClick={() => setStatus(s, 'active')} title="Activate" className="w-8 h-8 rounded-lg border border-[#DCEFE3] text-[#00A84F] hover:bg-[#F2FBF6]"><i className="ti ti-player-play text-sm" /></button>
-                      : <button onClick={() => setStatus(s, 'paused')} title="Pause" className="w-8 h-8 rounded-lg border border-[#F3E5C0] text-[#9A5B00] hover:bg-[#FFF8E7]"><i className="ti ti-player-pause text-sm" /></button>}
-                    <button onClick={() => openEdit(s)} title="Edit" className="w-8 h-8 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E]"><i className="ti ti-pencil text-sm" /></button>
-                    <button onClick={() => del(s)} title="Delete" className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50"><i className="ti ti-trash text-sm" /></button>
-                  </div>
+              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
+                  <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                  <span className="font-bold text-sm" style={{ color: group.color }}>{group.title}</span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: group.color + '26', color: group.color }}>{list.length}</span>
                 </div>
-                <div className="flex gap-4 mt-3 text-xs">
-                  <span><b className="text-[#0086C0] text-base">{active}</b> <span className="text-gray-500">active</span></span>
-                  <span><b className="text-[#00A84F] text-base">{replied}</b> <span className="text-gray-500">replied</span></span>
-                  <span><b className="text-gray-500 text-base">{finished}</b> <span className="text-gray-500">finished</span></span>
-                </div>
+                {!isCol && (
+                  <div className="overflow-x-auto">
+                    {list.length === 0 ? (
+                      <p className="text-center text-xs text-gray-400 py-6">No sequences in this state.</p>
+                    ) : (
+                      <table className="w-full text-sm min-w-[1000px]">
+                        <thead>
+                          <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                            <th className="text-left px-4 py-2 font-semibold">Name</th>
+                            <th className="text-left px-3 py-2 font-semibold w-[220px]">From / Steps</th>
+                            <th className="text-right px-3 py-2 font-semibold w-[110px]">Enrolled</th>
+                            <th className="text-right px-3 py-2 font-semibold w-[110px]">Sent today</th>
+                            <th className="text-right px-3 py-2 font-semibold w-[100px]">Replied</th>
+                            <th className="text-right px-3 py-2 font-semibold w-[100px]">Finished</th>
+                            <th className="text-right px-3 py-2 font-semibold w-[130px]"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {list.map((s, i) => {
+                            const stepsN = (stepsBySeq[s.id] || []).length
+                            const enr = enrollmentsBySeq[s.id] || []
+                            const active = enr.filter(e => e.status === 'active').length
+                            const replied = enr.filter(e => e.status === 'replied' || e.status === 'interested').length
+                            const finished = enr.filter(e => e.status === 'finished').length
+                            const todayCount = sentTodayBySeq[s.id] || 0
+                            return (
+                              <tr key={s.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => { setDetail(s); setDetailTab('enrollments') }}>
+                                <td className="px-4 py-2.5">
+                                  <p className="font-semibold text-[#1A1D2E]">{s.name}</p>
+                                  {s.description && <p className="text-[11px] text-gray-400 truncate max-w-[420px]">{s.description}</p>}
+                                </td>
+                                <td className="px-3 py-2.5 text-xs text-gray-500">
+                                  <p className="truncate max-w-[220px]">{s.from_email || 'no from set'}</p>
+                                  <p className="text-[11px] text-gray-400">{stepsN} step{stepsN !== 1 ? 's' : ''} · cap {s.daily_cap}/day</p>
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-bold text-indigo-600">{active}</td>
+                                <td className="px-3 py-2.5 text-right"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${todayCount ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>{todayCount}</span></td>
+                                <td className="px-3 py-2.5 text-right text-emerald-600 font-semibold">{replied}</td>
+                                <td className="px-3 py-2.5 text-right text-gray-500">{finished}</td>
+                                <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                                  <div className="flex justify-end gap-1">
+                                    {s.status !== 'active' ? <button onClick={() => setStatus(s, 'active')} title="Activate" className="w-7 h-7 rounded-lg border border-[#DCEFE3] text-[#00A84F] hover:bg-[#F2FBF6] text-sm">▶</button>
+                                      : <button onClick={() => setStatus(s, 'paused')} title="Pause" className="w-7 h-7 rounded-lg border border-[#F3E5C0] text-[#9A5B00] hover:bg-[#FFF8E7] text-sm">⏸</button>}
+                                    <button onClick={() => openEdit(s)} title="Edit" className="w-7 h-7 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E] text-sm">✎</button>
+                                    <button onClick={() => del(s)} title="Delete" className="w-7 h-7 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 text-sm">🗑</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
       )}
 
+      {/* Sequence detail modal */}
+      {detail && (() => {
+        const enr = (enrollmentsBySeq[detail.id] || []).sort((a, b) => (b.enrolled_at || '').localeCompare(a.enrolled_at || ''))
+        const sends = (sendsBySeq[detail.id] || [])
+        const stepsN = (stepsBySeq[detail.id] || []).length
+        return (
+          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={() => setDetail(null)}>
+            <div className="w-[880px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="sticky top-0 bg-white border-b border-[#EEF0F4] px-5 py-3 flex items-center justify-between z-10">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase font-bold text-gray-400">Sequence</p>
+                  <h2 className="font-bold text-[#1A1D2E] truncate">{detail.name}</h2>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => openEdit(detail)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Edit</button>
+                  <button onClick={() => setDetail(null)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Close</button>
+                </div>
+              </div>
+              <div className="px-5 py-4 grid grid-cols-4 gap-3 border-b border-[#EEF0F4] text-xs">
+                <div><p className="text-gray-400 uppercase text-[10px]">From</p><p className="font-semibold truncate">{detail.from_email || '—'}</p></div>
+                <div><p className="text-gray-400 uppercase text-[10px]">Steps</p><p className="font-semibold">{stepsN}</p></div>
+                <div><p className="text-gray-400 uppercase text-[10px]">Cap</p><p className="font-semibold">{detail.daily_cap}/day</p></div>
+                <div><p className="text-gray-400 uppercase text-[10px]">Send days</p><p className="font-semibold truncate">{(detail.send_days || []).join(', ') || '—'}</p></div>
+              </div>
+              <div className="flex gap-1 border-b border-[#EEF0F4] px-5">
+                <button onClick={() => setDetailTab('enrollments')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'enrollments' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Enrolled leads ({enr.length})</button>
+                <button onClick={() => setDetailTab('sends')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'sends' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Send history ({sends.length})</button>
+              </div>
+              {detailTab === 'enrollments' ? (
+                <div className="p-5">
+                  {enr.length === 0 ? <p className="text-center text-xs text-gray-400 py-6">Nobody enrolled yet. Add leads from the Leads page.</p> : (
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                          <th className="text-left py-2">Lead</th>
+                          <th className="text-left py-2">Status</th>
+                          <th className="text-left py-2">Step</th>
+                          <th className="text-left py-2">Last sent</th>
+                          <th className="text-left py-2">Next send</th>
+                          <th className="text-right py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {enr.map(e => {
+                          const cn = customerNames[e.customer_id]
+                          return (
+                            <tr key={e.id} className="border-b border-[#EEF0F4] last:border-0">
+                              <td className="py-2">
+                                <Link href={`/sales/leads?item=${e.customer_id}`} className="text-[#3B6FE0] font-semibold hover:underline">{cn?.name || '(unknown)'}</Link>
+                                {cn?.email && <p className="text-[10px] text-gray-400 truncate max-w-[220px]">{cn.email}</p>}
+                              </td>
+                              <td className="py-2"><span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${ENR_COLOR[e.status] || 'bg-gray-100 text-gray-500'}`}>{e.status}</span></td>
+                              <td className="py-2 text-gray-600">{e.current_step + 1} / {stepsN}</td>
+                              <td className="py-2 text-gray-500">{fmtD(e.last_step_sent_at)}</td>
+                              <td className="py-2 text-gray-500">{fmtDT(e.next_send_at)}</td>
+                              <td className="py-2 text-right">
+                                {e.status === 'active' && (
+                                  <div className="flex gap-1 justify-end">
+                                    <button onClick={() => sendNext(e)} title="Send next step now" className="text-[10px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">Send now</button>
+                                    <button onClick={() => stopEnrollment(e)} title="Stop" className="text-[10px] px-2 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">Stop</button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ) : (
+                <div className="p-5">
+                  {sends.length === 0 ? <p className="text-center text-xs text-gray-400 py-6">No sends yet.</p> : (
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                          <th className="text-left py-2">When</th>
+                          <th className="text-left py-2">Status</th>
+                          <th className="text-left py-2">Step</th>
+                          <th className="text-left py-2">To</th>
+                          <th className="text-left py-2">Subject</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sends.map(sd => (
+                          <tr key={sd.id} className="border-b border-[#EEF0F4] last:border-0">
+                            <td className="py-2 text-gray-500 whitespace-nowrap">{fmtDT(sd.sent_at)}</td>
+                            <td className="py-2"><span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${SEND_COLOR[sd.status] || 'bg-gray-100 text-gray-500'}`}>{sd.status}</span>{sd.error && <p className="text-[10px] text-red-500 mt-0.5">{sd.error}</p>}</td>
+                            <td className="py-2">#{sd.step_number}</td>
+                            <td className="py-2 text-gray-500 truncate max-w-[180px]">{sd.to_email}</td>
+                            <td className="py-2 truncate max-w-[280px]">{sd.subject}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Edit / New sequence sidebar */}
       {open && (
         <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={close}>
           <div className="w-[640px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -187,7 +398,7 @@ export default function SequencesPage() {
               <h2 className="font-bold text-[#1A1D2E]">{editing ? 'Edit sequence' : 'New sequence'}</h2>
               <div className="flex gap-2">
                 <button onClick={close} className="text-sm px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Cancel</button>
-                <button onClick={save} disabled={saving} className="text-sm px-4 py-1.5 rounded-lg bg-[#0086C0] text-white">{saving ? 'Saving…' : 'Save'}</button>
+                <button onClick={save} disabled={saving} className="text-sm px-4 py-1.5 rounded-lg bg-[#3B6FE0] text-white">{saving ? 'Saving…' : 'Save'}</button>
               </div>
             </div>
             <div className="p-5 space-y-4">
@@ -197,7 +408,7 @@ export default function SequencesPage() {
                 <div className="col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">Send from mailbox</label>
                   {mailboxes.length === 0 ? (
-                    <div className="text-xs rounded-lg bg-[#FCE8EC] text-[#A11B30] border border-[#F3C6CF] px-3 py-2">No mailboxes connected. Connect one in <b>Settings → Email</b> before sending.</div>
+                    <div className="text-xs rounded-lg bg-[#FCE8EC] text-[#A11B30] border border-[#F3C6CF] px-3 py-2">No mailboxes connected. Connect one in <b>Settings → Email</b> first.</div>
                   ) : (
                     <select value={form.from_email || ''} onChange={e => { setForm((f: any) => ({ ...f, from_email: e.target.value })); setAllowProtected(false) }} className={inp}>
                       <option value="">— choose a mailbox —</option>
@@ -210,26 +421,23 @@ export default function SequencesPage() {
                   )}
                 </div>
                 <div><label className="block text-xs text-gray-500 mb-1">Reply-to (optional)</label><input value={form.reply_to || ''} onChange={e => setForm((f: any) => ({ ...f, reply_to: e.target.value }))} className={inp} /></div>
-                <div><label className="block text-xs text-gray-500 mb-1">Daily cap (per mailbox)</label><input type="number" value={form.daily_cap ?? 40} onChange={e => setForm((f: any) => ({ ...f, daily_cap: e.target.value }))} className={inp} /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">Daily cap</label><input type="number" value={form.daily_cap ?? 40} onChange={e => setForm((f: any) => ({ ...f, daily_cap: e.target.value }))} className={inp} /></div>
               </div>
 
               {protectedChosen && (
                 <div className="rounded-lg bg-[#FCE8EC] border-2 border-[#E0244B] px-3 py-2.5">
-                  <p className="text-sm font-bold text-[#A11B30] flex items-center gap-1.5"><i className="ti ti-alert-triangle" />{form.from_email} is your primary business mailbox</p>
-                  <p className="text-[12px] text-[#A11B30] mt-0.5">Sending cold outreach from here can hurt your normal email deliverability and get the domain flagged. Use your dedicated outreach mailbox instead.</p>
+                  <p className="text-sm font-bold text-[#A11B30]">⚠ {form.from_email} is your primary business mailbox</p>
+                  <p className="text-[12px] text-[#A11B30] mt-0.5">Sending cold outreach from here can hurt deliverability. Use your dedicated outreach mailbox instead.</p>
                   <label className="flex items-center gap-2 mt-2 text-[12px] text-[#A11B30] font-medium">
                     <input type="checkbox" checked={allowProtected} onChange={e => setAllowProtected(e.target.checked)} />
-                    I understand the risk and want to send from this mailbox anyway.
+                    Send from this mailbox anyway.
                   </label>
                 </div>
               )}
+
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Send days</label>
-                <div className="flex gap-1">{DAYS.map(d => { const on = (form.send_days || []).includes(d); return <button key={d} onClick={() => setForm((f: any) => ({ ...f, send_days: on ? f.send_days.filter((x: string) => x !== d) : [...(f.send_days || []), d] }))} className={`text-xs px-2.5 py-1.5 rounded-md border ${on ? 'bg-[#0086C0] text-white border-[#0086C0]' : 'border-[#E4E6EE] text-gray-500'}`}>{d}</button> })}</div>
-              </div>
-
-              <div className="rounded-lg bg-[#FFF8E7] border border-[#F3E5C0] px-3 py-2 text-[11px] text-[#8A6D3B]">
-                Sends go out from the mailbox chosen above. The <b>✓ recommended</b> mailbox is your dedicated outreach address; mailboxes marked <b>⚠ primary</b> are blocked from sending unless you explicitly override.
+                <div className="flex gap-1">{DAYS.map(d => { const on = (form.send_days || []).includes(d); return <button key={d} onClick={() => setForm((f: any) => ({ ...f, send_days: on ? f.send_days.filter((x: string) => x !== d) : [...(f.send_days || []), d] }))} className={`text-xs px-2.5 py-1.5 rounded-md border ${on ? 'bg-[#3B6FE0] text-white border-[#3B6FE0]' : 'border-[#E4E6EE] text-gray-500'}`}>{d}</button> })}</div>
               </div>
 
               <div>
@@ -241,16 +449,16 @@ export default function SequencesPage() {
                   {steps.map((st, i) => (
                     <div key={i} className="border border-[#ECEEF3] rounded-lg p-3 bg-[#FBFCFE]">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="w-6 h-6 rounded-full bg-[#0086C0] text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                        <span className="w-6 h-6 rounded-full bg-[#3B6FE0] text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
                         <span className="text-xs text-gray-500">{i === 0 ? 'Sent on enrollment' : <>Wait <input type="number" value={st.delay_days} onChange={e => updateStep(i, { delay_days: Number(e.target.value) })} className="w-12 border border-[#E4E6EE] rounded px-1 py-0.5 text-xs mx-1" /> day(s) after previous</>}</span>
-                        <button onClick={() => removeStep(i)} className="ml-auto text-gray-400 hover:text-red-600"><i className="ti ti-x text-sm" /></button>
+                        <button onClick={() => removeStep(i)} className="ml-auto text-gray-400 hover:text-red-600 text-sm">×</button>
                       </div>
                       <input value={st.subject} onChange={e => updateStep(i, { subject: e.target.value })} placeholder="Subject" className={inp + ' mb-2'} />
                       <textarea rows={4} value={st.body} onChange={e => updateStep(i, { body: e.target.value })} placeholder="Email body…" className={inp + ' resize-y font-mono text-xs'} />
                     </div>
                   ))}
                 </div>
-                {steps.length < 7 && <button onClick={addStep} className="mt-2 text-xs text-[#0086C0] font-semibold">+ Add step (up to 7)</button>}
+                {steps.length < 7 && <button onClick={addStep} className="mt-2 text-xs text-[#3B6FE0] font-semibold">+ Add step (up to 7)</button>}
               </div>
             </div>
           </div>
