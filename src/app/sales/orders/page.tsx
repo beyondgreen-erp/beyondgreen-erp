@@ -106,9 +106,10 @@ const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function orderCustomerName(o: SalesOrder): string {
+  const typed = (o.notes ?? '').trim()
+  if (typed) return typed.split('|')[0].trim()
   if (o.customer?.company_name) return o.customer.company_name
-  const notes = o.notes ?? o.order_number
-  return notes.split('|')[0].trim()
+  return (o.order_number ?? '').split('|')[0].trim()
 }
 function orderRef(o: SalesOrder): string | null {
   const notes = o.notes ?? ''
@@ -1346,8 +1347,8 @@ export default function OrdersPage() {
                       <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
-                          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{o.order_number || o.customer?.company_name || 'Order'}</p>
-                          <p className="text-xs text-gray-500 truncate">{o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
+                          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderCustomerName(o) || o.order_number || 'Order'}</p>
+                          <p className="text-xs text-gray-500 truncate">{orderRef(o) || o.order_number || o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
                         </div>
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
