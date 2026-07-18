@@ -251,13 +251,26 @@ function KpiOpenOrders() {
   return <BigNumber value={n} sub="Open Orders" color="text-indigo-600" href="/sales/orders" />
 }
 function KpiRevenueMTD() {
+  // Sources from the Daily Ship Report (Amazon + Shopify + Faire + Chewy + B2B),
+  // filtered to the current month in Pacific Time. Matches /sales/daily-ship-report.
   const [n, setN] = useState<number | null>(null)
   useEffect(() => {
-    const monthStart = new Date().toISOString().substring(0, 7) + '-01'
-    sb.from('sales_orders').select('total_amount').in('status', ['Shipped', 'Closed']).gte('updated_at', monthStart)
-      .then(({ data }) => setN((data || []).reduce((s: number, r: any) => s + (r.total_amount || 0), 0)))
+    // Build "YYYY-MM-01" in America/Los_Angeles so we don't drift on Vercel's UTC clock.
+    const pt = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) // YYYY-MM-DD
+    const monthStart = pt.substring(0, 7) + '-01'
+    // Next month first day
+    const y = Number(pt.substring(0, 4)), m = Number(pt.substring(5, 7))
+    const ny = m === 12 ? y + 1 : y
+    const nm = m === 12 ? 1 : m + 1
+    const nextMonthStart = `${ny}-${String(nm).padStart(2, '0')}-01`
+    sb.from('daily_ship_report').select('amazon,shopify,faire,chewy,b2b,ship_date').gte('ship_date', monthStart).lt('ship_date', nextMonthStart)
+      .then(({ data }) => {
+        const total = (data || []).reduce((s: number, r: any) =>
+          s + (Number(r.amazon) || 0) + (Number(r.shopify) || 0) + (Number(r.faire) || 0) + (Number(r.chewy) || 0) + (Number(r.b2b) || 0), 0)
+        setN(total)
+      })
   }, [])
-  return <BigNumber value={n == null ? null : fmt$(n)} sub="Revenue MTD" color="text-emerald-600" href="/sales/invoices" />
+  return <BigNumber value={n == null ? null : fmt$(n)} sub="Revenue MTD (Ship Report)" color="text-emerald-600" href="/sales/daily-ship-report" />
 }
 function KpiShippingQueue() {
   const [n, setN] = useState<number | null>(null)
