@@ -41,6 +41,16 @@ const BENEFITS = [
   { img: 'https://byndgrn.com/cdn/shop/files/dog-poop-bag-dispenser-wall-pole-mount-dog-waste-station-front-load-made-in-usa-beyondgreen-gray-poop-bag-dispenser-beyondgreen-1814244.png', title: 'Turn-key logistics', desc: 'Auto-ship on your parks schedule. We stage inventory in warehouse. Your team just refills.' },
 ]
 
+// Unsplash lifestyle photography — parks, dogs, communities — replaces the
+// product-photo tiles above so the marketing page reads like an actual site.
+const U = (id: string, w = 640, h = 420) => `https://images.unsplash.com/photo-${id}?w=${w}&h=${h}&fit=crop&auto=format&q=75`
+BENEFITS[0].img = U('1441974231531-c6227db76b6e')
+BENEFITS[1].img = U('1568605114967-8130f3a36994')
+BENEFITS[2].img = U('1568393691622-c7ba131d63b4')
+BENEFITS[3].img = U('1548199973-03cce0bbc87b')
+BENEFITS[4].img = U('1552053831-71594a27632d')
+BENEFITS[5].img = U('1560807707-8cc77767d783')
+
 const FAQS = [
   {
     q: 'Wait — cities can actually sell ads on pet waste bags?',
@@ -349,14 +359,16 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
       {/* BENEFITS GRID */}
       <div style={{ maxWidth: 1100, margin: '48px auto 0', padding: '0 24px' }}>
         <h2 style={sectionH2}>Why cities pick beyondGREEN</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginTop: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 18, marginTop: 20 }}>
           {BENEFITS.map((b, i) => (
-            <div key={i} style={{ background: '#fff', borderRadius: 16, padding: 22, border: '1px solid #EAEEF3', display: 'flex', flexDirection: 'column' as const }}>
-              <div style={{ width: 72, height: 72, borderRadius: 12, background: '#F5F7FA', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, overflow: 'hidden' }}>
-                <img src={b.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <div key={i} style={{ background: '#fff', borderRadius: 18, border: '1px solid #EAEEF3', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' }}>
+              <div style={{ width: '100%', aspectRatio: '16 / 10', overflow: 'hidden', background: '#F5F7FA' }}>
+                <img src={b.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               </div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>{b.title}</div>
-              <div style={{ fontSize: 13, color: '#5A6E8A', lineHeight: 1.55 }}>{b.desc}</div>
+              <div style={{ padding: '20px 22px 22px' }}>
+                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>{b.title}</div>
+                <div style={{ fontSize: 13.5, color: '#5A6E8A', lineHeight: 1.55 }}>{b.desc}</div>
+              </div>
             </div>
           ))}
         </div>
@@ -462,7 +474,7 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
           <p style={{ margin: '0 0 22px', fontSize: 15, color: '#DBFCE8' }}>Free samples, plus the full pilot proposal for your council meeting.</p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <a href="#request" style={{ ...btnPrimary, background: '#fff', color: '#00A84F' }}>Request free samples →</a>
-            <a href={ctaUrl} target="_blank" rel="noreferrer" style={{ ...btnSecondary, borderColor: '#fff', color: '#fff', background: 'transparent' }}>Explore the full catalog</a>
+            <a href={ctaUrl} target="_blank" rel="noreferrer" style={{ ...btnSecondary, borderColor: '#fff', color: '#fff', background: 'transparent' }}>Visit the website</a>
           </div>
         </div>
       </div>
