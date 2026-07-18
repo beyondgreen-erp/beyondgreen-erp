@@ -5,7 +5,12 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Public warehouse ticket pages + their API bypass auth entirely (no-login, token-gated).
-  if (pathname.startsWith('/t/') || pathname.startsWith('/api/ct/') || pathname.startsWith('/w/') || pathname.startsWith('/api/wh/')) {
+  // Landing pages under /lp/ are also public so they can be linked from cold outreach emails.
+  if (
+    pathname.startsWith('/t/') || pathname.startsWith('/api/ct/') ||
+    pathname.startsWith('/w/') || pathname.startsWith('/api/wh/') ||
+    pathname.startsWith('/lp/') || pathname.startsWith('/api/lp/')
+  ) {
     return NextResponse.next({ request })
   }
 
@@ -44,8 +49,6 @@ export async function middleware(request: NextRequest) {
   const isLoginPage = request.nextUrl.pathname === '/login'
   const isAccessDenied = request.nextUrl.pathname === '/access-denied'
 
-  // The ERP is restricted to beyondGREEN company accounts. Other accounts in the
-  // shared Supabase project (e.g. the portal / epsilonpacific site) are blocked.
   const ALLOWED_DOMAIN = /@(beyondgreenbiotech\.com|byndgrn\.com)$/i
 
   if (!user) {
@@ -57,7 +60,6 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse
   }
 
-  // Authenticated but not a company account → block from the ERP.
   if (!ALLOWED_DOMAIN.test(user.email || '')) {
     if (!isAccessDenied) {
       const url = request.nextUrl.clone()
@@ -67,7 +69,6 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse
   }
 
-  // Company account → keep them out of the login / access-denied pages.
   if (isLoginPage || isAccessDenied) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
@@ -79,7 +80,12 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Public static assets (images, PDFs, catalog/HTML, fonts, manifest) bypass auth.
-    '/((?!_next/static|_next/image|favicon.ico|t/|w/|api/ct/|api/wh/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|pdf|html|txt|xml|webmanifest|woff|woff2|ttf|csv|zip)$).*)',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 }
