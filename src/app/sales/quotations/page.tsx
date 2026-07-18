@@ -21,6 +21,8 @@ interface Quote {
   total: number | null
   payment_terms: string | null
   notes: string | null
+  client_portal_visible?: boolean | null
+  client_portal_name?: string | null
   created_at: string
   type?: 'quote' | 'rfq' | null
   customers?: { company_name: string } | null
@@ -115,6 +117,8 @@ export default function QuotationsPage() {
     notes: '',
     tax_rate: '0',
     type: 'quote' as 'quote' | 'rfq',
+    client_portal_visible: false,
+    client_portal_name: '',
   })
   const [lines, setLines] = useState<Partial<QuoteLine>[]>([])
   const [productSearch, setProductSearch] = useState('')
@@ -242,6 +246,8 @@ export default function QuotationsPage() {
       notes: '',
       tax_rate: '0',
       type: kind,
+      client_portal_visible: false,
+      client_portal_name: '',
     })
     setLines([{ sku: '', product_name: '', description: '', quantity: 1, unit_price: 0, line_total: 0, product_id: null }])
     setPanelTab('overview')
@@ -269,6 +275,8 @@ export default function QuotationsPage() {
       notes: q.notes ?? '',
       tax_rate: '0',
       type: (q.type as 'quote' | 'rfq') || 'quote',
+      client_portal_visible: q.client_portal_visible ?? false,
+      client_portal_name: q.client_portal_name ?? '',
     })
     setLines([])
     setPanelTab('overview')
@@ -388,6 +396,8 @@ export default function QuotationsPage() {
         tax_pct: taxRate,
         total: total,
         type: form.type,
+        client_portal_visible: !!form.client_portal_visible,
+        client_portal_name: form.client_portal_name || null,
       }
 
       let quoteId = editing?.id
@@ -937,6 +947,19 @@ export default function QuotationsPage() {
                     className={inp}
                     style={{ ...inpStyle, resize: 'vertical' }}
                   />
+                </div>
+                <div className="col-span-2 rounded-xl border border-[#CDE9DA] bg-[#F0FBF5] p-3">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input type="checkbox" checked={form.client_portal_visible} onChange={e => setForm(p => ({ ...p, client_portal_visible: e.target.checked }))} className="w-4 h-4 accent-[#037f4c]" />
+                    <span className="text-sm font-semibold text-[#0F5132]">Show this quote in the client portal</span>
+                  </label>
+                  {form.client_portal_visible && (
+                    <div className="mt-2.5">
+                      <label className="block text-xs mb-1.5" style={{ color: '#6B7280' }}>Client-facing project name <span style={{ color: '#9CA3AF' }}>(optional)</span></label>
+                      <input value={form.client_portal_name} onChange={e => setForm(p => ({ ...p, client_portal_name: e.target.value }))} className={inp} style={inpStyle} placeholder="Defaults to the quote #" />
+                      <p className="text-[11px] mt-1" style={{ color: '#6B7280' }}>The client sees this name, its live status, and a progress timeline — never pricing, internal notes, or comments.</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
