@@ -597,9 +597,9 @@ export async function generateRFQPDF(
     tax_pct: 0,
     total: 0,
     notes: rfq.notes ?? null,
-    terms: 'Reply w/ pricing',
-    fob: '—',
-    sales_rep: rfq.reply_to_name ?? 'RP',
+    terms: 'Reply with DDP pricing',
+    fob: '',
+    sales_rep: rfq.reply_to_name ?? 'Sourcing',
     shipping_address: rfq.delivery_address ?? null,
   }
   await renderSalesDocumentPDF('rfq', orderLike, lines, buyer, {
@@ -667,20 +667,37 @@ async function renderSalesDocumentPDF(
   let cyc = 118
   COMPANY.addr.forEach(line => { doc.text(line, L, cyc); cyc += 15 })
 
-  // Bill To / Ship To (same drawAddrBox as Sales Order)
+  // Bill To / Ship To
+  // RFQ: buyer AND ship-to are ALWAYS beyondGREEN — we never expose the end customer to the supplier.
   const bY = 176, boxH = 96, lbW = 250, rbX = 300, rbW = R - rbX
-  drawAddrBox(doc, L, bY, lbW, boxH, KIND.buyerBoxLabel, billToRows(order, customer))
-  drawAddrBox(doc, rbX, bY, rbW, boxH, KIND.shipBoxLabel, shipToRows(order, customer))
-
-  // Info row (5 columns) — labels tweak per kind
-  const iY = bY + boxH + 12, infoRowH = 20
-  const infoCols = [
-    { label: 'P.O. No.',     value: order.po_number || '', w: 120 },
-    { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 120 },
-    { label: 'Terms',        value: order.terms || 'Net 30', w: 120 },
-    { label: 'FOB',          value: order.fob || 'Santa Ana', w: 96 },
-    { label: kind === 'rfq' ? 'Sourced By' : 'Sales Rep', value: order.sales_rep || 'RP', w: 84 },
+  const bgBuyer: string[] = [
+    COMPANY.name,
+    ...COMPANY.addr,
   ]
+  if (kind === 'rfq') {
+    drawAddrBox(doc, L, bY, lbW, boxH, KIND.buyerBoxLabel, bgBuyer)
+    drawAddrBox(doc, rbX, bY, rbW, boxH, KIND.shipBoxLabel, bgBuyer)
+  } else {
+    drawAddrBox(doc, L, bY, lbW, boxH, KIND.buyerBoxLabel, billToRows(order, customer))
+    drawAddrBox(doc, rbX, bY, rbW, boxH, KIND.shipBoxLabel, shipToRows(order, customer))
+  }
+
+  // Info row — RFQ has 4 columns (no FOB, wider Terms). SO/Quote keep the 5-column layout.
+  const iY = bY + boxH + 12, infoRowH = 20
+  const infoCols = kind === 'rfq'
+    ? [
+      { label: 'P.O. No.',       value: order.po_number || '', w: 140 },
+      { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 160 },
+      { label: 'Terms',          value: order.terms || 'Reply with DDP pricing', w: 200 },
+      { label: 'Sourced By',     value: order.sales_rep || 'RP', w: 96 },
+    ]
+    : [
+      { label: 'P.O. No.',       value: order.po_number || '', w: 120 },
+      { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 120 },
+      { label: 'Terms',          value: order.terms || 'Net 30', w: 120 },
+      { label: 'FOB',            value: order.fob || 'Santa Ana', w: 96 },
+      { label: 'Sales Rep',      value: order.sales_rep || 'RP', w: 84 },
+    ]
   let ix = L
   doc.setLineWidth(0.7); doc.setDrawColor(0)
   infoCols.forEach(c => {
@@ -738,9 +755,18 @@ async function renderSalesDocumentPDF(
   let afterY = (doc as any).lastAutoTable.finalY + 22
   if (afterY > H - 120) afterY = H - 120
 
-  // Footer notes (left)
+  // Footer notes (left) — user-typed notes render FIRST (bold "Notes:" label), then the boilerplate.
   doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
   let ny = afterY
+  const trimmedNotes = (order.notes || '').trim()
+  if (trimmedNotes) {
+    doc.setFont('times', 'bold')
+    doc.text('Notes:', L, ny); ny += 12
+    doc.setFont('times', 'normal')
+    const wrapped = doc.splitTextToSize(trimmedNotes, 330) as string[]
+    doc.text(wrapped, L, ny)
+    ny += wrapped.length * 11 + 6
+  }
   KIND.footerNotes.forEach(n => {
     const wrapped = doc.splitTextToSize(n, 330) as string[]
     doc.text(wrapped, L, ny)
