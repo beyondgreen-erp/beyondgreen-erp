@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const name = String(body.name || '').trim()
   const email = String(body.email || '').trim()
   const address = String(body.address || '').trim()
-  const product = String(body.product || 'Compostable Pet Waste Bags').trim()
+  const product = String(body.product || 'beyondGREEN Dog Waste Bags — 200ct roll + 100ct single-pull pack').trim()
   const note = String(body.note || '').trim()
   const slug = String(body.slug || '').trim()
   const recipient_id = isUuid(body.recipient_id) ? body.recipient_id : null
