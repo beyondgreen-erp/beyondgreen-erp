@@ -96,6 +96,11 @@ function equippedBadge(equipped: any, itemsById: Record<string, Item>): string |
   if (!it || it.asset?.kind !== 'badge') return null
   return it.asset.emoji as string
 }
+function equippedProp(equipped: any, itemsById: Record<string, Item>): string | null {
+  const id = equipped?.prop; if (!id) return null; const it = itemsById[id]
+  if (!it || it.asset?.kind !== 'prop') return null
+  return it.asset.emoji as string
+}
 const FRAME_DECO: Record<string, { bg: string; glow?: string; anim?: string }> = {
   bronze: { bg: '#cd7f32' }, silver: { bg: '#cfd4da' },
   gold: { bg: '#f5c518', glow: '0 0 6px 1px rgba(245,197,24,.6)' },
@@ -106,15 +111,18 @@ const FRAME_DECO: Record<string, { bg: string; glow?: string; anim?: string }> =
   rainbow: { bg: 'conic-gradient(from 0deg,#ff0000,#ff8800,#ffee00,#00cc44,#0088ff,#8800ff,#ff0066,#ff0000)', anim: 'bw-spin' },
   diamond: { bg: 'linear-gradient(135deg,#ffffff,#a5f3fc,#3b82f6,#ffffff)', glow: '0 0 10px 2px rgba(165,243,252,.85)', anim: 'bw-pulse' },
   mythic: { bg: 'conic-gradient(from 0deg,#a855f7,#ec4899,#f59e0b,#a855f7)', glow: '0 0 14px 2px rgba(168,85,247,.85)', anim: 'bw-spin' },
+  cosmic: { bg: 'conic-gradient(from 0deg,#22d3ee,#a855f7,#ec4899,#f59e0b,#22d3ee)', glow: '0 0 20px 3px rgba(168,85,247,.9)', anim: 'bw-spin' },
+  celestial: { bg: 'linear-gradient(135deg,#fde68a,#f5c518,#ffffff,#fbbf24,#f5c518)', glow: '0 0 18px 3px rgba(245,197,24,.95)', anim: 'bw-pulse' },
 }
 const BW_KEYFRAMES = '@keyframes bw-spin{to{transform:rotate(1turn)}}@keyframes bw-pulse{0%,100%{opacity:1}50%{opacity:.45}}.bw-spin{animation:bw-spin 5s linear infinite}.bw-pulse{animation:bw-pulse 1.6s ease-in-out infinite}'
-function FramedAvatar({ url, frame, badge, size }: { url: string; frame?: string | null; badge?: string | null; size: number }) {
+function FramedAvatar({ url, frame, badge, prop, size }: { url: string; frame?: string | null; badge?: string | null; prop?: string | null; size: number }) {
   const f = frame ? FRAME_DECO[frame] : null
   const pad = f ? Math.max(2, Math.round(size * 0.06)) : 0
   return (
     <div style={{ position: 'relative', width: size, height: size }}>
       {f && <div className={f.anim || ''} style={{ position: 'absolute', inset: 0, borderRadius: '9999px', background: f.bg, boxShadow: f.glow }} />}
       <img src={url} alt="" style={{ position: 'absolute', inset: pad, width: size - 2 * pad, height: size - 2 * pad, borderRadius: '9999px', background: '#e6edf5', objectFit: 'cover' }} />
+      {prop && <span style={{ position: 'absolute', left: -2, bottom: -2, fontSize: Math.round(size * 0.4), lineHeight: 1, filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.5))', transform: 'rotate(-10deg)' }}>{prop}</span>}
       {badge && <span style={{ position: 'absolute', right: -1, bottom: -1, fontSize: Math.round(size * 0.36), lineHeight: 1, filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.45))' }}>{badge}</span>}
     </div>
   )
@@ -202,6 +210,7 @@ export default function BeyondWorldPage() {
   const myNameStyle = equippedNameStyle(equipped, itemsById)
   const myFrame = equippedFrame(equipped, itemsById)
   const myBadge = equippedBadge(equipped, itemsById)
+  const myProp = equippedProp(equipped, itemsById)
   const previewUrl = avatarUrl(draft, {}, itemsById) // base avatar so every customizer choice is visible; equipped shop cosmetics show on the hero above
   const cats = Array.from(new Set(items.map(i => i.category)))
   const today = new Date().toISOString().slice(0, 10)
@@ -233,7 +242,7 @@ export default function BeyondWorldPage() {
 
         <div className="rounded-2xl p-5 mb-4 flex flex-col sm:flex-row items-center gap-5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="relative shrink-0">
-            <FramedAvatar url={myUrl} frame={myFrame} badge={myBadge} size={112} />
+            <FramedAvatar url={myUrl} frame={myFrame} badge={myBadge} prop={myProp} size={112} />
           </div>
           <div className="flex-1 w-full text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start flex-wrap">
@@ -337,7 +346,7 @@ export default function BeyondWorldPage() {
             <div className="grid md:grid-cols-2 gap-6">
               {/* Avatar preview */}
               <div className="rounded-2xl p-6 flex flex-col items-center justify-center" style={{ background: 'radial-gradient(360px 360px at 50% 15%, rgba(255,255,255,0.07), rgba(255,255,255,0.02))', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <FramedAvatar url={previewUrl} frame={myFrame} badge={myBadge} size={264} />
+                <FramedAvatar url={previewUrl} frame={myFrame} badge={myBadge} prop={myProp} size={264} />
                 <button onClick={saveAvatar} disabled={busy === 'save'} className="mt-5 px-8 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save Avatar'}</button>
                 <p className="text-white/35 text-xs mt-2">This is exactly how you&apos;ll look everywhere. Green = selected · <span className="text-amber-300">฿</span> = buy &amp; wear.</p>
               </div>
@@ -414,6 +423,7 @@ export default function BeyondWorldPage() {
                     else if (a.kind === 'nameGradient') previewNode = <span className="text-xl font-extrabold" style={{ background: `linear-gradient(90deg, ${a.from}, ${a.to})`, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', WebkitTextFillColor: 'transparent' }}>{nameOf(me)}</span>
                     else if (a.kind === 'frame') previewNode = <FramedAvatar url={avatarUrl(me.avatar_config, equipped, itemsById)} frame={a.style} size={72} />
                     else if (a.kind === 'badge') previewNode = <FramedAvatar url={avatarUrl(me.avatar_config, equipped, itemsById)} badge={a.emoji} size={72} />
+                    else if (a.kind === 'prop') previewNode = <FramedAvatar url={avatarUrl(me.avatar_config, equipped, itemsById)} prop={a.emoji} size={72} />
                     else previewNode = <img src={avatarUrl(applyItem(me.avatar_config, it))} alt={it.name} className="h-20 w-20 rounded-lg" />
                     return (
                       <div key={it.id} className="rounded-xl p-3 flex flex-col" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${isEquipped ? '#22c55e' : 'rgba(255,255,255,0.08)'}` }}>
@@ -428,7 +438,7 @@ export default function BeyondWorldPage() {
                             className="mt-auto text-xs font-semibold py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40 disabled:cursor-not-allowed">
                             {tooLow ? `Reach Lvl ${it.level_req}` : busy === it.id ? '…' : `฿${it.price}`}
                           </button>
-                        ) : ['title', 'nameColor', 'frame', 'badge'].includes(it.slot) ? (
+                        ) : ['title', 'nameColor', 'frame', 'badge', 'prop'].includes(it.slot) ? (
                           <button onClick={() => equip(it.slot, isEquipped ? null : it.id)} disabled={busy === 'eq' + it.id}
                             className={`mt-auto text-xs font-semibold py-1.5 rounded-lg ${isEquipped ? 'bg-white/10 text-white/70' : 'bg-emerald-500 hover:bg-emerald-400 text-white'}`}>
                             {isEquipped ? 'Unequip' : 'Equip'}
@@ -456,11 +466,12 @@ export default function BeyondWorldPage() {
               const ns = equippedNameStyle(p.equipped, itemsById)
               const fr = equippedFrame(p.equipped, itemsById)
               const bd = equippedBadge(p.equipped, itemsById)
+              const pr = equippedProp(p.equipped, itemsById)
               const isMe = p.user_email === me.user_email
               return (
                 <div key={p.user_email} className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0" style={isMe ? { background: 'rgba(34,197,94,0.08)' } : undefined}>
                   <span className={`w-7 text-center font-extrabold ${i === 0 ? 'text-amber-300' : i === 1 ? 'text-gray-300' : i === 2 ? 'text-amber-600' : 'text-white/30'}`}>{i + 1}</span>
-                  <div className="shrink-0"><FramedAvatar url={avatarUrl(p.avatar_config, p.equipped, itemsById)} frame={fr} badge={bd} size={40} /></div>
+                  <div className="shrink-0"><FramedAvatar url={avatarUrl(p.avatar_config, p.equipped, itemsById)} frame={fr} badge={bd} prop={pr} size={40} /></div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate flex items-center gap-1.5">
                       <span style={ns || undefined}>{nameOf(p)}</span>
