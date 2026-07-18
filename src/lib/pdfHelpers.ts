@@ -783,18 +783,9 @@ async function renderSalesDocumentPDF(
     doc.setFontSize(14)
     doc.text('$' + fmtMoney(grand), tbX + tbW - 12, tbY + 26, { align: 'right' })
   } else {
-    // RFQ reply-to box
-    doc.setDrawColor(0); doc.setLineWidth(0.7)
-    doc.rect(tbX, tbY, tbW, 62)
-    doc.setFont('times', 'bold'); doc.setFontSize(10)
-    doc.text('Send response to', tbX + 10, tbY + 15)
-    doc.setFont('times', 'normal'); doc.setFontSize(10)
-    let rry = tbY + 30
-    if (opts.replyToName) { doc.text(String(opts.replyToName), tbX + 10, rry); rry += 12 }
-    const email = opts.replyToEmail || 'sourcing@beyondgreenbiotech.com'
-    doc.setTextColor(0, 102, 204)
-    fitText(doc, email, tbX + 10 + (tbW - 20) / 2, rry, tbW - 20, { align: 'center', maxSize: 10 })
-    doc.setTextColor(0, 0, 0)
+    // "Send response to" box intentionally omitted for now — reply-to routes via email.
+    // (Kept the plumbing so it can be toggled back on later.)
+    void opts; void tbX; void tbY; void tbW
   }
 
   // ---- Page 2: Terms & Conditions (SO/Quote only) ----
