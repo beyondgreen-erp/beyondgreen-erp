@@ -250,7 +250,16 @@ export default function QuotationsPage() {
 
   async function openEdit(q: Quote) {
     setEditing(q)
-    setCustomerSearch(cmap[q.customer_id ?? ''] ?? '')
+    // If the linked customer/lead isn't in our initial cache, fetch it by id so the field pre-fills.
+    let displayName = cmap[q.customer_id ?? ''] || ''
+    if (!displayName && q.customer_id) {
+      const { data: c } = await supabase.from('customers').select('id, company_name, board').eq('id', q.customer_id).maybeSingle()
+      if (c) {
+        setCustomers(prev => prev.some(x => x.id === c.id) ? prev : [...prev, c as Customer])
+        displayName = (c as any).company_name || ''
+      }
+    }
+    setCustomerSearch(displayName)
     setForm({
       customer_id: q.customer_id ?? '',
       status: q.status ?? 'Draft',
@@ -471,19 +480,22 @@ export default function QuotationsPage() {
       alert('Add at least one line item before downloading an RFQ.')
       return
     }
+    // RFQs are sent OUT to suppliers on our behalf, so the buyer and ship-to are
+    // always beyondGREEN. We do NOT expose the end customer to the supplier.
+    // reply_to is a shared sourcing inbox, not the current user's email.
     generateRFQPDF(
       {
         quote_number: rfqNumber,
         quote_date: form.quote_date || new Date().toISOString().split('T')[0],
         expiry_date: form.expiry_date || null,
         notes: form.notes || null,
-        delivery_address: (customer as any)?.shipping_address || (customer as any)?.billing_address || null,
+        delivery_address: null,   // pdfHelpers hard-fills beyondGREEN warehouse address for RFQ
         delivery_by: (src as any)?.required_by || null,
-        reply_to_email: userEmail || 'sourcing@beyondgreenbiotech.com',
+        reply_to_email: 'sourcing@beyondgreenbiotech.com',
         reply_to_name: null,
       },
       pdfLines,
-      customer ? { company_name: customer.company_name } : null
+      null   // never send the end customer to suppliers
     )
   }
 
