@@ -151,28 +151,32 @@ const DEFAULT_NEWS_TOPICS = [
 function NewsWidget({ w, onCfg }: { w: Widget; onCfg: (p: any) => void }) {
   // Reads from Supabase shared cache. A pg_cron job refreshes the cache
   // every 30 minutes (server-side), so the whole team sees the same headlines
-  // and we spend at most 10 rss2json/Google News calls per half-hour team-wide.
+  // and we spend at most ~10 external calls per half-hour team-wide.
   const filterTopics: string[] = (w.config?.topics && Array.isArray(w.config.topics)) ? w.config.topics : []
   const speed: number = Number(w.config?.speed || 60)
   const [items, setItems] = useState<{ title: string; link: string; source: string; pubDate: string; topic: string }[] | null>(null)
   const [err, setErr] = useState('')
   const [editing, setEditing] = useState(false)
-  const [allTopics, setAllTopics] = useState<string[]>([])
+  const [tab, setTab] = useState<'filter' | 'admin'>('filter')
+  const [allTopics, setAllTopics] = useState<{ topic: string; enabled: boolean }[]>([])
   const [draft, setDraft] = useState<string[]>(filterTopics)
   const [paused, setPaused] = useState(false)
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null)
+  const [newTopic, setNewTopic] = useState('')
+  const [busy, setBusy] = useState('')
 
   const load = useCallback(async () => {
     setErr('')
-    // Pull topics + state + cache in parallel
     const [{ data: topics }, { data: state }, { data: cache }] = await Promise.all([
-      sb.from('news_ticker_topics').select('topic,enabled').eq('enabled', true).order('topic'),
+      sb.from('news_ticker_topics').select('topic,enabled').order('topic'),
       sb.from('news_ticker_state').select('last_refreshed_at').eq('id', 1).maybeSingle(),
       sb.from('news_ticker_cache').select('topic,title,link,source,pub_date').order('pub_date', { ascending: false, nullsFirst: false }).limit(80),
     ])
-    setAllTopics((topics || []).map((t: any) => t.topic))
+    const allT = (topics || []).map((t: any) => ({ topic: t.topic, enabled: t.enabled }))
+    setAllTopics(allT)
     setRefreshedAt(state?.last_refreshed_at || null)
-    const filt = new Set(filterTopics.length ? filterTopics : (topics || []).map((t: any) => t.topic))
+    const enabledSet = new Set(allT.filter(t => t.enabled).map(t => t.topic))
+    const filt = filterTopics.length ? new Set(filterTopics) : enabledSet
     const rows = (cache || []).filter((r: any) => filt.has(r.topic)).map((r: any) => ({
       title: String(r.title || '').replace(/&amp;/g, '&').replace(/&#39;/g, '’').replace(/&quot;/g, '"'),
       link: r.link,
@@ -185,28 +189,97 @@ function NewsWidget({ w, onCfg }: { w: Widget; onCfg: (p: any) => void }) {
 
   useEffect(() => { load() }, [load])
 
+  const addTopic = async () => {
+    const t = newTopic.trim(); if (!t) return
+    setBusy('add')
+    const { error } = await sb.from('news_ticker_topics').insert({ topic: t, enabled: true })
+    setBusy('')
+    if (error) { alert(error.message); return }
+    setNewTopic(''); await load()
+  }
+  const toggleTopicEnabled = async (topic: string, enabled: boolean) => {
+    setBusy('toggle')
+    await sb.from('news_ticker_topics').update({ enabled }).eq('topic', topic)
+    setBusy(''); await load()
+  }
+  const deleteTopic = async (topic: string) => {
+    if (!confirm(`Remove "${topic}" from the shared ticker for the whole team?`)) return
+    setBusy('del')
+    // Also clean cached rows for this topic so it disappears immediately
+    await sb.from('news_ticker_cache').delete().eq('topic', topic)
+    await sb.from('news_ticker_topics').delete().eq('topic', topic)
+    setBusy(''); await load()
+  }
+  const refreshNow = async () => {
+    setBusy('refresh')
+    const url = 'https://tdhqucirvetvjpfsmnfb.supabase.co/functions/v1/news-ticker-refresh?secret=change-me'
+    const anon = (sb as any).supabaseKey || ''
+    try {
+      await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${anon}` }, body: '{}' })
+    } catch { /* ignore */ }
+    // Give server a beat, then reload
+    setTimeout(async () => { await load(); setBusy('') }, 4000)
+  }
+
   if (editing) {
     const toggle = (t: string) => setDraft(d => d.includes(t) ? d.filter(x => x !== t) : [...d, t])
     return (
       <div className="p-3 h-full flex flex-col overflow-hidden">
-        <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Filter which topics YOU see (leave empty = show all)</p>
-        <p className="text-[10px] text-gray-400 mb-2">Refreshed team-wide every 30 min. Last refresh: {refreshedAt ? new Date(refreshedAt).toLocaleString() : '—'}</p>
-        <div className="flex-1 overflow-y-auto flex flex-wrap gap-1.5 mb-2">
-          {allTopics.map(t => (
-            <button key={t} onClick={() => toggle(t)}
-              className={`text-[10px] rounded-full px-2 py-1 border ${draft.includes(t) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-500 border-[#E4E6EE] hover:border-emerald-400'}`}>
-              {t}
-            </button>
-          ))}
-          {allTopics.length === 0 && <p className="text-xs text-gray-400">No topics yet.</p>}
+        <div className="flex items-center gap-2 mb-2 border-b border-[#EEF0F4]">
+          <button onClick={() => setTab('filter')} className={`text-xs px-2 py-1.5 font-semibold ${tab === 'filter' ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-gray-400'}`}>My filter</button>
+          <button onClick={() => setTab('admin')} className={`text-xs px-2 py-1.5 font-semibold ${tab === 'admin' ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-gray-400'}`}>Manage topics (team)</button>
+          <span className="ml-auto text-[10px] text-gray-400">Last refresh: {refreshedAt ? new Date(refreshedAt).toLocaleString() : '—'}</span>
         </div>
-        <div className="flex items-center justify-between">
-          <button onClick={() => setDraft([])} className="text-[10px] text-gray-500 hover:text-[#3B6FE0]">Clear (show all)</button>
-          <div className="flex gap-2">
-            <button onClick={() => { setDraft(filterTopics); setEditing(false) }} className="text-xs px-3 py-1.5 rounded border border-[#E4E6EE]">Cancel</button>
-            <button onClick={() => { onCfg({ topics: draft }); setEditing(false) }} className="text-xs px-3 py-1.5 rounded bg-[#3B6FE0] text-white">Save</button>
-          </div>
-        </div>
+
+        {tab === 'filter' && (
+          <>
+            <p className="text-[10px] text-gray-500 mb-2">Filter which topics YOU see (leave empty = show all enabled).</p>
+            <div className="flex-1 overflow-y-auto flex flex-wrap gap-1.5 mb-2">
+              {allTopics.filter(t => t.enabled).map(t => (
+                <button key={t.topic} onClick={() => toggle(t.topic)}
+                  className={`text-[10px] rounded-full px-2 py-1 border ${draft.includes(t.topic) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-500 border-[#E4E6EE] hover:border-emerald-400'}`}>
+                  {t.topic}
+                </button>
+              ))}
+              {allTopics.length === 0 && <p className="text-xs text-gray-400">No topics yet.</p>}
+            </div>
+            <div className="flex items-center justify-between">
+              <button onClick={() => setDraft([])} className="text-[10px] text-gray-500 hover:text-[#3B6FE0]">Clear (show all)</button>
+              <div className="flex gap-2">
+                <button onClick={() => { setDraft(filterTopics); setEditing(false) }} className="text-xs px-3 py-1.5 rounded border border-[#E4E6EE]">Cancel</button>
+                <button onClick={() => { onCfg({ topics: draft }); setEditing(false) }} className="text-xs px-3 py-1.5 rounded bg-[#3B6FE0] text-white">Save filter</button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === 'admin' && (
+          <>
+            <p className="text-[10px] text-gray-500 mb-2">Add or remove topics for the entire team. Fresh headlines pull on the next 30-min refresh (or hit Refresh now).</p>
+            <div className="flex gap-1 mb-2">
+              <input value={newTopic} onChange={e => setNewTopic(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTopic()}
+                placeholder='e.g. "California SB 54"' className="flex-1 border border-[#E4E6EE] rounded px-2 py-1 text-xs" />
+              <button onClick={addTopic} disabled={!newTopic.trim() || busy === 'add'} className="text-xs px-3 py-1 rounded bg-emerald-600 text-white font-semibold disabled:opacity-50">+ Add</button>
+            </div>
+            <div className="flex-1 overflow-y-auto border border-[#EEF0F4] rounded">
+              {allTopics.length === 0 ? <p className="text-xs text-gray-400 p-3 text-center">No topics.</p> : allTopics.map(t => (
+                <div key={t.topic} className="flex items-center gap-2 px-2 py-1.5 border-b border-[#EEF0F4] last:border-0 text-xs">
+                  <label className="flex items-center gap-1.5 cursor-pointer flex-1 min-w-0">
+                    <input type="checkbox" checked={t.enabled} onChange={e => toggleTopicEnabled(t.topic, e.target.checked)} className="accent-emerald-600" />
+                    <span className={`truncate ${t.enabled ? 'text-[#0F1C2E] font-medium' : 'text-gray-400 line-through'}`}>{t.topic}</span>
+                  </label>
+                  <button onClick={() => deleteTopic(t.topic)} className="text-red-400 hover:text-red-600 text-sm leading-none px-1" title="Delete topic">×</button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <button onClick={refreshNow} disabled={busy === 'refresh'} className="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+                {busy === 'refresh' ? 'Refreshing…' : '↻ Refresh now'}
+              </button>
+              <button onClick={() => setEditing(false)} className="text-xs px-3 py-1.5 rounded border border-[#E4E6EE]">Close</button>
+            </div>
+          </>
+        )}
       </div>
     )
   }
