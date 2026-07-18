@@ -1,6 +1,7 @@
 'use client'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 
 interface Props {
   value: string
@@ -133,12 +134,7 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
                 onMouseDown={() => selectUser(u.email)}
                 className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${i === dropIdx ? 'bg-emerald-600/20 text-emerald-300' : 'text-gray-500 hover:bg-[#F5F6FA]'}`}
               >
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold"
-                  style={{ backgroundColor: u.avatar_color }}
-                >
-                  {u.avatar_initials ?? u.full_name[0]}
-                </div>
+                <UserAvatar email={u.email} initials={u.avatar_initials ?? u.full_name[0]} color={u.avatar_color} size={28} />
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{u.full_name}</p>
                   {u.department && <p className="text-xs text-gray-500 truncate">{u.department}</p>}
