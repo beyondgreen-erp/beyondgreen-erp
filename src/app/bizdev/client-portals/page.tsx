@@ -100,6 +100,8 @@ export default function ClientPortalsAdmin() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Client | null>(null)
   const [copied, setCopied] = useState(false)
+  const [sending, setSending] = useState<string | null>(null)
+  const [toast, setToast] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -126,11 +128,22 @@ export default function ClientPortalsAdmin() {
   async function markRead(m: Msg) { await sb.from('portal_messages').update({ is_read: true }).eq('id', m.id); setMessages(ms => ms.map(x => x.id === m.id ? { ...x, is_read: true } : x)) }
   async function markAllRead() { await sb.from('portal_messages').update({ is_read: true }).eq('is_read', false); setMessages(ms => ms.map(x => ({ ...x, is_read: true }))) }
   function copyLink() { navigator.clipboard?.writeText(PORTAL_URL); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  async function sendAccess(c: Client) {
+    if (!c.email) { setToast('This client has no email on file.'); setTimeout(() => setToast(''), 4000); return }
+    if (!confirm(`Email portal access to ${c.email}?\n\nThey'll get a secure link to set their password. Rudyp@beyondgreenbiotech.com is CC'd.`)) return
+    setSending(c.id)
+    try {
+      const res = await fetch('/api/portal/send-access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: c.id }) })
+      const data = await res.json().catch(() => ({}))
+      setToast(res.ok ? `Access email sent to ${c.email} (CC Rudyp)` : (data.error || 'Could not send the email.'))
+    } catch { setToast('Could not send the email.') } finally { setSending(null); setTimeout(() => setToast(''), 4000) }
+  }
   function openAccount(c: Client | null) { setEditing(c); setModalOpen(true) }
   function closeModal() { setModalOpen(false); setTimeout(() => setEditing(null), 200); load() }
 
   return (
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
+      {toast && <div className="fixed top-4 right-4 z-[70] bg-[#1A1D2E] text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-lg">{toast}</div>}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
         <div>
           <span className="mon-tag" style={{ background: '#037f4c22', color: GREEN }}>🔑 Client Portals</span>
@@ -144,7 +157,7 @@ export default function ClientPortalsAdmin() {
       </div>
 
       <div className="bg-[#F0FBF5] border border-[#CDE9DA] rounded-lg px-4 py-2.5 mb-4 text-[13px] text-[#0F5132]">
-        To share a project, open a <strong>Sales Order</strong> or <strong>Quote</strong>, turn on <strong>&ldquo;Show in client portal,&rdquo;</strong> and click <strong>Save changes</strong>. It mirrors to that customer&rsquo;s portal automatically — clients see the status and a progress timeline, never pricing or internal notes. Use <strong>View portal</strong> to see it exactly as the client does.
+        To share a project, open a <strong>Sales Order</strong> or <strong>Quote</strong>, turn on <strong>&ldquo;Show in client portal,&rdquo;</strong> and click <strong>Save changes</strong>. It mirrors to that customer&rsquo;s portal automatically — clients see the status and a progress timeline, never pricing or internal notes. Click <strong>Send access</strong> to email a client a secure sign-in link, and <strong>View portal</strong> to see it exactly as they do. Clients are auto-emailed on key milestones (In Production, Shipped, Delivered). Every client email CC&rsquo;s Rudyp@beyondgreenbiotech.com.
       </div>
 
       <div className="flex items-center gap-2 mb-4">
@@ -177,6 +190,7 @@ export default function ClientPortalsAdmin() {
                       <td className="px-3 py-2.5 text-gray-500">{fmtWhen(c.last_login_at)}</td>
                       <td className="px-3 py-2.5"><span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${c.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>{c.is_active ? 'Active' : 'Disabled'}</span></td>
                       <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        <button onClick={() => sendAccess(c)} disabled={sending === c.id} className="text-xs font-semibold text-[#037f4c] hover:underline mr-3 disabled:opacity-50">{sending === c.id ? 'Sending…' : 'Send access'}</button>
                         <a href={`/api/portal/impersonate?clientId=${c.id}`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#037f4c] hover:underline mr-3">View portal ↗</a>
                         <button onClick={() => openAccount(c)} className="text-xs font-semibold text-gray-500 hover:underline mr-3">Edit</button>
                         <button onClick={() => toggleActive(c)} className="text-xs font-semibold text-gray-500 hover:underline mr-3">{c.is_active ? 'Disable' : 'Enable'}</button>
