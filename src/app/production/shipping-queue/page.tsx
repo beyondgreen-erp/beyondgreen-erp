@@ -126,15 +126,30 @@ export default function ShippingQueuePage() {
     const pids = [...new Set(ls.map((l: any) => l.product_id).filter(Boolean))]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prodMap: Record<string, any> = {}
+    const PROD_COLS = 'id, sku, case_qty, weight_per_unit_grams, upc_gtin, gtin_image_url, customer_part_number, product_name'
     if (pids.length) {
-      const { data: prods } = await sb.from('products').select('id, case_qty, weight_per_unit_grams, upc_gtin, gtin_image_url, customer_part_number, product_name').in('id', pids)
+      const { data: prods } = await sb.from('products').select(PROD_COLS).in('id', pids)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;((prods as any[]) || []).forEach((p: any) => { prodMap[p.id] = p })
     }
+    // Fallback: match products by SKU (case-insensitive). Order lines imported from Monday
+    // often carry a product_id that no longer exists, or a SKU cased differently ("bG" vs "BG"),
+    // which orphaned the GTIN / UPC lookup. Resolving by SKU recovers those.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prodBySku: Record<string, any> = {}
+    const skus = [...new Set(ls.map((l: any) => String(l.sku || '').trim()).filter(Boolean))]
+    if (skus.length) {
+      const orFilter = skus.map((s: string) => `sku.ilike.${s.replace(/[,()]/g, '')}`).join(',')
+      const { data: bySku } = await sb.from('products').select(PROD_COLS).or(orFilter)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;((bySku as any[]) || []).forEach((p: any) => { prodBySku[String(p.sku || '').toUpperCase()] = p })
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rowsOut: PlanRow[] = ls.map((l: any) => {
-      const prod = l.product_id ? prodMap[l.product_id] : null
-      const upc = l.qty_per_case || prod?.case_qty || 1
+      const prod = (l.product_id && prodMap[l.product_id]) || prodBySku[String(l.sku || '').toUpperCase()] || null
+      // Cases = ordered quantity unless the line explicitly bundles units per case.
+      // (product.case_qty is the retail count e.g. "1,000CT" — not a shipping case grouping.)
+      const upc = l.qty_per_case || 1
       const units = l.quantity ?? l.qty ?? 0
       const gpu = prod?.weight_per_unit_grams || 0
       const cs = Math.max(1, Math.ceil(units / (upc || 1)))
@@ -159,9 +174,13 @@ export default function ShippingQueuePage() {
         if (draft.bol) setBolForm(draft.bol)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const bySku = new Map<string, any>((draft.lines || []).map((d: any) => [d.sku, d]))
+        // Case counts always come from the LIVE line quantity. A saved draft's pallet
+        // allocation is only restored when its case count still matches the live figure —
+        // otherwise the order quantity was edited since the draft, so we start that line fresh.
         const restored = rowsOut.map(r => {
           const d = bySku.get(r.sku)
-          return d ? { ...r, cases: d.cases ?? r.cases, alloc: d.alloc ?? r.alloc } : r
+          if (d && (d.cases ?? r.cases) === r.cases) return { ...r, alloc: d.alloc ?? r.alloc }
+          return r
         })
         setPlan(restored)
         setDraftMsg('Draft restored'); setTimeout(() => setDraftMsg(''), 3000)
@@ -391,10 +410,13 @@ export default function ShippingQueuePage() {
       const url = sb.storage.from('erp-images').getPublicUrl(path).data.publicUrl
       // apply to every plan row with this SKU so the case labels can use it now
       setPlan(p => p.map(r => r.sku === sku ? { ...r, gtinImageUrl: url } : r))
-      // write back to Inventory so it's available next time (best-effort)
+      // write back to Inventory so it's available next time. Update by product id first; if that
+      // matched no row (orphaned/mismatched id), fall back to a case-insensitive SKU match so the
+      // GTIN reliably persists to the real product.
       const pid = plan.find(r => r.sku === sku)?.productId
-      if (pid) await sb.from('products').update({ gtin_image_url: url }).eq('id', pid)
-      else await sb.from('products').update({ gtin_image_url: url }).eq('sku', sku)
+      let saved = 0
+      if (pid) { const { data } = await sb.from('products').update({ gtin_image_url: url }).eq('id', pid).select('id'); saved = (data as unknown[])?.length || 0 }
+      if (!saved) { const { data } = await sb.from('products').update({ gtin_image_url: url }).ilike('sku', sku).select('id'); saved = (data as unknown[])?.length || 0 }
       setMissing(m => m.filter(s => s !== sku))
     } catch (e) { alert('GTIN upload failed: ' + (e as Error).message) }
     setBusy('')
