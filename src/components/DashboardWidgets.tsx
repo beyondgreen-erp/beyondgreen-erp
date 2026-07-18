@@ -133,46 +133,110 @@ function WeatherWidget({ w, onCfg }: { w: Widget; onCfg: (p: any) => void }) {
   )
 }
 
+// Curated set of Google News queries relevant to beyondGREEN's business
+// (plastic bans, compostable/biodegradable, sustainability legislation, EPR, etc.)
+const DEFAULT_NEWS_TOPICS = [
+  'single-use plastic ban',
+  'styrofoam ban',
+  'plastic bag ban',
+  'compostable packaging',
+  'biodegradable straws',
+  'EPR extended producer responsibility',
+  'sustainability legislation',
+  'plastic pollution law',
+  'sustainable packaging',
+  'beyondGREEN biotech',
+]
+
 function NewsWidget({ w, onCfg }: { w: Widget; onCfg: (p: any) => void }) {
-  const query = w.config?.query || 'biotech'
-  const [items, setItems] = useState<any[] | null>(null)
+  const topics: string[] = (w.config?.topics && Array.isArray(w.config.topics) && w.config.topics.length)
+    ? w.config.topics : DEFAULT_NEWS_TOPICS
+  const speed: number = Number(w.config?.speed || 60) // seconds per full loop; lower = faster
+  const [items, setItems] = useState<{ title: string; link: string; source: string; pubDate: string; topic: string }[] | null>(null)
   const [err, setErr] = useState('')
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(query)
+  const [draft, setDraft] = useState(topics.join('\n'))
+  const [paused, setPaused] = useState(false)
+
   useEffect(() => {
     let alive = true
     setErr(''); setItems(null)
-    const rss = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`
-    fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}`)
-      .then(r => r.json()).then(j => { if (alive) setItems((j?.items || []).slice(0, 6)) })
-      .catch(e => { if (alive) setErr(e.message || 'News unavailable') })
+    ;(async () => {
+      try {
+        const results = await Promise.all(topics.map(async t => {
+          const rss = `https://news.google.com/rss/search?q=${encodeURIComponent(t)}&hl=en-US&gl=US&ceid=US:en`
+          try {
+            const j = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}&count=5`).then(r => r.json())
+            return (j?.items || []).slice(0, 5).map((it: any) => ({
+              title: (it.title || '').replace(/&#39;/g, '’').replace(/&amp;/g, '&').replace(/&quot;/g, '"'),
+              link: it.link,
+              source: (it.author || '').split(',')[0] || 'News',
+              pubDate: it.pubDate || '',
+              topic: t,
+            }))
+          } catch { return [] }
+        }))
+        // Flatten, dedupe by title, sort newest first
+        const seen = new Set<string>()
+        const flat = results.flat().filter(it => {
+          const key = it.title.toLowerCase()
+          if (seen.has(key)) return false
+          seen.add(key); return true
+        }).sort((a, b) => (b.pubDate || '').localeCompare(a.pubDate || ''))
+        if (alive) setItems(flat.slice(0, 40))
+      } catch (e: any) { if (alive) setErr(e.message || 'News unavailable') }
+    })()
     return () => { alive = false }
-  }, [query])
-  return (
-    <div className="p-4 h-full max-h-[400px] overflow-y-auto">
-      {editing ? (
-        <div className="flex flex-col gap-2">
-          <label className="text-xs text-gray-500">Search topic</label>
-          <input value={draft} onChange={e => setDraft(e.target.value)} className="border border-[#E4E6EE] rounded px-2 py-1.5 text-sm" placeholder="e.g. biotech, packaging" />
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setEditing(false)} className="text-xs px-3 py-1.5 rounded border border-[#E4E6EE]">Cancel</button>
-            <button onClick={() => { onCfg({ query: draft }); setEditing(false) }} className="text-xs px-3 py-1.5 rounded bg-[#3B6FE0] text-white">Save</button>
+  }, [JSON.stringify(topics)]) // eslint-disable-line
+
+  if (editing) {
+    return (
+      <div className="p-3 h-full flex flex-col">
+        <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1">Ticker topics (one per line)</p>
+        <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={8} className="flex-1 w-full border border-[#E4E6EE] rounded px-2 py-1.5 text-xs font-mono" />
+        <div className="flex items-center justify-between mt-2">
+          <button onClick={() => { setDraft(DEFAULT_NEWS_TOPICS.join('\n')); }} className="text-[10px] text-gray-500 hover:text-[#3B6FE0]">Reset to defaults</button>
+          <div className="flex gap-2">
+            <button onClick={() => { setDraft(topics.join('\n')); setEditing(false) }} className="text-xs px-3 py-1.5 rounded border border-[#E4E6EE]">Cancel</button>
+            <button onClick={() => { onCfg({ topics: draft.split('\n').map(s => s.trim()).filter(Boolean) }); setEditing(false) }} className="text-xs px-3 py-1.5 rounded bg-[#3B6FE0] text-white">Save</button>
           </div>
         </div>
-      ) : err ? <p className="text-xs text-red-500">{err}</p> : !items ? <p className="text-xs text-gray-400">Loading news…</p> : (
-        <>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Topic: {query}</p>
-            <button onClick={() => { setDraft(query); setEditing(true) }} className="text-[10px] text-[#3B6FE0] hover:underline">Edit</button>
-          </div>
-          {items.length === 0 ? <EmptyState msg="No headlines" /> : items.map((it: any, i: number) => (
-            <a key={i} href={it.link} target="_blank" rel="noreferrer" className="block py-2 border-b border-[#EEF0F4] last:border-0 hover:bg-[#F8FAFF] -mx-2 px-2 rounded">
-              <p className="text-xs font-medium text-[#0F1C2E] line-clamp-2">{it.title}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">{new Date(it.pubDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {it.author || 'News'}</p>
-            </a>
-          ))}
-        </>
-      )}
+      </div>
+    )
+  }
+
+  if (err) return <div className="p-3 text-xs text-red-500">{err}</div>
+  if (!items) return <div className="p-3 text-xs text-gray-400">Loading ticker…</div>
+  if (items.length === 0) return <div className="p-3 text-xs text-gray-400">No headlines yet.</div>
+
+  // Duplicate the sequence so the marquee loops seamlessly
+  const loop = [...items, ...items]
+
+  return (
+    <div className="h-12 flex items-center overflow-hidden relative bg-gradient-to-r from-emerald-50 via-white to-emerald-50"
+      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes bg-ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .bg-ticker-track { animation: bg-ticker ${speed}s linear infinite; }
+        .bg-ticker-track.paused { animation-play-state: paused; }
+      ` }} />
+      <div className="shrink-0 z-10 bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-r-md shadow flex items-center gap-1.5">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+        Sustainability News
+      </div>
+      <div className={`bg-ticker-track flex whitespace-nowrap ${paused ? 'paused' : ''}`} style={{ willChange: 'transform', minWidth: '200%' }}>
+        {loop.map((it, i) => (
+          <a key={i} href={it.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-4 py-2 hover:bg-white/70 border-r border-emerald-100">
+            <span className="text-[10px] uppercase font-bold text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5">{it.topic}</span>
+            <span className="text-xs font-medium text-[#0F1C2E]">{it.title}</span>
+            <span className="text-[10px] text-gray-400">— {it.source}</span>
+          </a>
+        ))}
+      </div>
+      <button onClick={() => setEditing(true)} title="Edit ticker topics"
+        className="absolute right-1 top-1 z-10 text-[10px] text-emerald-700 bg-white/80 border border-emerald-200 rounded px-1.5 py-0.5 hover:bg-white">
+        ⚙
+      </button>
     </div>
   )
 }
@@ -504,7 +568,7 @@ function RecentDocumentsWidget() {
 export const CATALOG: Record<string, CatalogEntry> = {
   clock: { label: 'Clock & Date', icon: '🕐', defaultSize: 'sm', category: 'Personal', description: 'Live clock with day/date.', render: () => <ClockWidget /> },
   weather: { label: 'Weather', icon: '☁️', defaultSize: 'sm', category: 'Personal', description: '4-day forecast for any city.', configurable: true, render: (w, o) => <WeatherWidget w={w} onCfg={o} /> },
-  news: { label: 'News Feed', icon: '📰', defaultSize: 'md', category: 'Personal', description: 'Google News headlines for any topic.', configurable: true, render: (w, o) => <NewsWidget w={w} onCfg={o} /> },
+  news: { label: 'Sustainability News Ticker', icon: '📰', defaultSize: 'xl', category: 'Personal', description: 'Scrolling ticker of headlines: plastic bans, sustainability legislation, EPR, compostables. Fully editable topics.', configurable: true, render: (w, o) => <NewsWidget w={w} onCfg={o} /> },
   notes: { label: 'My Notes', icon: '📝', defaultSize: 'md', category: 'Personal', description: 'Private scratchpad, auto-saved.', render: () => <NotesInline /> },
   quick_links: { label: 'Quick Links', icon: '🔗', defaultSize: 'sm', category: 'Personal', description: 'Bookmark tools & sites.', configurable: true, render: (w, o) => <QuickLinksWidget w={w} onCfg={o} /> },
 
@@ -555,7 +619,7 @@ const DEFAULT_LAYOUT: { type: string; size: WidgetSize; config?: any }[] = [
   { type: 'mentions', size: 'xl' },
   { type: 'birthdays', size: 'md' },
   { type: 'time_off_upcoming', size: 'md' },
-  { type: 'news', size: 'md', config: { query: 'biotech packaging' } },
+  { type: 'news', size: 'xl', config: {} },
   { type: 'notes', size: 'md' },
 ]
 
