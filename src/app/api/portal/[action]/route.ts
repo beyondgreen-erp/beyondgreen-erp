@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
 import crypto from 'crypto'
 import { clientStage, type StageTone } from '@/lib/portalStages'
+
+const STAFF_DOMAINS = ['beyondgreenbiotech.com', 'byndgrn.com']
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -44,6 +47,24 @@ async function companyName(client: PortalClient): Promise<string | null> {
 }
 
 export async function GET(req: NextRequest, { params }: { params: { action: string } }) {
+  // Staff-only: open the real client portal as a given client (preview via a short-lived session).
+  if (params.action === 'impersonate') {
+    const supa = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      cookies: { getAll() { return req.cookies.getAll() }, setAll() {} },
+    })
+    const { data: { user } } = await supa.auth.getUser()
+    const domain = user?.email?.split('@')[1]?.toLowerCase() || ''
+    if (!user || !STAFF_DOMAINS.includes(domain)) return NextResponse.redirect(new URL('/login', req.url))
+    const clientId = req.nextUrl.searchParams.get('clientId') || ''
+    const { data: c } = await admin.from('portal_clients').select('id').eq('id', clientId).maybeSingle()
+    if (!c) return NextResponse.json({ error: 'client not found' }, { status: 404 })
+    const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '')
+    await admin.from('portal_sessions').insert({ token, portal_client_id: clientId, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 2).toISOString() })
+    const res = NextResponse.redirect(new URL('/portal', req.url))
+    res.cookies.set(COOKIE, token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 2 })
+    return res
+  }
+
   if (params.action !== 'me') return NextResponse.json({ error: 'not found' }, { status: 404 })
   const client = await clientFromRequest(req)
   if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
