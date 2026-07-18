@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import RemindersWidget from '@/components/RemindersWidget'
+import MentionsWidget from '@/components/MentionsWidget'
 import TeamPresenceStrip from '@/components/TeamPresenceStrip'
 import RawMaterialsPanel from '@/components/RawMaterialsPanel'
 import InventoryLinkGaps from '@/components/InventoryLinkGaps'
@@ -177,6 +178,11 @@ export default function DashboardPage() {
 
         {/* Reminders */}
         <RemindersWidget />
+      </div>
+
+      {/* Mentions — @tags from teammates (also shown in the top bell) */}
+      <div className="mb-6">
+        <MentionsWidget />
       </div>
 
       <TeamPresenceStrip />
