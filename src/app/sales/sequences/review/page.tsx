@@ -138,8 +138,11 @@ export default function SequenceReviewPage() {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFF;border-radius:12px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
 <tr><td style="background:linear-gradient(135deg,#00A84F 0%,#037f4c 100%);padding:18px 20px;">
   <table role="presentation" width="100%"><tr>
-    <td><img src="https://beyondgreenbiotech.com/cdn/shop/files/beyondgreenlogo.png" alt="beyondGREEN" style="height:36px;filter:brightness(0) invert(1);" /></td>
-    <td align="right" style="color:#FFF;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Made in USA · Compostable</td>
+    <td>
+      <div style="color:#FFF;font-weight:800;font-size:22px;letter-spacing:-0.5px;line-height:1;font-family:Arial,Helvetica,sans-serif;">beyondGREEN</div>
+      <div style="color:#B6F0D0;font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;font-family:Arial,Helvetica,sans-serif;">biotech · professional</div>
+    </td>
+    <td align="right" style="color:#FFF;font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;font-family:Arial,Helvetica,sans-serif;">Made in USA<br>Compostable</td>
   </tr></table>
 </td></tr>
 <tr><td style="padding:24px 24px 20px;">${bodyHtml}${sigBlock}</td></tr>
