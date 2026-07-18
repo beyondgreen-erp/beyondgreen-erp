@@ -69,7 +69,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   }, [])
 
   useEffect(() => {
-    if (pathname === '/login' || pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/ship-docs')) return
+    if (pathname === '/login' || pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/')) return
     const sb = createSupabaseBrowserClient()
     sb.auth.getUser().then(({ data }) => {
       const email = data.user?.email ?? ''
@@ -89,7 +89,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     })
   }, [pathname])
 
-  if (pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/ship-docs')) return <>{children}</>
+  if (pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/')) return <>{children}</>
   if (pathname === '/login') return <>{children}<AuthWatcher /></>
 
   const pageTitle = getPageTitle(pathname)
