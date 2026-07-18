@@ -218,59 +218,111 @@ export interface PackListCase {
   units?: number               // total units of this SKU
   weight?: number              // total line weight (lb)
 }
+export interface PackListPallet {
+  number: number; dims?: string; weight?: number
+  lines: { sku: string; description?: string; cases: number; units: number }[]
+}
 
 export function buildPackingList(
-  order: { poNumber: string; orderNumber: string; shipToName: string; shipToAddress: string; date: string },
+  order: { poNumber: string; orderNumber: string; shipToName: string; shipToAddress: string; date: string; shipFromName?: string; shipFromAddress?: string },
   cases: PackListCase[],
   totals: { pallets: number; cases: number; weight: number },
   logo: string | null,
+  pallets?: PackListPallet[],
 ): jsPDF {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' })
-  const M = 32
+  const M = 36
   const pageW = doc.internal.pageSize.getWidth()
   const R = pageW - M
+  const bottom = doc.internal.pageSize.getHeight() - M
   let y = M
-  if (logo) { try { doc.addImage(logo, 'PNG', M, y, 108, 42) } catch { /* */ } }
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(17)
-  doc.text('Packing List', R, y + 16, { align: 'right' })
-  y += 50
-  doc.setFontSize(9); doc.setFont('helvetica', 'normal')
-  doc.text(`Order: ${order.orderNumber}`, M, y)
-  doc.text(`PO#: ${order.poNumber}`, M + 220, y)
-  doc.text(`Date: ${order.date}`, R, y, { align: 'right' }); y += 15
-  doc.setFont('helvetica', 'bold'); doc.text('Ship To:', M, y); doc.setFont('helvetica', 'normal')
-  doc.text(order.shipToName, M + 42, y); y += 12
-  order.shipToAddress.split('\n').forEach(l => { if (l.trim()) { doc.text(l, M + 42, y); y += 11 } })
-  y += 10
+  const need = (h: number) => { if (y + h > bottom) { doc.addPage(); y = M } }
 
-  const cols = [{ t: 'SKU', w: 110 }, { t: 'Description', w: 0 }, { t: 'Cases', w: 52 }, { t: 'Units', w: 60 }, { t: 'Wt (lb)', w: 64 }]
+  if (logo) { try { doc.addImage(logo, 'PNG', M, y, 104, 40) } catch { /* */ } }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(20, 22, 34)
+  doc.text('Packing List', R, y + 15, { align: 'right' })
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 96, 110)
+  doc.text(order.date, R, y + 30, { align: 'right' })
+  y += 52
+
+  // Order / PO band
+  doc.setDrawColor(225); doc.setLineWidth(0.6); doc.line(M, y, R, y); y += 14
+  doc.setTextColor(20, 22, 34); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
+  doc.text(order.orderNumber || '', M, y)
+  if (order.poNumber) { doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 96, 110); doc.text(`PO #${order.poNumber}`, R, y, { align: 'right' }) }
+  y += 16
+
+  // Ship From / Ship To — two columns
+  const colW = (R - M - 20) / 2
+  const boxTop = y
+  const addrBlock = (x: number, label: string, name: string, addr: string) => {
+    let yy = boxTop
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(120, 126, 140)
+    doc.text(label.toUpperCase(), x, yy); yy += 13
+    doc.setFontSize(10); doc.setTextColor(20, 22, 34); doc.text(name || '—', x, yy); yy += 12
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(70, 74, 88)
+    ;(addr || '').split('\n').forEach(l => { if (l.trim()) { doc.text(l.trim(), x, yy, { maxWidth: colW - 6 }); yy += 11 } })
+    return yy
+  }
+  const y1 = addrBlock(M, 'Ship From', order.shipFromName || 'beyondGREEN Biotech, Inc.', order.shipFromAddress || '1202 E. Wakeham Ave.\nSanta Ana, CA 92705 USA')
+  const y2 = addrBlock(M + colW + 20, 'Ship To', order.shipToName, order.shipToAddress)
+  y = Math.max(y1, y2) + 14
+
+  // Per-SKU summary table
+  const cols = [{ t: 'SKU', w: 96 }, { t: 'Description', w: 0 }, { t: 'Cases', w: 50 }, { t: 'Units', w: 56 }, { t: 'Wt (lb)', w: 60 }]
   const tableW = R - M
   cols[1].w = tableW - cols.reduce((s, c, i) => i === 1 ? s : s + c.w, 0)
   const xOf: number[] = []; { let cx = M; cols.forEach(c => { xOf.push(cx); cx += c.w }) }
-  doc.setFillColor(238, 242, 246); doc.rect(M, y, tableW, 16, 'F'); doc.setDrawColor(0); doc.setLineWidth(0.5); doc.rect(M, y, tableW, 16)
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
-  cols.forEach((c, i) => doc.text(c.t, xOf[i] + 3, y + 11))
-  y += 16
-  doc.setFont('helvetica', 'normal')
-  // One row per SKU, aggregated across all pallets, ordered by SKU.
+  const header = () => {
+    doc.setFillColor(238, 242, 246); doc.rect(M, y, tableW, 17, 'F')
+    doc.setDrawColor(210); doc.setLineWidth(0.5); doc.rect(M, y, tableW, 17)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(60, 64, 78)
+    cols.forEach((c, i) => doc.text(c.t, xOf[i] + 4, y + 11.5))
+    y += 17
+  }
+  need(40); header()
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44)
   const ordered = [...cases].sort((a, b) => a.sku.localeCompare(b.sku))
-  ordered.forEach(c => {
-    if (y > 748) { doc.addPage(); y = M }
-    doc.setDrawColor(220); doc.setLineWidth(0.3); doc.line(M, y + 13, R, y + 13)
+  ordered.forEach((c, idx) => {
+    if (y + 14 > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44) }
+    if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, 14, 'F') }
     const units = c.units ?? ((c.caseCount || 0) * (c.unitsInCase || 0))
     const wt = c.weight || 0
-    const cells = [
-      c.sku,
-      c.description || '',
-      String(c.caseCount),
-      units ? String(units) : '',
-      wt ? String(Math.round(wt)) : '',
-    ]
-    cols.forEach((col, i) => doc.text(String(cells[i]), xOf[i] + 3, y + 9, { maxWidth: col.w - 5 }))
-    y += 13
+    const cells = [c.sku, c.description || '', String(c.caseCount), units ? String(units) : '', wt ? String(Math.round(wt)) : '']
+    doc.setFontSize(9)
+    cols.forEach((col, i) => doc.text(String(cells[i]), xOf[i] + 4, y + 10, { maxWidth: col.w - 6 }))
+    y += 14
   })
-  y += 12
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-  doc.text(`Totals:   Pallets ${totals.pallets}    Cases ${totals.cases}    Weight ${Math.round(totals.weight)} lb`, M, y)
+  doc.setDrawColor(210); doc.setLineWidth(0.5); doc.line(M, y, R, y)
+  y += 15
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 22, 34)
+  doc.text(`Totals:   ${totals.pallets} pallet${totals.pallets === 1 ? '' : 's'}    ${totals.cases} cases    ${Math.round(totals.weight)} lb`, M, y)
+  y += 8
+
+  // Per-pallet breakdown
+  if (pallets && pallets.length) {
+    y += 20; need(30)
+    doc.setDrawColor(225); doc.line(M, y, R, y); y += 15
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20, 22, 34)
+    doc.text('Pallet detail', M, y); y += 6
+    pallets.forEach(p => {
+      need(34)
+      y += 12
+      doc.setFillColor(238, 242, 246); doc.rect(M, y - 9, tableW, 16, 'F')
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 32, 44)
+      const meta = [p.dims, p.weight ? `${Math.round(p.weight)} lb` : ''].filter(Boolean).join('  ·  ')
+      doc.text(`Pallet ${p.number}`, M + 4, y + 2)
+      if (meta) doc.text(meta, R - 4, y + 2, { align: 'right' })
+      y += 15
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 64, 78)
+      p.lines.forEach(l => {
+        need(13)
+        const label = `${l.cases} × ${l.sku}${l.description ? ' — ' + l.description : ''}`
+        doc.text(label, M + 12, y + 8, { maxWidth: tableW - 120 })
+        doc.text(`${l.units} units`, R - 4, y + 8, { align: 'right' })
+        y += 13
+      })
+    })
+  }
   return doc
 }
