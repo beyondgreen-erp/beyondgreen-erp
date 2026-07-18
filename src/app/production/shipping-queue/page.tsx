@@ -125,6 +125,21 @@ export default function ShippingQueuePage() {
 
   useEffect(() => { load(); loadBols() }, [load, loadBols])
 
+  // Keep every account in sync in real time: reload when any order or BOL changes,
+  // and whenever the tab regains focus. No manual refresh, no per-account drift.
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null
+    const bump = () => { if (t) clearTimeout(t); t = setTimeout(() => { load(); loadBols() }, 400) }
+    const ch = sb.channel('shipping-queue-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bols' }, bump)
+      .subscribe()
+    const onFocus = () => { load(); loadBols() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => { if (t) clearTimeout(t); sb.removeChannel(ch); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
+  }, [load, loadBols])
+
   function resetPackState() {
     setPlan([]); setConfigs([]); setCfgDraft(null); setParcel(false)
     setBolForm(null); setFinalized(false); setMissing([]); setNotes('')
@@ -563,7 +578,15 @@ export default function ShippingQueuePage() {
   }
 
   function packMeta() {
-    return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, date: new Date().toLocaleDateString() }
+    return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, date: new Date().toLocaleDateString() }
+  }
+  function packListPallets() {
+    return expanded.map(p => ({
+      number: p.number,
+      dims: dimsStr(p.lengthIn, p.widthIn, p.heightIn) || undefined,
+      weight: p.weightLb,
+      lines: p.lines.map(l => ({ sku: l.sku, description: l.description, cases: l.cases, units: l.cases * l.unitsPerCase })),
+    }))
   }
 
   // Save a public snapshot (packing-slip + BOL inputs) under a per-order token so
@@ -593,8 +616,9 @@ export default function ShippingQueuePage() {
     if (!activeItem) return
     const cases = buildPackListCases()
     const meta = packMeta()
-    loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, totals, logo).save(`packing-list-${o?.order_number || 'order'}.pdf`))
-      .catch(() => buildPackingList(meta, cases, totals, null).save(`packing-list-${o?.order_number || 'order'}.pdf`))
+    const plts = packListPallets()
+    loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, totals, logo, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
+      .catch(() => buildPackingList(meta, cases, totals, null, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
     markDoc('packingList')
   }
 
