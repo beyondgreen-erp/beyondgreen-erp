@@ -46,6 +46,8 @@ export default function EmployeeDirectoryPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<any[]>([])
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
+  // Total days-off taken per employee, keyed by lower-cased name (for case-insensitive match)
+  const [daysOff, setDaysOff] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -59,14 +61,23 @@ export default function EmployeeDirectoryPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: e }, { data: cm }] = await Promise.all([
+    const [{ data: e }, { data: cm }, { data: to }] = await Promise.all([
       sb.from('employees').select('*').order('position', { nullsFirst: false }),
       sb.from('comments').select('record_id').eq('record_type', 'employee'),
+      // Approved time-off requests, aggregated in-app so we don't need a view.
+      sb.from('time_off_requests').select('employee_name,days,status').eq('status', 'Approved'),
     ])
     setRows(e || [])
     const counts: Record<string, number> = {}
     ;(cm || []).forEach((c: any) => { counts[c.record_id] = (counts[c.record_id] || 0) + 1 })
     setCommentCounts(counts)
+    const dayTotals: Record<string, number> = {}
+    ;(to || []).forEach((r: any) => {
+      const key = String(r.employee_name || '').trim().toLowerCase()
+      if (!key) return
+      dayTotals[key] = (dayTotals[key] || 0) + Number(r.days || 0)
+    })
+    setDaysOff(dayTotals)
     setLoading(false)
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, [sb])
@@ -222,6 +233,7 @@ export default function EmployeeDirectoryPage() {
                         <th className="text-left px-3 py-2 font-semibold w-[120px]">Seniority</th>
                         <th className="text-left px-3 py-2 font-semibold w-[110px]">Start</th>
                         <th className="text-left px-3 py-2 font-semibold w-[130px]">Status</th>
+                        <th className="text-right px-3 py-2 font-semibold w-[80px]">Days Off</th>
                         <th className="text-left px-3 py-2 font-semibold w-[70px]">Files</th>
                         <th className="text-left px-3 py-2 font-semibold w-[80px]">Notes</th>
                       </tr>
@@ -230,6 +242,7 @@ export default function EmployeeDirectoryPage() {
                       {gr.map((r, i) => {
                         const nc = commentCounts[r.id] || 0
                         const nf = (r.files?.length || 0)
+                        const ndays = daysOff[String(r.name || '').trim().toLowerCase()] || 0
                         return (
                           <tr key={r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openEdit(r)}>
                             <td className="px-4 py-2.5">
@@ -247,12 +260,13 @@ export default function EmployeeDirectoryPage() {
                             <td className="px-3 py-2.5">{r.seniority ? <span className="text-white text-[10px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap" style={{ background: SEN_COLORS[r.seniority] || '#c4c4c4' }}>{r.seniority}</span> : <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(r.start_date) || '—'}</td>
                             <td className="px-3 py-2.5">{r.status ? <span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 whitespace-nowrap" style={{ background: STATUS_COLORS[r.status] || '#c4c4c4' }}>{r.status}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2.5 text-right">{ndays ? <a href="/hr/time-off" onClick={e => e.stopPropagation()} className="text-[#3B6FE0] text-xs font-semibold hover:underline">{ndays} {ndays === 1 ? 'day' : 'days'}</a> : <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2.5">{nf ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nf}</span> : <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
                           </tr>
                         )
                       })}
-                      {gr.length === 0 && <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400 text-sm">{q ? 'No matches.' : 'No employees'}</td></tr>}
+                      {gr.length === 0 && <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400 text-sm">{q ? 'No matches.' : 'No employees'}</td></tr>}
                     </tbody>
                   </table>
                 </div>
