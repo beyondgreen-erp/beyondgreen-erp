@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const DEFAULT_TEMPLATE = `<div style="font-family:Arial,Helvetica,sans-serif;color:#333;margin-top:24px;padding-top:12px;border-top:1px solid #E4E6EE;">
-  <img src="https://beyondgreenbiotech.com/cdn/shop/files/beyondgreenlogo.png" alt="beyondGREEN" style="height:52px;margin-bottom:6px;" />
+  <img src="https://byndgrn.com/cdn/shop/files/beyondGREEN_biotech_New_Logo.jpg" alt="beyondGREEN" style="height:52px;margin-bottom:6px;" />
   <div style="color:#00A84F;font-weight:bold;font-size:11px;margin-bottom:10px;">beyondGREEN biotech &nbsp;|&nbsp; beyondGREEN Professional</div>
   <div style="font-weight:bold;font-size:14px;color:#1A1D2E;">Rudy Patel</div>
   <div style="color:#00A84F;font-weight:bold;font-size:12px;">Chief Business Development Officer</div>
