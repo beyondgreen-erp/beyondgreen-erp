@@ -21,7 +21,10 @@ function render(t: string, c: any, fromName: string): string {
     .replace(/\{\{\s*industry\s*\}\}/gi, c.industry || 'your industry')
     .replace(/\{\{\s*website\s*\}\}/gi, c.website || '')
     .replace(/\{\{\s*my_name\s*\}\}/gi, fromName || '')
+    .replace(/\{\{\s*customer_id\s*\}\}/gi, c.id || '')
 }
+
+// Also need to include customer id column in the fetch below
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
@@ -50,6 +53,7 @@ export async function POST(req: NextRequest) {
       const fromName = seq?.from_name || ''
       const custIds = rows.map(r => r.customer_id)
       const { data: custs } = await sb.from('customers').select('id,email,company_name,contact_name,city,state,industry,website').in('id', custIds)
+      // (id is included so {{customer_id}} substitution works in landing-page URLs)
       const byId: Record<string, any> = {}; (custs || []).forEach((c: any) => { byId[c.id] = c })
       for (const r of rows) {
         const c = byId[r.customer_id]; if (!c) continue
