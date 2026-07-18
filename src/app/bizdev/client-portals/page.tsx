@@ -3,47 +3,14 @@
 export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import { clientStage, TONES } from '@/lib/portalStages'
 
 const GREEN = '#037f4c'
 const PORTAL_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://beyondgreen-erp.vercel.app') + '/portal'
 const fmtWhen = (d: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
-const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
 
 interface Client { id: string; customer_id: string | null; name: string | null; company_name: string | null; email: string; is_active: boolean; last_login_at: string | null; created_at: string }
 interface Msg { id: string; sender_name: string | null; sender_email: string | null; message: string; is_read: boolean; created_at: string; customer_id: string | null }
 interface Customer { id: string; company_name: string }
-
-function Badge({ label, tone }: { label: string; tone: string }) {
-  const t = TONES[(tone as keyof typeof TONES)] || TONES.gray
-  return <span className="text-[11px] font-bold rounded-full px-2.5 py-1 inline-block whitespace-nowrap" style={{ background: t.bg, color: t.text }}>{label}</span>
-}
-
-// Build the exact project/timeline data a client would see, using the same mapping as the portal.
-async function loadMirror(sb: ReturnType<typeof createSupabaseBrowserClient>, customerId: string) {
-  const [{ data: sos }, { data: qs }] = await Promise.all([
-    sb.from('sales_orders').select('id, order_number, po_number, status, client_portal_name, created_at, updated_at').eq('customer_id', customerId).eq('client_portal_visible', true),
-    sb.from('quotations').select('id, quote_number, type, status, client_portal_name, created_at, updated_at').eq('customer_id', customerId).eq('client_portal_visible', true).eq('is_active', true),
-  ])
-  const soList = (sos || []) as any[]; const qList = (qs || []) as any[]
-  const soIds = soList.map(o => o.id); const qIds = qList.map(q => q.id)
-  const histMap: Record<string, any[]> = {}
-  const collect = (rows: any[]) => rows.forEach((h: any) => { const k = h.source_type + ':' + h.source_id; (histMap[k] ||= []).push(h) })
-  if (soIds.length) { const { data } = await sb.from('portal_status_history').select('source_type, source_id, status, created_at').eq('source_type', 'sales_order').in('source_id', soIds).order('created_at', { ascending: true }); collect(data || []) }
-  if (qIds.length) { const { data } = await sb.from('portal_status_history').select('source_type, source_id, status, created_at').eq('source_type', 'quotation').in('source_id', qIds).order('created_at', { ascending: true }); collect(data || []) }
-  const build = (kind: 'so' | 'quote', srcType: string, rec: any) => {
-    const hist = histMap[srcType + ':' + rec.id] || []
-    const raw = hist.length ? hist : [{ status: rec.status, created_at: rec.created_at || rec.updated_at }]
-    const timeline: any[] = []
-    for (const h of raw) { const st = clientStage(kind, h.status); const last = timeline[timeline.length - 1]; if (last && last.label === st.label) continue; timeline.push({ ...st, date: h.created_at }) }
-    const cur = timeline[timeline.length - 1] || clientStage(kind, rec.status)
-    return { current: { label: cur.label, tone: cur.tone }, timeline }
-  }
-  const projects: any[] = []
-  for (const o of soList) { const t = build('so', 'sales_order', o); projects.push({ id: o.id, kind: 'Order', name: o.client_portal_name || o.order_number || o.po_number || 'Order', ...t }) }
-  for (const q of qList) { const t = build('quote', 'quotation', q); projects.push({ id: q.id, kind: q.type === 'rfq' ? 'RFQ' : 'Quote', name: q.client_portal_name || q.quote_number || 'Quote', ...t }) }
-  return projects
-}
 
 /* ── Account modal ── */
 function ClientModal({ open, onClose, onSaved, sb, me, editing }: { open: boolean; onClose: () => void; onSaved: () => void; sb: ReturnType<typeof createSupabaseBrowserClient>; me: string; editing: Client | null }) {
@@ -120,49 +87,6 @@ function ClientModal({ open, onClose, onSaved, sb, me, editing }: { open: boolea
   )
 }
 
-/* ── Preview (exactly what the client sees) ── */
-function PreviewModal({ client, onClose, sb }: { client: Client | null; onClose: () => void; sb: ReturnType<typeof createSupabaseBrowserClient> }) {
-  const [projects, setProjects] = useState<any[]>([]); const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    if (!client) return; setLoading(true)
-    if (!client.customer_id) { setProjects([]); setLoading(false); return }
-    loadMirror(sb, client.customer_id).then(p => { setProjects(p); setLoading(false) })
-  }, [client, sb])
-  if (!client) return null
-  return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full max-w-md my-6">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-white text-xs font-semibold bg-black/40 rounded-full px-3 py-1">Preview · what {client.company_name || 'the client'} sees</p>
-          <button onClick={onClose} className="text-white text-xl bg-black/40 rounded-full w-8 h-8 leading-none">&times;</button>
-        </div>
-        <div className="rounded-2xl overflow-hidden shadow-2xl" style={{ background: '#F1F3F7' }}>
-          <div className="text-white" style={{ background: GREEN }}><div className="px-5 py-4"><p className="text-white/80 text-[10px] uppercase tracking-wide">beyondGREEN · Client Portal</p><h1 className="text-lg font-bold leading-tight">{client.company_name || client.name || 'Client'}</h1></div></div>
-          <div className="p-4 space-y-4">
-            <div>
-              <h2 className="font-bold text-[#1A1D2E] text-sm mb-2">Your Projects ({projects.length})</h2>
-              <div className="space-y-2">
-                {loading ? <p className="text-gray-400 text-sm text-center py-4">Loading…</p> : !client.customer_id ? <div className="bg-white rounded-xl border border-[#E4E6EE] p-5 text-center text-xs text-amber-600">Link this account to a customer first.</div> : projects.length === 0 ? <div className="bg-white rounded-xl border border-[#E4E6EE] p-5 text-center text-xs text-gray-400">Nothing shared yet. Toggle &quot;Show in client portal&quot; on a Sales Order or Quote.</div> : projects.map(p => (
-                  <div key={p.id} className="bg-white rounded-xl border border-[#E4E6EE] overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-[#F1F3F9]"><div><p className="text-[9px] uppercase tracking-wide text-gray-400 font-semibold">{p.kind}</p><p className="font-bold text-[#1A1D2E] text-sm">{p.name}</p></div><Badge label={p.current.label} tone={p.current.tone} /></div>
-                    <div className="px-3 py-2">
-                      <p className="text-[9px] uppercase tracking-wide text-gray-400 mb-1">Progress</p>
-                      <ol>{p.timeline.slice().reverse().map((it: any, i: number) => (
-                        <li key={i} className="flex items-start gap-2 pb-1.5 last:pb-0"><span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: i === 0 ? (TONES[(it.tone as keyof typeof TONES)] || TONES.gray).text : '#CBD3E0' }} /><div><p className={`text-xs ${i === 0 ? 'font-bold text-[#1A1D2E]' : 'text-gray-500'}`}>{it.label}</p><p className="text-[10px] text-gray-400">{fmtDate(it.date)}</p></div></li>
-                      ))}</ol>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div><h2 className="font-bold text-[#1A1D2E] text-sm mb-2">Message us</h2><div className="bg-white rounded-xl border border-[#E4E6EE] p-3"><div className="bg-[#F5F6FA] border border-[#E4E6EE] rounded-lg px-3 py-2 text-xs text-gray-400">Ask a question or send us an update…</div></div></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 /* ── Page ── */
 export default function ClientPortalsAdmin() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
@@ -173,8 +97,8 @@ export default function ClientPortalsAdmin() {
   const [loading, setLoading] = useState(true)
   const [me, setMe] = useState('')
   const [tab, setTab] = useState<'clients' | 'messages'>('clients')
-  const [modal, setModal] = useState<null | 'account' | 'preview'>(null)
-  const [active, setActive] = useState<Client | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<Client | null>(null)
   const [copied, setCopied] = useState(false)
 
   const load = useCallback(async () => {
@@ -202,8 +126,8 @@ export default function ClientPortalsAdmin() {
   async function markRead(m: Msg) { await sb.from('portal_messages').update({ is_read: true }).eq('id', m.id); setMessages(ms => ms.map(x => x.id === m.id ? { ...x, is_read: true } : x)) }
   async function markAllRead() { await sb.from('portal_messages').update({ is_read: true }).eq('is_read', false); setMessages(ms => ms.map(x => ({ ...x, is_read: true }))) }
   function copyLink() { navigator.clipboard?.writeText(PORTAL_URL); setCopied(true); setTimeout(() => setCopied(false), 2000) }
-  function openModal(kind: 'account' | 'preview', c: Client | null) { setActive(c); setModal(kind) }
-  function closeModal() { setModal(null); setTimeout(() => setActive(null), 200); load() }
+  function openAccount(c: Client | null) { setEditing(c); setModalOpen(true) }
+  function closeModal() { setModalOpen(false); setTimeout(() => setEditing(null), 200); load() }
 
   return (
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
@@ -215,12 +139,12 @@ export default function ClientPortalsAdmin() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={copyLink} className="text-sm font-semibold rounded-lg px-3 py-2 border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">{copied ? 'Copied ✓' : 'Copy portal link'}</button>
-          <button onClick={() => openModal('account', null)} className="text-white font-semibold rounded-lg px-4 py-2 text-sm shadow-sm hover:opacity-90" style={{ background: GREEN }}>+ New client</button>
+          <button onClick={() => openAccount(null)} className="text-white font-semibold rounded-lg px-4 py-2 text-sm shadow-sm hover:opacity-90" style={{ background: GREEN }}>+ New client</button>
         </div>
       </div>
 
       <div className="bg-[#F0FBF5] border border-[#CDE9DA] rounded-lg px-4 py-2.5 mb-4 text-[13px] text-[#0F5132]">
-        To share a project, open a <strong>Sales Order</strong> or <strong>Quote</strong> and turn on <strong>&ldquo;Show in client portal.&rdquo;</strong> It mirrors to that customer&rsquo;s portal automatically — clients see the status and a progress timeline, never pricing or internal notes.
+        To share a project, open a <strong>Sales Order</strong> or <strong>Quote</strong>, turn on <strong>&ldquo;Show in client portal,&rdquo;</strong> and click <strong>Save changes</strong>. It mirrors to that customer&rsquo;s portal automatically — clients see the status and a progress timeline, never pricing or internal notes. Use <strong>View portal</strong> to see it exactly as the client does.
       </div>
 
       <div className="flex items-center gap-2 mb-4">
@@ -231,7 +155,7 @@ export default function ClientPortalsAdmin() {
       {tab === 'clients' ? (
         <div className="bg-white rounded-xl border border-[#ECEEF3] overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[820px]">
+            <table className="w-full text-sm min-w-[860px]">
               <thead><tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
                 <th className="text-left px-4 py-2.5 font-semibold">Company</th>
                 <th className="text-left px-3 py-2.5 font-semibold">Contact</th>
@@ -253,8 +177,8 @@ export default function ClientPortalsAdmin() {
                       <td className="px-3 py-2.5 text-gray-500">{fmtWhen(c.last_login_at)}</td>
                       <td className="px-3 py-2.5"><span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${c.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>{c.is_active ? 'Active' : 'Disabled'}</span></td>
                       <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        <button onClick={() => openModal('preview', c)} className="text-xs font-semibold text-[#037f4c] hover:underline mr-3">Preview</button>
-                        <button onClick={() => openModal('account', c)} className="text-xs font-semibold text-gray-500 hover:underline mr-3">Edit</button>
+                        <a href={`/api/portal/impersonate?clientId=${c.id}`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#037f4c] hover:underline mr-3">View portal ↗</a>
+                        <button onClick={() => openAccount(c)} className="text-xs font-semibold text-gray-500 hover:underline mr-3">Edit</button>
                         <button onClick={() => toggleActive(c)} className="text-xs font-semibold text-gray-500 hover:underline mr-3">{c.is_active ? 'Disable' : 'Enable'}</button>
                         <button onClick={() => del(c)} className="text-xs font-semibold text-red-500 hover:underline">Delete</button>
                       </td>
@@ -283,8 +207,7 @@ export default function ClientPortalsAdmin() {
         </div>
       )}
 
-      <ClientModal open={modal === 'account'} onClose={closeModal} onSaved={load} sb={sb} me={me} editing={active} />
-      {modal === 'preview' && <PreviewModal client={active} onClose={closeModal} sb={sb} />}
+      <ClientModal open={modalOpen} onClose={closeModal} onSaved={load} sb={sb} me={me} editing={editing} />
     </div>
   )
 }
