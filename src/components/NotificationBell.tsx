@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 
 interface Notif {
   id: string
@@ -176,8 +177,9 @@ export default function NotificationBell() {
                     className="w-full text-left px-4 py-3 hover:bg-[#F7F8FA] transition-colors"
                   >
                     <div className="flex items-start gap-2.5">
-                      {!n.is_read && <span className="w-2 h-2 rounded-full bg-[#3B6FE0] mt-1.5 shrink-0" />}
-                      <div className={`flex-1 min-w-0 ${n.is_read ? 'pl-4' : ''}`}>
+                      <UserAvatar email={n.sender_email} initials={n.sender_email[0].toUpperCase()} size={30} className="mt-0.5" />
+                      {!n.is_read && <span className="w-2 h-2 rounded-full bg-[#3B6FE0] mt-2 shrink-0" />}
+                      <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-[#0F1C2E]">
                           <span className="text-[#3B6FE0]">{n.sender_email.split('@')[0]}</span>
                           {' mentioned you in '}

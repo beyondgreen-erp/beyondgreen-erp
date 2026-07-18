@@ -14,6 +14,7 @@ import TextAlign from '@tiptap/extension-text-align'
 import Mention from '@tiptap/extension-mention'
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
+import UserAvatar from '@/components/UserAvatar'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface Props {
@@ -52,12 +53,7 @@ function MentionDropdown({ state, onSelect }: { state: MentionState; onSelect: (
           onMouseDown={e => { e.preventDefault(); onSelect(p, i) }}
           className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${i === state.selectedIndex ? 'bg-[#F0F1F5]' : 'hover:bg-[#F5F6FA]'}`}
         >
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
-            style={{ backgroundColor: p.avatar_color || '#374151' }}
-          >
-            {p.avatar_initials || p.email[0].toUpperCase()}
-          </div>
+          <UserAvatar email={p.email} initials={p.avatar_initials || p.email[0].toUpperCase()} color={p.avatar_color || '#374151'} size={24} />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-white font-medium truncate">{p.full_name || p.email.split('@')[0]}</p>
             <p className="text-[11px] text-[#5A5A6A] truncate">{p.email}</p>
