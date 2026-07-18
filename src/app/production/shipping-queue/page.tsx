@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 import { statusColor } from '@/lib/statusColors'
@@ -29,9 +29,27 @@ interface PlanRow {
   caseWeightLb: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
   gtinImageUrl: string | null; uom: string; packaging: string; done: number
   productId: string | null
-  alloc: Record<number, number>   // cases of this line on each pallet id (supports splitting a SKU across pallets)
 }
-interface Pallet { id: number; weightLb: number }   // manual total pallet weight
+// A freight-style pallet configuration: N identical pallets, each with the same dimensions,
+// weight, freight attributes, and contents (one or more SKUs — mixed pallets supported).
+interface PalletContent { sku: string; casesPerPallet: number }
+interface PalletConfig {
+  id: number; count: number
+  lengthIn: number; widthIn: number; heightIn: number
+  weightLb: number; freightClass: string; nmfc: string; stackable: boolean; notes: string
+  contents: PalletContent[]
+}
+// One physical pallet, expanded from a configuration (each config of count N yields N of these).
+interface ExpandedPallet {
+  number: number; weightLb: number
+  lengthIn: number; widthIn: number; heightIn: number
+  freightClass: string; nmfc: string; stackable: boolean; notes: string
+  lines: { sku: string; cases: number; unitsPerCase: number; description: string; upc: string | null; customerPart: string | null; gtinImageUrl: string | null; caseWeightLb: number }[]
+}
+const DEFAULT_L = 48, DEFAULT_W = 40
+function newConfig(id: number): PalletConfig {
+  return { id, count: 1, lengthIn: DEFAULT_L, widthIn: DEFAULT_W, heightIn: 0, weightLb: 0, freightClass: '', nmfc: '', stackable: false, notes: '', contents: [] }
+}
 interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string }
 
 // Editable BOL form state (mirrors BolData + editable commodity lines)
@@ -50,7 +68,6 @@ function shipTo(o?: OrderInfo): { name: string; addr: string } {
   return { name: o?.customers?.company_name || 'Customer', addr: (o?.shipping_address || o?.customers?.shipping_address || '').toString() }
 }
 function fmtMoney(n?: number | null) { return n != null ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—' }
-function sumAlloc(a: Record<number, number>) { return Object.values(a).reduce((s, v) => s + (v || 0), 0) }
 
 export default function ShippingQueuePage() {
   const [items, setItems] = useState<QueueItem[]>([])
@@ -58,7 +75,8 @@ export default function ShippingQueuePage() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [draftMsg, setDraftMsg] = useState('')
   const [plan, setPlan] = useState<PlanRow[]>([])
-  const [pallets, setPallets] = useState<Pallet[]>([{ id: 1, weightLb: 0 }])
+  const [configs, setConfigs] = useState<PalletConfig[]>([])
+  const [cfgDraft, setCfgDraft] = useState<PalletConfig | null>(null)   // config being added/edited in the pop-up
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState('')
   const [missing, setMissing] = useState<string[]>([])
@@ -108,7 +126,7 @@ export default function ShippingQueuePage() {
   useEffect(() => { load(); loadBols() }, [load, loadBols])
 
   function resetPackState() {
-    setPlan([]); setPallets([{ id: 1, weightLb: 0 }]); setParcel(false)
+    setPlan([]); setConfigs([]); setCfgDraft(null); setParcel(false)
     setBolForm(null); setFinalized(false); setMissing([]); setNotes('')
     if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' }
     setPreviewUrl('')
@@ -160,30 +178,19 @@ export default function ShippingQueuePage() {
         upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
         uom: l.unit_of_measure || '', packaging: l.packaging || '', done: l.quantity_shipped || l.completed_qty || 0,
         productId: l.product_id || null,
-        alloc: { 1: cs },   // default: all of this line's cases on Pallet 1
       }
     })
-    // Restore a saved draft (pallet packing, weights, parcel flag, BOL form) if one exists.
+    // Restore a saved draft (pallet configurations, parcel flag, BOL form) if one exists.
     try {
       const { data: od } = await sb.from('sales_orders').select('pack_draft').eq('id', item.sales_order_id).single()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const draft: any = (od as any)?.pack_draft
-      if (draft && (Array.isArray(draft.lines) || Array.isArray(draft.pallets))) {
-        if (Array.isArray(draft.pallets) && draft.pallets.length) setPallets(draft.pallets)
+      if (draft && (Array.isArray(draft.configs) || Array.isArray(draft.lines))) {
+        if (Array.isArray(draft.configs)) setConfigs(draft.configs as PalletConfig[])
         if (typeof draft.parcel === 'boolean') setParcel(draft.parcel)
         if (draft.bol) setBolForm(draft.bol)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const bySku = new Map<string, any>((draft.lines || []).map((d: any) => [d.sku, d]))
-        // Case counts always come from the LIVE line quantity. A saved draft's pallet
-        // allocation is only restored when its case count still matches the live figure —
-        // otherwise the order quantity was edited since the draft, so we start that line fresh.
-        const restored = rowsOut.map(r => {
-          const d = bySku.get(r.sku)
-          if (d && (d.cases ?? r.cases) === r.cases) return { ...r, alloc: d.alloc ?? r.alloc }
-          return r
-        })
-        setPlan(restored)
-        setDraftMsg('Draft restored'); setTimeout(() => setDraftMsg(''), 3000)
+        setPlan(rowsOut)
+        if (Array.isArray(draft.configs) && draft.configs.length) { setDraftMsg('Draft restored'); setTimeout(() => setDraftMsg(''), 3000) }
         setBusy('')
         return
       }
@@ -194,13 +201,13 @@ export default function ShippingQueuePage() {
   // Save the current pack/ship progress so it can be resumed later.
   async function saveDraft(opts?: { silent?: boolean }) {
     if (!activeItem) return
-    const hasProgress = plan.some(r => sumAlloc(r.alloc) > 0) || pallets.some(p => (p.weightLb || 0) > 0) || !!bolForm || parcel
+    const hasProgress = configs.length > 0 || !!bolForm || parcel
     if (!hasProgress) return
     const draft = {
       savedAt: new Date().toISOString(),
       parcel,
-      pallets,
-      lines: plan.map(r => ({ sku: r.sku, cases: r.cases, alloc: r.alloc })),
+      configs,
+      lines: plan.map(r => ({ sku: r.sku, cases: r.cases, unitsPerCase: r.unitsPerCase })),
       bol: bolForm,
     }
     try {
@@ -214,81 +221,112 @@ export default function ShippingQueuePage() {
   // Editing packing after the BOL was reviewed/finalized invalidates it (labels must come from a fresh BOL).
   function invalidateBol() { if (finalized) setFinalized(false); if (bolForm) setBolForm(null) }
 
-  const firstPalletId = () => pallets[0]?.id ?? 1
-  function removeLine(i: number) { setPlan(p => p.filter((_, idx) => idx !== i)); invalidateBol() }
-  // Set total cases for a line, resetting its allocation onto the first pallet.
+  function removeLine(i: number) {
+    const sku = plan[i]?.sku
+    setPlan(p => p.filter((_, idx) => idx !== i))
+    if (sku) setConfigs(cs => cs.map(c => ({ ...c, contents: c.contents.filter(ct => ct.sku !== sku) })).filter(c => c.contents.length > 0))
+    invalidateBol()
+  }
+  // Set total cases for a line (recomputes from units/case; carriers count each ordered unit as a case unless bundled).
   function setCases(i: number, v: number) {
     const cs = Math.max(1, v || 1)
-    setPlan(p => p.map((r, idx) => idx === i ? { ...r, cases: cs, alloc: { [firstPalletId()]: cs } } : r)); invalidateBol()
+    setPlan(p => p.map((r, idx) => idx === i ? { ...r, cases: cs } : r)); invalidateBol()
   }
   function setUnitsPerCase(i: number, v: number) {
     setPlan(p => p.map((r, idx) => {
       if (idx !== i) return r
       const upc = Math.max(1, v || 1)
       const cs = Math.max(1, Math.ceil(r.units / upc))
-      return { ...r, unitsPerCase: upc, cases: cs, alloc: { [firstPalletId()]: cs }, caseWeightLb: r.gramsPerUnit ? +((upc * r.gramsPerUnit) / GRAMS_PER_LB).toFixed(2) : r.caseWeightLb }
+      return { ...r, unitsPerCase: upc, cases: cs, caseWeightLb: r.gramsPerUnit ? +((upc * r.gramsPerUnit) / GRAMS_PER_LB).toFixed(2) : r.caseWeightLb }
     }))
     invalidateBol()
   }
-  // Set how many of a line's cases sit on a given pallet (this is what enables splitting a SKU across pallets).
-  function setAlloc(i: number, palletId: number, v: number) {
-    setPlan(p => p.map((r, idx) => idx === i ? { ...r, alloc: { ...r.alloc, [palletId]: Math.max(0, v || 0) } } : r)); invalidateBol()
-  }
-
-  function addPallet() { setPallets(ps => [...ps, { id: (ps.reduce((m, p) => Math.max(m, p.id), 0) + 1), weightLb: 0 }]); invalidateBol() }
-  function removePallet(id: number) {
-    if (pallets.length <= 1) return
-    const first = pallets.find(p => p.id !== id)!.id
-    setPlan(p => p.map(r => {
-      const moved = r.alloc[id] || 0
-      if (!moved) return r
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { [id]: _drop, ...rest } = r.alloc
-      return { ...r, alloc: { ...rest, [first]: (rest[first] || 0) + moved } }
-    }))
-    setPallets(ps => ps.filter(p => p.id !== id))
-    invalidateBol()
-  }
-  function setPalletWeight(id: number, w: number) { setPallets(ps => ps.map(p => p.id === id ? { ...p, weightLb: Math.max(0, w || 0) } : p)); invalidateBol() }
 
   const activeItem = items.find(i => i.id === openId)
   const o = activeItem?.sales_orders
   const st = o ? shipTo(o) : { name: '', addr: '' }
 
-  const casesOnPallet = (id: number) => plan.reduce((a, r) => a + (r.alloc[id] || 0), 0)
-  const skusOnPallet = (id: number) => plan.filter(r => (r.alloc[id] || 0) > 0).map(r => r.sku)
-  const remaining = (r: PlanRow) => r.cases - sumAlloc(r.alloc)
-  const anyUnallocated = plan.some(r => remaining(r) !== 0)
+  // ---- Configurations → expanded pallets -----------------------------------
+  const dimsStr = (l: number, w: number, h: number) => (l || w || h) ? `${l || 0}×${w || 0}×${h || 0} in` : ''
+  const expanded: ExpandedPallet[] = useMemo(() => {
+    const bySku = new Map(plan.map(r => [r.sku, r]))
+    const out: ExpandedPallet[] = []
+    let n = 0
+    for (const cfg of configs) {
+      for (let k = 0; k < Math.max(0, cfg.count); k++) {
+        n++
+        out.push({
+          number: n, weightLb: cfg.weightLb, lengthIn: cfg.lengthIn, widthIn: cfg.widthIn, heightIn: cfg.heightIn,
+          freightClass: cfg.freightClass, nmfc: cfg.nmfc, stackable: cfg.stackable, notes: cfg.notes,
+          lines: cfg.contents.filter(c => (c.casesPerPallet || 0) > 0).map(c => {
+            const r = bySku.get(c.sku)
+            return { sku: c.sku, cases: c.casesPerPallet, unitsPerCase: r?.unitsPerCase || 1, description: r?.description || c.sku, upc: r?.upc || null, customerPart: r?.customerPart || null, gtinImageUrl: r?.gtinImageUrl || null, caseWeightLb: r?.caseWeightLb || 0 }
+          }),
+        })
+      }
+    }
+    return out
+  }, [configs, plan])
+
+  const assignedBySku = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const cfg of configs) for (const c of cfg.contents) m[c.sku] = (m[c.sku] || 0) + Math.max(0, cfg.count) * (c.casesPerPallet || 0)
+    return m
+  }, [configs])
+  const remainingForSku = (sku: string, cases: number) => cases - (assignedBySku[sku] || 0)
+  const anyUnallocated = plan.some(r => remainingForSku(r.sku, r.cases) !== 0)
 
   const totals = {
-    cases: plan.reduce((a, r) => a + r.cases, 0),
-    pallets: pallets.length,
-    weight: +(pallets.reduce((a, p) => a + (p.weightLb || 0), 0)).toFixed(0),
+    cases: expanded.reduce((a, p) => a + p.lines.reduce((s, l) => s + l.cases, 0), 0),
+    pallets: expanded.length,
+    weight: +(expanded.reduce((a, p) => a + (p.weightLb || 0), 0)).toFixed(0),
   }
-  const anyPalletMissingWeight = pallets.some(p => !p.weightLb)
+  const anyPalletMissingWeight = expanded.some(p => !p.weightLb)
 
-  async function aiSuggest() {
-    setBusy('ai')
-    try {
-      const res = await fetch('/api/shipping/pack-suggest', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxCasesPerPallet: 40, lines: plan.map(r => ({ sku: r.sku, description: r.description, units: r.units, unitsPerCase: r.unitsPerCase, weightPerUnitGrams: r.gramsPerUnit })) }),
-      })
-      const j = await res.json()
-      if (j.skuPlan) setPlan(p => p.map(r => { const s = j.skuPlan.find((x: { sku: string }) => x.sku === r.sku); return s ? { ...r, cases: s.cases, alloc: { [firstPalletId()]: s.cases } } : r }))
-      if (j.notes) setNotes(j.notes)
-      invalidateBol()
-    } catch { setNotes('AI suggestion unavailable; using computed plan.') }
-    setBusy('')
+  // Config editor (pop-up) helpers
+  function openConfig(cfg?: PalletConfig) {
+    const nextId = configs.reduce((m, c) => Math.max(m, c.id), 0) + 1
+    setCfgDraft(cfg ? { ...cfg, contents: cfg.contents.map(c => ({ ...c })) } : newConfig(nextId))
+  }
+  function saveConfig() {
+    if (!cfgDraft) return
+    const cleaned = { ...cfgDraft, count: Math.max(1, cfgDraft.count || 1), contents: cfgDraft.contents.filter(c => c.sku && (c.casesPerPallet || 0) > 0) }
+    if (!cleaned.contents.length) { alert('Add at least one SKU with a case count to this pallet.'); return }
+    setConfigs(cs => cs.some(c => c.id === cleaned.id) ? cs.map(c => c.id === cleaned.id ? cleaned : c) : [...cs, cleaned])
+    setCfgDraft(null); invalidateBol()
+  }
+  function deleteConfig(id: number) { setConfigs(cs => cs.filter(c => c.id !== id)); invalidateBol() }
+  function patchDraft(patch: Partial<PalletConfig>) { setCfgDraft(d => d ? { ...d, ...patch } : d) }
+  function addContentRow() { setCfgDraft(d => d ? { ...d, contents: [...d.contents, { sku: plan[0]?.sku || '', casesPerPallet: 0 }] } : d) }
+  function patchContent(idx: number, patch: Partial<PalletContent>) { setCfgDraft(d => d ? { ...d, contents: d.contents.map((c, i) => i === idx ? { ...c, ...patch } : c) } : d) }
+  function removeContentRow(idx: number) { setCfgDraft(d => d ? { ...d, contents: d.contents.filter((_, i) => i !== idx) } : d) }
+
+  // Auto-pack: one starting configuration per SKU (full pallets + a remainder). User edits from there.
+  function autoPack() {
+    const AUTO_CPP = 60
+    let id = 0
+    const next: PalletConfig[] = []
+    for (const r of plan) {
+      const left = remainingForSku(r.sku, r.cases) + (assignedBySku[r.sku] || 0) // = r.cases
+      const total = r.cases
+      if (total <= 0) continue
+      const full = Math.floor(total / AUTO_CPP)
+      const rem = total - full * AUTO_CPP
+      if (full > 0) next.push({ ...newConfig(++id), count: full, heightIn: 60, contents: [{ sku: r.sku, casesPerPallet: AUTO_CPP }] })
+      if (rem > 0) next.push({ ...newConfig(++id), count: 1, heightIn: 60, contents: [{ sku: r.sku, casesPerPallet: rem }] })
+      void left
+    }
+    setConfigs(next); invalidateBol()
   }
 
   // ---- BOL review / preview / finalize -------------------------------------
   function buildBolLines(): BolLineForm[] {
-    return pallets.map(p => {
-      const rows = plan.filter(r => (r.alloc[p.id] || 0) > 0)
-      const cases = rows.reduce((a, r) => a + (r.alloc[p.id] || 0), 0)
-      const desc = rows.map(r => `${r.description || r.sku} — ${r.unitsPerCase}pcs/cs × ${r.alloc[p.id]}cs`).join('\n') || '(empty pallet)'
-      return { palletId: p.id, handlingQty: 1, packageQty: cases, weight: p.weightLb, commodityDescription: desc, nmfcNumber: '', freightClass: '' }
+    return expanded.map(p => {
+      const cases = p.lines.reduce((a, l) => a + l.cases, 0)
+      const dims = dimsStr(p.lengthIn, p.widthIn, p.heightIn)
+      const body = p.lines.map(l => `${l.description || l.sku} — ${l.unitsPerCase}pcs/cs × ${l.cases}cs`).join('\n') || '(empty pallet)'
+      const desc = [dims, body, p.stackable ? '' : 'Do not stack', p.notes].filter(Boolean).join('\n')
+      return { palletId: p.number, handlingQty: 1, packageQty: cases, weight: p.weightLb, commodityDescription: desc, nmfcNumber: p.nmfc || '', freightClass: p.freightClass || '' }
     })
   }
 
@@ -307,7 +345,7 @@ export default function ShippingQueuePage() {
     const po = o?.po_number || ''
     const bolNumber = `BOL-${(o?.order_number || Date.now().toString()).replace(/[^0-9A-Za-z]/g, '').slice(0, 20)}`
     const si = ''   // blank by default — fill in per shipment
-    const lines = buildBolLines().map(l => ({ ...l, nmfcNumber: fill.nmfcNumber || '', freightClass: fill.freightClass || '' }))
+    const lines = buildBolLines().map(l => ({ ...l, nmfcNumber: l.nmfcNumber || fill.nmfcNumber || '', freightClass: l.freightClass || fill.freightClass || '' }))
     setBolForm({
       bolNumber, date: new Date().toLocaleDateString(), carrierName: o?.carrier || '', scac: '', freightTerms: '3rd Party',
       proNumber: '', trailerNo: '', sealNumber: '', poNumber: po, puNumber: po, loadNumber: po,
@@ -362,7 +400,7 @@ export default function ShippingQueuePage() {
     const { data, lines } = formToData(bolForm)
     const logo = await loadImageDataUrl('/bG-logo-clean.png')
     buildBOL(data, lines, logo).save(`${bolForm.bolNumber}.pdf`)
-    const payload = { pallets, plan: plan.map(r => ({ sku: r.sku, description: r.description, cases: r.cases, unitsPerCase: r.unitsPerCase, alloc: r.alloc, upc: r.upc, customerPart: r.customerPart })), bol: bolForm }
+    const payload = { configs, plan: plan.map(r => ({ sku: r.sku, description: r.description, cases: r.cases, unitsPerCase: r.unitsPerCase, upc: r.upc, customerPart: r.customerPart })), bol: bolForm }
     await sb.from('bols').insert({
       bol_number: bolForm.bolNumber, sales_order_id: activeItem.sales_order_id, carrier_name: bolForm.carrierName, scac: bolForm.scac,
       ship_from_name: bolForm.shipFromName, ship_from_address: bolForm.shipFromAddress, ship_to_name: bolForm.shipToName, ship_to_address: bolForm.shipToAddress,
@@ -430,7 +468,7 @@ export default function ShippingQueuePage() {
     if (token) {
       try { docsQr = await QRCode.toDataURL(`${window.location.origin}/ship-docs/${token}`, { margin: 1, width: 240 }) } catch { docsQr = null }
     }
-    const labels: PalletLabel[] = pallets.map((p, idx) => ({ palletNumber: idx + 1, totalPallets: pallets.length, caseCount: casesOnPallet(p.id), weight: p.weightLb, skus: skusOnPallet(p.id) }))
+    const labels: PalletLabel[] = expanded.map(p => ({ palletNumber: p.number, totalPallets: expanded.length, caseCount: p.lines.reduce((a, l) => a + l.cases, 0), weight: p.weightLb, skus: p.lines.map(l => l.sku), dims: dimsStr(p.lengthIn, p.widthIn, p.heightIn) || undefined }))
     buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels, docsQr).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
     markDoc('palletLabels')
   }
@@ -439,8 +477,8 @@ export default function ShippingQueuePage() {
   // one QR pick ticket per pallet. Each pallet gets a unique scan token.
   async function genPickTickets() {
     if (!activeItem) return
-    const active = pallets.filter(p => casesOnPallet(p.id) > 0)
-    if (active.length === 0) { alert('Pack at least one pallet (add cases) before printing pick tickets.'); return }
+    const active = expanded.filter(p => p.lines.reduce((a, l) => a + l.cases, 0) > 0)
+    if (active.length === 0) { alert('Add at least one pallet configuration (with contents) before printing pick tickets.'); return }
     const soId = activeItem.sales_order_id
     try {
       const totalPallets = active.length
@@ -453,10 +491,7 @@ export default function ShippingQueuePage() {
         const token = (typeof crypto !== 'undefined' && crypto.randomUUID)
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-        const pLines = plan.filter(r => (r.alloc[p.id] || 0) > 0).map(r => {
-          const cases = r.alloc[p.id] || 0
-          return { sku: r.sku, productName: r.description || r.sku, cases, unitsPerCase: r.unitsPerCase, units: cases * r.unitsPerCase }
-        })
+        const pLines = p.lines.map(l => ({ sku: l.sku, productName: l.description || l.sku, cases: l.cases, unitsPerCase: l.unitsPerCase, units: l.cases * l.unitsPerCase }))
         const caseCount = pLines.reduce((s, l) => s + l.cases, 0)
         const totalUnits = pLines.reduce((s, l) => s + l.units, 0)
         const palletId = `PLT-${(o?.order_number || 'ORD').replace(/\s/g, '')}-${String(idx).padStart(2, '0')}`
@@ -496,18 +531,17 @@ export default function ShippingQueuePage() {
   // and the public shipping-docs snapshot.
   function buildPackListCases(): PackListCase[] {
     const bySku = new Map<string, PackListCase>()
-    pallets.forEach(p => {
-      const palletCases = casesOnPallet(p.id)
-      plan.filter(r => (r.alloc[p.id] || 0) > 0).forEach(r => {
-        const cs = r.alloc[p.id] || 0
-        const perCaseWt = r.caseWeightLb || 0
+    expanded.forEach(p => {
+      const palletCases = p.lines.reduce((a, l) => a + l.cases, 0)
+      p.lines.forEach(l => {
+        const perCaseWt = l.caseWeightLb || 0
         const allocWt = perCaseWt > 0
-          ? cs * perCaseWt
-          : (palletCases > 0 ? (p.weightLb || 0) * (cs / palletCases) : 0)
-        const cur: PackListCase = bySku.get(r.sku) || { sku: r.sku, description: r.description, caseCount: 0, unitsInCase: r.unitsPerCase, weight: 0 }
-        cur.caseCount += cs
+          ? l.cases * perCaseWt
+          : (palletCases > 0 ? (p.weightLb || 0) * (l.cases / palletCases) : 0)
+        const cur: PackListCase = bySku.get(l.sku) || { sku: l.sku, description: l.description, caseCount: 0, unitsInCase: l.unitsPerCase, weight: 0 }
+        cur.caseCount += l.cases
         cur.weight = (cur.weight || 0) + allocWt
-        bySku.set(r.sku, cur)
+        bySku.set(l.sku, cur)
       })
     })
     return [...bySku.values()]
@@ -785,70 +819,61 @@ export default function ShippingQueuePage() {
 
                     {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? <p className="text-xs text-gray-400">No line items found on this order.</p> : (
                       <>
-                        {/* STEP 1 — Pack the pallets */}
+                        {/* STEP 1 — Build the pallets (freight configurations) */}
                         <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">1</span>
-                            <span className="text-sm font-semibold text-[#1A1D2E]">Pack the pallets</span>
+                            <span className="text-sm font-semibold text-[#1A1D2E]">Build the pallets</span>
                             <span className="ml-auto text-xs text-gray-400">{totals.pallets} pallet{totals.pallets !== 1 ? 's' : ''} · {totals.cases} cases · {totals.weight} lb</span>
-                            <button onClick={aiSuggest} disabled={busy === 'ai'} className={`${btn} bg-violet-600 text-white border-violet-600`}>{busy === 'ai' ? 'Thinking…' : '✨ AI Suggest'}</button>
+                            <button onClick={autoPack} className={`${btn} bg-violet-600 text-white border-violet-600`} title="Generate a starting configuration per SKU">✨ Auto-pack</button>
                           </div>
-                          <p className="text-xs text-gray-500 mb-2">Enter how many cases of each line go on each pallet — split a SKU by filling more than one pallet box.</p>
-                        <div className="overflow-x-auto">
-                        <table className="w-full text-xs mb-4">
-                          <thead><tr className="text-left text-gray-500 border-b bg-gray-50">
-                            <th className="py-1.5 px-2">SKU</th><th className="px-2">Product / Description</th><th className="text-right px-2">Qty</th>
-                            <th className="px-2">UOM</th><th className="text-right px-2">Units/Case</th><th className="text-right px-2">Cases</th>
-                            <th className="px-2">Cases per pallet</th><th className="text-center px-2">UPC</th><th className="px-2"></th>
-                          </tr></thead>
-                          <tbody>
-                            {plan.map((r, i) => (
-                              <tr key={i} className="border-b border-gray-50 align-top">
-                                <td className="py-1.5 px-2 font-mono">{r.sku}</td>
-                                <td className="px-2 text-gray-600">{r.description}</td>
-                                <td className="text-right px-2">{r.units}</td>
-                                <td className="px-2 text-gray-500">{r.uom || '—'}</td>
-                                <td className="text-right px-2"><input type="number" value={r.unitsPerCase} onChange={e => setUnitsPerCase(i, Number(e.target.value))} className={num} /></td>
-                                <td className="text-right px-2"><input type="number" value={r.cases} onChange={e => setCases(i, Number(e.target.value))} className={num} /></td>
-                                <td className="px-2">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    {pallets.map((p, idx) => (
-                                      <span key={p.id} className="inline-flex items-center gap-0.5" title={`Cases of ${r.sku} on Pallet ${idx + 1}`}>
-                                        <span className="text-gray-400">P{idx + 1}</span>
-                                        <input type="number" min={0} value={r.alloc[p.id] || 0} onChange={e => setAlloc(i, p.id, Number(e.target.value))} className="w-12 border rounded px-1 py-0.5 text-right text-xs" />
-                                      </span>
-                                    ))}
-                                    {remaining(r) !== 0 && <span className={`text-[10px] font-semibold ${remaining(r) > 0 ? 'text-amber-600' : 'text-red-600'}`}>{remaining(r) > 0 ? `${remaining(r)} unassigned` : `${-remaining(r)} over`}</span>}
+                          <p className="text-xs text-gray-500 mb-3">Add a configuration for each type of pallet — how many identical pallets, their size and weight, and what&apos;s on each. Add more than one SKU for a mixed pallet.</p>
+
+                          {/* Per-SKU allocation tracker */}
+                          <div className="flex flex-wrap gap-1.5 mb-3">
+                            {plan.map((r, i) => {
+                              const rem = remainingForSku(r.sku, r.cases)
+                              const done = rem === 0
+                              return (
+                                <span key={i} className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1 ${done ? 'bg-emerald-50 text-emerald-700' : rem > 0 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+                                  <span className="font-mono">{r.sku}</span>
+                                  <span className="font-normal">{r.cases - rem} / {r.cases}{r.upc ? '' : ' ⚠'}</span>
+                                  {done ? <span>✓</span> : <span>{rem > 0 ? `${rem} left` : `${-rem} over`}</span>}
+                                  <button onClick={() => removeLine(i)} title="Remove this SKU from the shipment" className="text-current/50 hover:text-red-600">✕</button>
+                                </span>
+                              )
+                            })}
+                          </div>
+
+                          {/* Configuration cards */}
+                          <div className="space-y-2 mb-3">
+                            {configs.map(cfg => {
+                              const casesEach = cfg.contents.reduce((a, c) => a + (c.casesPerPallet || 0), 0)
+                              const mixed = cfg.contents.filter(c => (c.casesPerPallet || 0) > 0).length > 1
+                              return (
+                                <div key={cfg.id} className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
+                                  <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-semibold text-sm shrink-0">×{cfg.count}</div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-[#1A1D2E] truncate">
+                                      {cfg.count} pallet{cfg.count !== 1 ? 's' : ''} · {dimsStr(cfg.lengthIn, cfg.widthIn, cfg.heightIn) || 'no size'} · {cfg.weightLb || 0} lb ea
+                                      {mixed && <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">mixed</span>}
+                                      {cfg.freightClass && <span className="ml-1.5 text-[10px] text-gray-500">class {cfg.freightClass}</span>}
+                                      {!cfg.stackable && <span className="ml-1.5 text-[10px] text-gray-400">no stack</span>}
+                                    </p>
+                                    <p className="text-[11px] text-gray-500 truncate">{cfg.contents.filter(c => (c.casesPerPallet || 0) > 0).map(c => `${c.casesPerPallet} × ${c.sku}`).join('  +  ') || '(empty)'}</p>
                                   </div>
-                                </td>
-                                <td className="text-center px-2">{r.upc ? '✓' : <span className="text-red-500 font-bold">!</span>}</td>
-                                <td className="px-2 text-center"><button onClick={() => removeLine(i)} title="Remove this line from the shipment" className="text-gray-300 hover:text-red-500">✕</button></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        </div>
+                                  <span className="text-[11px] text-gray-400 shrink-0">{cfg.count * casesEach} cases</span>
+                                  <button onClick={() => openConfig(cfg)} className="text-gray-400 hover:text-indigo-600 shrink-0" title="Edit configuration">✎</button>
+                                  <button onClick={() => deleteConfig(cfg.id)} className="text-gray-300 hover:text-red-500 shrink-0" title="Delete configuration">✕</button>
+                                </div>
+                              )
+                            })}
+                          </div>
 
-                        {/* Pallets → manual total weight each */}
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-gray-600">Pallets</p>
-                          <button onClick={addPallet} className={`${btn} bg-white border-gray-300`}>+ Add pallet</button>
-                        </div>
-                        <div className="space-y-1.5 mb-3">
-                          {pallets.map((p, idx) => (
-                            <div key={p.id} className="flex items-center gap-3 text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                              <span className="font-semibold w-16">Pallet {idx + 1}</span>
-                              <span className="text-gray-500 flex-1 truncate">{casesOnPallet(p.id)} cases · {skusOnPallet(p.id).join(', ') || '—'}</span>
-                              <label className="text-gray-500">Total weight (lb)</label>
-                              <input type="number" value={p.weightLb || ''} placeholder="0" onChange={e => setPalletWeight(p.id, Number(e.target.value))} className={`${num} w-20 ${!p.weightLb ? 'ring-1 ring-red-300' : ''}`} />
-                              {pallets.length > 1 && <button onClick={() => removePallet(p.id)} className="text-red-400 hover:text-red-600" title="Remove pallet">✕</button>}
-                            </div>
-                          ))}
-                        </div>
+                          <button onClick={() => openConfig()} className={`${btn} w-full justify-center border-dashed border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-600`}>+ Add configuration</button>
 
-                          {anyUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Some cases aren&apos;t assigned to a pallet — the “Cases per pallet” columns for each line should add up to that line&apos;s <b>Cases</b> total.</div>}
-                          {anyPalletMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-2">Enter the <b>total weight</b> for each pallet so the BOL and labels are accurate.</div>}
-                          {notes && <div className="text-xs bg-violet-50 border-l-4 border-violet-400 p-2 mt-2 whitespace-pre-line">{notes}</div>}
+                          {anyUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Every SKU should be fully assigned — the chips above turn green when a SKU&apos;s cases are all on pallets.</div>}
+                          {!anyUnallocated && anyPalletMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Enter a <b>weight per pallet</b> on each configuration so the BOL and labels are accurate.</div>}
                         </div>
 
                         {/* STEP 2 — Bill of lading */}
@@ -979,6 +1004,72 @@ export default function ShippingQueuePage() {
           })}
         </div>
       )}
+
+      {/* ── Pallet configuration pop-up ─────────────────────────────── */}
+      {cfgDraft && (() => {
+        const d = cfgDraft
+        const casesEach = d.contents.reduce((a, c) => a + (c.casesPerPallet || 0), 0)
+        const cin = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/40'
+        const lbl = 'block text-[11px] font-medium text-gray-500 mb-1'
+        return (
+          <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={e => { if (e.target === e.currentTarget) setCfgDraft(null) }}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-6">
+              <div className="flex items-center justify-between px-5 py-4 text-white rounded-t-2xl bg-indigo-600">
+                <h3 className="font-bold text-base">{configs.some(c => c.id === d.id) ? 'Edit pallet configuration' : 'New pallet configuration'}</h3>
+                <button onClick={() => setCfgDraft(null)} className="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <label><span className={lbl}># of pallets</span><input type="number" min={1} value={d.count} onChange={e => patchDraft({ count: Math.max(1, Number(e.target.value) || 1) })} className={cin} /></label>
+                  <label><span className={lbl}>Weight / pallet (lb)</span><input type="number" min={0} value={d.weightLb || ''} placeholder="0" onChange={e => patchDraft({ weightLb: Math.max(0, Number(e.target.value) || 0) })} className={cin} /></label>
+                  <label className="col-span-2"><span className={lbl}>Dimensions L × W × H (in)</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min={0} value={d.lengthIn || ''} placeholder="L" onChange={e => patchDraft({ lengthIn: Number(e.target.value) || 0 })} className={cin} />
+                      <span className="text-gray-400">×</span>
+                      <input type="number" min={0} value={d.widthIn || ''} placeholder="W" onChange={e => patchDraft({ widthIn: Number(e.target.value) || 0 })} className={cin} />
+                      <span className="text-gray-400">×</span>
+                      <input type="number" min={0} value={d.heightIn || ''} placeholder="H" onChange={e => patchDraft({ heightIn: Number(e.target.value) || 0 })} className={cin} />
+                    </div>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <label><span className={lbl}>Freight class</span><input value={d.freightClass} placeholder="e.g. 92.5" onChange={e => patchDraft({ freightClass: e.target.value })} className={cin} /></label>
+                  <label><span className={lbl}>NMFC code</span><input value={d.nmfc} placeholder="optional" onChange={e => patchDraft({ nmfc: e.target.value })} className={cin} /></label>
+                  <label className="flex items-end pb-1.5"><span className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={d.stackable} onChange={e => patchDraft({ stackable: e.target.checked })} className="w-4 h-4 accent-indigo-600" /> Stackable</span></label>
+                </div>
+
+                <div>
+                  <span className={lbl}>Contents on each pallet <span className="text-gray-400">(add more than one SKU for a mixed pallet)</span></span>
+                  <div className="space-y-2">
+                    {d.contents.map((c, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <select value={c.sku} onChange={e => patchContent(idx, { sku: e.target.value })} className={cin + ' flex-1'}>
+                          <option value="">— choose SKU —</option>
+                          {plan.map(r => <option key={r.sku} value={r.sku}>{r.sku} — {r.description} ({remainingForSku(r.sku, r.cases)} left)</option>)}
+                        </select>
+                        <input type="number" min={0} value={c.casesPerPallet || ''} placeholder="cases" onChange={e => patchContent(idx, { casesPerPallet: Math.max(0, Number(e.target.value) || 0) })} className={cin + ' w-24 text-right'} />
+                        <button onClick={() => removeContentRow(idx)} className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addContentRow} className="mt-2 text-xs font-semibold text-indigo-600 hover:underline">+ Add SKU to this pallet</button>
+                </div>
+
+                <label><span className={lbl}>Handling notes <span className="text-gray-400">(optional)</span></span><input value={d.notes} placeholder="e.g. top-load only, do not double-stack" onChange={e => patchDraft({ notes: e.target.value })} className={cin} /></label>
+
+                <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                  <span className="text-xs text-gray-500">{d.count} × {casesEach} = <strong>{d.count * casesEach} cases</strong>{d.weightLb ? `, ${(d.count * d.weightLb).toLocaleString()} lb total` : ''}</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setCfgDraft(null)} className="text-sm font-medium text-gray-600 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
+                    <button onClick={saveConfig} className="text-sm font-semibold text-white px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700">Save configuration</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Close-out modal ─────────────────────────────────────────── */}
       {closeout && activeItem && o && (
