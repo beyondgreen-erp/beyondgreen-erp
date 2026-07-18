@@ -125,10 +125,31 @@ export default function SequenceReviewPage() {
   const selectedIds = Object.keys(selected).filter(k => selected[k])
   const setAllInStep = (list: PendingSend[], on: boolean) => setSelected(s => { const n = { ...s }; list.forEach(r => n[r.id] = on); return n })
 
-  const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Mirrors composeHtml() in the sequence-run route so the preview matches
+  // what actually goes out (branded header, footer, signature block).
   const previewHtml = (r: PendingSend) => {
     const d = draftFor(r)
-    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">${escHtml(d.body).replace(/\n/g, '<br>')}${sig ? '<br><br>' + sig : ''}</div>`
+    const linkify = (s: string) => s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#00A84F;text-decoration:underline;">$1</a>')
+    const paragraphs = (d.body || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+    const bodyHtml = paragraphs.map(p => `<p style="margin:0 0 14px;line-height:1.55;color:#1A1D2E;font-size:15px;">${linkify(escHtml(p)).replace(/\n/g, '<br>')}</p>`).join('')
+    const sigBlock = sig ? `<div style="margin-top:22px;padding-top:14px;border-top:1px solid #E4E6EE;">${sig}</div>` : ''
+    return `<div style="background:#F5F7FA;padding:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFF;border-radius:12px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
+<tr><td style="background:linear-gradient(135deg,#00A84F 0%,#037f4c 100%);padding:18px 20px;">
+  <table role="presentation" width="100%"><tr>
+    <td><img src="https://beyondgreenbiotech.com/cdn/shop/files/beyondgreenlogo.png" alt="beyondGREEN" style="height:36px;filter:brightness(0) invert(1);" /></td>
+    <td align="right" style="color:#FFF;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Made in USA · Compostable</td>
+  </tr></table>
+</td></tr>
+<tr><td style="padding:24px 24px 20px;">${bodyHtml}${sigBlock}</td></tr>
+<tr><td style="background:#0F1C2E;padding:14px 20px;color:#B8C3D2;font-size:10px;line-height:1.4;">
+  <table role="presentation" width="100%"><tr>
+    <td><div style="color:#00E68C;font-weight:bold;margin-bottom:2px;">beyondGREEN biotech</div>1202 E. Wakeham Ave., Santa Ana, CA 92705</td>
+    <td align="right"><a href="https://beyondgreenbiotech.com" style="color:#00E68C;text-decoration:none;font-weight:600;">beyondgreenbiotech.com</a></td>
+  </tr></table>
+</td></tr>
+</table></td></tr></table></div>`
   }
 
   return (
