@@ -116,6 +116,11 @@ function orderRef(o: SalesOrder): string | null {
   const parts = notes.split('|')
   return parts.length > 1 ? parts.slice(1).join('|').trim() : null
 }
+// Full order name for the board/table title: the whole typed name (kept intact, not split on "|").
+function orderTitle(o: SalesOrder): string {
+  const typed = (o.notes ?? '').trim()
+  return typed || o.customer?.company_name || o.order_number || 'Order'
+}
 function orderValue(o: SalesOrder): number {
   return o.total_amount ?? o.total ?? o.subtotal ?? 0
 }
@@ -1347,8 +1352,8 @@ export default function OrdersPage() {
                       <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
-                          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderCustomerName(o) || o.order_number || 'Order'}</p>
-                          <p className="text-xs text-gray-500 truncate">{orderRef(o) || o.order_number || o.customer?.company_name || ''}{o.po_number ? ' \u00b7 PO ' + o.po_number : ''}</p>
+                          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
+                          <p className="text-xs text-gray-500 truncate">{o.po_number ? 'PO ' + o.po_number : (o.order_number && o.order_number !== orderTitle(o) ? o.order_number : '')}</p>
                         </div>
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
@@ -1404,7 +1409,7 @@ export default function OrdersPage() {
               {filtered.map((order, i) => {
                 const expanded = expandedIds.has(order.id)
                 const flagged = flaggedMap[order.id] ?? 0
-                const custName = orderCustomerName(order)
+                const custName = orderTitle(order)
                 const ref = orderRef(order)
                 return (
                   <>
@@ -1558,7 +1563,7 @@ export default function OrdersPage() {
                 <tbody>
                   {completedOrders.map((order, i) => {
                     const expanded = expandedCompletedIds.has(order.id)
-                    const custName = orderCustomerName(order)
+                    const custName = orderTitle(order)
                     const ref = orderRef(order)
                     return (
                       <>
