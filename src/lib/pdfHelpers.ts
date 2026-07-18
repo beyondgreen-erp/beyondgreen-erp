@@ -550,100 +550,29 @@ function drawTermsPage(doc: jsPDF, order: PDFOrder) {
   doc.text(`${COMPANY.name}  -  1202 E Wakeham Ave, Santa Ana, CA 92705  -  finance@beyondgreenbiotech.com`, W / 2, H - 30, { align: 'center' })
 }
 
-export function generateQuotePDF(
-  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null },
+export async function generateQuotePDF(
+  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null; payment_terms?: string | null; po_number?: string | null },
   lines: PDFLine[],
   customer: PDFCustomer | null
 ) {
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
-  const W = doc.internal.pageSize.getWidth()
-  header(doc, 'QUOTATION')
-
-  let y = 76
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'bold')
-  doc.text(quote.quote_number, 36, y); y += 14
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  if (quote.quote_date) { doc.text(`Date: ${quote.quote_date}`, 36, y); y += 12 }
-  if (quote.expiry_date) { doc.text(`Valid Until: ${quote.expiry_date}`, 36, y); y += 12 }
-  doc.text(`Status: ${quote.status}`, 36, y)
-
-  if (customer) {
-    doc.setFontSize(8)
-    doc.setTextColor(...GRAY)
-    doc.text('QUOTE TO', W / 2, 76)
-    doc.setTextColor(...DARK)
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.text(customer.company_name, W / 2, 88)
-    doc.setFont('helvetica', 'normal')
-    let cy = 100
-    if (customer.contact_name) { doc.text(customer.contact_name, W / 2, cy); cy += 11 }
-    if (customer.email) { doc.text(customer.email, W / 2, cy); cy += 11 }
-    if (customer.phone) doc.text(customer.phone, W / 2, cy)
+  const orderLike: PDFOrder = {
+    order_number: quote.quote_number,
+    order_date: quote.quote_date,
+    required_ship_date: quote.expiry_date,
+    status: quote.status,
+    po_number: quote.po_number ?? null,
+    subtotal: quote.subtotal,
+    tax_pct: quote.tax_pct,
+    total: quote.total,
+    notes: quote.notes ?? null,
+    terms: quote.payment_terms ?? 'Net 30',
+    fob: 'Santa Ana',
+    sales_rep: 'RP',
   }
-
-  autoTable(doc, {
-    startY: 154,
-    head: [['#', 'SKU', 'Description', 'Qty', 'UOM', 'Unit Price', 'Disc%', 'Total']],
-    body: lines.map(l => {
-      const total = l.quantity * l.unit_price * (1 - l.discount_pct / 100)
-      return [l.line_number, l.sku ?? '—', l.description, l.quantity, l.unit_of_measure ?? '—', fmt$(l.unit_price), l.discount_pct ? l.discount_pct + '%' : '—', fmt$(total)]
-    }),
-    headStyles: { fillColor: GREEN, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 9 },
-    alternateRowStyles: { fillColor: [246, 250, 247] },
-    columnStyles: {
-      0: { cellWidth: 24, halign: 'center' },
-      1: { cellWidth: 68, font: 'courier', fontSize: 8 },
-      3: { cellWidth: 44, halign: 'center' },
-      4: { cellWidth: 44 },
-      5: { cellWidth: 68, halign: 'right' },
-      6: { cellWidth: 44, halign: 'center' },
-      7: { cellWidth: 68, halign: 'right' },
-    },
-  })
-
-  const afterTable = (doc as any).lastAutoTable.finalY + 12
-  const tax = quote.subtotal * (quote.tax_pct ?? 0) / 100
-
-  const totals: [string, string][] = [
-    ['Subtotal:', fmt$(quote.subtotal)],
-    [`Tax (${quote.tax_pct ?? 0}%):`, fmt$(tax)],
-    ['TOTAL:', fmt$(quote.total)],
-  ]
-  let ty = afterTable
-  totals.forEach(([label, value], i) => {
-    doc.setFontSize(i === 2 ? 10 : 9)
-    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
-    doc.text(label, W - 160, ty)
-    doc.text(value, W - 36, ty, { align: 'right' })
-    if (i === 1) { doc.setDrawColor(...GRAY); doc.line(W - 160, ty + 4, W - 36, ty + 4) }
-    ty += i === 2 ? 0 : 14
-  })
-
-  if (quote.notes) {
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Notes:', 36, afterTable)
-    doc.setFont('helvetica', 'normal')
-    doc.text(doc.splitTextToSize(quote.notes, (W - 80) / 2) as string[], 36, afterTable + 12)
-  }
-
-  doc.setFontSize(8)
-  doc.setTextColor(...GRAY)
-  doc.text(`Generated ${new Date().toLocaleString()} · beyondGREEN ERP`, W / 2, doc.internal.pageSize.getHeight() - 18, { align: 'center' })
-
-  doc.save(`quote-${quote.quote_number}.pdf`)
+  await renderSalesDocumentPDF('quote', orderLike, lines, customer)
 }
 
-/**
- * Request For Quote (RFQ) — sent OUT to suppliers when we need pricing on a sourcing project.
- * Same product details as a quote, but pricing columns are blank for the supplier to fill in
- * and return in whatever format they prefer.
- */
-export function generateRFQPDF(
+export async function generateRFQPDF(
   rfq: {
     quote_number: string
     quote_date: string | null
@@ -657,134 +586,193 @@ export function generateRFQPDF(
   lines: PDFLine[],
   buyer: PDFCustomer | null
 ) {
+  // For RFQs the "customer" block is the END-CUSTOMER / project reference.
+  // The shipping_address on the order struct is used for the Ship To box on the right side.
+  const orderLike: PDFOrder = {
+    order_number: rfq.quote_number,
+    order_date: rfq.quote_date,
+    required_ship_date: rfq.delivery_by ?? rfq.expiry_date,
+    status: 'RFQ',
+    subtotal: 0,
+    tax_pct: 0,
+    total: 0,
+    notes: rfq.notes ?? null,
+    terms: 'Reply w/ pricing',
+    fob: '—',
+    sales_rep: rfq.reply_to_name ?? 'RP',
+    shipping_address: rfq.delivery_address ?? null,
+  }
+  await renderSalesDocumentPDF('rfq', orderLike, lines, buyer, {
+    replyToEmail: rfq.reply_to_email ?? null,
+    replyToName: rfq.reply_to_name ?? null,
+  })
+}
+
+/**
+ * Shared renderer: produces a document that visually matches the Sales Order layout
+ * (Times header, Date/Number box, Company block, Bill To/Ship To boxes, info row,
+ * line items table, notes footer + Total box, second page). The kind param controls
+ * labels and whether pricing is shown.
+ */
+async function renderSalesDocumentPDF(
+  kind: 'so' | 'quote' | 'rfq',
+  order: PDFOrder,
+  lines: PDFLine[],
+  customer: PDFCustomer | null,
+  opts: { replyToEmail?: string | null; replyToName?: string | null } = {}
+) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
   const L = 36, R = W - 36
-  header(doc, 'REQUEST FOR QUOTE')
+  doc.setTextColor(0, 0, 0)
 
-  // Left column: RFQ meta
-  let y = 78
-  doc.setTextColor(...DARK)
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(14)
-  doc.text(`RFQ ${rfq.quote_number}`, L, y)
-  y += 16
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-  if (rfq.quote_date) { doc.text(`Issued: ${fmtDate(rfq.quote_date)}`, L, y); y += 12 }
-  if (rfq.expiry_date) {
-    doc.setFont('helvetica', 'bold'); doc.setTextColor(226, 68, 92)
-    doc.text(`Response due by: ${fmtDate(rfq.expiry_date)}`, L, y)
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(...DARK)
-    y += 12
-  }
-  if (rfq.delivery_by) { doc.text(`Requested delivery: ${fmtDate(rfq.delivery_by)}`, L, y); y += 12 }
+  const KIND = {
+    so:    { title: 'Sales Order',       numLabel: 'Sales Order #', filePrefix: 'sales-order', showPricing: true,  buyerBoxLabel: 'Name / Address',    shipBoxLabel: 'Ship To', shipByLabel: 'Ship By', includeTerms: true,  footerNotes: [
+      'Payment: Custom projects require a 40% deposit to confirm the order; the balance is due at time of shipment unless approved credit terms apply. First custom-project orders are not eligible for credit terms - to apply, email finance@beyondgreenbiotech.com.',
+      'Freight is billed on an actual basis. Report any quality or shortage claims within 7 days of receipt. This sale is subject to the Terms & Conditions of Sale on the following page.',
+    ] },
+    quote: { title: 'Quote',              numLabel: 'Quote #',       filePrefix: 'quote',       showPricing: true,  buyerBoxLabel: 'Name / Address',    shipBoxLabel: 'Ship To', shipByLabel: 'Valid Until', includeTerms: true, footerNotes: [
+      'This quote is valid for the period shown above. Pricing subject to change after expiry. Custom projects require a 40% deposit to confirm; balance due at time of shipment unless approved credit terms apply.',
+      'Freight billed on an actual basis. Acceptance of this quote is subject to the Terms & Conditions of Sale on the following page.',
+    ] },
+    rfq:   { title: 'Request for Quote',  numLabel: 'RFQ #',         filePrefix: 'RFQ',         showPricing: false, buyerBoxLabel: 'Project / End Customer', shipBoxLabel: 'Deliver To (if awarded)', shipByLabel: 'Response Due', includeTerms: false, footerNotes: [
+      'Please provide your best pricing, lead time, MOQ (if any), payment terms, and any assumptions or exclusions.',
+      'You may reply in whatever format works best for you — fill in this PDF, send a quote sheet, or reply directly by email. Response due by the date shown above.',
+    ] },
+  }[kind]
 
-  // Right column: prepared by
-  const rx = W / 2 + 20
-  let ry = 78
-  doc.setFontSize(8); doc.setTextColor(...GRAY); doc.text('PREPARED BY', rx, ry); ry += 12
-  doc.setTextColor(...DARK); doc.setFontSize(9); doc.setFont('helvetica', 'bold')
-  doc.text(COMPANY.name, rx, ry); ry += 11
-  doc.setFont('helvetica', 'normal')
-  COMPANY.addr.forEach(line => { doc.text(line, rx, ry); ry += 11 })
-  ry += 4
-  if (rfq.reply_to_name) { doc.text(`Attn: ${rfq.reply_to_name}`, rx, ry); ry += 11 }
-  if (rfq.reply_to_email) {
-    doc.setTextColor(0, 102, 204)
-    doc.text(rfq.reply_to_email, rx, ry); ry += 11
-    doc.setTextColor(...DARK)
-  }
+  // Header: logo + title + Date/Number box
+  const logo = await loadBrandLogo()
+  if (logo) { try { doc.addImage(logo, 'PNG', L, 28, 122, 48) } catch { /* skip */ } }
+  doc.setFont('times', 'bold'); doc.setFontSize(28)
+  doc.text(KIND.title, R, 60, { align: 'right' })
 
-  // Buyer / project reference block (optional)
-  const boxY = Math.max(y, ry) + 8
-  if (buyer && buyer.company_name) {
-    doc.setFontSize(8); doc.setTextColor(...GRAY); doc.text('FOR PROJECT / END CUSTOMER', L, boxY)
-    doc.setTextColor(...DARK); doc.setFontSize(9)
-    doc.text(buyer.company_name, L, boxY + 12)
-  }
+  const boxW = 200, boxX = R - boxW, boxY = 74, colX = boxX + boxW / 2, rowH = 20
+  doc.setDrawColor(0); doc.setLineWidth(0.7)
+  doc.rect(boxX, boxY, boxW, rowH)
+  doc.rect(boxX, boxY + rowH, boxW, rowH)
+  doc.line(colX, boxY, colX, boxY + rowH * 2)
+  doc.setFont('times', 'bold'); doc.setFontSize(9.5)
+  doc.text('Date', boxX + boxW / 4, boxY + 13.5, { align: 'center' })
+  doc.text(KIND.numLabel, colX + boxW / 4, boxY + 13.5, { align: 'center' })
+  doc.setFont('times', 'normal')
+  fitText(doc, fmtDate(order.order_date), boxX + boxW / 4, boxY + rowH + 13.5, boxW / 2, { align: 'center', maxSize: 9.5 })
+  fitText(doc, order.order_number || '-', colX + boxW / 4, boxY + rowH + 13.5, boxW / 2, { align: 'center', maxSize: 9.5 })
 
-  // Items table — pricing left blank on purpose
-  autoTable(doc, {
-    startY: boxY + 26,
-    margin: { left: L, right: 36 },
-    head: [['#', 'SKU / Part #', 'Description', 'Qty', 'UOM', 'Unit Price', 'Lead Time', 'Notes']],
-    body: lines.map(l => [
-      l.line_number,
-      l.sku ?? '—',
-      l.description,
-      l.quantity ?? '',
+  // Company block
+  doc.setFont('times', 'bold'); doc.setFontSize(11)
+  doc.text(COMPANY.name, L, 100)
+  doc.setFont('times', 'normal'); doc.setFontSize(12)
+  let cyc = 118
+  COMPANY.addr.forEach(line => { doc.text(line, L, cyc); cyc += 15 })
+
+  // Bill To / Ship To (same drawAddrBox as Sales Order)
+  const bY = 176, boxH = 96, lbW = 250, rbX = 300, rbW = R - rbX
+  drawAddrBox(doc, L, bY, lbW, boxH, KIND.buyerBoxLabel, billToRows(order, customer))
+  drawAddrBox(doc, rbX, bY, rbW, boxH, KIND.shipBoxLabel, shipToRows(order, customer))
+
+  // Info row (5 columns) — labels tweak per kind
+  const iY = bY + boxH + 12, infoRowH = 20
+  const infoCols = [
+    { label: 'P.O. No.',     value: order.po_number || '', w: 120 },
+    { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 120 },
+    { label: 'Terms',        value: order.terms || 'Net 30', w: 120 },
+    { label: 'FOB',          value: order.fob || 'Santa Ana', w: 96 },
+    { label: kind === 'rfq' ? 'Sourced By' : 'Sales Rep', value: order.sales_rep || 'RP', w: 84 },
+  ]
+  let ix = L
+  doc.setLineWidth(0.7); doc.setDrawColor(0)
+  infoCols.forEach(c => {
+    doc.setFillColor(238, 238, 238)
+    doc.rect(ix, iY, c.w, infoRowH, 'FD')
+    doc.setFont('times', 'bold'); doc.setFontSize(9.5); doc.setTextColor(0, 0, 0)
+    doc.text(c.label, ix + c.w / 2, iY + 13.5, { align: 'center' })
+    ix += c.w
+  })
+  ix = L
+  infoCols.forEach(c => {
+    doc.rect(ix, iY + infoRowH, c.w, infoRowH, 'S')
+    doc.setFont('times', 'normal'); doc.setFontSize(9.5)
+    fitText(doc, c.value || '', ix + c.w / 2, iY + infoRowH + 13.5, c.w, { align: 'center', maxSize: 9.5 })
+    ix += c.w
+  })
+
+  // Line items table — mirrors Sales Order columns. For RFQ, price columns are blank.
+  const totalQty = lines.reduce((s, l) => s + (l.quantity || 0), 0)
+  const anyPriced = lines.some(l => (l.unit_price || 0) > 0)
+  const derivedUnit = (!anyPriced && (order.total || 0) > 0 && totalQty > 0) ? (order.total as number) / totalQty : 0
+  const unitOf = (l: PDFLine) => ((l.unit_price || 0) > 0 ? l.unit_price : derivedUnit)
+  const lineTotalOf = (l: PDFLine) => l.quantity * unitOf(l) * (1 - (l.discount_pct || 0) / 100)
+  const bodyRows = lines.map(l => {
+    const u = unitOf(l)
+    const total = lineTotalOf(l)
+    return [
+      l.sku ?? '',
+      l.description ?? '',
+      l.quantity ? String(l.quantity) : '',
+      KIND.showPricing ? (u ? fmtCost(u) : '') : '',
       l.unit_of_measure ?? '',
-      '', // supplier fills in
-      '', // supplier fills in
-      '', // supplier fills in
-    ]),
+      KIND.showPricing ? (total ? fmtMoney(total) : '') : '',
+    ]
+  })
+  autoTable(doc, {
+    startY: iY + infoRowH * 2,
+    margin: { left: L, right: 36 },
+    head: [['Item', 'Description', 'Qty', 'Cost', 'U/M', 'Total']],
+    body: bodyRows,
     theme: 'grid',
-    headStyles: { fillColor: GREEN, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold', halign: 'center' },
-    bodyStyles: { fontSize: 9, minCellHeight: 26, valign: 'middle' },
-    alternateRowStyles: { fillColor: [246, 250, 247] },
+    styles: { font: 'times', fontSize: 10, textColor: [0, 0, 0], lineColor: [120, 120, 120], lineWidth: 0.5, cellPadding: 3, valign: 'top' },
+    headStyles: { fillColor: [238, 238, 238], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center', lineColor: [90, 90, 90], lineWidth: 0.6 },
     columnStyles: {
-      0: { cellWidth: 22, halign: 'center' },
-      1: { cellWidth: 78, font: 'courier', fontSize: 8 },
-      2: { cellWidth: 170 },
-      3: { cellWidth: 38, halign: 'center' },
-      4: { cellWidth: 42, halign: 'center' },
-      5: { cellWidth: 66, halign: 'right' },
-      6: { cellWidth: 60, halign: 'center' },
-      7: { cellWidth: 64 },
+      0: { cellWidth: 74 },
+      1: { cellWidth: 236 },
+      2: { cellWidth: 52, halign: 'right' },
+      3: { cellWidth: 58, halign: 'right' },
+      4: { cellWidth: 40, halign: 'center' },
+      5: { cellWidth: 64, halign: 'right' },
     },
   })
 
-  let ay = (doc as any).lastAutoTable.finalY + 14
-  const ensure = (need: number) => { if (ay + need > H - 60) { doc.addPage(); ay = 60 } }
+  const grand = lines.reduce((sum, l) => sum + lineTotalOf(l), 0) || (order.total ?? 0)
+  let afterY = (doc as any).lastAutoTable.finalY + 22
+  if (afterY > H - 120) afterY = H - 120
 
-  // Delivery details
-  if (rfq.delivery_address || rfq.delivery_by) {
-    ensure(60)
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...DARK)
-    doc.text('Delivery Details', L, ay); ay += 14
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    if (rfq.delivery_address) {
-      const lines2 = doc.splitTextToSize(`Ship to: ${rfq.delivery_address}`, R - L) as string[]
-      doc.text(lines2, L, ay); ay += lines2.length * 12
-    }
-    if (rfq.delivery_by) { doc.text(`Requested delivery date: ${fmtDate(rfq.delivery_by)}`, L, ay); ay += 12 }
-    ay += 8
-  }
-
-  // Project notes
-  if (rfq.notes) {
-    ensure(60)
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
-    doc.text('Project Notes & Requirements', L, ay); ay += 14
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    const wrapped = doc.splitTextToSize(rfq.notes, R - L) as string[]
-    doc.text(wrapped, L, ay); ay += wrapped.length * 12 + 8
-  }
-
-  // How to respond
-  ensure(80)
-  doc.setDrawColor(...GREEN); doc.setLineWidth(1)
-  doc.rect(L, ay, R - L, 66, 'S')
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...DARK)
-  doc.text('How to respond', L + 10, ay + 16)
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-  const replyLines = [
-    'Please provide your best pricing, lead time, MOQ (if any), and any assumptions or exclusions.',
-    'You may reply in the format that works best for you (fill in this PDF, send a quote sheet, or reply in email).',
-    rfq.reply_to_email
-      ? `Send your response to ${rfq.reply_to_email}${rfq.reply_to_name ? ` (Attn: ${rfq.reply_to_name})` : ''}.`
-      : 'Reply directly to the person who sent you this RFQ.',
-  ]
-  let ry2 = ay + 30
-  replyLines.forEach(line => {
-    const wrapped = doc.splitTextToSize(line, R - L - 20) as string[]
-    doc.text(wrapped, L + 10, ry2)
-    ry2 += wrapped.length * 11
+  // Footer notes (left)
+  doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
+  let ny = afterY
+  KIND.footerNotes.forEach(n => {
+    const wrapped = doc.splitTextToSize(n, 330) as string[]
+    doc.text(wrapped, L, ny)
+    ny += wrapped.length * 11 + 3
   })
 
-  // Footer
-  doc.setFontSize(8); doc.setTextColor(...GRAY)
-  doc.text(`Generated ${new Date().toLocaleString()} · beyondGREEN ERP · RFQ ${rfq.quote_number}`, W / 2, H - 18, { align: 'center' })
+  // Right side box: Total (SO/Quote) or Reply-To (RFQ)
+  const tbW = 200, tbX = R - tbW, tbY = afterY - 8
+  if (KIND.showPricing) {
+    doc.setDrawColor(0); doc.setLineWidth(0.8)
+    doc.rect(tbX, tbY, tbW, 40)
+    doc.setFont('times', 'bold'); doc.setFontSize(16)
+    doc.text('Total', tbX + 14, tbY + 26)
+    doc.setFontSize(14)
+    doc.text('$' + fmtMoney(grand), tbX + tbW - 12, tbY + 26, { align: 'right' })
+  } else {
+    // RFQ reply-to box
+    doc.setDrawColor(0); doc.setLineWidth(0.7)
+    doc.rect(tbX, tbY, tbW, 62)
+    doc.setFont('times', 'bold'); doc.setFontSize(10)
+    doc.text('Send response to', tbX + 10, tbY + 15)
+    doc.setFont('times', 'normal'); doc.setFontSize(10)
+    let rry = tbY + 30
+    if (opts.replyToName) { doc.text(String(opts.replyToName), tbX + 10, rry); rry += 12 }
+    const email = opts.replyToEmail || 'sourcing@beyondgreenbiotech.com'
+    doc.setTextColor(0, 102, 204)
+    fitText(doc, email, tbX + 10 + (tbW - 20) / 2, rry, tbW - 20, { align: 'center', maxSize: 10 })
+    doc.setTextColor(0, 0, 0)
+  }
 
-  doc.save(`RFQ-${(rfq.quote_number || 'RFQ').replace(/[^\w.-]+/g, '_')}.pdf`)
+  // ---- Page 2: Terms & Conditions (SO/Quote only) ----
+  if (KIND.includeTerms) drawTermsPage(doc, order)
+
+  doc.save(`${KIND.filePrefix}-${(order.order_number || KIND.filePrefix).replace(/[^\w.-]+/g, '_')}.pdf`)
 }
