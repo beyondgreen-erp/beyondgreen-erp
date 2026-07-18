@@ -149,57 +149,62 @@ const DEFAULT_NEWS_TOPICS = [
 ]
 
 function NewsWidget({ w, onCfg }: { w: Widget; onCfg: (p: any) => void }) {
-  const topics: string[] = (w.config?.topics && Array.isArray(w.config.topics) && w.config.topics.length)
-    ? w.config.topics : DEFAULT_NEWS_TOPICS
-  const speed: number = Number(w.config?.speed || 60) // seconds per full loop; lower = faster
+  // Reads from Supabase shared cache. A pg_cron job refreshes the cache
+  // every 30 minutes (server-side), so the whole team sees the same headlines
+  // and we spend at most 10 rss2json/Google News calls per half-hour team-wide.
+  const filterTopics: string[] = (w.config?.topics && Array.isArray(w.config.topics)) ? w.config.topics : []
+  const speed: number = Number(w.config?.speed || 60)
   const [items, setItems] = useState<{ title: string; link: string; source: string; pubDate: string; topic: string }[] | null>(null)
   const [err, setErr] = useState('')
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(topics.join('\n'))
+  const [allTopics, setAllTopics] = useState<string[]>([])
+  const [draft, setDraft] = useState<string[]>(filterTopics)
   const [paused, setPaused] = useState(false)
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null)
 
-  useEffect(() => {
-    let alive = true
-    setErr(''); setItems(null)
-    ;(async () => {
-      try {
-        const results = await Promise.all(topics.map(async t => {
-          const rss = `https://news.google.com/rss/search?q=${encodeURIComponent(t)}&hl=en-US&gl=US&ceid=US:en`
-          try {
-            const j = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}`).then(r => r.json())
-            if (j?.status !== 'ok') return []
-            return (j?.items || []).slice(0, 5).map((it: any) => ({
-              title: String(it.title || '').replace(/&#39;/g, '’').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/<[^>]+>/g, ''),
-              link: it.link,
-              source: String(it.author || '').split(',')[0] || 'Google News',
-              pubDate: it.pubDate || '',
-              topic: t,
-            }))
-          } catch { return [] }
-        }))
-        // Flatten, dedupe by title, sort newest first
-        const seen = new Set<string>()
-        const flat = results.flat().filter(it => {
-          const key = it.title.toLowerCase()
-          if (seen.has(key)) return false
-          seen.add(key); return true
-        }).sort((a, b) => (b.pubDate || '').localeCompare(a.pubDate || ''))
-        if (alive) setItems(flat.slice(0, 40))
-      } catch (e: any) { if (alive) setErr(e.message || 'News unavailable') }
-    })()
-    return () => { alive = false }
-  }, [JSON.stringify(topics)]) // eslint-disable-line
+  const load = useCallback(async () => {
+    setErr('')
+    // Pull topics + state + cache in parallel
+    const [{ data: topics }, { data: state }, { data: cache }] = await Promise.all([
+      sb.from('news_ticker_topics').select('topic,enabled').eq('enabled', true).order('topic'),
+      sb.from('news_ticker_state').select('last_refreshed_at').eq('id', 1).maybeSingle(),
+      sb.from('news_ticker_cache').select('topic,title,link,source,pub_date').order('pub_date', { ascending: false, nullsFirst: false }).limit(80),
+    ])
+    setAllTopics((topics || []).map((t: any) => t.topic))
+    setRefreshedAt(state?.last_refreshed_at || null)
+    const filt = new Set(filterTopics.length ? filterTopics : (topics || []).map((t: any) => t.topic))
+    const rows = (cache || []).filter((r: any) => filt.has(r.topic)).map((r: any) => ({
+      title: String(r.title || '').replace(/&amp;/g, '&').replace(/&#39;/g, '’').replace(/&quot;/g, '"'),
+      link: r.link,
+      source: String(r.source || 'Google News').replace(/&amp;/g, '&'),
+      pubDate: r.pub_date || '',
+      topic: r.topic,
+    }))
+    setItems(rows.slice(0, 40))
+  }, [JSON.stringify(filterTopics)]) // eslint-disable-line
+
+  useEffect(() => { load() }, [load])
 
   if (editing) {
+    const toggle = (t: string) => setDraft(d => d.includes(t) ? d.filter(x => x !== t) : [...d, t])
     return (
-      <div className="p-3 h-full flex flex-col">
-        <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1">Ticker topics (one per line)</p>
-        <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={8} className="flex-1 w-full border border-[#E4E6EE] rounded px-2 py-1.5 text-xs font-mono" />
-        <div className="flex items-center justify-between mt-2">
-          <button onClick={() => { setDraft(DEFAULT_NEWS_TOPICS.join('\n')); }} className="text-[10px] text-gray-500 hover:text-[#3B6FE0]">Reset to defaults</button>
+      <div className="p-3 h-full flex flex-col overflow-hidden">
+        <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Filter which topics YOU see (leave empty = show all)</p>
+        <p className="text-[10px] text-gray-400 mb-2">Refreshed team-wide every 30 min. Last refresh: {refreshedAt ? new Date(refreshedAt).toLocaleString() : '—'}</p>
+        <div className="flex-1 overflow-y-auto flex flex-wrap gap-1.5 mb-2">
+          {allTopics.map(t => (
+            <button key={t} onClick={() => toggle(t)}
+              className={`text-[10px] rounded-full px-2 py-1 border ${draft.includes(t) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-500 border-[#E4E6EE] hover:border-emerald-400'}`}>
+              {t}
+            </button>
+          ))}
+          {allTopics.length === 0 && <p className="text-xs text-gray-400">No topics yet.</p>}
+        </div>
+        <div className="flex items-center justify-between">
+          <button onClick={() => setDraft([])} className="text-[10px] text-gray-500 hover:text-[#3B6FE0]">Clear (show all)</button>
           <div className="flex gap-2">
-            <button onClick={() => { setDraft(topics.join('\n')); setEditing(false) }} className="text-xs px-3 py-1.5 rounded border border-[#E4E6EE]">Cancel</button>
-            <button onClick={() => { onCfg({ topics: draft.split('\n').map(s => s.trim()).filter(Boolean) }); setEditing(false) }} className="text-xs px-3 py-1.5 rounded bg-[#3B6FE0] text-white">Save</button>
+            <button onClick={() => { setDraft(filterTopics); setEditing(false) }} className="text-xs px-3 py-1.5 rounded border border-[#E4E6EE]">Cancel</button>
+            <button onClick={() => { onCfg({ topics: draft }); setEditing(false) }} className="text-xs px-3 py-1.5 rounded bg-[#3B6FE0] text-white">Save</button>
           </div>
         </div>
       </div>
