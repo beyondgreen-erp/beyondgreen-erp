@@ -13,6 +13,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/t/') ||
     pathname.startsWith('/w/') ||
     pathname.startsWith('/portal') ||
+    pathname.startsWith('/ship-docs') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/offline') ||
