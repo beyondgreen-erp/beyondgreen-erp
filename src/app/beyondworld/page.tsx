@@ -10,14 +10,18 @@ interface Item { id: string; name: string; category: string; slot: string; price
 const DICEBEAR = '/api/avatar'
 const BOX_COST = 120
 const SKIN = ['ffdbb4','edb98a','fd9841','d08b5b','ae5d29','614335']
-const TOP = ['shortFlat','shortWaved','shortCurly','shortRound','theCaesar','sides','dreads01','curly','bun','bob','longButNotTooLong','straight01','straight02','frizzle','shaggy','fro','bigHair','miaWallace']
+const TOP = ['shortFlat','shortWaved','shortCurly','shortRound','theCaesar','theCaesarAndSidePart','sides','shavedSides','dreads01','dreads02','curly','curvy','bun','bob','longButNotTooLong','straight01','straight02','straightAndStrand','frizzle','shaggy','shaggyMullet','fro','froBand','bigHair','miaWallace']
 const HAIRCOLOR = ['2c1b18','4a312c','724133','a55728','b58143','c93305','d6b370','e8e1e1','f59797']
 const EYES = ['default','happy','wink','squint','surprised','hearts','side','closed','cry','xDizzy']
 const EYEBROWS = ['default','defaultNatural','flatNatural','raisedExcited','angryNatural','sadConcerned','upDown']
 const MOUTH = ['smile','default','twinkle','serious','tongue','disbelief','eating','grimace','sad']
-const CLOTHES = ['shirtCrewNeck','shirtVNeck','shirtScoopNeck','collarAndSweater']
+const CLOTHES = ['shirtCrewNeck','shirtVNeck','shirtScoopNeck','collarAndSweater','blazerAndShirt','blazerAndSweater','graphicShirt','hoodie','overall']
 const CLOTHESCOLOR = ['262e33','5199e4','25557c','929598','a7ffc4','b1e2ff','e6e6e6','ff488e','ff5c5c','ffafb9','ffffb1','ffffff','65c9ff','3c4f5c']
 const BGCOLOR = ['b6e3f4','c0aede','d1d4f9','ffd5dc','ffdfbf','transparent']
+const FACIALHAIR = ['','beardLight','beardMedium','beardMajestic','moustacheFancy','moustacheMagnum']
+const ACCESSORIES = ['','round','wayfarers','sunglasses','prescription01','prescription02','kurt','eyepatch']
+const HATS = ['','hat','turban','hijab','winterHat02','winterHat03','winterHat04']
+const GRAPHIC = ['','bat','bear','cumbia','deer','diamond','hola','pizza','resist','skull','skullOutline']
 const RARITY: Record<string,string> = { Common:'#9CA3AF', Uncommon:'#22c55e', Rare:'#3b82f6', Epic:'#a855f7', Legendary:'#f59e0b' }
 
 function levelInfo(xp: number) {
@@ -38,7 +42,7 @@ function avatarUrl(cfg: any, equipped: any, itemsById: Record<string, Item>, siz
     clothing: cfg.clothing || 'shirtCrewNeck', clothesColor: cfg.clothesColor || '5199e4',
     backgroundColor: cfg.backgroundColor || 'b6e3f4', facialHair: cfg.facialHair || '',
   }
-  let hatColor: string | null = null, accessories: string | null = null, facialHair = base.facialHair, graphic: string | null = null, bgGrad: string | null = null
+  let hatColor: string | null = cfg.hatColor || null, accessories: string | null = cfg.accessories || null, facialHair = base.facialHair, graphic: string | null = cfg.clothingGraphic || null, bgGrad: string | null = null
   for (const slot of ['top','accessories','clothing','facialHair','background']) {
     const id = equipped?.[slot]; if (!id) continue; const it = itemsById[id]; if (!it) continue; const a = it.asset || {}
     if (a.kind === 'avatar') {
@@ -54,8 +58,8 @@ function avatarUrl(cfg: any, equipped: any, itemsById: Record<string, Item>, siz
   if (bgGrad) { p.set('backgroundColor', base.backgroundColor + ',' + bgGrad); p.set('backgroundType', 'gradientLinear') }
   if (hatColor) p.set('hatColor', hatColor)
   if (graphic) p.set('clothingGraphic', graphic)
-  if (facialHair) { p.set('facialHair', facialHair); p.set('facialHairProbability','100') } else p.set('facialHairProbability','0')
-  if (accessories) { p.set('accessories', accessories); p.set('accessoriesProbability','100') } else p.set('accessoriesProbability','0')
+  if (facialHair) { p.set('facialHair', facialHair); p.set('facialHairProbability','100'); p.set('facialHairColor', cfg.facialHairColor || '2c1b18') } else p.set('facialHairProbability','0')
+  if (accessories) { p.set('accessories', accessories); p.set('accessoriesProbability','100'); p.set('accessoriesColor', cfg.accessoriesColor || '3c4f5c') } else p.set('accessoriesProbability','0')
   if (size) p.set('size', String(size))
   return `${DICEBEAR}?${p.toString()}`
 }
@@ -115,6 +119,7 @@ export default function BeyondWorldPage() {
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const [draft, setDraft] = useState<any>({})
+  const [catTab, setCatTab] = useState<'body'|'clothes'|'face'|'hair'|'accessories'>('clothes')
   const [boxResult, setBoxResult] = useState<any>(null)
 
   const itemsById = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items])
@@ -246,27 +251,61 @@ export default function BeyondWorldPage() {
         </div>
         {msg && <div className="mb-4 text-sm px-3 py-2 rounded-lg bg-white/10 border border-white/10">{msg}</div>}
 
-        {tab === 'avatar' && (
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="rounded-2xl p-5 flex flex-col items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <FramedAvatar url={previewUrl} frame={myFrame} badge={myBadge} size={192} />
-              <p className="text-white/40 text-xs mt-3">Live preview — make it look like you</p>
-              <button onClick={saveAvatar} disabled={busy === 'save'} className="mt-4 px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save Avatar'}</button>
+        {tab === 'avatar' && (() => {
+          const CATS = [['body','Body'],['clothes','Clothes'],['face','Face'],['hair','Hair'],['accessories','Accessories']] as const
+          const thumb = (field: string, value: string) => avatarUrl({ ...draft, [field]: value }, equipped, itemsById, 120)
+          const optGrid = (field: string, options: string[]) => (
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2.5 mb-1">
+              {options.map(o => {
+                const sel = (draft[field] || '') === o
+                return (
+                  <button key={field + (o || 'none')} onClick={() => setDraft({ ...draft, [field]: o })}
+                    className="relative rounded-xl overflow-hidden aspect-square transition"
+                    style={{ background: '#0e1330', border: `2px solid ${sel ? '#22c55e' : 'rgba(255,255,255,0.08)'}`, boxShadow: sel ? '0 0 0 3px rgba(34,197,94,0.25)' : 'none' }}>
+                    <img src={thumb(field, o)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    {!o && <span className="absolute bottom-1 inset-x-0 text-center text-[9px] text-white/60">none</span>}
+                  </button>
+                )
+              })}
             </div>
-            <div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              {optRow('Skin', SKIN, 'skinColor', true)}
-              {optRow('Hair Style', TOP, 'top')}
-              {optRow('Hair Color', HAIRCOLOR, 'hairColor', true)}
-              {optRow('Eyes', EYES, 'eyes')}
-              {optRow('Eyebrows', EYEBROWS, 'eyebrows')}
-              {optRow('Mouth', MOUTH, 'mouth')}
-              {optRow('Outfit', CLOTHES, 'clothing')}
-              {optRow('Outfit Color', CLOTHESCOLOR, 'clothesColor', true)}
-              {optRow('Background', BGCOLOR, 'backgroundColor', true)}
-              <p className="text-white/40 text-xs mt-2">Want titles, graphic tees, hats, glasses, beards & more? Earn beyondDollars and hit the beyondShop.</p>
+          )
+          const colorGrid = (field: string, options: string[]) => (
+            <div className="flex flex-wrap gap-2 mb-1">
+              {options.map(o => (
+                <button key={field + o} onClick={() => setDraft({ ...draft, [field]: o })} title={o}
+                  className="w-8 h-8 rounded-full border-2 shrink-0"
+                  style={{ background: o === 'transparent' ? 'repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 10px 10px' : `#${o}`, borderColor: (draft[field] || '') === o ? '#22c55e' : 'rgba(255,255,255,0.25)' }} />
+              ))}
             </div>
-          </div>
-        )}
+          )
+          const head = (t: string) => <p className="text-[11px] font-semibold text-white/45 uppercase tracking-wide mt-3 mb-2 first:mt-0">{t}</p>
+          return (
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Avatar preview */}
+              <div className="rounded-2xl p-6 flex flex-col items-center justify-center" style={{ background: 'radial-gradient(360px 360px at 50% 15%, rgba(255,255,255,0.07), rgba(255,255,255,0.02))', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <FramedAvatar url={previewUrl} frame={myFrame} badge={myBadge} size={264} />
+                <button onClick={saveAvatar} disabled={busy === 'save'} className="mt-5 px-8 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save Avatar'}</button>
+                <p className="text-white/35 text-xs mt-2">Live preview — pick from the tabs on the right</p>
+              </div>
+              {/* Customizer panel */}
+              <div className="rounded-2xl p-4 flex flex-col" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="flex gap-1 border-b border-white/10 mb-3 overflow-x-auto">
+                  {CATS.map(([k, lbl]) => (
+                    <button key={k} onClick={() => setCatTab(k)} className={`px-3 py-2 text-sm font-semibold whitespace-nowrap border-b-2 -mb-px transition ${catTab === k ? 'text-white border-emerald-400' : 'text-white/50 border-transparent hover:text-white/80'}`}>{lbl}</button>
+                  ))}
+                </div>
+                <div className="overflow-y-auto pr-1" style={{ maxHeight: 470 }}>
+                  {catTab === 'body' && (<>{head('Skin Tone')}{colorGrid('skinColor', SKIN)}{head('Background')}{colorGrid('backgroundColor', BGCOLOR)}</>)}
+                  {catTab === 'clothes' && (<>{head('Outfit')}{optGrid('clothing', CLOTHES)}{head('Outfit Color')}{colorGrid('clothesColor', CLOTHESCOLOR)}{head('Graphic (graphic tee)')}{optGrid('clothingGraphic', GRAPHIC)}</>)}
+                  {catTab === 'face' && (<>{head('Eyes')}{optGrid('eyes', EYES)}{head('Eyebrows')}{optGrid('eyebrows', EYEBROWS)}{head('Mouth')}{optGrid('mouth', MOUTH)}</>)}
+                  {catTab === 'hair' && (<>{head('Hair Style')}{optGrid('top', TOP)}{head('Hair Color')}{colorGrid('hairColor', HAIRCOLOR)}{head('Facial Hair')}{optGrid('facialHair', FACIALHAIR)}</>)}
+                  {catTab === 'accessories' && (<>{head('Glasses')}{optGrid('accessories', ACCESSORIES)}{head('Headwear')}{optGrid('top', HATS)}</>)}
+                </div>
+                <p className="text-white/35 text-[11px] mt-3">Unlock premium titles, name colors, frames &amp; badges in the beyondShop.</p>
+              </div>
+            </div>
+          )
+        })()}
 
         {tab === 'shop' && (
           <div className="space-y-6">
