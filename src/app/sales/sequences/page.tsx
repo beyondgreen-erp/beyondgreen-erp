@@ -188,10 +188,23 @@ export default function SequencesPage() {
     load()
   }
   async function sendNext(enr: Enrollment) {
-    // Force next_send_at = now so the cron picks it up on the next tick
-    await sb.from('sequence_enrollments').update({ next_send_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', enr.id)
-    setRunning('Sending due emails…')
-    try { const r = await fetch('/api/leads/sequence-run'); const j = await r.json(); alert(j.message || j.error || 'Done') } catch { alert('Send run failed.') }
+    // Prefer approving an existing pending review send. Otherwise force-run
+    // this sequence bypassing the send-day check (via sequence_id param).
+    setRunning('Sending…')
+    try {
+      const { data: pending } = await sb.from('sequence_sends').select('id').eq('enrollment_id', enr.id).eq('status', 'review').limit(1)
+      if (pending && pending.length) {
+        const r = await fetch('/api/leads/sequence-approve', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ send_ids: [pending[0].id] }),
+        })
+        const j = await r.json(); alert(j.message || j.error || 'Sent.')
+      } else {
+        await sb.from('sequence_enrollments').update({ next_send_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', enr.id)
+        const r = await fetch(`/api/leads/sequence-run?sequence_id=${encodeURIComponent(enr.sequence_id)}`)
+        const j = await r.json(); alert(j.message || j.error || 'Sent.')
+      }
+    } catch { alert('Send failed.') }
     setRunning(''); load()
   }
 
