@@ -204,6 +204,20 @@ export default function BeyondWorldPage() {
   if (!me) return <div className="min-h-screen p-8" style={{ background: '#0f1226' }}><p className="text-white/70">Loading beyondWorld…</p></div>
 
   const li = levelInfo(me.xp)
+  // Achievement gates for prestige items (must be earned, not just bought)
+  const myRankByXp = board.filter(p => (p.xp || 0) > (me.xp || 0)).length + 1
+  const reqLabel = (it: any) => {
+    const a = it.asset || {}; const parts: string[] = []
+    if (a.req_rank) parts.push(a.req_rank === 1 ? '👑 #1 only' : `🏅 Top ${a.req_rank}`)
+    if (a.req_streak) parts.push(`🔥 ${a.req_streak}d streak`)
+    return parts.join(' · ')
+  }
+  const reqUnmet = (it: any) => {
+    const a = it.asset || {}
+    if (a.req_streak && (me.daily_streak || 0) < a.req_streak) return true
+    if (a.req_rank && myRankByXp > a.req_rank) return true
+    return false
+  }
   const equipped = me.equipped || {}
   const myUrl = avatarUrl(me.avatar_config, equipped, itemsById)
   const myTitle = equippedTitle(equipped, itemsById)
@@ -370,10 +384,10 @@ export default function BeyondWorldPage() {
                               <img src={avatarUrl(applyItem(draft, it))} alt={it.name} loading="lazy" className="w-full aspect-square object-cover" />
                               <div className="p-2">
                                 <p className="text-xs font-semibold truncate">{it.name}</p>
-                                <div className="flex items-center gap-1 mb-1.5"><span className="text-[9px] font-bold px-1 rounded" style={{ background: `${RARITY[it.rarity]}22`, color: RARITY[it.rarity] }}>{it.rarity}</span>{it.level_req > 1 && <span className="text-[9px] text-white/40">Lv {it.level_req}+</span>}</div>
+                                <div className="flex items-center gap-1 mb-1.5 flex-wrap"><span className="text-[9px] font-bold px-1 rounded" style={{ background: `${RARITY[it.rarity]}22`, color: RARITY[it.rarity] }}>{it.rarity}</span>{it.level_req > 1 && <span className="text-[9px] text-white/40">Lv {it.level_req}+</span>}{reqLabel(it) && <span className="text-[9px] font-bold px-1 rounded bg-amber-400/15 text-amber-300">{reqLabel(it)}</span>}</div>
                                 {isOwned
                                   ? <button onClick={() => setDraft((d: any) => applyItem(d, it))} className="w-full text-xs font-semibold py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white">Wear Look</button>
-                                  : <button onClick={() => buyGear(it)} disabled={tooLow || !canAfford || busy === it.id} className="w-full text-xs font-semibold py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40">{tooLow ? `Reach Lv ${it.level_req}` : busy === it.id ? '…' : `฿${it.price}`}</button>}
+                                  : <button onClick={() => buyGear(it)} disabled={tooLow || !canAfford || busy === it.id || reqUnmet(it)} className="w-full text-xs font-semibold py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40">{tooLow ? `Reach Lv ${it.level_req}` : reqUnmet(it) ? 'Locked 🔒' : busy === it.id ? '…' : `฿${it.price}`}</button>}
                               </div>
                             </div>
                           )
@@ -429,14 +443,15 @@ export default function BeyondWorldPage() {
                       <div key={it.id} className="rounded-xl p-3 flex flex-col" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${isEquipped ? '#22c55e' : 'rgba(255,255,255,0.08)'}` }}>
                         <div className="h-20 flex items-center justify-center mb-2">{previewNode}</div>
                         <div className="flex items-center gap-1.5"><span className="text-sm font-semibold truncate">{it.name}</span></div>
-                        <div className="flex items-center gap-2 mt-0.5 mb-2">
+                        <div className="flex items-center gap-2 mt-0.5 mb-2 flex-wrap">
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: `${RARITY[it.rarity]}22`, color: RARITY[it.rarity] }}>{it.rarity}</span>
                           {it.level_req > 1 && <span className="text-[10px] text-white/40">Lvl {it.level_req}+</span>}
+                          {reqLabel(it) && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300 border border-amber-400/30">{reqLabel(it)}</span>}
                         </div>
                         {!isOwned ? (
-                          <button onClick={() => buy(it)} disabled={busy === it.id || tooLow || !canAfford}
+                          <button onClick={() => buy(it)} disabled={busy === it.id || tooLow || !canAfford || reqUnmet(it)}
                             className="mt-auto text-xs font-semibold py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40 disabled:cursor-not-allowed">
-                            {tooLow ? `Reach Lvl ${it.level_req}` : busy === it.id ? '…' : `฿${it.price}`}
+                            {tooLow ? `Reach Lvl ${it.level_req}` : reqUnmet(it) ? 'Locked 🔒' : busy === it.id ? '…' : `฿${it.price}`}
                           </button>
                         ) : ['title', 'nameColor', 'frame', 'badge', 'prop'].includes(it.slot) ? (
                           <button onClick={() => equip(it.slot, isEquipped ? null : it.id)} disabled={busy === 'eq' + it.id}
