@@ -35,15 +35,25 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
   useImperativeHandle(ref, () => ({
     async sendNotifications() {
       if (!senderEmail || !value) return
-      const raw = Array.from(value.matchAll(/@([\w.@+-]+)/g)).map(m => m[1]).filter(e => e.includes('@') && e !== senderEmail)
-      const mentions = Array.from(new Set(raw))
-      for (const recipient of mentions) {
-        await fetch('/api/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recipientEmail: recipient, senderEmail, message: value, page, recordType: page }),
-        }).catch(() => {})
-      }
+      // Capture both @email tokens (inserted by the dropdown) and typed @firstname tokens.
+      const raw = Array.from(value.matchAll(/@([\w.+-]+(?:@[\w.-]+\.[a-zA-Z]{2,})?)/g)).map(m => m[1].toLowerCase())
+      const mentions = Array.from(new Set(raw)).filter(Boolean)
+      if (mentions.length === 0) return
+      const me = users.find(u => u.email === senderEmail)
+      // Route through the service-role endpoint so the notification row is written
+      // (bell + dashboard) and the email is sent. It resolves names/emails server-side.
+      await fetch('/api/notify-mentions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mentions,
+          body: value,
+          authorName: me?.full_name || senderEmail.split('@')[0],
+          authorEmail: senderEmail,
+          recordType: page,
+          recordUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+        }),
+      }).catch(() => {})
     },
   }))
 
