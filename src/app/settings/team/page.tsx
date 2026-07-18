@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import UserAvatar from '@/components/UserAvatar'
 
 interface Profile {
   id: string
@@ -104,12 +105,7 @@ export default function TeamPage() {
             <div key={p.id} className="bg-white border border-[#E4E6EE] rounded-xl p-5 flex flex-col gap-4">
               <div className="flex items-start gap-4">
                 <div className="relative shrink-0">
-                  <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center text-[#1A1D2E] font-bold text-base"
-                    style={{ backgroundColor: p.avatar_color }}
-                  >
-                    {p.avatar_initials || p.full_name[0]}
-                  </div>
+                  <UserAvatar email={p.email} initials={p.avatar_initials || p.full_name[0]} color={p.avatar_color} size={48} />
                   {online && (
                     <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 rounded-full border-2 border-gray-900" />
                   )}
