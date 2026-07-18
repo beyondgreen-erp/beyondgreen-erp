@@ -95,10 +95,19 @@ export default function ShipmentsPage() {
   const [drillWeek, setDrillWeek] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const ms = useMultiSelect<Shipment>()
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    sb.from('shipments').select('*').order('ship_date', { ascending: false })
-      .then(({ data }) => { if (data) setRows(data as Shipment[]); setLoading(false) })
+    (async () => {
+      const all: Shipment[] = []
+      for (let from = 0; ; from += 1000) {
+        const { data } = await sb.from('shipments').select('*').order('ship_date', { ascending: false, nullsFirst: false }).range(from, from + 999)
+        const batch = (data as Shipment[]) || []
+        all.push(...batch)
+        if (batch.length < 1000) break
+      }
+      setRows(all); setLoading(false)
+    })()
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, []) // eslint-disable-line
 
@@ -143,6 +152,15 @@ export default function ShipmentsPage() {
     })
   }, [rows, search, filterMonth, filterCarrier, filterState, sortCol, sortDir])
 
+  // Record-board grouping by month
+  const boardGroups = useMemo(() => {
+    const map: Record<string, Shipment[]> = {}
+    for (const r of filtered) { const k = r.month_group || 'Unknown'; (map[k] ||= []).push(r) }
+    const ordered = months.filter(m => map[m])
+    const extra = Object.keys(map).filter(k => !months.includes(k))
+    return [...ordered, ...extra].map(k => ({ key: k, rows: map[k] }))
+  }, [filtered, months])
+
   // ── Panel open/save ───────────────────────────────────────
   function openEdit(s: Shipment) {
     setEditing(s); setForm({ ...s }); setOpen(true)
@@ -169,6 +187,14 @@ export default function ShipmentsPage() {
     setRows(prev => prev.filter(r => !ms.selected.has(r.id)))
     ms.clear()
     setDeleting(false)
+  }
+
+  async function deleteOne(s: Shipment) {
+    if (!confirm(`Delete shipment for "${s.customer_name || 'this record'}"? This cannot be undone.`)) return
+    setDeleting(true)
+    await sb.from('shipments').delete().eq('id', s.id)
+    setRows(prev => prev.filter(r => r.id !== s.id))
+    setDeleting(false); setOpen(false)
   }
 
   function toggleSort(col: typeof sortCol) {
@@ -271,7 +297,7 @@ export default function ShipmentsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-white border border-[#E4E6EE] rounded-xl p-1 mb-5 w-fit">
-        <button onClick={() => setTab('table')} className={tabCls('table')}>Table</button>
+        <button onClick={() => setTab('table')} className={tabCls('table')}>Board</button>
         <button onClick={() => setTab('map')} className={tabCls('map')}>Live Map</button>
         <button onClick={() => setTab('heatmap')} className={tabCls('heatmap')}>Heat Map</button>
         <button onClick={() => setTab('analytics')} className={tabCls('analytics')}>Analytics</button>
@@ -283,102 +309,94 @@ export default function ShipmentsPage() {
         <OrdersMirror statuses={['Cancelled', 'Closed']} title="Cancelled Orders" tagClass="t-pink" emoji="✕" />
       )}
 
-      {/* ── TABLE TAB ── */}
+      {/* ── BOARD TAB (Record Board grouped by month) ── */}
       {tab === 'table' && (
         <>
-          <div className="flex flex-wrap gap-2 mb-4">
+          <div className="flex flex-wrap gap-2 mb-4 items-center">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customer, tracking, PO…"
               className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-64" />
-            <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-              className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
+            <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All Months</option>
               {months.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
-            <select value={filterCarrier} onChange={e => setFilterCarrier(e.target.value)}
-              className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
+            <select value={filterCarrier} onChange={e => setFilterCarrier(e.target.value)} className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All Carriers</option>
               {carriers.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <select value={filterState} onChange={e => setFilterState(e.target.value)}
-              className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
+            <select value={filterState} onChange={e => setFilterState(e.target.value)} className="bg-white border border-[#E4E6EE] text-gray-500 rounded-lg px-3 py-2 text-xs cursor-pointer">
               <option value="all">All States</option>
-              {states.map(s => <option key={s} value={s}>{s}</option>)}
+              {states.map(st => <option key={st} value={st}>{st}</option>)}
             </select>
             <span className="text-gray-600 text-xs self-center ml-1">{filtered.length} results</span>
-          </div>
-
-          <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-[#E4E6EE]">
-                    <th className="w-10 px-4 py-3"><input type="checkbox" checked={ms.isAllSelected(filtered)} onChange={()=>ms.toggleAll(filtered)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
-                    {[['customer_name','Customer'],['ship_date','Ship Date'],['ship_cost','Cost']].map(([col,label]) => (
-                      <th key={col} onClick={() => toggleSort(col as any)}
-                        className="px-4 py-3 text-left text-gray-500 font-medium cursor-pointer hover:text-gray-600 select-none whitespace-nowrap">
-                        {label} {sortCol === col ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-                      </th>
-                    ))}
-                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">PO #</th>
-                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Carrier</th>
-                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Tracking</th>
-                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">City / State</th>
-                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Invoice</th>
-                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Month</th>
-                    <th className="px-4 py-3 text-left text-gray-500 font-medium whitespace-nowrap">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr><td colSpan={11} className="px-4 py-10 text-center text-gray-600">Loading…</td></tr>
-                  ) : filtered.length === 0 ? (
-                    <tr><td colSpan={11} className="px-4 py-10 text-center text-gray-600 italic">No shipments found.</td></tr>
-                  ) : filtered.map(s => {
-                    const tUrl = trackingUrl(s.carrier, s.tracking_number)
-                    return (
-                      <tr key={s.id}
-                        className={`border-t border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
-                        <td className="px-4 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={()=>ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
-                        <td className="px-4 py-3 text-[#1A1D2E] font-medium max-w-[160px] truncate cursor-pointer" onClick={()=>openEdit(s)}>{s.customer_name || '—'}</td>
-                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtD(s.ship_date)}</td>
-                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(s)}>{fmtC(s.ship_cost)}</td>
-                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={()=>openEdit(s)}>{s.po_number || '—'}</td>
-                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={()=>openEdit(s)}>{s.carrier || '—'}</td>
-                        <td className="px-4 py-3" onClick={e => { if (tUrl) e.stopPropagation() }}>
-                          {s.tracking_number ? (
-                            tUrl ? (
-                              <a href={tUrl} target="_blank" rel="noopener noreferrer"
-                                className="text-blue-400 hover:text-blue-300 font-mono text-xs max-w-[140px] truncate block">
-                                {s.tracking_number}
-                              </a>
-                            ) : (
-                              <span className="text-gray-400 font-mono text-xs max-w-[140px] truncate block">{s.tracking_number}</span>
-                            )
-                          ) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{[s.city, s.state].filter(Boolean).join(', ') || '—'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap" onClick={e => { if (s.invoice_number) e.stopPropagation() }}>
-                          {s.invoice_number ? (
-                            <span className="text-xs px-1.5 py-0.5 rounded font-mono font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">{s.invoice_number}</span>
-                          ) : (
-                            <span className="text-gray-600 text-xs">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{s.month_group || '—'}</td>
-                        <td className="px-4 py-3">
-                          {(() => { const c = statusColor(s.delivery_status); return (
-                            <span className="mon-pill" style={{ background: c.bg, color: c.fg }}>
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{s.delivery_status}
-                            </span>
-                          ) })()}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div className="flex items-center gap-1.5 ml-auto text-xs">
+              <button onClick={() => setCollapsed(Object.fromEntries(boardGroups.map(g => [g.key, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
+              <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
             </div>
           </div>
+
+          {loading ? <p className="text-gray-400 text-sm">Loading…</p> : boardGroups.length === 0 ? (
+            <div className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-10 text-center text-gray-500 italic text-sm">No shipments found.</div>
+          ) : (
+            <div className="space-y-2.5 mb-6">
+              {boardGroups.map((group, gi) => {
+                const gr = group.rows
+                const isCol = collapsed[group.key] ?? true
+                const cost = gr.reduce((a, r) => a + (r.ship_cost || 0), 0)
+                const color = '#0086C0'
+                return (
+                  <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                    <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: color + '14', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !(c[group.key] ?? true) }))}>
+                      <span className="text-[10px]" style={{ color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                      <span className="font-bold text-sm" style={{ color }}>{group.key}</span>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: color + '26', color }}>{gr.length}</span>
+                      {cost > 0 && <span className="ml-auto text-[11px] text-gray-400">Ship cost ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                    </div>
+                    {!isCol && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs min-w-[980px]">
+                          <thead>
+                            <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
+                              <th className="w-10 px-4 py-2.5"><input type="checkbox" checked={gr.length > 0 && gr.every(r => ms.isSelected(r.id))} onChange={() => ms.toggleAll(gr)} className="accent-emerald-500 w-4 h-4 cursor-pointer" /></th>
+                              <th className="text-left font-semibold px-4 py-2.5 min-w-[180px]">Customer</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[120px]">Ship Date</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[90px]">Cost</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[130px]">PO #</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Carrier</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[150px]">Tracking</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[130px]">City / State</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Invoice</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[150px]">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#EAECF2]">
+                            {gr.map(s => {
+                              const tUrl = trackingUrl(s.carrier, s.tracking_number)
+                              return (
+                                <tr key={s.id} id={'item-' + s.id} className={`hover:bg-[#F2F6FF] transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
+                                  <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={() => ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer" /></td>
+                                  <td className="px-4 py-2.5 text-[#1A1D2E] font-semibold max-w-[200px] truncate cursor-pointer" onClick={() => openEdit(s)}>{s.customer_name || '—'}</td>
+                                  <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtD(s.ship_date)}</td>
+                                  <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtC(s.ship_cost)}</td>
+                                  <td className="px-3 py-2.5 text-gray-400 cursor-pointer" onClick={() => openEdit(s)}>{s.po_number || '—'}</td>
+                                  <td className="px-3 py-2.5 text-gray-400 cursor-pointer" onClick={() => openEdit(s)}>{s.carrier || '—'}</td>
+                                  <td className="px-3 py-2.5" onClick={e => { if (tUrl) e.stopPropagation() }}>
+                                    {s.tracking_number ? (tUrl ? <a href={tUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-400 font-mono text-xs max-w-[140px] truncate block">{s.tracking_number}</a> : <span className="text-gray-400 font-mono text-xs max-w-[140px] truncate block">{s.tracking_number}</span>) : '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{[s.city, s.state].filter(Boolean).join(', ') || '—'}</td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{s.invoice_number ? <span className="text-xs px-1.5 py-0.5 rounded font-mono font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">{s.invoice_number}</span> : <span className="text-gray-300 text-xs">—</span>}</td>
+                                  <td className="px-3 py-2.5 cursor-pointer" onClick={() => openEdit(s)}>{(() => { const c = statusColor(s.delivery_status); return (<span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{s.delivery_status}</span>) })()}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </>
       )}
 
@@ -581,8 +599,9 @@ export default function ShipmentsPage() {
               </div>
 
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setOpen(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-                <button onClick={save} disabled={saving} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-[#1A1D2E] font-medium transition-colors">{saving ? 'Saving…' : 'Save Changes'}</button>
+                <button onClick={() => editing && deleteOne(editing)} disabled={deleting} className="text-xs px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors">{deleting ? 'Deleting…' : '🗑 Delete'}</button>
+                <button onClick={() => setOpen(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+                <button onClick={save} disabled={saving} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium transition-colors">{saving ? 'Saving…' : 'Save Changes'}</button>
               </div>
 
               {editing && (
