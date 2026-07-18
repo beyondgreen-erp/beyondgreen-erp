@@ -18,6 +18,7 @@ function render(t: string, c: any, fromName: string): string {
     .replace(/\{\{\s*industry\s*\}\}/gi, c.industry || 'your industry')
     .replace(/\{\{\s*website\s*\}\}/gi, c.website || '')
     .replace(/\{\{\s*my_name\s*\}\}/gi, fromName || '')
+    .replace(/\{\{\s*customer_id\s*\}\}/gi, c.id || '')
 }
 
 /**
@@ -47,10 +48,12 @@ export function composeHtml(bodyText: string, signatureHtml: string): string {
         <td style="background:linear-gradient(135deg,#00A84F 0%,#037f4c 100%);padding:24px 28px;">
           <table role="presentation" width="100%"><tr>
             <td>
-              <img src="https://beyondgreenbiotech.com/cdn/shop/files/beyondgreenlogo.png" alt="beyondGREEN" style="height:44px;display:block;filter:brightness(0) invert(1);" />
+              <!-- Text-based wordmark so it always renders even when the recipient's client blocks images. -->
+              <div style="color:#FFFFFF;font-weight:800;font-size:26px;letter-spacing:-0.5px;line-height:1;font-family:Arial,Helvetica,sans-serif;">beyondGREEN</div>
+              <div style="color:#B6F0D0;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:4px;font-family:Arial,Helvetica,sans-serif;">biotech · professional</div>
             </td>
-            <td align="right" style="color:#FFFFFF;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">
-              Made in USA · Certified Compostable
+            <td align="right" style="color:#FFFFFF;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;font-family:Arial,Helvetica,sans-serif;">
+              Made in USA<br>Certified Compostable
             </td>
           </tr></table>
         </td>
