@@ -13,18 +13,21 @@ interface Props {
   ctaUrl: string
 }
 
-// Real product images pulled from the beyondGREEN Shopify CDN. These render
-// on real websites; no external image dependencies elsewhere.
+// Real product images pulled from the beyondGREEN Shopify CDN — actual dog
+// poop bag rolls, single-pull dispensers, and park waste stations. These are
+// the same images the storefront serves, so no external dependency risk.
 const IMAGES = {
-  bagsFront:    'https://byndgrn.com/cdn/shop/files/3-gallon-plant-based-trash-can-liner-50-bags-trash-liners-beyondgreen-1332348.png',
-  bagsAngle:    'https://byndgrn.com/cdn/shop/files/5-gallon-plant-based-trash-can-liner-50-bags-trash-liners-beyondgreen-2941569.png',
-  bagsClose:    'https://byndgrn.com/cdn/shop/files/5-gallon-plant-based-trash-can-liner-50-bags-trash-liners-beyondgreen-4491613.png',
-  bagsRoll:     'https://byndgrn.com/cdn/shop/files/5-gallon-plant-based-trash-can-liner-50-bags-trash-liners-beyondgreen-6833897.png',
-  dispenserFront:'https://byndgrn.com/cdn/shop/products/2020041_FrontShot.png',
-  dispenserOpen:'https://byndgrn.com/cdn/shop/products/2020041_OpenedAngledShot2.png',
-  dispenserClosed:'https://byndgrn.com/cdn/shop/products/2020041_ClosedAngledShot.png',
-  composter1:   'https://byndgrn.com/cdn/shop/files/beyondgreen-all-electric-organic-waste-and-pet-waste-composter-composter-beyondgreen-1189060.png',
-  composter2:   'https://byndgrn.com/cdn/shop/files/beyondgreen-all-electric-organic-waste-and-pet-waste-composter-composter-beyondgreen-4476002.png',
+  bagRoll1:    'https://byndgrn.com/cdn/shop/files/dog-waste-bags-200-count-core-roll-8-x-13-bulk-refill-made-in-usa-beyondgreen-1-roll-200-bags-dog-waste-bags-beyondgreen-2748026.png',
+  bagRoll2:    'https://byndgrn.com/cdn/shop/files/dog-waste-bags-200-count-core-roll-8-x-13-bulk-refill-made-in-usa-beyondgreen-1-roll-200-bags-dog-waste-bags-beyondgreen-3667880.png',
+  bagRoll3:    'https://byndgrn.com/cdn/shop/files/dog-waste-bags-200-count-core-roll-8-x-13-bulk-refill-made-in-usa-beyondgreen-1-roll-200-bags-dog-waste-bags-beyondgreen-3705470.png',
+  bagRoll4:    'https://byndgrn.com/cdn/shop/files/ROLL_BACK_NO_BACKGROUND.png',
+  dispBlack:   'https://byndgrn.com/cdn/shop/files/beyondgreen-single-pull-dog-waste-bag-dispenser-wallpole-mount-compatible-with-single-pull-header-packs-heavy-duty-construction-black-poop-bag-dispenser-beyondg-6921484.webp',
+  dispBlack2:  'https://byndgrn.com/cdn/shop/files/beyondgreen-single-pull-dog-waste-bag-dispenser-wallpole-mount-compatible-with-single-pull-header-packs-heavy-duty-construction-black-poop-bag-dispenser-beyondg-8532421.png',
+  dispGray:    'https://byndgrn.com/cdn/shop/files/beyondgreen-single-pull-dog-waste-bag-dispenser-wallpole-mount-compatible-with-single-pull-header-packs-heavy-duty-construction-gray-poop-bag-dispenser-beyondgr-4954045.png',
+  dispClear:   'https://byndgrn.com/cdn/shop/files/DISPENSER_NO_BACKGROUND_fdd4cbc4-5f03-4e37-8f04-8ee952181000.png',
+  parkStation:  'https://byndgrn.com/cdn/shop/files/dog-poop-bag-dispenser-wall-pole-mount-dog-waste-station-front-load-made-in-usa-beyondgreen-black-poop-bag-dispenser-beyondgreen-1585543.png',
+  parkStation2: 'https://byndgrn.com/cdn/shop/files/dog-poop-bag-dispenser-wall-pole-mount-dog-waste-station-front-load-made-in-usa-beyondgreen-black-poop-bag-dispenser-beyondgreen-7970668.png',
+  parkStationG: 'https://byndgrn.com/cdn/shop/files/dog-poop-bag-dispenser-wall-pole-mount-dog-waste-station-front-load-made-in-usa-beyondgreen-gray-poop-bag-dispenser-beyondgreen-1814244.png',
 }
 
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -115,7 +118,8 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
   }
 
   const [galleryIdx, setGalleryIdx] = useState(0)
-  const galleryImages = [IMAGES.bagsFront, IMAGES.bagsAngle, IMAGES.bagsClose, IMAGES.dispenserFront, IMAGES.dispenserOpen, IMAGES.composter1]
+  // Rotating hero shows: bag roll → single-pull dispenser (black+gray) → park waste station
+  const galleryImages = [IMAGES.bagRoll1, IMAGES.dispBlack, IMAGES.parkStation, IMAGES.bagRoll3, IMAGES.dispGray, IMAGES.parkStationG]
   useEffect(() => {
     const t = setInterval(() => setGalleryIdx(i => (i + 1) % galleryImages.length), 3800)
     return () => clearInterval(t)
@@ -225,14 +229,62 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
         </div>
       </div>
 
+      {/* FREE DISPENSER STATIONS — the "wait, it gets better" moment */}
+      <div style={{ maxWidth: 1100, margin: '48px auto 0', padding: '0 24px' }}>
+        <div style={{ background: '#fff', borderRadius: 24, overflow: 'hidden', border: '2px solid #00A84F', boxShadow: '0 12px 32px rgba(0,168,79,0.15)', position: 'relative' as const }}>
+          <div style={{ position: 'absolute' as const, top: 18, right: 18, background: '#FFD44D', color: '#4A3900', fontSize: 11, fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase' as const, padding: '6px 12px', borderRadius: 999 }}>
+            Actually free
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+            <div style={{ padding: '48px 40px' }}>
+              <div style={{ display: 'inline-block', background: '#DBFCE8', color: '#0D6B3E', fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase' as const, padding: '6px 12px', borderRadius: 999, marginBottom: 14 }}>
+                Free dispenser program
+              </div>
+              <h2 style={{ margin: '0 0 14px', fontSize: 38, fontWeight: 800, lineHeight: 1.05, letterSpacing: -1 }}>
+                Ask us how your city can get <span style={{ color: '#00A84F' }}>FREE dispensers</span> for every park.
+              </h2>
+              <p style={{ margin: '0 0 20px', fontSize: 16, lineHeight: 1.55, color: '#4A5A73' }}>
+                We provide the <b>Waste Bag Stations</b> — pole-mount or wall-mount, made in the USA — at <b>zero upfront cost</b> to qualifying municipal programs. Your parks team gets a professional dispenser at every trailhead, dog park, and greenway. We recoup the hardware cost through the bag/ad program over 24 months.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+                {[
+                  ['🏗️', 'Heavy-duty steel', 'Powder-coated, weatherproof, vandal-resistant.'],
+                  ['🎨', 'City-branded', 'Add your seal, park district logo, and rules signage.'],
+                  ['🔩', 'Wall or pole mount', 'Installs on existing park posts. No trenching, no permits.'],
+                  ['📦', 'Refill in seconds', 'Front-load design. Any parks staffer can restock.'],
+                ].map(([e, t, d], i) => (
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <div style={{ fontSize: 22 }}>{e}</div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#1A1D2E' }}>{t}</div>
+                      <div style={{ fontSize: 12, color: '#5A6E8A', lineHeight: 1.5 }}>{d}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <a href="#request" style={btnPrimary}>Ask about free dispensers →</a>
+              <p style={{ marginTop: 12, fontSize: 11, color: '#8A9FC0' }}>
+                Program qualification: 100k+ bags/year commitment (or ad-supported model). Typical rollout: 8–24 stations per city.
+              </p>
+            </div>
+            <div style={{ background: 'linear-gradient(135deg,#F5F7FA 0%,#E8F7EE 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 32px', position: 'relative' as const, minHeight: 460 }}>
+              <img src={IMAGES.parkStation} alt="Park waste bag station" style={{ width: '100%', maxWidth: 340, height: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 20px 24px rgba(0,0,0,0.15))' }} />
+              <div style={{ position: 'absolute' as const, bottom: 22, right: 22, background: '#fff', borderRadius: 12, padding: '10px 14px', boxShadow: '0 8px 20px rgba(0,0,0,0.08)', fontSize: 12, fontWeight: 700, color: '#00A84F' }}>
+                Value: $180 / station<br /><span style={{ color: '#0F1C2E', fontSize: 11, fontWeight: 500 }}>You pay: <s>$180</s> $0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* HOW IT WORKS */}
       <div style={{ maxWidth: 1100, margin: '48px auto 0', padding: '0 24px' }}>
         <h2 style={sectionH2}>How the program works</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginTop: 20 }}>
           {[
-            { n: '1', title: 'We ship samples', desc: 'Free 50-bag sample kit + printed proposal. Your parks team tests in the field for two weeks.', img: IMAGES.bagsAngle },
-            { n: '2', title: 'Pick your revenue model', desc: 'Buy at cost, sell ads yourself, or let us handle the ads and revenue-share. Attorney-reviewed template included.', img: IMAGES.bagsRoll },
-            { n: '3', title: 'First shipment in 4 weeks', desc: 'Custom-printed with your city seal + advertiser logos. Auto-ship on your cadence. We keep inventory for you.', img: IMAGES.dispenserFront },
+            { n: '1', title: 'We ship samples', desc: 'Free 50-bag sample kit + printed proposal. Your parks team tests in the field for two weeks.', img: IMAGES.bagRoll1 },
+            { n: '2', title: 'Pick your revenue model', desc: 'Buy at cost, sell ads yourself, or let us handle the ads and revenue-share. Attorney-reviewed template included.', img: IMAGES.dispBlack2 },
+            { n: '3', title: 'First shipment in 4 weeks', desc: 'Custom-printed with your city seal + advertiser logos. Auto-ship on your cadence. We keep inventory for you.', img: IMAGES.parkStation2 },
           ].map(s => (
             <div key={s.n} style={{ background: '#fff', borderRadius: 20, padding: 24, border: '1px solid #EAEEF3' }}>
               <div style={{ width: 36, height: 36, background: '#00A84F', color: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, marginBottom: 14 }}>{s.n}</div>
@@ -264,9 +316,9 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
         <p style={{ color: '#5A6E8A', fontSize: 14, marginTop: 6 }}>Bags are just the start. Same domestic supply chain covers dispensers and even on-site composters.</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, marginTop: 20 }}>
           {[
-            { img: IMAGES.bagsFront, title: 'Compostable pet waste bags', tag: '$0.037/bag' },
-            { img: IMAGES.dispenserOpen, title: 'Park dispensers & posts', tag: 'Refill-ready' },
-            { img: IMAGES.composter2, title: 'On-site electric composter', tag: 'Zero-haul' },
+            { img: IMAGES.bagRoll2, title: 'Compostable dog-poop bags', tag: '$0.037/bag' },
+            { img: IMAGES.dispGray, title: 'Single-pull wall dispensers', tag: 'Refill-ready' },
+            { img: IMAGES.parkStationG, title: 'Full park waste stations', tag: 'Pole-mount' },
           ].map((p, i) => (
             <div key={i} style={{ background: '#fff', borderRadius: 20, padding: 20, border: '1px solid #EAEEF3' }}>
               <img src={p.img} alt={p.title} style={{ width: '100%', height: 200, objectFit: 'contain', background: '#F5F7FA', borderRadius: 12, marginBottom: 12 }} />
