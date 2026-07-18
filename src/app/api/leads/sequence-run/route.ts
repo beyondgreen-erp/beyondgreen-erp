@@ -21,14 +21,62 @@ function render(t: string, c: any, fromName: string): string {
 }
 
 /**
- * Wraps the body text in HTML and appends the sender's global signature.
- * The bodyText is user-authored plain text with newlines; we escape it, newline→<br>.
+ * Wraps the body text in a branded HTML shell with beyondGREEN header + footer,
+ * and appends the sender's global signature. The bodyText is user-authored plain
+ * text with newlines; we escape it, then split on blank lines into paragraphs.
  * signatureHtml comes from user_email_signatures and is trusted HTML.
  */
 export function composeHtml(bodyText: string, signatureHtml: string): string {
-  const escaped = (bodyText || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')
-  const sig = signatureHtml ? `<br><br>${signatureHtml}` : ''
-  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">${escaped}${sig}</div>`
+  const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Split the plain-text body on blank lines → paragraphs; single \n inside a
+  // paragraph becomes <br>. Also auto-link https:// URLs so they're clickable.
+  const linkify = (s: string) => s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#00A84F;text-decoration:underline;">$1</a>')
+  const paragraphs = (bodyText || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+  const bodyHtml = paragraphs.map(p => `<p style="margin:0 0 14px;line-height:1.55;color:#1A1D2E;font-size:15px;">${linkify(escape(p)).replace(/\n/g, '<br>')}</p>`).join('')
+
+  const sig = signatureHtml
+    ? `<div style="margin-top:22px;padding-top:14px;border-top:1px solid #E4E6EE;">${signatureHtml}</div>`
+    : ''
+
+  return `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#F5F7FA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F7FA;padding:24px 12px;">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
+      <tr>
+        <td style="background:linear-gradient(135deg,#00A84F 0%,#037f4c 100%);padding:24px 28px;">
+          <table role="presentation" width="100%"><tr>
+            <td>
+              <img src="https://beyondgreenbiotech.com/cdn/shop/files/beyondgreenlogo.png" alt="beyondGREEN" style="height:44px;display:block;filter:brightness(0) invert(1);" />
+            </td>
+            <td align="right" style="color:#FFFFFF;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">
+              Made in USA · Certified Compostable
+            </td>
+          </tr></table>
+        </td>
+      </tr>
+      <tr><td style="padding:32px 32px 24px;">
+        ${bodyHtml}
+        ${sig}
+      </td></tr>
+      <tr>
+        <td style="background:#0F1C2E;padding:18px 28px;color:#B8C3D2;font-size:11px;line-height:1.5;">
+          <table role="presentation" width="100%"><tr>
+            <td>
+              <div style="color:#00E68C;font-weight:bold;font-size:12px;margin-bottom:4px;">beyondGREEN biotech</div>
+              1202 E. Wakeham Ave., Santa Ana, CA 92705 · (866) 364-9466
+            </td>
+            <td align="right">
+              <a href="https://beyondgreenbiotech.com" style="color:#00E68C;text-decoration:none;font-weight:600;">beyondgreenbiotech.com</a>
+            </td>
+          </tr></table>
+        </td>
+      </tr>
+    </table>
+    <p style="color:#8A9FC0;font-size:10px;text-align:center;margin:12px 0 0;font-family:Arial,sans-serif;">You received this email because we thought beyondGREEN could be a fit for your organization. Not interested? Reply "unsubscribe" and we'll stop.</p>
+  </td></tr>
+</table>
+</body></html>`
 }
 
 export async function GET(req: NextRequest) {
