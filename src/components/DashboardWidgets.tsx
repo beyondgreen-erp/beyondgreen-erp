@@ -166,11 +166,12 @@ function NewsWidget({ w, onCfg }: { w: Widget; onCfg: (p: any) => void }) {
         const results = await Promise.all(topics.map(async t => {
           const rss = `https://news.google.com/rss/search?q=${encodeURIComponent(t)}&hl=en-US&gl=US&ceid=US:en`
           try {
-            const j = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}&count=5`).then(r => r.json())
+            const j = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}`).then(r => r.json())
+            if (j?.status !== 'ok') return []
             return (j?.items || []).slice(0, 5).map((it: any) => ({
-              title: (it.title || '').replace(/&#39;/g, '’').replace(/&amp;/g, '&').replace(/&quot;/g, '"'),
+              title: String(it.title || '').replace(/&#39;/g, '’').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/<[^>]+>/g, ''),
               link: it.link,
-              source: (it.author || '').split(',')[0] || 'News',
+              source: String(it.author || '').split(',')[0] || 'Google News',
               pubDate: it.pubDate || '',
               topic: t,
             }))
