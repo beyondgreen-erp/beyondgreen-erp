@@ -34,34 +34,45 @@ function tierTitle(level: number) {
   if (level >= 8) return 'Manager'; if (level >= 6) return 'Lead'; if (level >= 4) return 'Specialist'
   if (level >= 2) return 'Coordinator'; return 'Rookie'
 }
-function avatarUrl(cfg: any, equipped: any, itemsById: Record<string, Item>, size = 0) {
-  cfg = cfg || {}; equipped = equipped || {}
-  const base: any = {
-    skinColor: cfg.skinColor || 'edb98a', top: cfg.top || 'shortFlat', hairColor: cfg.hairColor || '4a312c',
-    eyes: cfg.eyes || 'default', eyebrows: cfg.eyebrows || 'default', mouth: cfg.mouth || 'smile',
-    clothing: cfg.clothing || 'shirtCrewNeck', clothesColor: cfg.clothesColor || '5199e4',
-    backgroundColor: cfg.backgroundColor || 'b6e3f4', facialHair: cfg.facialHair || '',
-  }
-  let hatColor: string | null = cfg.hatColor || null, accessories: string | null = cfg.accessories || null, facialHair = base.facialHair, graphic: string | null = cfg.clothingGraphic || null, bgGrad: string | null = null
-  for (const slot of ['top','accessories','clothing','facialHair','background']) {
-    const id = equipped?.[slot]; if (!id) continue; const it = itemsById[id]; if (!it) continue; const a = it.asset || {}
-    if (a.kind === 'avatar') {
-      if (a.param === 'top') { base.top = a.value; if (a.hatColor) hatColor = a.hatColor }
-      else if (a.param === 'accessories') accessories = a.value
-      else if (a.param === 'clothing') { base.clothing = a.value; if (a.graphic) graphic = a.graphic }
-      else if (a.param === 'facialHair') facialHair = a.value
-    } else if (a.kind === 'bg' && slot === 'background') { base.backgroundColor = a.value; if (a.value2) bgGrad = a.value2 }
-  }
+// Your avatar is rendered PURELY from your config — what you build is exactly what shows.
+// (Shop cosmetics you own are folded into this config when you wear them.)
+function avatarUrl(cfg: any, _equipped?: any, _itemsById?: any, size = 0) {
+  cfg = cfg || {}
   const p = new URLSearchParams()
   p.set('seed', cfg.seed || 'beyondGREEN')
-  for (const k of ['skinColor','top','hairColor','eyes','eyebrows','mouth','clothing','clothesColor','backgroundColor']) p.set(k, base[k])
-  if (bgGrad) { p.set('backgroundColor', base.backgroundColor + ',' + bgGrad); p.set('backgroundType', 'gradientLinear') }
-  if (hatColor) p.set('hatColor', hatColor)
-  if (graphic) p.set('clothingGraphic', graphic)
-  if (facialHair) { p.set('facialHair', facialHair); p.set('facialHairProbability','100'); p.set('facialHairColor', cfg.facialHairColor || '2c1b18') } else p.set('facialHairProbability','0')
-  if (accessories) { p.set('accessories', accessories); p.set('accessoriesProbability','100'); p.set('accessoriesColor', cfg.accessoriesColor || '3c4f5c') } else p.set('accessoriesProbability','0')
+  p.set('skinColor', cfg.skinColor || 'edb98a')
+  p.set('top', cfg.top || 'shortFlat')
+  p.set('hairColor', cfg.hairColor || '4a312c')
+  p.set('eyes', cfg.eyes || 'default')
+  p.set('eyebrows', cfg.eyebrows || 'default')
+  p.set('mouth', cfg.mouth || 'smile')
+  p.set('clothing', cfg.clothing || 'shirtCrewNeck')
+  p.set('clothesColor', cfg.clothesColor || '5199e4')
+  if (cfg.clothingGraphic) p.set('clothingGraphic', cfg.clothingGraphic)
+  if (cfg.hatColor) p.set('hatColor', cfg.hatColor)
+  const bg = cfg.backgroundColor || 'b6e3f4'
+  if (cfg.bgGradient) { p.set('backgroundColor', bg + ',' + cfg.bgGradient); p.set('backgroundType', 'gradientLinear') }
+  else p.set('backgroundColor', bg)
+  if (cfg.facialHair) { p.set('facialHair', cfg.facialHair); p.set('facialHairProbability', '100'); p.set('facialHairColor', cfg.facialHairColor || '2c1b18') } else p.set('facialHairProbability', '0')
+  if (cfg.accessories) { p.set('accessories', cfg.accessories); p.set('accessoriesProbability', '100'); p.set('accessoriesColor', cfg.accessoriesColor || '3c4f5c') } else p.set('accessoriesProbability', '0')
   if (size) p.set('size', String(size))
   return `${DICEBEAR}?${p.toString()}`
+}
+
+// Fold a shop item's look onto an avatar config (character gear + multi-slot "Look" kits).
+// Flair items (titles, name colors, frames, badges) don't change the character image.
+function applyItem(cfg: any, item: any): any {
+  if (!item) return cfg
+  const a = item.asset || {}
+  const out = { ...(cfg || {}) }
+  if (a.kind === 'avatar') {
+    if (a.param === 'clothing') { out.clothing = a.value; out.clothingGraphic = a.graphic || '' }
+    else if (a.param === 'top') { out.top = a.value; if (a.hatColor) out.hatColor = a.hatColor }
+    else if (a.param === 'accessories') { out.accessories = a.value }
+    else if (a.param === 'facialHair') { out.facialHair = a.value }
+  } else if (a.kind === 'bg') { out.backgroundColor = a.value; out.bgGradient = a.value2 || '' }
+  else if (a.kind === 'kit' && a.cfg) { Object.assign(out, a.cfg) }
+  return out
 }
 function equippedTitle(equipped: any, itemsById: Record<string, Item>) {
   const id = equipped?.title; if (!id) return null; const it = itemsById[id]
@@ -119,7 +130,7 @@ export default function BeyondWorldPage() {
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const [draft, setDraft] = useState<any>({})
-  const [catTab, setCatTab] = useState<'body'|'clothes'|'face'|'hair'|'accessories'>('clothes')
+  const [catTab, setCatTab] = useState<'looks'|'body'|'clothes'|'face'|'hair'|'accessories'>('looks')
   const [boxResult, setBoxResult] = useState<any>(null)
 
   const itemsById = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items])
@@ -149,6 +160,17 @@ export default function BeyondWorldPage() {
     setBusy(it.id); setMsg('')
     const { error } = await sb.rpc('bw_buy', { p_item: it.id })
     setBusy(''); if (error) setMsg(error.message.replace('P0001:', '').trim() || 'Could not buy'); else { setMsg(`Bought ${it.name}!`); load() }
+  }
+  // Buy a piece of character gear/look and immediately wear it (kept local so the builder draft isn't reset)
+  async function buyGear(it: Item) {
+    setBusy(it.id); setMsg('')
+    const { error } = await sb.rpc('bw_buy', { p_item: it.id })
+    setBusy('')
+    if (error) { setMsg(error.message.replace('P0001:', '').trim() || 'Could not buy'); return }
+    setOwned(prev => { const n = new Set(prev); n.add(it.id); return n })
+    setMe(m => m ? { ...m, beyond_dollars: m.beyond_dollars - it.price } : m)
+    setDraft((d: any) => applyItem(d, it))
+    setMsg(`Unlocked ${it.name} — now wearing it! Hit Save Avatar to keep it.`)
   }
   async function equip(slot: string, itemId: string | null) {
     setBusy('eq' + (itemId || slot)); setMsg('')
@@ -252,8 +274,8 @@ export default function BeyondWorldPage() {
         {msg && <div className="mb-4 text-sm px-3 py-2 rounded-lg bg-white/10 border border-white/10">{msg}</div>}
 
         {tab === 'avatar' && (() => {
-          const CATS = [['body','Body'],['clothes','Clothes'],['face','Face'],['hair','Hair'],['accessories','Accessories']] as const
-          const thumb = (field: string, value: string) => avatarUrl({ ...draft, [field]: value }, {}, itemsById, 120)
+          const CATS = [['looks','✨ Looks'],['clothes','Clothes'],['hair','Hair'],['face','Face'],['accessories','Accessories'],['body','Body']] as const
+          const thumb = (field: string, value: string) => avatarUrl({ ...draft, [field]: value }, undefined, undefined, 120)
           const optGrid = (field: string, options: string[]) => (
             <div className="grid grid-cols-4 sm:grid-cols-5 gap-2.5 mb-1">
               {options.map(o => {
@@ -272,20 +294,52 @@ export default function BeyondWorldPage() {
           const colorGrid = (field: string, options: string[]) => (
             <div className="flex flex-wrap gap-2 mb-1">
               {options.map(o => (
-                <button key={field + o} onClick={() => setDraft({ ...draft, [field]: o })} title={o}
+                <button key={field + o} onClick={() => setDraft({ ...draft, [field]: o, ...(field === 'backgroundColor' ? { bgGradient: '' } : {}) })} title={o}
                   className="w-8 h-8 rounded-full border-2 shrink-0"
                   style={{ background: o === 'transparent' ? 'repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 10px 10px' : `#${o}`, borderColor: (draft[field] || '') === o ? '#22c55e' : 'rgba(255,255,255,0.25)' }} />
               ))}
             </div>
           )
           const head = (t: string) => <p className="text-[11px] font-semibold text-white/45 uppercase tracking-wide mt-3 mb-2 first:mt-0">{t}</p>
+          const gearOf = (cats: string[]) => items.filter(i => cats.includes(i.category))
+          const gearSel = (it: any) => {
+            const a = it.asset || {}
+            if (a.kind === 'bg') return (draft.backgroundColor || '') === a.value
+            if (a.kind === 'kit') return false
+            if (a.param === 'clothing') return (draft.clothing || '') === a.value && (draft.clothingGraphic || '') === (a.graphic || '')
+            return (draft[a.param] || '') === a.value
+          }
+          const gearGrid = (cats: string[]) => {
+            const list = gearOf(cats)
+            if (!list.length) return <p className="text-white/30 text-[11px] mb-1">More coming to the shop soon.</p>
+            return (
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2.5 mb-1">
+                {list.map(it => {
+                  const isOwned = owned.has(it.id); const sel = gearSel(it); const tooLow = li.level < it.level_req; const canAfford = me.beyond_dollars >= it.price
+                  return (
+                    <button key={it.id} title={`${it.name}${isOwned ? '' : tooLow ? ` — reach Lvl ${it.level_req}` : ` — ฿${it.price}`}`}
+                      onClick={() => isOwned ? setDraft((d: any) => applyItem(d, it)) : buyGear(it)}
+                      disabled={busy === it.id || (!isOwned && (tooLow || !canAfford))}
+                      className="relative rounded-xl overflow-hidden aspect-square transition disabled:opacity-45"
+                      style={{ background: '#0e1330', border: `2px solid ${sel ? '#22c55e' : isOwned ? 'rgba(255,255,255,0.14)' : 'rgba(245,158,11,0.35)'}`, boxShadow: sel ? '0 0 0 3px rgba(34,197,94,0.25)' : 'none' }}>
+                      <img src={avatarUrl(applyItem(draft, it))} alt="" loading="lazy" className="w-full h-full object-cover" />
+                      <span className="absolute top-0.5 left-0.5 text-[8px] font-black px-1 rounded" style={{ background: `${RARITY[it.rarity]}`, color: '#0b0e1f' }}>{it.rarity[0]}</span>
+                      {!isOwned && <span className="absolute bottom-0 inset-x-0 text-center text-[9px] font-bold py-0.5 bg-black/60" style={{ color: tooLow ? '#f87171' : '#fbbf24' }}>{tooLow ? `Lv ${it.level_req}` : `฿${it.price}`}</span>}
+                      {isOwned && !sel && <span className="absolute bottom-0.5 right-1 text-[8px] text-emerald-300">✓</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          }
+          const looks = gearOf(['Looks'])
           return (
             <div className="grid md:grid-cols-2 gap-6">
               {/* Avatar preview */}
               <div className="rounded-2xl p-6 flex flex-col items-center justify-center" style={{ background: 'radial-gradient(360px 360px at 50% 15%, rgba(255,255,255,0.07), rgba(255,255,255,0.02))', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <FramedAvatar url={previewUrl} frame={myFrame} badge={myBadge} size={264} />
                 <button onClick={saveAvatar} disabled={busy === 'save'} className="mt-5 px-8 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold disabled:opacity-50">{busy === 'save' ? 'Saving…' : 'Save Avatar'}</button>
-                <p className="text-white/35 text-xs mt-2">Live preview — pick from the tabs on the right</p>
+                <p className="text-white/35 text-xs mt-2">This is exactly how you&apos;ll look everywhere. Green = selected · <span className="text-amber-300">฿</span> = buy &amp; wear.</p>
               </div>
               {/* Customizer panel */}
               <div className="rounded-2xl p-4 flex flex-col" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -295,13 +349,35 @@ export default function BeyondWorldPage() {
                   ))}
                 </div>
                 <div className="overflow-y-auto pr-1" style={{ maxHeight: 470 }}>
-                  {catTab === 'body' && (<>{head('Skin Tone')}{colorGrid('skinColor', SKIN)}{head('Background')}{colorGrid('backgroundColor', BGCOLOR)}</>)}
-                  {catTab === 'clothes' && (<>{head('Outfit')}{optGrid('clothing', CLOTHES)}{head('Outfit Color')}{colorGrid('clothesColor', CLOTHESCOLOR)}{head('Graphic (graphic tee)')}{optGrid('clothingGraphic', GRAPHIC)}</>)}
+                  {catTab === 'looks' && (<>
+                    {head('One-Tap Looks — a whole vibe in one click')}
+                    {looks.length === 0
+                      ? <p className="text-white/40 text-xs">Themed Looks are coming to the shop — earn beyondDollars and check back!</p>
+                      : <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {looks.map(it => {
+                          const isOwned = owned.has(it.id); const tooLow = li.level < it.level_req; const canAfford = me.beyond_dollars >= it.price
+                          return (
+                            <div key={it.id} className="rounded-xl overflow-hidden" style={{ background: '#0e1330', border: `1px solid ${isOwned ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.08)'}` }}>
+                              <img src={avatarUrl(applyItem(draft, it))} alt={it.name} loading="lazy" className="w-full aspect-square object-cover" />
+                              <div className="p-2">
+                                <p className="text-xs font-semibold truncate">{it.name}</p>
+                                <div className="flex items-center gap-1 mb-1.5"><span className="text-[9px] font-bold px-1 rounded" style={{ background: `${RARITY[it.rarity]}22`, color: RARITY[it.rarity] }}>{it.rarity}</span>{it.level_req > 1 && <span className="text-[9px] text-white/40">Lv {it.level_req}+</span>}</div>
+                                {isOwned
+                                  ? <button onClick={() => setDraft((d: any) => applyItem(d, it))} className="w-full text-xs font-semibold py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white">Wear Look</button>
+                                  : <button onClick={() => buyGear(it)} disabled={tooLow || !canAfford || busy === it.id} className="w-full text-xs font-semibold py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40">{tooLow ? `Reach Lv ${it.level_req}` : busy === it.id ? '…' : `฿${it.price}`}</button>}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>}
+                  </>)}
+                  {catTab === 'clothes' && (<>{head('Outfit')}{optGrid('clothing', CLOTHES)}{head('Premium Outfits & Graphic Tees')}{gearGrid(['Outfits', 'Graphic Tees'])}{head('Outfit Color')}{colorGrid('clothesColor', CLOTHESCOLOR)}{head('Graphic')}{optGrid('clothingGraphic', GRAPHIC)}</>)}
+                  {catTab === 'hair' && (<>{head('Hair Style')}{optGrid('top', TOP)}{head('Hair Color')}{colorGrid('hairColor', HAIRCOLOR)}{head('Facial Hair')}{optGrid('facialHair', FACIALHAIR)}{head('Premium Facial Hair')}{gearGrid(['Facial Hair'])}</>)}
                   {catTab === 'face' && (<>{head('Eyes')}{optGrid('eyes', EYES)}{head('Eyebrows')}{optGrid('eyebrows', EYEBROWS)}{head('Mouth')}{optGrid('mouth', MOUTH)}</>)}
-                  {catTab === 'hair' && (<>{head('Hair Style')}{optGrid('top', TOP)}{head('Hair Color')}{colorGrid('hairColor', HAIRCOLOR)}{head('Facial Hair')}{optGrid('facialHair', FACIALHAIR)}</>)}
-                  {catTab === 'accessories' && (<>{head('Glasses')}{optGrid('accessories', ACCESSORIES)}{head('Headwear')}{optGrid('top', HATS)}</>)}
+                  {catTab === 'accessories' && (<>{head('Glasses')}{optGrid('accessories', ACCESSORIES)}{head('Premium Glasses')}{gearGrid(['Glasses'])}{head('Headwear')}{optGrid('top', HATS)}{head('Premium Headwear')}{gearGrid(['Hats'])}</>)}
+                  {catTab === 'body' && (<>{head('Skin Tone')}{colorGrid('skinColor', SKIN)}{head('Background')}{colorGrid('backgroundColor', BGCOLOR)}{head('Premium Backgrounds')}{gearGrid(['Backgrounds'])}</>)}
                 </div>
-                <p className="text-white/35 text-[11px] mt-3">Unlock premium titles, name colors, frames &amp; badges in the beyondShop.</p>
+                <p className="text-white/35 text-[11px] mt-3">Titles, name colors, frames &amp; badges live in the beyondShop tab.</p>
               </div>
             </div>
           )
@@ -338,7 +414,7 @@ export default function BeyondWorldPage() {
                     else if (a.kind === 'nameGradient') previewNode = <span className="text-xl font-extrabold" style={{ background: `linear-gradient(90deg, ${a.from}, ${a.to})`, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', WebkitTextFillColor: 'transparent' }}>{nameOf(me)}</span>
                     else if (a.kind === 'frame') previewNode = <FramedAvatar url={avatarUrl(me.avatar_config, equipped, itemsById)} frame={a.style} size={72} />
                     else if (a.kind === 'badge') previewNode = <FramedAvatar url={avatarUrl(me.avatar_config, equipped, itemsById)} badge={a.emoji} size={72} />
-                    else previewNode = <img src={avatarUrl(me.avatar_config, { [it.slot]: it.id }, itemsById)} alt={it.name} className="h-20 w-20 rounded-lg" />
+                    else previewNode = <img src={avatarUrl(applyItem(me.avatar_config, it))} alt={it.name} className="h-20 w-20 rounded-lg" />
                     return (
                       <div key={it.id} className="rounded-xl p-3 flex flex-col" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${isEquipped ? '#22c55e' : 'rgba(255,255,255,0.08)'}` }}>
                         <div className="h-20 flex items-center justify-center mb-2">{previewNode}</div>
@@ -352,10 +428,15 @@ export default function BeyondWorldPage() {
                             className="mt-auto text-xs font-semibold py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-300 text-[#1a1300] disabled:opacity-40 disabled:cursor-not-allowed">
                             {tooLow ? `Reach Lvl ${it.level_req}` : busy === it.id ? '…' : `฿${it.price}`}
                           </button>
-                        ) : (
+                        ) : ['title', 'nameColor', 'frame', 'badge'].includes(it.slot) ? (
                           <button onClick={() => equip(it.slot, isEquipped ? null : it.id)} disabled={busy === 'eq' + it.id}
                             className={`mt-auto text-xs font-semibold py-1.5 rounded-lg ${isEquipped ? 'bg-white/10 text-white/70' : 'bg-emerald-500 hover:bg-emerald-400 text-white'}`}>
                             {isEquipped ? 'Unequip' : 'Equip'}
+                          </button>
+                        ) : (
+                          <button onClick={() => { setDraft((d: any) => applyItem(d, it)); setCatTab(it.asset?.kind === 'kit' ? 'looks' : 'clothes'); setTab('avatar'); setMsg(`Added ${it.name} to your look — hit Save Avatar to keep it`) }}
+                            className="mt-auto text-xs font-semibold py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white">
+                            Wear it
                           </button>
                         )}
                       </div>
@@ -404,7 +485,7 @@ export default function BeyondWorldPage() {
             <div className="h-24 flex items-center justify-center my-3">
               {boxResult.asset?.kind === 'title' ? <span className="text-base font-bold px-3 py-1.5 rounded-full" style={{ background: `${boxResult.asset.color}22`, color: boxResult.asset.color, border: `1px solid ${boxResult.asset.color}55` }}>{boxResult.asset.text}</span>
                 : boxResult.asset?.kind === 'nameColor' ? <span className="text-2xl font-extrabold" style={{ color: boxResult.asset.value }}>{nameOf(me)}</span>
-                : <img src={avatarUrl(me.avatar_config, { [boxResult.slot]: boxResult.id }, itemsById)} alt={boxResult.name} className="h-24 w-24 rounded-xl" />}
+                : <img src={avatarUrl(applyItem(me.avatar_config, boxResult))} alt={boxResult.name} className="h-24 w-24 rounded-xl" />}
             </div>
             <p className="text-lg font-extrabold">{boxResult.name}</p>
             <span className="inline-block mt-1 text-xs font-bold px-2 py-0.5 rounded" style={{ background: `${RARITY[boxResult.rarity]}22`, color: RARITY[boxResult.rarity] }}>{boxResult.rarity}</span>
