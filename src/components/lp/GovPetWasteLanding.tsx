@@ -47,8 +47,8 @@ const FAQS = [
     a: 'Yes. Bag ads are considered "in-park signage" under most municipal codes, which are typically less restrictive than street signage. Cities like Austin (TX), Boulder (CO) and Cary (NC) run ad-supported dog-park programs. We include a legal-review checklist in your sample kit.'
   },
   {
-    q: 'Who buys the ad space?',
-    a: 'Local businesses that reach dog owners: veterinary practices, groomers, pet food stores, doggy daycare, dog trainers, plus regional insurance and real estate. Typical fill: 60–80% within 3 months at $150–$400 per 10,000 bags per advertiser.'
+    q: 'Who buys the sponsorship slots?',
+    a: 'Local businesses that reach dog owners: veterinary practices, groomers, pet food stores, doggy daycare, dog trainers, plus regional insurance and real estate. Two common pricing structures: a flat annual sponsorship (typical $250–$1,500/slot/year for one sponsor to appear on every bag that year), or per print run ($10–$30 per 1,000 bags per slot). Cities pick whichever their finance office prefers to invoice.'
   },
   {
     q: 'What does the city pay?',
@@ -69,14 +69,21 @@ const FAQS = [
 ]
 
 export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
-  // Ad revenue calculator state
+  // Ad revenue calculator state — physical-product pricing, not impressions.
+  // Two realistic pricing models cities actually use:
+  //   'annual'   → charge each advertiser a flat annual fee for their slot on every bag.
+  //   'per-order' → charge per print run (per 1,000 bags per slot).
+  const [pricingModel, setPricingModel] = useState<'annual' | 'per-order'>('annual')
   const [bagsPerYear, setBagsPerYear] = useState(500_000)
   const [adsPerBag, setAdsPerBag] = useState(2)
-  const [ratePer1000, setRatePer1000] = useState(28) // $ per 1,000 impressions per advertiser
+  const [annualFeePerSlot, setAnnualFeePerSlot] = useState(500)   // $ per advertiser per year
+  const [ratePer1000Bags, setRatePer1000Bags] = useState(15)      // $ per 1,000 printed bags per slot
   const bagCost = 0.037
 
   const annualCost = bagsPerYear * bagCost
-  const annualRevenue = Math.round((bagsPerYear / 1000) * ratePer1000 * adsPerBag)
+  const annualRevenue = pricingModel === 'annual'
+    ? adsPerBag * annualFeePerSlot
+    : Math.round((bagsPerYear / 1000) * ratePer1000Bags * adsPerBag)
   const netToCity = Math.round(annualRevenue - annualCost)
   const isProfit = netToCity > 0
 
@@ -185,7 +192,21 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
           <div style={{ display: 'inline-block', background: 'rgba(0,230,140,0.15)', color: '#00E68C', fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', padding: '6px 14px', borderRadius: 999, marginBottom: 14 }}>
             The math your council will ask about
           </div>
-          <h2 style={{ margin: '0 0 20px', fontSize: 30, fontWeight: 800, letterSpacing: -0.5 }}>Ad-revenue calculator</h2>
+          <h2 style={{ margin: '0 0 8px', fontSize: 30, fontWeight: 800, letterSpacing: -0.5 }}>Ad-revenue calculator</h2>
+          <p style={{ color: '#93A5C5', fontSize: 13, margin: '0 0 20px', lineHeight: 1.55 }}>
+            Pick how your city wants to charge sponsors. Bags are a physical product, so pricing is either a flat annual sponsorship fee or per print run — not CPM.
+          </p>
+
+          {/* Pricing model toggle */}
+          <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 4, marginBottom: 24 }}>
+            <button onClick={() => setPricingModel('annual')} style={{ ...pillBtn, background: pricingModel === 'annual' ? '#00E68C' : 'transparent', color: pricingModel === 'annual' ? '#0F1C2E' : '#B8C3D2' }}>
+              Flat annual fee per slot
+            </button>
+            <button onClick={() => setPricingModel('per-order')} style={{ ...pillBtn, background: pricingModel === 'per-order' ? '#00E68C' : 'transparent', color: pricingModel === 'per-order' ? '#0F1C2E' : '#B8C3D2' }}>
+              Rate per 1,000 bags
+            </button>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'start' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               <div>
@@ -194,15 +215,23 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
                 <div style={calcValue}>{bagsPerYear.toLocaleString()} bags</div>
               </div>
               <div>
-                <label style={calcLabel}>Ad panels per bag <span style={{ color: '#93A5C5', fontWeight: 500 }}>(1 = one advertiser, 2 = two side-by-side)</span></label>
+                <label style={calcLabel}>Ad slots on each bag <span style={{ color: '#93A5C5', fontWeight: 500 }}>(one sponsor per slot per year)</span></label>
                 <input type="range" min={1} max={4} step={1} value={adsPerBag} onChange={e => setAdsPerBag(Number(e.target.value))} style={sliderStyle} />
-                <div style={calcValue}>{adsPerBag} panel{adsPerBag > 1 ? 's' : ''}</div>
+                <div style={calcValue}>{adsPerBag} slot{adsPerBag > 1 ? 's' : ''}</div>
               </div>
-              <div>
-                <label style={calcLabel}>Rate per 1,000 impressions <span style={{ color: '#93A5C5', fontWeight: 500 }}>(local vet averages $28)</span></label>
-                <input type="range" min={10} max={60} step={1} value={ratePer1000} onChange={e => setRatePer1000(Number(e.target.value))} style={sliderStyle} />
-                <div style={calcValue}>${ratePer1000} / 1,000</div>
-              </div>
+              {pricingModel === 'annual' ? (
+                <div>
+                  <label style={calcLabel}>Annual sponsorship fee per slot <span style={{ color: '#93A5C5', fontWeight: 500 }}>(typical: $250–$1,500 depending on city size)</span></label>
+                  <input type="range" min={100} max={3000} step={50} value={annualFeePerSlot} onChange={e => setAnnualFeePerSlot(Number(e.target.value))} style={sliderStyle} />
+                  <div style={calcValue}>${annualFeePerSlot.toLocaleString()} / slot / year</div>
+                </div>
+              ) : (
+                <div>
+                  <label style={calcLabel}>Rate charged per 1,000 bags per slot <span style={{ color: '#93A5C5', fontWeight: 500 }}>(sponsor pays with each print run)</span></label>
+                  <input type="range" min={5} max={60} step={1} value={ratePer1000Bags} onChange={e => setRatePer1000Bags(Number(e.target.value))} style={sliderStyle} />
+                  <div style={calcValue}>${ratePer1000Bags} / 1,000 bags</div>
+                </div>
+              )}
             </div>
             <div>
               <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 16, padding: 24, border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -211,7 +240,7 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
                   <span style={{ fontSize: 22, fontWeight: 700 }}>{money(annualCost)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <span style={{ color: '#B8C3D2', fontSize: 13 }}>Annual ad revenue</span>
+                  <span style={{ color: '#B8C3D2', fontSize: 13 }}>Annual sponsorship revenue</span>
                   <span style={{ fontSize: 22, fontWeight: 700, color: '#00E68C' }}>+{money(annualRevenue)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingTop: 14 }}>
@@ -219,8 +248,10 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
                   <span style={{ fontSize: 32, fontWeight: 800, color: isProfit ? '#00E68C' : '#FFB86B' }}>{isProfit ? '+' : ''}{money(netToCity)}</span>
                 </div>
                 <p style={{ color: '#93A5C5', fontSize: 11, marginTop: 14, lineHeight: 1.55 }}>
-                  Based on $0.037/bag wholesale, {adsPerBag} local advertiser{adsPerBag > 1 ? 's' : ''} at ${ratePer1000}/CPM.
-                  Real-world ad fill in the first 3 months averages 60–80% — this model assumes 100%.
+                  {pricingModel === 'annual'
+                    ? <>Based on $0.037/bag wholesale × {bagsPerYear.toLocaleString()} bags + {adsPerBag} slot{adsPerBag > 1 ? 's' : ''} × ${annualFeePerSlot} annual sponsorship fee. Slot totals do not scale with print volume — they scale with how many sponsors you sign.</>
+                    : <>Based on $0.037/bag wholesale × {bagsPerYear.toLocaleString()} bags + {adsPerBag} slot{adsPerBag > 1 ? 's' : ''} × ${ratePer1000Bags} per 1,000 bags. Sponsors are billed against each print run.</>
+                  }
                 </p>
               </div>
               <a href="#request" style={{ ...btnPrimary, marginTop: 16, width: '100%', textAlign: 'center' as const, display: 'block' }}>Get the pilot proposal →</a>
@@ -450,4 +481,8 @@ const fieldInput: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box' as const, border: '1px solid #E4E6EE', borderRadius: 10,
   padding: '11px 13px', fontSize: 14, fontFamily: 'inherit', background: '#FAFBFD',
   outline: 'none',
+}
+const pillBtn: React.CSSProperties = {
+  border: 0, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700,
+  cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.15s',
 }
