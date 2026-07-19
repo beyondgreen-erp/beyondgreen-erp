@@ -54,7 +54,7 @@ BENEFITS[5].img = U('1560807707-8cc77767d783')
 const FAQS = [
   {
     q: 'Wait — cities can actually sell ads on pet waste bags?',
-    a: 'Yes. Bag ads are considered "in-park signage" under most municipal codes, which are typically less restrictive than street signage. Cities like Austin (TX), Boulder (CO) and Cary (NC) run ad-supported dog-park programs. We include a legal-review checklist in your sample kit.'
+    a: 'In most jurisdictions, yes. Bag-printed advertising is generally treated as "in-park signage" under municipal codes, which is more permissive than street or roadside signage. Your city attorney or HOA counsel is the right person to confirm for your jurisdiction — we include the sponsor agreement template and a legal-review checklist in your sample kit so their review is quick.'
   },
   {
     q: 'Who buys the sponsorship slots?',
@@ -415,7 +415,7 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
             <form onSubmit={submitSampleRequest} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <label style={fieldLabel}>City / department *</label>
-                <input required value={form.facility} onChange={e => setForm(f => ({ ...f, facility: e.target.value }))} placeholder="City of Austin — Parks & Recreation" style={fieldInput} />
+                <input required value={form.facility} onChange={e => setForm(f => ({ ...f, facility: e.target.value }))} placeholder="City parks dept, HOA, or park district" style={fieldInput} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
@@ -429,7 +429,7 @@ export default function GovPetWasteLanding({ slug, ctaUrl }: Props) {
               </div>
               <div>
                 <label style={fieldLabel}>Where should we ship the samples?</label>
-                <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="1600 Sample St, Austin, TX 78701" style={fieldInput} />
+                <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Street, city, state, ZIP" style={fieldInput} />
               </div>
               <div>
                 <label style={fieldLabel}>Anything to know? (Park size, bag preference, ad interest…)</label>
