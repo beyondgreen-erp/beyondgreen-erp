@@ -50,6 +50,10 @@ export default function DailyPlanPage() {
   const [planDate, setPlanDate] = useState('')
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
+  const [machines, setMachines] = useState<{ machine_code: string }[]>([])
+  const [products, setProducts] = useState<{ id: string; product_name: string; sku: string }[]>([])
+  const [employees, setEmployees] = useState<{ id: string; name: string }[]>([])
+  const [addForm, setAddForm] = useState<Record<string, { machine: string; product: string; operator: string }>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -76,6 +80,14 @@ export default function DailyPlanPage() {
     setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
+  useEffect(() => { (async () => {
+    const [{ data: m }, { data: pr }, { data: emp }] = await Promise.all([
+      sb.from('machines').select('machine_code').order('machine_code'),
+      sb.from('products').select('id,product_name,sku').eq('is_active', true).order('product_name').limit(1000),
+      sb.from('employees').select('id,name').order('name'),
+    ])
+    setMachines((m as any[]) || []); setProducts((pr as any[]) || []); setEmployees((emp as any[]) || [])
+  })() }, [sb])
 
   const preview = useMemo(() => parsePlanText(paste), [paste])
   useEffect(() => { if (preview.planDate && !planDate) setPlanDate(preview.planDate) }, [preview.planDate]) // eslint-disable-line
@@ -88,14 +100,15 @@ export default function DailyPlanPage() {
     setErr('')
     const date = planDate || preview.planDate
     if (!date) { setErr('Pick a plan date.'); return }
-    if (!preview.lines.length) { setErr('Paste the plan text — no machine lines detected.'); return }
     setSaving(true)
     const { data: plan, error } = await sb.from('production_day_plans').insert({ plan_date: date, title: `Production Plan ${date}` }).select('*').single()
     if (error) { setSaving(false); setErr(error.code === '23505' ? 'A plan for that date already exists — delete it first or pick another date.' : error.message); return }
-    const rows = preview.lines.map((l, i) => ({ plan_id: (plan as Plan).id, machine_code: l.machine, product: l.product || null, operator: l.operator || null, sort_order: i, status: (l.product || '').toLowerCase() === 'offline' ? 'Offline' : 'Planned' }))
-    const { error: le } = await sb.from('production_plan_lines').insert(rows)
+    if (preview.lines.length) {
+      const rows = preview.lines.map((l, i) => ({ plan_id: (plan as Plan).id, machine_code: l.machine, product: l.product || null, operator: l.operator || null, sort_order: i, status: (l.product || '').toLowerCase() === 'offline' ? 'Offline' : 'Planned' }))
+      const { error: le } = await sb.from('production_plan_lines').insert(rows)
+      if (le) { setSaving(false); setErr(le.message); return }
+    }
     setSaving(false)
-    if (le) { setErr(le.message); return }
     setNewOpen(false); setPaste(''); setPlanDate(''); await load(); flash('Plan created — copy the link and send it in WhatsApp')
   }
 
@@ -104,11 +117,22 @@ export default function DailyPlanPage() {
     await sb.from('production_day_plans').delete().eq('id', p.id); load()
   }
   async function delLine(l: Line) { if (!confirm(`Remove ${l.machine_code} from this plan?`)) return; await sb.from('production_plan_lines').delete().eq('id', l.id); load() }
+  function setAddField(planId: string, patch: any) { setAddForm(a => ({ ...a, [planId]: { machine: '', product: '', operator: '', ...a[planId], ...patch } })) }
+  async function addLine(p: Plan) {
+    const f = addForm[p.id] || { machine: '', product: '', operator: '' }
+    if (!f.machine) { flash('Pick a machine first.'); return }
+    const existing = linesByPlan[p.id] || []
+    const { error } = await sb.from('production_plan_lines').insert({ plan_id: p.id, machine_code: f.machine, product: f.product || null, operator: f.operator || null, sort_order: existing.length, status: (f.product || '').toLowerCase() === 'offline' ? 'Offline' : 'Planned' })
+    if (error) { flash(error.message); return }
+    setAddForm(a => ({ ...a, [p.id]: { machine: '', product: '', operator: '' } })); load()
+  }
 
   const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30'
 
   return (
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
+      <datalist id="dl-products">{products.map(pr => <option key={pr.id} value={pr.product_name} />)}</datalist>
+      <datalist id="dl-employees">{employees.map(e => <option key={e.id} value={e.name} />)}</datalist>
       {toast && <div className="fixed top-4 right-4 z-[70] bg-[#1A1D2E] text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-lg">{toast}</div>}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div>
@@ -146,7 +170,7 @@ export default function DailyPlanPage() {
                     <button onClick={() => deletePlan(p)} className="text-[11px] px-2 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50">Delete</button>
                   </div>
                 </div>
-                {!isColl && (
+                {!isColl && (<>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[720px]">
                       <thead><tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
@@ -177,7 +201,17 @@ export default function DailyPlanPage() {
                       </tbody>
                     </table>
                   </div>
-                )}
+                  <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-t border-[#EEF0F4] bg-[#FBFCFE]">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">Add machine</span>
+                    <select value={(addForm[p.id]?.machine) || ''} onChange={e => setAddField(p.id, { machine: e.target.value })} className="border border-[#E4E6EE] rounded-lg px-2 py-1.5 text-xs bg-white">
+                      <option value="">Machine…</option>
+                      {machines.map(m => <option key={m.machine_code} value={m.machine_code}>{m.machine_code}</option>)}
+                    </select>
+                    <input list="dl-products" value={(addForm[p.id]?.product) || ''} onChange={e => setAddField(p.id, { product: e.target.value })} placeholder="What to run (inventory)…" className="border border-[#E4E6EE] rounded-lg px-2 py-1.5 text-xs w-48" />
+                    <input list="dl-employees" value={(addForm[p.id]?.operator) || ''} onChange={e => setAddField(p.id, { operator: e.target.value })} placeholder="Operator…" className="border border-[#E4E6EE] rounded-lg px-2 py-1.5 text-xs w-40" />
+                    <button onClick={() => addLine(p)} className="text-[11px] px-3 py-1.5 rounded-lg bg-[#037f4c] text-white font-semibold hover:opacity-90">Add</button>
+                  </div>
+                </>)}
               </div>
             )
           })}
@@ -192,7 +226,7 @@ export default function DailyPlanPage() {
               <button onClick={() => setNewOpen(false)} className="text-sm px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Close</button>
             </div>
             <div className="p-5 space-y-3">
-              <p className="text-xs text-gray-500">Paste your WhatsApp production plan below. The machine, product and operator are detected automatically.</p>
+              <p className="text-xs text-gray-500">Paste your WhatsApp production plan (auto-detected), <strong>or</strong> just pick a date and click Create — then add machines with the dropdowns on the board.</p>
               <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={14} placeholder={"7/20 Production Plan\nMM1 - Knife\nEXT 1 - 8x13 BG - Florentino/Ramon\n..."} className={inp + ' font-mono text-xs'} />
               <div className="flex items-center gap-3">
                 <label className="text-xs text-gray-500">Plan date</label>
