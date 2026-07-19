@@ -60,10 +60,12 @@ export default function ClientPortalPage() {
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  // Team messaging
-  const [msgTo, setMsgTo] = useState<any | null>(null)
-  const [msgText, setMsgText] = useState('')
-  const [msgBusy, setMsgBusy] = useState<'idle' | 'sending' | 'sent'>('idle')
+  // Team messaging (persistent threads: 1:1 or whole-team group)
+  const [thread, setThread] = useState<{ kind: 'direct' | 'group'; email?: string; name: string; role?: string; avatar?: string } | null>(null)
+  const [threadMsgs, setThreadMsgs] = useState<any[]>([])
+  const [threadText, setThreadText] = useState('')
+  const [threadSending, setThreadSending] = useState(false)
+  const [threadLoading, setThreadLoading] = useState(false)
   // Per-record comments
   const [cmt, setCmt] = useState<{ rt: string; rid: string; title: string } | null>(null)
   const [cmtList, setCmtList] = useState<any[]>([])
@@ -102,16 +104,30 @@ export default function ClientPortalPage() {
   }
   async function logout() { await fetch('/api/portal/logout', { method: 'POST' }).catch(() => {}); setData(null); setEmail(''); setPassword(''); setPhase('login') }
 
-  // Message a specific team member
-  async function sendUserMessage() {
-    if (!msgTo || !msgText.trim()) return
-    setMsgBusy('sending')
-    try {
-      const r = await fetch('/api/portal/message-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipient_email: msgTo.email, content: msgText.trim() }) })
-      if (r.ok) { setMsgBusy('sent'); setMsgText(''); setTimeout(() => { setMsgTo(null); setMsgBusy('idle') }, 1600) }
-      else { setMsgBusy('idle'); alert('Could not send. Please try again.') }
-    } catch { setMsgBusy('idle') }
+  // Persistent message threads (1:1 with a member, or whole-team group)
+  const fetchThread = useCallback(async (t: { kind: string; email?: string }) => {
+    const r = await fetch('/api/portal/thread', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: t.kind, recipient_email: t.email }) })
+    if (r.ok) { const j = await r.json().catch(() => ({})); setThreadMsgs(j.messages || []) }
+  }, [])
+  async function openThread(t: { kind: 'direct' | 'group'; email?: string; name: string; role?: string; avatar?: string }) {
+    setThread(t); setThreadMsgs([]); setThreadText(''); setThreadLoading(true)
+    try { await fetchThread(t) } finally { setThreadLoading(false) }
   }
+  async function sendThread() {
+    if (!thread || !threadText.trim()) return
+    setThreadSending(true)
+    try {
+      const r = await fetch('/api/portal/message-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: thread.kind, recipient_email: thread.email, content: threadText.trim() }) })
+      if (r.ok) { setThreadText(''); await fetchThread(thread) } else { alert('Could not send. Please try again.') }
+    } finally { setThreadSending(false) }
+  }
+  // Refresh the open thread every 8s to pick up team replies.
+  useEffect(() => {
+    if (!thread) return
+    const t = thread
+    const id = setInterval(() => { fetchThread(t) }, 8000)
+    return () => clearInterval(id)
+  }, [thread, fetchThread])
 
   // Comments on a record
   async function openComments(rt: string, rid: string, title: string) {
@@ -292,7 +308,7 @@ export default function ClientPortalPage() {
             <p className="text-sm text-gray-500 mt-1">Tap anyone to send them a message — they&apos;ll get an email right away.</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
               {team.map((m: any) => (
-                <button key={m.email} onClick={() => { setMsgTo(m); setMsgText(''); setMsgBusy('idle') }} className="flex items-center gap-3 text-left rounded-xl border border-[#EEF0F4] hover:border-[#037f4c] hover:bg-[#F0FBF5] transition-colors p-2.5">
+                <button key={m.email} onClick={() => openThread({ kind: 'direct', email: m.email, name: m.name, role: m.role, avatar: m.avatar })} className="flex items-center gap-3 text-left rounded-xl border border-[#EEF0F4] hover:border-[#037f4c] hover:bg-[#F0FBF5] transition-colors p-2.5">
                   <img src={m.avatar} alt={m.name} width={44} height={44} className="rounded-full bg-[#F0F5FF] shrink-0" />
                   <div className="min-w-0">
                     <p className="font-bold text-[#1A1D2E] text-sm leading-tight">{m.name}</p>
@@ -301,6 +317,12 @@ export default function ClientPortalPage() {
                 </button>
               ))}
             </div>
+            <button onClick={() => openThread({ kind: 'group', name: 'Whole team', role: 'Everyone above' })} className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl border border-[#037f4c]/30 bg-[#F0FBF5] hover:bg-[#E3F5EC] transition-colors py-2.5 text-sm font-semibold text-[#037f4c]">
+              <div className="flex -space-x-2">
+                {team.slice(0, 4).map((m: any) => <img key={m.email} src={m.avatar} width={22} height={22} className="rounded-full ring-2 ring-white bg-[#F0F5FF]" alt="" />)}
+              </div>
+              Message the whole team
+            </button>
             <p className="text-[12px] text-gray-600 mt-4 bg-[#F7FAF8] border border-[#E4EFE9] rounded-lg px-3 py-2">This is just the beginning — we&apos;re actively growing our team and will keep adding dedicated resources to support you. As we scale together, you&apos;ll always have the right people to turn to for assistance. 🌱</p>
           </div>
         )}
@@ -488,26 +510,35 @@ export default function ClientPortalPage() {
         <p className="text-center text-[11px] text-gray-400 pt-2">beyondGREEN Biotech · Questions? Message any team member above, comment on a specific order, or email info@byndgrn.com.</p>
       </div>
 
-      {/* Team member message modal */}
-      {msgTo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => msgBusy !== 'sending' && setMsgTo(null)}>
+      {/* Persistent message thread (1:1 or whole-team group) */}
+      {thread && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setThread(null)}>
           <div className="fixed inset-0" style={{ background: 'rgba(26,32,53,0.5)' }} />
-          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-3">
-              <img src={msgTo.avatar} width={40} height={40} className="rounded-full bg-[#F0F5FF]" alt="" />
-              <div><p className="font-bold text-[#1A1D2E]">Message {msgTo.name}</p><p className="text-[11px] text-gray-500">{msgTo.role}</p></div>
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3.5 border-b border-[#EEF0F4] flex items-center gap-3">
+              {thread.kind === 'group' ? (
+                <div className="flex -space-x-2 shrink-0">{team.slice(0, 4).map((m: any) => <img key={m.email} src={m.avatar} width={28} height={28} className="rounded-full ring-2 ring-white bg-[#F0F5FF]" alt="" />)}</div>
+              ) : (
+                <img src={thread.avatar} width={38} height={38} className="rounded-full bg-[#F0F5FF] shrink-0" alt="" />
+              )}
+              <div className="min-w-0 flex-1"><p className="font-bold text-[#1A1D2E] truncate">{thread.kind === 'group' ? 'Whole team' : thread.name}</p><p className="text-[11px] text-gray-500 truncate">{thread.kind === 'group' ? 'Everyone on your team' : thread.role}</p></div>
+              <button onClick={() => setThread(null)} className="text-gray-400 text-2xl leading-none shrink-0">×</button>
             </div>
-            {msgBusy === 'sent' ? (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-lg px-3 py-2.5">Sent! {String(msgTo.name).split(' ')[0]} will get an email and see it in the ERP.</div>
-            ) : (
-              <>
-                <textarea value={msgText} onChange={e => setMsgText(e.target.value)} rows={4} placeholder={`Write a message to ${String(msgTo.name).split(' ')[0]}…`} className="w-full border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40 resize-none" />
-                <div className="flex justify-end gap-2 mt-3">
-                  <button onClick={() => setMsgTo(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700">Cancel</button>
-                  <button onClick={sendUserMessage} disabled={msgBusy === 'sending' || !msgText.trim()} className="text-white font-semibold rounded-lg px-5 py-2 text-sm disabled:opacity-50" style={{ background: GREEN }}>{msgBusy === 'sending' ? 'Sending…' : 'Send'}</button>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[160px]">
+              {threadLoading ? <p className="text-sm text-gray-400 text-center py-4">Loading…</p> : threadMsgs.length === 0 ? <p className="text-sm text-gray-400 text-center py-6">No messages yet. Say hello — {thread.kind === 'group' ? 'the whole team' : String(thread.name).split(' ')[0]} will get an email and can reply right here.</p> : threadMsgs.map((c: any) => (
+                <div key={c.id} className={`flex ${c.mine ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-sm ${c.mine ? 'text-white' : 'bg-[#F0F5FF] text-[#1A1D2E]'}`} style={c.mine ? { background: GREEN } : {}}>
+                    <p className="text-[10px] font-bold mb-0.5 opacity-70">{c.author}</p>
+                    <p className="whitespace-pre-wrap break-words">{c.content}</p>
+                    <p className="text-[10px] opacity-60 mt-1">{c.date ? timeAgo(c.date) : ''}</p>
+                  </div>
                 </div>
-              </>
-            )}
+              ))}
+            </div>
+            <div className="p-3 border-t border-[#EEF0F4] flex gap-2">
+              <input value={threadText} onChange={e => setThreadText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); sendThread() } }} placeholder={thread.kind === 'group' ? 'Message the whole team…' : `Message ${String(thread.name).split(' ')[0]}…`} className="flex-1 border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40" />
+              <button onClick={sendThread} disabled={threadSending || !threadText.trim()} className="text-white font-semibold rounded-lg px-4 py-2 text-sm disabled:opacity-50" style={{ background: GREEN }}>{threadSending ? '…' : 'Send'}</button>
+            </div>
           </div>
         </div>
       )}
