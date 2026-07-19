@@ -172,14 +172,20 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
     const STATUS_LABEL: Record<string, string> = { paid_by_bg: 'Paid by beyondGREEN', waiting_customer: 'Waiting on Customer Payment' }
     const [{ data: bdeals }, { data: brfqs }, { data: bships }] = await Promise.all([
       admin.from('sales_orders').select('id, order_number, po_number, status, client_portal_name, total, total_amount, subtotal, purchase_order_url, broker_cost, broker_commission_basis, broker_commission_status, broker_commission_paid, created_at').eq('customer_id', client.customer_id).eq('archived', false).order('created_at', { ascending: false }),
-      admin.from('quotations').select('id, quote_number, client_portal_name, status, is_active, created_at').eq('customer_id', client.customer_id).eq('type', 'rfq').order('created_at', { ascending: false }),
+      admin.from('quotations').select('id, quote_number, client_portal_name, status, is_active, created_at, notes, price_term, export_country').eq('customer_id', client.customer_id).eq('type', 'rfq').order('created_at', { ascending: false }),
       admin.from('shipments').select('id, customer_name, po_number, status, delivery_status, total_value, packing_slip_url, pod_file_url, ship_date, order_date, broker_cost, broker_commission_basis, broker_commission_status').not('broker_portal_client', 'is', null).order('ship_date', { ascending: false, nullsFirst: false }),
     ])
     const rfqIds = ((brfqs || []) as any[]).map(r => r.id)
     const linesByRfq: Record<string, any[]> = {}
+    const artByRfq: Record<string, any[]> = {}
     if (rfqIds.length) {
-      const { data: lns } = await admin.from('quotation_lines').select('quotation_id, sku, description, quantity, unit_of_measure, unit_price, line_total').in('quotation_id', rfqIds)
-      for (const l of (lns || []) as any[]) { (linesByRfq[l.quotation_id] ||= []).push({ sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit_of_measure, unit_price: l.unit_price != null ? Number(l.unit_price) : null, line_total: l.line_total != null ? Number(l.line_total) : null }) }
+      const { data: lns } = await admin.from('quotation_lines').select('quotation_id, sku, description, quantity, unit_of_measure, unit_price, line_total, pcs_per_case, case_price').in('quotation_id', rfqIds)
+      for (const l of (lns || []) as any[]) { (linesByRfq[l.quotation_id] ||= []).push({ sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit_of_measure, unit_price: l.unit_price != null ? Number(l.unit_price) : null, line_total: l.line_total != null ? Number(l.line_total) : null, pcs_per_case: l.pcs_per_case != null ? Number(l.pcs_per_case) : null, case_price: l.case_price != null ? Number(l.case_price) : null }) }
+      const { data: atts } = await admin.from('file_attachments').select('record_id, file_name, file_type, storage_path').eq('record_type', 'quotation_art').in('record_id', rfqIds)
+      for (const a of (atts || []) as any[]) {
+        const { data: signed } = await admin.storage.from('erp-files').createSignedUrl(a.storage_path, 3600)
+        ;(artByRfq[a.record_id] ||= []).push({ name: a.file_name, type: a.file_type, url: signed?.signedUrl || null })
+      }
     }
     const commissionOf = (selling: number, cost: number | null, basis: string) => basis === 'none' ? 0 : basis === 'profit_50' ? Math.max(0, selling - (cost || 0)) * 0.5 : selling * 0.07
     const mapOrder = (o: any, selling: number, po_url: string | null, source: string) => {
@@ -195,7 +201,7 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
     const completedOrders = [...allSo.filter(o => COMPLETED.has(o.status || '')), ...shipMapped]
     const openRfqs = ((brfqs || []) as any[])
       .filter(r => (r.is_active === undefined || r.is_active) && !RFQ_CLOSED.has(String(r.status || '').toLowerCase()))
-      .map(r => ({ id: r.id, number: r.quote_number || 'RFQ', name: r.client_portal_name || r.quote_number || 'RFQ', status: r.status || null, date: r.created_at, lines: linesByRfq[r.id] || [] }))
+      .map(r => ({ id: r.id, number: r.quote_number || 'RFQ', name: r.client_portal_name || r.quote_number || 'RFQ', status: r.status || null, date: r.created_at, notes: r.notes || null, price_term: r.price_term || null, export_country: r.export_country || null, art_files: artByRfq[r.id] || [], lines: linesByRfq[r.id] || [] }))
     const ar = [...openOrders, ...completedOrders].filter(o => o.commission_status !== 'paid_by_bg').reduce((s, o) => s + o.commission, 0)
     const sum = (arr: any[], f: (o: any) => number) => arr.reduce((s, o) => s + (f(o) || 0), 0)
     const revenueActive = sum(openOrders, o => o.selling)
