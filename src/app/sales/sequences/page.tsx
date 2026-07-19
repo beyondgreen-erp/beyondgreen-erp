@@ -67,7 +67,7 @@ export default function SequencesPage() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const [detail, setDetail] = useState<Sequence | null>(null)
-  const [detailTab, setDetailTab] = useState<'enrollments' | 'sends'>('enrollments')
+  const [detailTab, setDetailTab] = useState<'enrollments' | 'emails' | 'sends'>('enrollments')
   const [pendingCount, setPendingCount] = useState(0)
 
   const [editing, setEditing] = useState<Sequence | null>(null)
@@ -209,28 +209,24 @@ export default function SequencesPage() {
   }
 
   async function blastNextUnsent(seq: Sequence, target = 250) {
-    if (!confirm(`Send the next ${target} unsent emails in "${seq.name}" now?\n\nThis sends immediately from ${seq.from_email || 'the sequence mailbox'}, bypassing the daily cap. This cannot be undone.`)) return
-    // "Start sequence": make sure it's active before blasting.
+    if (!confirm(`Queue the next ${target} unsent emails from "${seq.name}" into the Review queue?\n\nThey will NOT send yet \u2014 they go to the Review queue where you preview and approve them. This bypasses the daily cap.`)) return
+    // "Start sequence": make sure it's active before queuing.
     if (seq.status !== 'active') { await sb.from('sequences').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', seq.id) }
-    let total = 0
-    const chunk = 50
+    setRunning(`Queuing ${target}\u2026`)
     try {
-      while (total < target) {
-        const want = Math.min(chunk, target - total)
-        setRunning(`Sending ${total}/${target}\u2026`)
-        const r = await fetch('/api/leads/sequence-blast', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sequence_id: seq.id, limit: want }),
-        })
-        const j = await r.json()
-        if (!r.ok) { alert(j.error || 'Send failed.'); break }
-        const n = j.sent || 0
-        total += n
-        if (n === 0 || (j.remaining ?? 0) === 0) break
+      const r = await fetch('/api/leads/sequence-blast', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequence_id: seq.id, limit: target }),
+      })
+      const j = await r.json()
+      setRunning('')
+      if (!r.ok) { alert(j.error || 'Queue failed.'); return }
+      const more = j.remaining ? ` (${j.remaining} more still available)` : ''
+      if (confirm(`${j.queued} email(s) queued to the Review queue${more}.\n\nOpen the Review queue now to preview and send them?`)) {
+        window.location.href = '/sales/sequences/review'; return
       }
-      alert(`Sent ${total} email(s) from "${seq.name}".`)
-    } catch { alert('Send interrupted \u2014 check Send history for what went out.') }
-    setRunning(''); load()
+    } catch { setRunning(''); alert('Queue failed.') }
+    load()
   }
 
   const grouped = useMemo(() => {
@@ -348,7 +344,7 @@ export default function SequencesPage() {
                   <h2 className="font-bold text-[#1A1D2E] truncate">{detail.name}</h2>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => blastNextUnsent(detail, 250)} disabled={!!running} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">{running || 'Send next 250 unsent'}</button>
+                  <button onClick={() => blastNextUnsent(detail, 250)} disabled={!!running} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">{running || 'Send next 250 to review'}</button>
                   <button onClick={() => openEdit(detail)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Edit</button>
                   <button onClick={() => setDetail(null)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Close</button>
                 </div>
@@ -361,6 +357,7 @@ export default function SequencesPage() {
               </div>
               <div className="flex gap-1 border-b border-[#EEF0F4] px-5">
                 <button onClick={() => setDetailTab('enrollments')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'enrollments' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Enrolled leads ({enr.length})</button>
+                <button onClick={() => setDetailTab('emails')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'emails' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Emails ({(stepsBySeq[detail.id] || []).length})</button>
                 <button onClick={() => setDetailTab('sends')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'sends' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Send history ({sends.length})</button>
               </div>
               {detailTab === 'enrollments' ? (
@@ -404,6 +401,27 @@ export default function SequencesPage() {
                       </tbody>
                     </table>
                   )}
+                </div>
+              ) : detailTab === 'emails' ? (
+                <div className="p-5 space-y-4">
+                  {(stepsBySeq[detail.id] || []).length === 0 ? (
+                    <p className="text-center text-xs text-gray-400 py-6">No emails defined yet. Click Edit to add the sequence steps.</p>
+                  ) : (stepsBySeq[detail.id] || []).map((st, i) => (
+                    <div key={st.id || i} className="border border-[#EEF0F4] rounded-lg overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 bg-[#F8FAFF] border-b border-[#EEF0F4]">
+                        <span className="text-xs font-bold text-[#1A1D2E]">Step {st.step_number}</span>
+                        <span className="text-[11px] text-gray-500">{i === 0 ? 'sends immediately' : `sends ${st.delay_days} day${st.delay_days === 1 ? '' : 's'} after the previous step`}</span>
+                        <button onClick={() => openEdit(detail)} className="ml-auto text-[11px] px-2 py-1 rounded border border-[#E4E6EE] text-[#3B6FE0] font-semibold hover:bg-[#F2F6FF]">Edit templates</button>
+                      </div>
+                      <div className="px-3 py-2.5">
+                        <p className="text-[10px] uppercase font-bold text-gray-400 mb-0.5">Subject</p>
+                        <p className="text-sm text-[#1A1D2E] mb-2">{st.subject || <span className="text-gray-400">(no subject)</span>}</p>
+                        <p className="text-[10px] uppercase font-bold text-gray-400 mb-0.5">Body</p>
+                        <pre className="text-xs text-[#1A1D2E] whitespace-pre-wrap font-sans leading-relaxed">{st.body || '(empty)'}</pre>
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-gray-400">Merge tags like {'{{first_name}}'} and {'{{company}}'} are filled in per lead when the email is queued.</p>
                 </div>
               ) : (
                 <div className="p-5">
