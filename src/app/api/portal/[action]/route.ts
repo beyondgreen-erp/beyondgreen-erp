@@ -172,7 +172,7 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
     const STATUS_LABEL: Record<string, string> = { paid_by_bg: 'Paid by beyondGREEN', waiting_customer: 'Waiting on Customer Payment' }
     const [{ data: bdeals }, { data: brfqs }, { data: bships }] = await Promise.all([
       admin.from('sales_orders').select('id, order_number, po_number, status, client_portal_name, total, total_amount, subtotal, purchase_order_url, broker_cost, broker_commission_basis, broker_commission_status, broker_commission_paid, created_at').eq('customer_id', client.customer_id).eq('archived', false).order('created_at', { ascending: false }),
-      admin.from('quotations').select('id, quote_number, client_portal_name, status, is_active, created_at, notes, delivery_address').eq('customer_id', client.customer_id).eq('type', 'rfq').order('created_at', { ascending: false }),
+      admin.from('quotations').select('id, quote_number, client_portal_name, status, is_active, created_at').eq('customer_id', client.customer_id).eq('type', 'rfq').order('created_at', { ascending: false }),
       admin.from('shipments').select('id, customer_name, po_number, status, delivery_status, total_value, packing_slip_url, pod_file_url, ship_date, order_date, broker_cost, broker_commission_basis, broker_commission_status').not('broker_portal_client', 'is', null).order('ship_date', { ascending: false, nullsFirst: false }),
     ])
     const rfqIds = ((brfqs || []) as any[]).map(r => r.id)
