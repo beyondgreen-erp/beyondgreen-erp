@@ -287,19 +287,28 @@ export default function ClientPortalPage() {
                             <span className="text-xs text-gray-400">{r.date ? timeAgo(r.date) : ''}</span>
                           </div>
                         </summary>
-                        <div className="px-4 pb-4">
+                        <div className="px-4 pb-4 space-y-3">
+                          {(r.price_term || r.export_country) && (
+                            <div className="flex flex-wrap gap-2">
+                              {r.price_term && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#E0E7FF', color: '#4338CA' }}>{r.price_term === 'exworks' ? 'ExWorks price' : 'DDP price'}</span>}
+                              {r.export_country && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#FEF3C7', color: '#B45309' }}>Export: {r.export_country}</span>}
+                            </div>
+                          )}
                           {r.lines.length === 0 ? <p className="text-sm text-gray-400 py-1">No line items on this RFQ.</p> : (() => {
                             const anyPrice = r.lines.some((l: any) => l.unit_price != null || l.line_total != null)
                             const quotedTotal = r.lines.reduce((s: number, l: any) => s + (l.line_total != null ? l.line_total : (l.unit_price != null && l.quantity != null ? l.unit_price * l.quantity : 0)), 0)
                             return (
-                            <table className="w-full text-sm">
-                              <thead><tr className="text-[11px] uppercase text-gray-400"><th className="text-left py-1.5">Product</th><th className="text-left py-1.5">SKU</th><th className="text-right py-1.5">Qty</th><th className="text-right py-1.5">Quoted Price</th><th className="text-right py-1.5">Line Total</th></tr></thead>
+                            <div className="overflow-x-auto">
+                            <table className="w-full text-sm min-w-[560px]">
+                              <thead><tr className="text-[11px] uppercase text-gray-400"><th className="text-left py-1.5">Product</th><th className="text-left py-1.5">SKU</th><th className="text-right py-1.5">Qty</th><th className="text-right py-1.5">Pcs/Case</th><th className="text-right py-1.5">Case Price</th><th className="text-right py-1.5">Quoted Price</th><th className="text-right py-1.5">Line Total</th></tr></thead>
                               <tbody>
                                 {r.lines.map((l: any, i: number) => (
                                   <tr key={i} className="border-t border-[#F4F5F8]">
                                     <td className="py-1.5 text-gray-700">{l.description || '—'}</td>
                                     <td className="py-1.5 text-gray-500 font-mono text-xs">{l.sku || '—'}</td>
                                     <td className="py-1.5 text-right text-gray-600">{l.quantity ?? '—'} {l.unit || ''}</td>
+                                    <td className="py-1.5 text-right text-gray-600">{l.pcs_per_case != null ? l.pcs_per_case : <span className="text-gray-300">—</span>}</td>
+                                    <td className="py-1.5 text-right text-gray-700">{l.case_price != null ? money(l.case_price) : <span className="text-gray-300">—</span>}</td>
                                     <td className="py-1.5 text-right text-gray-700">{l.unit_price != null ? money(l.unit_price) : <span className="text-gray-300">—</span>}</td>
                                     <td className="py-1.5 text-right text-gray-700">{l.line_total != null ? money(l.line_total) : (l.unit_price != null && l.quantity != null ? money(l.unit_price * l.quantity) : <span className="text-gray-300">—</span>)}</td>
                                   </tr>
@@ -307,12 +316,29 @@ export default function ClientPortalPage() {
                               </tbody>
                               {anyPrice && (
                                 <tfoot>
-                                  <tr className="border-t border-[#EEF0F4]"><td colSpan={4} className="py-2 text-right text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Quoted total</td><td className="py-2 text-right font-bold" style={{ color: GREEN }}>{money(quotedTotal)}</td></tr>
+                                  <tr className="border-t border-[#EEF0F4]"><td colSpan={6} className="py-2 text-right text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Quoted total</td><td className="py-2 text-right font-bold" style={{ color: GREEN }}>{money(quotedTotal)}</td></tr>
                                 </tfoot>
                               )}
                             </table>
+                            </div>
                             )
                           })()}
+                          {r.notes && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Notes</p>
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap">{r.notes}</p>
+                            </div>
+                          )}
+                          {r.art_files && r.art_files.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Art files</p>
+                              <div className="flex flex-wrap gap-2">
+                                {r.art_files.map((a: any, i: number) => (
+                                  <a key={i} href={a.url || '#'} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E6EE] text-[#3B6FE0] hover:bg-[#F2F6FF]">🎨 {a.name}</a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </details>
                     ))}
