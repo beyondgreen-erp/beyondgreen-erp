@@ -49,6 +49,10 @@ interface Shipment {
   bol_number: string | null
   total_value: number | null
   sales_order_id: string | null
+  broker_portal_client: string | null
+  broker_cost: number | null
+  broker_commission_basis: string | null
+  broker_commission_status: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -174,6 +178,11 @@ export default function ShipmentsPage() {
       carrier: form.carrier, tracking_number: form.tracking_number,
       ship_cost: form.ship_cost, delivery_status: form.delivery_status,
       city: form.city, state: form.state, notes: form.notes,
+      broker_portal_client: form.broker_portal_client || null,
+      total_value: form.total_value != null ? form.total_value : null,
+      broker_cost: form.broker_cost != null ? form.broker_cost : null,
+      broker_commission_basis: form.broker_commission_basis || null,
+      broker_commission_status: form.broker_commission_status || null,
     }).eq('id', editing.id)
     setSaving(false)
     setRows(prev => prev.map(r => r.id === editing.id ? { ...r, ...form } as Shipment : r))
@@ -596,6 +605,52 @@ export default function ShipmentsPage() {
                   <label className="block text-xs text-gray-500 mb-1">Notes</label>
                   <textarea rows={3} value={form.notes || ''} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className={inp + ' resize-none'} />
                 </div>
+              </div>
+
+              {/* ── Client Portal (Eco Maven broker) ── */}
+              <div className="rounded-xl border border-[#CDD9F0] bg-[#F0F5FF] p-3">
+                <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
+                  <span className="text-sm font-semibold text-[#1E40AF]">💼 Show in Eco Maven client portal</span>
+                  <input type="checkbox" checked={form.broker_portal_client === 'eco_maven'} onChange={e => setForm(p => ({ ...p, broker_portal_client: e.target.checked ? 'eco_maven' : null }))} className="w-4 h-4 accent-[#1E40AF]" />
+                </label>
+                <p className="text-[11px] text-gray-500 mt-1">Connects this shipment to Eco Maven&rsquo;s portal — it appears under &ldquo;Closed &amp; Completed Orders&rdquo;.</p>
+                {form.broker_portal_client === 'eco_maven' && (() => {
+                  const selling = Number(form.total_value ?? 0)
+                  const cost = Number(form.broker_cost ?? 0)
+                  const basis = form.broker_commission_basis || 'po_7'
+                  const commission = basis === 'none' ? 0 : basis === 'profit_50' ? Math.max(0, selling - cost) * 0.5 : selling * 0.07
+                  const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  return (
+                    <div className="mt-3 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] text-gray-500 mb-1">Selling price (order total)</label>
+                          <input type="number" step="0.01" value={form.total_value ?? ''} onChange={e => setForm(p => ({ ...p, total_value: e.target.value === '' ? null : parseFloat(e.target.value) }))} className={inp} placeholder="0.00" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-gray-500 mb-1">Cost we closed at</label>
+                          <input type="number" step="0.01" value={form.broker_cost ?? ''} onChange={e => setForm(p => ({ ...p, broker_cost: e.target.value === '' ? null : parseFloat(e.target.value) }))} className={inp} placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-gray-500 mb-1">Commission basis</label>
+                        <select value={basis} onChange={e => setForm(p => ({ ...p, broker_commission_basis: e.target.value }))} className={inp + ' cursor-pointer'}>
+                          <option value="po_7">7% of the PO ({fmt(selling * 0.07)})</option>
+                          <option value="profit_50">50% of profit ({fmt(Math.max(0, selling - cost) * 0.5)})</option>
+                          <option value="none">No commission ($0.00)</option>
+                        </select>
+                      </div>
+                      <div className="text-sm text-gray-600">Commission owed: <strong className="text-[#1E40AF]">{fmt(commission)}</strong></div>
+                      <div>
+                        <label className="block text-[11px] text-gray-500 mb-1">Commission status</label>
+                        <select value={form.broker_commission_status || 'waiting_customer'} onChange={e => setForm(p => ({ ...p, broker_commission_status: e.target.value }))} className={inp + ' cursor-pointer'}>
+                          <option value="waiting_customer">Waiting on Customer Payment</option>
+                          <option value="paid_by_bg">Paid by beyondGREEN</option>
+                        </select>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
               <div className="flex gap-2 pt-1">
