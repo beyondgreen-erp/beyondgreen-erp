@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import FileUpload from '@/components/FileUpload'
 import { generateQuotePDF, generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
 
 interface Quote {
@@ -21,6 +22,8 @@ interface Quote {
   total: number | null
   payment_terms: string | null
   notes: string | null
+  price_term?: string | null
+  export_country?: string | null
   client_portal_visible?: boolean | null
   client_portal_name?: string | null
   created_at: string
@@ -38,6 +41,8 @@ interface QuoteLine {
   quantity: number
   unit_price: number
   line_total: number
+  pcs_per_case?: number | null
+  case_price?: number | null
   product_id: string | null
 }
 
@@ -125,6 +130,8 @@ export default function QuotationsPage() {
     notes: '',
     tax_rate: '0',
     type: 'quote' as 'quote' | 'rfq',
+    price_term: 'ddp',
+    export_country: 'China',
     client_portal_visible: false,
     client_portal_name: '',
   })
@@ -252,13 +259,15 @@ export default function QuotationsPage() {
     setCustomerSearch('')
     setForm({
       customer_id: '',
-      status: 'Draft',
+      status: kind === 'rfq' ? 'Quoting' : 'Draft',
       quote_date: new Date().toISOString().split('T')[0],
       expiry_date: new Date(Date.now() + 30 * 864e5).toISOString().split('T')[0],
       payment_terms: 'Net 30',
       notes: '',
       tax_rate: '0',
       type: kind,
+      price_term: 'ddp',
+      export_country: 'China',
       client_portal_visible: false,
       client_portal_name: '',
     })
@@ -288,6 +297,8 @@ export default function QuotationsPage() {
       notes: q.notes ?? '',
       tax_rate: '0',
       type: (q.type as 'quote' | 'rfq') || 'quote',
+      price_term: (q as any).price_term ?? 'ddp',
+      export_country: (q as any).export_country ?? 'China',
       client_portal_visible: q.client_portal_visible ?? false,
       client_portal_name: q.client_portal_name ?? '',
     })
@@ -409,6 +420,8 @@ export default function QuotationsPage() {
         tax_pct: taxRate,
         total: total,
         type: form.type,
+        price_term: form.price_term || null,
+        export_country: form.export_country || null,
         client_portal_visible: !!form.client_portal_visible,
         client_portal_name: form.client_portal_name || null,
       }
@@ -441,6 +454,8 @@ export default function QuotationsPage() {
               quantity: l.quantity ?? 1,
               unit_price: l.unit_price ?? 0,
               line_total: l.line_total ?? 0,
+              pcs_per_case: l.pcs_per_case ?? null,
+              case_price: l.case_price ?? null,
             }))
           )
           if (linesErr) { alert('Quote saved but line items failed: ' + linesErr.message); setSaving(false); fetchQuotes(); return }
@@ -589,7 +604,14 @@ export default function QuotationsPage() {
     { key: 'Rejected',  title: 'Rejected',   color: '#df2f4a' },
     { key: 'Expired',   title: 'Expired',    color: '#fdab3d' },
   ]
-  const rbStatusColor = (s: string | null) => RB_GROUPS.find(g => g.key === s)?.color || '#c4c4c4'
+  // RFQs use a simple 3-status pipeline
+  const RFQ_RB_GROUPS: { key: string; title: string; color: string }[] = [
+    { key: 'Quoting',  title: 'Quoting',  color: '#fdab3d' },
+    { key: 'Quoted',   title: 'Quoted',   color: '#007eb5' },
+    { key: 'Accepted', title: 'Accepted', color: '#00c875' },
+  ]
+  const rbGroups = activeTab === 'rfq' ? RFQ_RB_GROUPS : RB_GROUPS
+  const rbStatusColor = (s: string | null) => [...RB_GROUPS, ...RFQ_RB_GROUPS].find(g => g.key === s)?.color || '#c4c4c4'
   const rbMatch = (q: Quote) => {
     const t = search.toLowerCase()
     if (!t) return true
@@ -670,7 +692,7 @@ export default function QuotationsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {RB_GROUPS.map(group => {
+          {rbGroups.map(group => {
             const gr = rbGroupRows(group.key)
             const isCol = collapsed[group.key]
             const groupTotal = gr.reduce((s, q) => s + (q.total ?? 0), 0)
@@ -931,9 +953,27 @@ export default function QuotationsPage() {
                 <div>
                   <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Status</label>
                   <select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))} className={inp} style={inpStyle}>
-                    {['Draft', 'Sent', 'Accepted', 'Rejected', 'Converted', 'Expired'].map(s => <option key={s} value={s}>{s}</option>)}
+                    {(form.type === 'rfq' ? ['Quoting', 'Quoted', 'Accepted'] : ['Draft', 'Sent', 'Accepted', 'Rejected', 'Converted', 'Expired']).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
+                {form.type === 'rfq' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Price term</label>
+                      <select value={form.price_term} onChange={e => setForm(p => ({ ...p, price_term: e.target.value }))} className={inp} style={{ ...inpStyle, cursor: 'pointer' }}>
+                        <option value="ddp">DDP (Delivered Duty Paid)</option>
+                        <option value="exworks">ExWorks</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Export country</label>
+                      <select value={form.export_country} onChange={e => setForm(p => ({ ...p, export_country: e.target.value }))} className={inp} style={{ ...inpStyle, cursor: 'pointer' }}>
+                        <option value="China">China</option>
+                        <option value="India">India</option>
+                      </select>
+                    </div>
+                  </>
+                )}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-medium" style={{ color: '#374151' }}>Payment Terms</label>
@@ -1058,7 +1098,7 @@ export default function QuotationsPage() {
                 <table className="w-full">
                   <thead>
                     <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E4E6EE' }}>
-                      {['SKU', 'Description', 'Qty', 'Unit Price', 'Total', ''].map(h => (
+                      {['SKU', 'Description', 'Qty', 'Pcs/Case', 'Case Price', 'Unit Price', 'Total', ''].map(h => (
                         <th key={h} className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>{h}</th>
                       ))}
                     </tr>
@@ -1066,7 +1106,7 @@ export default function QuotationsPage() {
                   <tbody>
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-sm" style={{ color: '#9CA3AF' }}>
+                        <td colSpan={8} className="px-4 py-8 text-center text-sm" style={{ color: '#9CA3AF' }}>
                           No line items yet. Search above or click Add Line Item.
                         </td>
                       </tr>
@@ -1085,6 +1125,18 @@ export default function QuotationsPage() {
                         <td className="px-3 py-2">
                           <input type="number" value={line.quantity ?? ''} onChange={e => updateLine(i, 'quantity', parseFloat(e.target.value) || 0)}
                             className="w-16 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input type="number" value={line.pcs_per_case ?? ''} onChange={e => updateLine(i, 'pcs_per_case', e.target.value === '' ? null : parseFloat(e.target.value))}
+                            placeholder="—"
+                            className="w-16 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input type="number" step="0.01" value={line.case_price ?? ''} onChange={e => updateLine(i, 'case_price', e.target.value === '' ? null : parseFloat(e.target.value))}
+                            placeholder="—"
+                            className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
                             style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
                         </td>
                         <td className="px-3 py-2">
@@ -1142,16 +1194,26 @@ export default function QuotationsPage() {
 
           {/* NOTES TAB */}
           {panelTab === 'notes' && (
-            <div>
-              <label className="block text-xs font-medium mb-2" style={{ color: '#374151' }}>Internal Notes</label>
-              <textarea
-                value={form.notes}
-                onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
-                rows={10}
-                placeholder="Add internal notes, terms, or conditions…"
-                className={inp}
-                style={{ ...inpStyle, resize: 'vertical' }}
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium mb-2" style={{ color: '#374151' }}>Notes {form.type === 'rfq' && <span className="text-[11px] text-gray-400">(shown in the Eco Maven portal)</span>}</label>
+                <textarea
+                  value={form.notes}
+                  onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+                  rows={8}
+                  placeholder="Add notes, terms, or conditions…"
+                  className={inp}
+                  style={{ ...inpStyle, resize: 'vertical' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-2" style={{ color: '#374151' }}>Art files {form.type === 'rfq' && <span className="text-[11px] text-gray-400">(shown in the Eco Maven portal)</span>}</label>
+                {editing?.id ? (
+                  <FileUpload supabase={supabase} recordType="quotation_art" recordId={editing.id} currentUserEmail={userEmail} accept="image/*,application/pdf,.ai,.eps,.psd" />
+                ) : (
+                  <p className="text-[11px] text-gray-400">Save the {form.type === 'rfq' ? 'RFQ' : 'quote'} first, then upload art files here.</p>
+                )}
+              </div>
             </div>
           )}
 
