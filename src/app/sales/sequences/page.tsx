@@ -208,6 +208,31 @@ export default function SequencesPage() {
     setRunning(''); load()
   }
 
+  async function blastNextUnsent(seq: Sequence, target = 250) {
+    if (!confirm(`Send the next ${target} unsent emails in "${seq.name}" now?\n\nThis sends immediately from ${seq.from_email || 'the sequence mailbox'}, bypassing the daily cap. This cannot be undone.`)) return
+    // "Start sequence": make sure it's active before blasting.
+    if (seq.status !== 'active') { await sb.from('sequences').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', seq.id) }
+    let total = 0
+    const chunk = 50
+    try {
+      while (total < target) {
+        const want = Math.min(chunk, target - total)
+        setRunning(`Sending ${total}/${target}\u2026`)
+        const r = await fetch('/api/leads/sequence-blast', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sequence_id: seq.id, limit: want }),
+        })
+        const j = await r.json()
+        if (!r.ok) { alert(j.error || 'Send failed.'); break }
+        const n = j.sent || 0
+        total += n
+        if (n === 0 || (j.remaining ?? 0) === 0) break
+      }
+      alert(`Sent ${total} email(s) from "${seq.name}".`)
+    } catch { alert('Send interrupted \u2014 check Send history for what went out.') }
+    setRunning(''); load()
+  }
+
   const grouped = useMemo(() => {
     const g: Record<string, Sequence[]> = { active: [], paused: [], draft: [] }
     seqs.forEach(s => { const k = s.status === 'active' ? 'active' : s.status === 'paused' ? 'paused' : 'draft'; g[k].push(s) })
@@ -323,6 +348,7 @@ export default function SequencesPage() {
                   <h2 className="font-bold text-[#1A1D2E] truncate">{detail.name}</h2>
                 </div>
                 <div className="flex gap-2">
+                  <button onClick={() => blastNextUnsent(detail, 250)} disabled={!!running} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">{running || 'Send next 250 unsent'}</button>
                   <button onClick={() => openEdit(detail)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Edit</button>
                   <button onClick={() => setDetail(null)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Close</button>
                 </div>
