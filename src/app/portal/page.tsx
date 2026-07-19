@@ -86,6 +86,8 @@ export default function ClientPortalPage() {
   }
 
   const projects = data?.projects || []
+  const broker = data?.broker || null
+  const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const company = data?.client?.company || data?.client?.name || 'Your account'
   const stats = useMemo(() => {
     let inProgress = 0, done = 0
@@ -159,6 +161,85 @@ export default function ClientPortalPage() {
 
       {/* Projects */}
       <div className="mx-auto max-w-4xl px-4 mt-6 space-y-6">
+        {broker && (
+          <>
+            {/* Open A/R hero */}
+            <div className="rounded-2xl p-5 text-white shadow-sm" style={{ background: `linear-gradient(120deg, ${GREEN}, ${GREEN2})` }}>
+              <p className="text-white/80 text-xs uppercase tracking-wider font-semibold">Your open commission (accounts receivable)</p>
+              <p className="text-4xl font-extrabold mt-1">{money(broker.ar)}</p>
+              <p className="text-white/80 text-sm mt-1">
+                Across {broker.deals.filter((d: any) => !d.paid).length} open {broker.deals.filter((d: any) => !d.paid).length === 1 ? 'project' : 'projects'} — keep the projects coming to grow this.
+              </p>
+            </div>
+
+            {/* Deals table */}
+            <section>
+              <h2 className="font-bold text-[#1A1D2E] text-lg mb-3 px-1">Your Projects &amp; Commissions</h2>
+              <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                      <th className="text-left px-4 py-2.5 font-semibold">Project</th>
+                      <th className="text-left px-3 py-2.5 font-semibold">PO #</th>
+                      <th className="text-right px-3 py-2.5 font-semibold">Cost</th>
+                      <th className="text-right px-3 py-2.5 font-semibold">Selling</th>
+                      <th className="text-left px-3 py-2.5 font-semibold">Commission</th>
+                      <th className="text-right px-3 py-2.5 font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {broker.deals.length === 0 ? (
+                      <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">No projects yet.</td></tr>
+                    ) : broker.deals.map((d: any) => (
+                      <tr key={d.id} className="border-b border-[#F1F3F9] last:border-0">
+                        <td className="px-4 py-3 font-semibold text-[#1A1D2E]">{d.name}</td>
+                        <td className="px-3 py-3 text-gray-600">{d.po_number || '—'}</td>
+                        <td className="px-3 py-3 text-right text-gray-600">{d.cost != null ? money(d.cost) : '—'}</td>
+                        <td className="px-3 py-3 text-right text-gray-600">{money(d.selling)}</td>
+                        <td className="px-3 py-3"><span className="font-bold" style={{ color: GREEN }}>{money(d.commission)}</span> <span className="text-[11px] text-gray-400">({d.basis === 'profit_50' ? '50% profit' : '7% PO'})</span></td>
+                        <td className="px-3 py-3 text-right">{d.paid ? <span className="text-[11px] font-semibold text-gray-400">Paid</span> : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Open</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {/* RFQ documents */}
+            <section>
+              <h2 className="font-bold text-[#1A1D2E] text-lg mb-3 px-1">RFQ Documents</h2>
+              {broker.rfqs.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-6 text-center text-sm text-gray-400">No RFQs yet.</div>
+              ) : (
+                <div className="space-y-3">
+                  {broker.rfqs.map((r: any) => (
+                    <details key={r.id} className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm overflow-hidden">
+                      <summary className="flex items-center justify-between gap-3 px-5 py-3.5 cursor-pointer list-none">
+                        <div className="min-w-0">
+                          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">RFQ · {r.number}</p>
+                          <p className="font-bold text-[#1A1D2E] leading-snug truncate">{r.name}</p>
+                        </div>
+                        <span className="text-xs text-gray-400 shrink-0">{r.date ? timeAgo(r.date) : ''}</span>
+                      </summary>
+                      <div className="px-5 pb-4 pt-1 border-t border-[#F1F3F9]">
+                        {r.lines.length === 0 ? <p className="text-sm text-gray-400 py-2">No line items on this RFQ.</p> : (
+                          <table className="w-full text-sm">
+                            <thead><tr className="text-[11px] uppercase text-gray-400"><th className="text-left py-1.5">Item</th><th className="text-left py-1.5">SKU</th><th className="text-right py-1.5">Qty</th></tr></thead>
+                            <tbody>
+                              {r.lines.map((l: any, i: number) => (
+                                <tr key={i} className="border-t border-[#F4F5F8]"><td className="py-1.5 text-gray-700">{l.description || '—'}</td><td className="py-1.5 text-gray-500 font-mono text-xs">{l.sku || '—'}</td><td className="py-1.5 text-right text-gray-600">{l.quantity ?? '—'} {l.unit || ''}</td></tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
         <section>
           <div className="flex items-center justify-between mb-3 px-1">
             <h2 className="font-bold text-[#1A1D2E] text-lg">Your Projects</h2>
