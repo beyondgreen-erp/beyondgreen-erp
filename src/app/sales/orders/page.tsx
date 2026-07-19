@@ -50,6 +50,9 @@ interface SalesOrder {
   sales_rep?: string | null
   client_portal_visible?: boolean | null
   client_portal_name?: string | null
+  broker_cost?: number | null
+  broker_commission_basis?: string | null
+  broker_commission_paid?: boolean | null
   customer?: { id: string; company_name: string; email?: string | null; phone?: string | null } | null
 }
 
@@ -288,6 +291,7 @@ const emptyForm = {
   bol: '', additional_comments: '',
   terms: 'Net 30', fob: 'Santa Ana', sales_rep: 'RP',
   client_portal_visible: false, client_portal_name: '',
+  broker_cost: '', broker_commission_basis: 'po_7', broker_commission_paid: false,
 }
 type F = typeof emptyForm
 
@@ -524,6 +528,42 @@ function EditPanel({
                   </div>
                 )}
               </div>
+              {(() => {
+                const isEco = form.customer_id === '78fd09a2-1e2f-4181-91d7-2b8f44840a74' || (form.customer_label || '').toLowerCase().includes('eco maven')
+                if (!isEco) return null
+                const selling = parseFloat(form.total_amount || '0') || 0
+                const cost = parseFloat(form.broker_cost || '0') || 0
+                const commission = form.broker_commission_basis === 'profit_50' ? Math.max(0, selling - cost) * 0.5 : selling * 0.07
+                const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                return (
+                  <div className="rounded-xl border border-[#CDD9F0] bg-[#F0F5FF] p-3">
+                    <label className="block text-sm font-semibold text-[#1E40AF] mb-1.5">💼 Eco Maven broker commission</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] text-gray-500 mb-1">Cost we closed at</label>
+                        <input type="number" step="0.01" value={form.broker_cost} onChange={e => setForm(p => ({ ...p, broker_cost: e.target.value }))} className={inp} placeholder="0.00" />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-gray-500 mb-1">Selling price (order total)</label>
+                        <input value={selling ? fmt(selling) : '—'} readOnly className={inp + ' opacity-70'} />
+                      </div>
+                    </div>
+                    <label className="block text-[11px] text-gray-500 mb-1 mt-2">Commission basis</label>
+                    <select value={form.broker_commission_basis} onChange={e => setForm(p => ({ ...p, broker_commission_basis: e.target.value }))} className={inp + ' cursor-pointer'}>
+                      <option value="po_7">7% of the PO ({fmt(selling * 0.07)})</option>
+                      <option value="profit_50">50% of profit ({fmt(Math.max(0, selling - cost) * 0.5)})</option>
+                    </select>
+                    <div className="flex items-center justify-between mt-2.5">
+                      <span className="text-sm text-gray-600">Commission owed: <strong className="text-[#1E40AF]">{fmt(commission)}</strong></span>
+                      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                        <input type="checkbox" checked={form.broker_commission_paid} onChange={e => setForm(p => ({ ...p, broker_commission_paid: e.target.checked }))} className="w-4 h-4 accent-[#1E40AF]" />
+                        Commission paid
+                      </label>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-1.5">Shows in Eco Maven&rsquo;s portal. Unpaid commissions add to their open A/R.</p>
+                  </div>
+                )
+              })()}
               {editing && (
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Monday Item ID</label>
@@ -1088,6 +1128,9 @@ export default function OrdersPage() {
       sales_rep: order.sales_rep ?? 'RP',
       client_portal_visible: order.client_portal_visible ?? false,
       client_portal_name: order.client_portal_name ?? '',
+      broker_cost: order.broker_cost != null ? String(order.broker_cost) : '',
+      broker_commission_basis: order.broker_commission_basis || 'po_7',
+      broker_commission_paid: !!order.broker_commission_paid,
     })
     setErr(''); setEditOpen(true)
   }
@@ -1131,6 +1174,9 @@ export default function OrdersPage() {
       sales_rep: form.sales_rep || null,
       client_portal_visible: !!form.client_portal_visible,
       client_portal_name: form.client_portal_name || null,
+      broker_cost: form.broker_cost ? parseFloat(form.broker_cost) : null,
+      broker_commission_basis: form.broker_commission_basis || null,
+      broker_commission_paid: !!form.broker_commission_paid,
     }
 
     let orderId = editingOrder?.id
