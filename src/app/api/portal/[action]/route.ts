@@ -178,8 +178,8 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
     const rfqIds = ((brfqs || []) as any[]).map(r => r.id)
     const linesByRfq: Record<string, any[]> = {}
     if (rfqIds.length) {
-      const { data: lns } = await admin.from('quotation_lines').select('quotation_id, sku, description, quantity, unit_of_measure').in('quotation_id', rfqIds)
-      for (const l of (lns || []) as any[]) { (linesByRfq[l.quotation_id] ||= []).push({ sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit_of_measure }) }
+      const { data: lns } = await admin.from('quotation_lines').select('quotation_id, sku, description, quantity, unit_of_measure, unit_price, line_total').in('quotation_id', rfqIds)
+      for (const l of (lns || []) as any[]) { (linesByRfq[l.quotation_id] ||= []).push({ sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit_of_measure, unit_price: l.unit_price != null ? Number(l.unit_price) : null, line_total: l.line_total != null ? Number(l.line_total) : null }) }
     }
     const commissionOf = (selling: number, cost: number | null, basis: string) => basis === 'none' ? 0 : basis === 'profit_50' ? Math.max(0, selling - (cost || 0)) * 0.5 : selling * 0.07
     const mapOrder = (o: any, selling: number, po_url: string | null, source: string) => {
