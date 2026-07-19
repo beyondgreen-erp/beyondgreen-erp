@@ -105,30 +105,35 @@ export default function ClientPortalPage() {
   )
 
   const ordersTable = (rows: any[], emptyMsg: string) => (
-    <table className="w-full text-sm min-w-[780px]">
+    <table className="w-full text-sm min-w-[880px]">
       <thead>
         <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
           <th className="text-left px-4 py-2 font-semibold">Project</th>
           <th className="text-left px-3 py-2 font-semibold">PO</th>
           <th className="text-right px-3 py-2 font-semibold">Cost</th>
           <th className="text-right px-3 py-2 font-semibold">Selling</th>
+          <th className="text-right px-3 py-2 font-semibold">Profit / Loss</th>
           <th className="text-left px-3 py-2 font-semibold">Commission</th>
           <th className="text-left px-3 py-2 font-semibold">Commission Status</th>
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</td></tr>
-        ) : rows.map((d: any, i: number) => (
+          <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</td></tr>
+        ) : rows.map((d: any, i: number) => {
+          const pl = d.cost != null ? d.selling - d.cost : null
+          return (
           <tr key={d.id} className={i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}>
             <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{d.name}{d.status ? <span className="ml-2 text-[10px] font-normal text-gray-400">{d.status}</span> : null}</td>
             <td className="px-3 py-2.5">{d.po_url ? <a href={d.po_url} target="_blank" rel="noopener noreferrer" className="text-[#3B6FE0] font-semibold hover:underline">📄 {d.po_number || 'View PO'}</a> : (d.po_number || <span className="text-gray-300">—</span>)}</td>
             <td className="px-3 py-2.5 text-right text-gray-600">{d.cost != null ? money(d.cost) : '—'}</td>
             <td className="px-3 py-2.5 text-right text-gray-600">{money(d.selling)}</td>
+            <td className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{pl == null ? <span className="text-gray-300">—</span> : <span style={{ color: pl < 0 ? '#DC2626' : GREEN }}>{pl < 0 ? `-${money(Math.abs(pl))}` : money(pl)} <span className="text-[11px] font-normal text-gray-400">{pl < 0 ? 'loss' : 'profit'}</span></span>}</td>
             <td className="px-3 py-2.5"><span className="font-bold" style={{ color: GREEN }}>{money(d.commission)}</span> <span className="text-[11px] text-gray-400">({d.basis === 'none' ? 'no commission' : d.basis === 'profit_50' ? '50% profit' : '7% PO'})</span></td>
             <td className="px-3 py-2.5">{cstatusPill(d.commission_status, d.commission_status_label)}</td>
           </tr>
-        ))}
+          )
+        })}
       </tbody>
     </table>
   )
