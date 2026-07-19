@@ -48,6 +48,23 @@ export default function DailyShipReportPage() {
   const [statMode, setStatMode] = useState<'channel' | 'month'>('channel')
   const [edit, setEdit] = useState<{ id: string; field: string } | null>(null)
   const dragId = useRef<string | null>(null)
+  // Sales totals are hidden behind a password (verified server-side). Reveal lasts for the session.
+  const [revealed, setRevealed] = useState(false)
+  const [pw, setPw] = useState('')
+  const [pwErr, setPwErr] = useState('')
+  const [pwBusy, setPwBusy] = useState(false)
+
+  useEffect(() => { if (typeof window !== 'undefined' && sessionStorage.getItem('dsr_revealed') === '1') setRevealed(true) }, [])
+  async function unlockTotals(e: React.FormEvent) {
+    e.preventDefault(); setPwErr(''); setPwBusy(true)
+    try {
+      const res = await fetch('/api/reveal-ship-totals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) })
+      const j = await res.json().catch(() => ({}))
+      if (j.ok) { setRevealed(true); setPw(''); try { sessionStorage.setItem('dsr_revealed', '1') } catch { /* */ } }
+      else setPwErr('Incorrect password.')
+    } catch { setPwErr('Could not verify. Try again.') } finally { setPwBusy(false) }
+  }
+  function hideTotals() { setRevealed(false); try { sessionStorage.removeItem('dsr_revealed') } catch { /* */ } }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -150,7 +167,7 @@ export default function DailyShipReportPage() {
         <div>
           <span className="mon-tag">📦 Daily Ship</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">2026 Daily Ship Report</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${shown} of ${rows.length} days · ${money(grand, 0)} shipped YTD`}</p>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : (revealed ? `${shown} of ${rows.length} days · ${money(grand, 0)} shipped YTD` : `${shown} of ${rows.length} days · ••••••• shipped YTD`)}</p>
         </div>
         <button onClick={() => addItem(groups[0]?.key || '(no week)')} className="mon-btn">+ New day</button>
       </div>
@@ -159,16 +176,34 @@ export default function DailyShipReportPage() {
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{statMode === 'channel' ? 'Total sales by channel' : 'Total sales by month'}</p>
-            <div className="inline-flex rounded-lg border border-[#E4E6EE] bg-white p-0.5 text-xs">
-              <button onClick={() => setStatMode('channel')} className={`px-3 py-1.5 rounded-md ${statMode === 'channel' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Channel</button>
-              <button onClick={() => setStatMode('month')} className={`px-3 py-1.5 rounded-md ${statMode === 'month' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Month</button>
+            <div className="flex items-center gap-2">
+              {revealed && <button onClick={hideTotals} className="text-xs text-gray-400 hover:text-gray-600" title="Hide totals again">🔒 Hide</button>}
+              <div className="inline-flex rounded-lg border border-[#E4E6EE] bg-white p-0.5 text-xs">
+                <button onClick={() => setStatMode('channel')} className={`px-3 py-1.5 rounded-md ${statMode === 'channel' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Channel</button>
+                <button onClick={() => setStatMode('month')} className={`px-3 py-1.5 rounded-md ${statMode === 'month' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Month</button>
+              </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <Stat label="Total Shipped" value={money(grand, 0)} c="#00A84F" />
-            {statMode === 'channel'
-              ? CHANNELS.map(c => <Stat key={c.field} label={c.label} value={money(rows.reduce((a, r) => a + (Number(r[c.field]) || 0), 0), 0)} c={c.color} />)
-              : monthAgg.map(mo => <Stat key={mo.label} label={mo.label} value={money(mo.total, 0)} c={MONTH_HEX[mo.label] || '#9699A6'} />)}
+          <div className="relative">
+            <div className={`grid grid-cols-2 lg:grid-cols-6 gap-3 transition ${revealed ? '' : 'blur-md select-none pointer-events-none'}`} aria-hidden={!revealed}>
+              <Stat label="Total Shipped" value={money(grand, 0)} c="#00A84F" />
+              {statMode === 'channel'
+                ? CHANNELS.map(c => <Stat key={c.field} label={c.label} value={money(rows.reduce((a, r) => a + (Number(r[c.field]) || 0), 0), 0)} c={c.color} />)
+                : monthAgg.map(mo => <Stat key={mo.label} label={mo.label} value={money(mo.total, 0)} c={MONTH_HEX[mo.label] || '#9699A6'} />)}
+            </div>
+            {!revealed && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <form onSubmit={unlockTotals} className="flex flex-col items-center gap-2 bg-white/80 backdrop-blur-sm border border-[#E4E6EE] rounded-xl px-5 py-4 shadow-sm">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-[#1A1D2E]"><span>🔒</span> Enter password to view sales</div>
+                  <div className="flex items-center gap-2">
+                    <input type="password" value={pw} onChange={e => { setPw(e.target.value); setPwErr('') }} placeholder="Password" autoComplete="off"
+                      className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-52 focus:outline-none focus:ring-2 focus:ring-[#00A84F]/40" />
+                    <button type="submit" disabled={pwBusy || !pw} className="bg-[#00A84F] text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50">{pwBusy ? '…' : 'Unlock'}</button>
+                  </div>
+                  {pwErr && <p className="text-xs text-red-500">{pwErr}</p>}
+                </form>
+              </div>
+            )}
           </div>
         </div>
       )}
