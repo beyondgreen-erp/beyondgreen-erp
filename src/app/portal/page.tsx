@@ -301,7 +301,7 @@ export default function ClientPortalPage() {
                 </button>
               ))}
             </div>
-            <p className="text-[12px] text-gray-600 mt-4 bg-[#F7FAF8] border border-[#E4EFE9] rounded-lg px-3 py-2">Don&apos;t worry — this is the team now, and we&apos;re growing. As your orders increase, so will the size of our team. 🌱</p>
+            <p className="text-[12px] text-gray-600 mt-4 bg-[#F7FAF8] border border-[#E4EFE9] rounded-lg px-3 py-2">This is just the beginning — we&apos;re actively growing our team and will keep adding dedicated resources to support you. As we scale together, you&apos;ll always have the right people to turn to for assistance. 🌱</p>
           </div>
         )}
         {broker && (
