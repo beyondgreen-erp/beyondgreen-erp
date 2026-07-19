@@ -78,10 +78,10 @@ export default function SequencesPage() {
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState('')
   const [enrFilter, setEnrFilter] = useState<'all' | 'bounced' | 'active'>('all')
-  const [fixOpen, setFixOpen] = useState<string | null>(null)
-  const [fixBusy, setFixBusy] = useState<string | null>(null)
   const [fixSug, setFixSug] = useState<Record<string, any[]>>({})
   const [fixMsg, setFixMsg] = useState<Record<string, string>>({})
+  const [fixLoading, setFixLoading] = useState<Record<string, boolean>>({})
+  const [bulkBusy, setBulkBusy] = useState('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [sb])
   useEffect(() => { fetch('/api/outlook/status').then(r => r.json()).then(d => setMailboxes(d.mailboxes || [])).catch(() => {}) }, [])
@@ -236,24 +236,57 @@ export default function SequencesPage() {
   }
 
   const isBounced = (e: Enrollment) => e.status === 'stopped' && e.stop_reason === 'bounced'
-  async function findFixEmail(e: Enrollment) {
-    setFixOpen(e.id); setFixBusy(e.id); setFixMsg(m => ({ ...m, [e.id]: '' })); setFixSug(su => ({ ...su, [e.id]: [] }))
+  async function findEmailFor(e: Enrollment) {
+    setFixLoading(l => ({ ...l, [e.id]: true })); setFixSug(su => ({ ...su, [e.id]: su[e.id] || [] })); setFixMsg(m => ({ ...m, [e.id]: '' }))
     try { await sb.from('customers').update({ is_active: false }).eq('id', e.customer_id) } catch { /* already inactive */ }
     try {
       const r = await fetch('/api/leads/find-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: e.customer_id }) })
       const j = await r.json()
       setFixSug(su => ({ ...su, [e.id]: j.suggestions || [] })); setFixMsg(m => ({ ...m, [e.id]: j.message || '' }))
     } catch { setFixMsg(m => ({ ...m, [e.id]: 'Search failed.' })) }
-    setFixBusy(null)
+    setFixLoading(l => ({ ...l, [e.id]: false }))
   }
-  async function applyFixEmail(e: Enrollment, email: string) {
-    setFixBusy(e.id)
+  async function applyEmailReq(e: Enrollment, email: string): Promise<boolean> {
     try {
       const r = await fetch('/api/leads/apply-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: e.customer_id, email }) })
       const j = await r.json()
-      if (!r.ok) { setFixMsg(m => ({ ...m, [e.id]: j.error || 'Apply failed.' })); setFixBusy(null); return }
-      setFixBusy(null); setFixOpen(null); load()
-    } catch { setFixMsg(m => ({ ...m, [e.id]: 'Apply failed.' })); setFixBusy(null) }
+      if (!r.ok) { setFixMsg(m => ({ ...m, [e.id]: j.error || 'Apply failed.' })); return false }
+      return true
+    } catch { setFixMsg(m => ({ ...m, [e.id]: 'Apply failed.' })); return false }
+  }
+  async function applyFixEmail(e: Enrollment, email: string) {
+    setFixLoading(l => ({ ...l, [e.id]: true }))
+    const ok = await applyEmailReq(e, email)
+    setFixLoading(l => ({ ...l, [e.id]: false }))
+    if (ok) load()
+  }
+  async function runPool<T>(items: T[], limit: number, worker: (x: T) => Promise<void>, onProgress: (n: number) => void) {
+    let i = 0, done = 0
+    const runners = Array(Math.min(limit, items.length)).fill(0).map(async () => {
+      while (i < items.length) { const idx = i++; await worker(items[idx]); done++; onProgress(done) }
+    })
+    await Promise.all(runners)
+  }
+  async function findAllBounced(list: Enrollment[]) {
+    const targets = list.filter(e => !(fixSug[e.id] && fixSug[e.id].length))
+    if (!targets.length) { alert('Emails already found for all shown leads.'); return }
+    setBulkBusy(`Finding 0/${targets.length}`)
+    await runPool(targets, 4, findEmailFor, (n) => setBulkBusy(`Finding ${n}/${targets.length}`))
+    setBulkBusy('')
+  }
+  async function applyAllBounced(list: Enrollment[]) {
+    const withSug = list.filter(e => fixSug[e.id] && fixSug[e.id].length)
+    if (!withSug.length) { alert('No found emails yet \u2014 run \u201cFind emails for all\u201d first.'); return }
+    const good = withSug.filter(e => (fixSug[e.id][0].confidence || 'low') !== 'low')
+    const lowN = withSug.length - good.length
+    if (!good.length) { alert('Only low-confidence guesses were found \u2014 please review those individually before sending.'); return }
+    if (!confirm(`Apply the best found email to ${good.length} lead(s), reactivate them, and re-enroll each at email 1?${lowN ? `\n\n${lowN} low-confidence guess(es) will be skipped \u2014 review those one at a time.` : ''}`)) return
+    setBulkBusy(`Applying 0/${good.length}`)
+    let applied = 0
+    await runPool(good, 5, async (e) => { const ok = await applyEmailReq(e, fixSug[e.id][0].email); if (ok) applied++ }, (n) => setBulkBusy(`Applying ${n}/${good.length}`))
+    setBulkBusy('')
+    alert(`Applied ${applied} corrected email(s) and re-enrolled them.${lowN ? ` Skipped ${lowN} low-confidence \u2014 review individually.` : ''}`)
+    load()
   }
 
   const grouped = useMemo(() => {
@@ -398,8 +431,14 @@ export default function SequencesPage() {
                       <button onClick={() => setEnrFilter('all')} className={`text-[11px] px-2 py-1 rounded-full font-semibold ${enrFilter === 'all' ? 'bg-[#3B6FE0] text-white' : 'bg-gray-100 text-gray-600'}`}>All ({enr.length})</button>
                       <button onClick={() => setEnrFilter('active')} className={`text-[11px] px-2 py-1 rounded-full font-semibold ${enrFilter === 'active' ? 'bg-[#3B6FE0] text-white' : 'bg-gray-100 text-gray-600'}`}>Active ({activeCount})</button>
                       <button onClick={() => setEnrFilter('bounced')} className={`text-[11px] px-2 py-1 rounded-full font-semibold ${enrFilter === 'bounced' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600'}`}>Bounced ({bouncedCount})</button>
-                      {enrFilter === 'bounced' && bouncedCount > 0 && <span className="text-[11px] text-gray-400 ml-1">Click &ldquo;Fix email&rdquo; to find a working address and resend email 1.</span>}
                     </div>
+                    {enrFilter === 'bounced' && bouncedCount > 0 && (
+                      <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+                        <button onClick={() => findAllBounced(enrShown)} disabled={!!bulkBusy} className="text-[11px] px-2.5 py-1 rounded bg-[#3B6FE0] text-white font-semibold hover:bg-[#2E5CC7] disabled:opacity-50">Find emails for all ({enrShown.length})</button>
+                        <button onClick={() => applyAllBounced(enrShown)} disabled={!!bulkBusy} className="text-[11px] px-2.5 py-1 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">Apply best &amp; resend all</button>
+                        {bulkBusy ? <span className="text-[11px] text-gray-600 font-medium">{bulkBusy}\u2026</span> : <span className="text-[11px] text-gray-400">or fix them one at a time below</span>}
+                      </div>
+                    )}
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
@@ -435,26 +474,26 @@ export default function SequencesPage() {
                                   </div>
                                 )}
                                 {isBounced(e) && (
-                                  <button onClick={() => findFixEmail(e)} disabled={fixBusy === e.id} title="Find a working email and resend email 1" className="text-[10px] px-2 py-0.5 rounded border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-50">{fixBusy === e.id && fixOpen === e.id ? 'Searching\u2026' : 'Fix email'}</button>
+                                  <button onClick={() => findEmailFor(e)} disabled={!!fixLoading[e.id]} title="Find a working email and resend email 1" className="text-[10px] px-2 py-0.5 rounded border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-50">{fixLoading[e.id] ? 'Searching\u2026' : 'Fix email'}</button>
                                 )}
                               </td>
                             </tr>
-                            {fixOpen === e.id && (
+                            {(fixLoading[e.id] || fixSug[e.id] !== undefined) && (
                               <tr>
                                 <td colSpan={6} className="bg-[#F8FAFF] px-2 py-2 border-b border-[#EEF0F4]">
-                                  {(!fixSug[e.id] || fixSug[e.id].length === 0) && fixBusy === e.id && <p className="text-[11px] text-gray-500">Searching the web for a working email\u2026</p>}
-                                  {(!fixSug[e.id] || fixSug[e.id].length === 0) && fixBusy !== e.id && <p className="text-[11px] text-gray-500">{fixMsg[e.id] || 'No candidates found.'}</p>}
+                                  {(!fixSug[e.id] || fixSug[e.id].length === 0) && fixLoading[e.id] && <p className="text-[11px] text-gray-500">Searching the web for a working email\u2026</p>}
+                                  {(!fixSug[e.id] || fixSug[e.id].length === 0) && !fixLoading[e.id] && <p className="text-[11px] text-gray-500">{fixMsg[e.id] || 'No candidates found.'}</p>}
                                   <div className="space-y-1">
                                     {(fixSug[e.id] || []).map((sg: any, i: number) => (
                                       <div key={i} className="flex items-center gap-2 text-[11px] bg-white border border-[#E4E6EE] rounded px-2 py-1">
                                         <span className="font-mono text-[#1A1D2E]">{sg.email}</span>
                                         <span className={`px-1.5 py-0.5 rounded-full ${sg.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' : sg.confidence === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{sg.confidence}</span>
                                         <span className="text-gray-400 truncate max-w-[260px]" title={sg.source}>{sg.note || sg.source}</span>
-                                        <button onClick={() => applyFixEmail(e, sg.email)} disabled={fixBusy === e.id} className="ml-auto text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">Apply &amp; resend</button>
+                                        <button onClick={() => applyFixEmail(e, sg.email)} disabled={!!fixLoading[e.id]} className="ml-auto text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">Apply &amp; resend</button>
                                       </div>
                                     ))}
                                   </div>
-                                  <button onClick={() => setFixOpen(null)} className="text-[10px] text-gray-400 hover:underline mt-1">close</button>
+                                  <button onClick={() => { setFixSug(su => { const n = { ...su }; delete n[e.id]; return n }); setFixLoading(l => { const n = { ...l }; delete n[e.id]; return n }) }} className="text-[10px] text-gray-400 hover:underline mt-1">close</button>
                                 </td>
                               </tr>
                             )}
