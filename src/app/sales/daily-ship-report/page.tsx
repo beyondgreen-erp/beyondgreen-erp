@@ -194,7 +194,7 @@ export default function DailyShipReportPage() {
             {!revealed && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <form onSubmit={unlockTotals} className="flex flex-col items-center gap-2 bg-white/80 backdrop-blur-sm border border-[#E4E6EE] rounded-xl px-5 py-4 shadow-sm">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-[#1A1D2E]"><span>🔒</span> Enter password to view sales</div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-[#1A1D2E]"><span>🔒</span> Enter password to view consolidated stats</div>
                   <div className="flex items-center gap-2">
                     <input type="password" value={pw} onChange={e => { setPw(e.target.value); setPwErr('') }} placeholder="Password" autoComplete="off"
                       className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-52 focus:outline-none focus:ring-2 focus:ring-[#00A84F]/40" />
