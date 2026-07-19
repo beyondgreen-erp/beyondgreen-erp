@@ -105,11 +105,25 @@ export default function ClientPortalPage() {
     <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={s === 'paid_by_bg' ? { background: '#DCFCE7', color: '#037f4c' } : { background: '#FEF3C7', color: '#B45309' }}>{label}</span>
   )
 
+  const statusPill = (status: string | null) => {
+    if (!status) return <span className="text-gray-300">—</span>
+    const s = status.toLowerCase()
+    let bg = '#EEF0F4', color = '#6B7280'
+    if (/cancel/.test(s)) { bg = '#FEE2E2'; color = '#B91C1C' }
+    else if (/hold/.test(s)) { bg = '#FFEDD5'; color = '#C2410C' }
+    else if (/(shipped|delivered|closed|complete)/.test(s)) { bg = '#DCFCE7'; color = '#037f4c' }
+    else if (/(ready|will call|partially)/.test(s)) { bg = '#E0E7FF'; color = '#4338CA' }
+    else if (/(production|queue|qc|transit)/.test(s)) { bg = '#DBEAFE'; color = '#1D4ED8' }
+    else if (/(pending|confirm|awaiting|bom)/.test(s)) { bg = '#FEF3C7'; color = '#B45309' }
+    return <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color }}>{status}</span>
+  }
+
   const ordersTable = (rows: any[], emptyMsg: string) => (
-    <table className="w-full text-sm min-w-[880px]">
+    <table className="w-full text-sm min-w-[980px]">
       <thead>
         <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
           <th className="text-left px-4 py-2 font-semibold">Project</th>
+          <th className="text-left px-3 py-2 font-semibold">Status</th>
           <th className="text-left px-3 py-2 font-semibold">PO</th>
           <th className="text-right px-3 py-2 font-semibold">Cost</th>
           <th className="text-right px-3 py-2 font-semibold">Selling</th>
@@ -120,12 +134,13 @@ export default function ClientPortalPage() {
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</td></tr>
+          <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</td></tr>
         ) : rows.map((d: any, i: number) => {
           const pl = d.cost != null ? d.selling - d.cost : null
           return (
           <tr key={d.id} className={i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}>
-            <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{d.name}{d.status ? <span className="ml-2 text-[10px] font-normal text-gray-400">{d.status}</span> : null}</td>
+            <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{d.name}</td>
+            <td className="px-3 py-2.5">{statusPill(d.status)}</td>
             <td className="px-3 py-2.5">{d.po_url ? <a href={d.po_url} target="_blank" rel="noopener noreferrer" className="text-[#3B6FE0] font-semibold hover:underline">📄 {d.po_number || 'View PO'}</a> : (d.po_number || <span className="text-gray-300">—</span>)}</td>
             <td className="px-3 py-2.5 text-right text-gray-600">{d.cost != null ? money(d.cost) : '—'}</td>
             <td className="px-3 py-2.5 text-right text-gray-600">{money(d.selling)}</td>
