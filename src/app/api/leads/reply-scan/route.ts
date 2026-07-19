@@ -114,27 +114,35 @@ export async function GET(req: NextRequest) {
       for (let i = 0; i < custIds.length; i += 300) { const { data: cs } = await sb.from('customers').select('id, email').in('id', custIds.slice(i, i + 300)); (cs as any[] || []).forEach(c => { custById[c.id] = c }) }
       const byEmail: Record<string, boolean> = {}
       for (const e of enrRows) { const c = custById[e.customer_id]; if (c?.email) byEmail[String(c.email).toLowerCase()] = true }
+      // subject -> to_email map from outgoing sends (for subject-based bounce matching)
+      let sentSubjMap: Record<string, string> = {}
+      if (seqIds.length) {
+        const { data: sends } = await sb.from('sequence_sends').select('subject,to_email').in('sequence_id', seqIds).limit(5000)
+        for (const sd of (sends as any[]) || []) { const k = String(sd.subject || '').trim().toLowerCase(); if (k && sd.to_email) sentSubjMap[k] = String(sd.to_email).toLowerCase() }
+      }
+      const stripPrefix = (subj: string) => subj.replace(/^(undeliverable|automatic reply|auto:|re|fwd?|delivery status notification|mail delivery)\s*:?\s*/i, '').trim()
       const msgs = await fetchInbox(token, sinceIso)
-      const counts: Record<string, number> = {}
-      const samples: Record<string, any[]> = {}
+      let matchPreview = 0, matchBody = 0, matchSubject = 0, stillUnmatched = 0, bodyFetches = 0
+      const unmatchedSamples: any[] = []
       for (const m of msgs) {
         const sender = String(m.from?.emailAddress?.address || '').toLowerCase()
         const subject = String(m.subject || '').trim()
         const preview = String(m.bodyPreview || '')
         const looksBounce = BOUNCE_SENDER_RE.test(sender) || BOUNCE_SUBJECT_RE.test(subject)
-        const isOOO = OOO_SUBJECT_RE.test(subject)
-        const known = !!byEmail[sender]
-        const emailsInText = [...new Set(((subject + ' ' + preview).toLowerCase().match(EMAIL_RE) || []))]
-        const matched = emailsInText.filter(e => byEmail[e])
-        let cat = 'ignored (not from a lead, not a bounce)'
-        if (looksBounce) cat = matched.length ? 'bounce matched' : 'bounce UNMATCHED (no lead email found in preview)'
-        else if (known && isOOO) cat = 'ooo'
-        else if (known) cat = 'from a lead (would AI-classify)'
-        counts[cat] = (counts[cat] || 0) + 1
-        if (!samples[cat]) samples[cat] = []
-        if (samples[cat].length < 12) samples[cat].push({ from: sender, subject: subject.slice(0, 90) })
+        if (!looksBounce) continue
+        // 1) preview
+        let matches = [...new Set(((subject + ' ' + preview).toLowerCase().match(EMAIL_RE) || []))].filter(e => byEmail[e])
+        if (matches.length) { matchPreview++; continue }
+        // 2) body
+        if (bodyFetches < 200) { bodyFetches++; const full = (await fetchBody(token, m.id)).toLowerCase(); matches = [...new Set((full.match(EMAIL_RE) || []))].filter(e => byEmail[e]) }
+        if (matches.length) { matchBody++; continue }
+        // 3) subject vs outgoing sends
+        const key = stripPrefix(subject).toLowerCase()
+        if (sentSubjMap[key] && byEmail[sentSubjMap[key]]) { matchSubject++; continue }
+        stillUnmatched++
+        if (unmatchedSamples.length < 10) unmatchedSamples.push({ from: sender, subject: subject.slice(0, 80), strippedKey: key.slice(0, 60), hadSentMatch: !!sentSubjMap[key] })
       }
-      dbg.push({ mailbox, total: msgs.length, counts, samples })
+      dbg.push({ mailbox, total: msgs.length, sentSubjCount: Object.keys(sentSubjMap).length, bounce: { matchPreview, matchBody, matchSubject, stillUnmatched }, unmatchedSamples })
     }
     return NextResponse.json({ debug: true, mailboxes: dbg })
   }
