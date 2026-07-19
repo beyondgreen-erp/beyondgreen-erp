@@ -62,6 +62,64 @@ async function companyName(client: PortalClient): Promise<string | null> {
   return null
 }
 
+// ── Client-facing team roster (shown in the portal) ──
+const PORTAL_TEAM: { email: string; name: string; role: string }[] = [
+  { email: 'rudyp@beyondgreenbiotech.com', name: 'Rudy P.', role: 'Project Oversight Manager 1' },
+  { email: 'manish@beyondgreenbiotech.com', name: 'Manish P.', role: 'Project Manager 1' },
+  { email: 'dhanush.k@beyondgreenbiotech.com', name: 'Dhanush K.', role: 'Certifications & Compliance (BPI/TUV)' },
+  { email: 'shea@beyondgreenbiotech.com', name: 'Shea F.', role: 'Logistics Oversight Manager' },
+  { email: 'tiya@beyondgreenbiotech.com', name: 'Tiya P.', role: 'Content Creator' },
+]
+const TEAM_EMAILS = new Set(PORTAL_TEAM.map(m => m.email.toLowerCase()))
+
+// Build a /api/avatar URL from a player's avatar_config (mirrors the ERP UserAvatar renderer).
+function avatarPathFromConfig(cfg: any): string {
+  cfg = cfg || {}
+  const p = new URLSearchParams()
+  p.set('seed', cfg.seed || 'beyondGREEN')
+  p.set('skinColor', cfg.skinColor || 'edb98a')
+  p.set('top', cfg.top || 'shortFlat')
+  p.set('hairColor', cfg.hairColor || '4a312c')
+  p.set('eyes', cfg.eyes || 'default')
+  p.set('eyebrows', cfg.eyebrows || 'default')
+  p.set('mouth', cfg.mouth || 'smile')
+  p.set('clothing', cfg.clothing || 'shirtCrewNeck')
+  p.set('clothesColor', cfg.clothesColor || '5199e4')
+  if (cfg.clothingGraphic) p.set('clothingGraphic', cfg.clothingGraphic)
+  if (cfg.hatColor) p.set('hatColor', cfg.hatColor)
+  const bg = cfg.backgroundColor || 'b6e3f4'
+  if (cfg.bgGradient) { p.set('backgroundColor', bg + ',' + cfg.bgGradient); p.set('backgroundType', 'gradientLinear') } else p.set('backgroundColor', bg)
+  if (cfg.facialHair) { p.set('facialHair', cfg.facialHair); p.set('facialHairProbability', '100'); p.set('facialHairColor', cfg.facialHairColor || '2c1b18') } else p.set('facialHairProbability', '0')
+  if (cfg.accessories) { p.set('accessories', cfg.accessories); p.set('accessoriesProbability', '100'); p.set('accessoriesColor', cfg.accessoriesColor || '3c4f5c') } else p.set('accessoriesProbability', '0')
+  return `/api/avatar?${p.toString()}`
+}
+
+async function buildTeam(): Promise<any[]> {
+  const { data: profs } = await admin.from('player_profiles').select('user_email, avatar_config').in('user_email', PORTAL_TEAM.map(m => m.email))
+  const cfgByEmail: Record<string, any> = {}
+  for (const p of (profs || []) as any[]) cfgByEmail[String(p.user_email).toLowerCase()] = p.avatar_config
+  return PORTAL_TEAM.map(m => ({ email: m.email, name: m.name, role: m.role, avatar: avatarPathFromConfig(cfgByEmail[m.email.toLowerCase()]) }))
+}
+
+// Verify a record belongs to this portal client; return a display label.
+async function ownsRecord(client: PortalClient, rt: string, rid: string): Promise<{ ok: boolean; label: string | null }> {
+  if (!rid) return { ok: false, label: null }
+  if (rt === 'sales_order') {
+    const { data } = await admin.from('sales_orders').select('customer_id, client_portal_name, order_number, po_number').eq('id', rid).maybeSingle()
+    const s = data as any
+    if (s && s.customer_id === client.customer_id) return { ok: true, label: s.client_portal_name || s.order_number || s.po_number || 'Order' }
+  } else if (rt === 'quotation') {
+    const { data } = await admin.from('quotations').select('customer_id, client_portal_name, quote_number').eq('id', rid).maybeSingle()
+    const s = data as any
+    if (s && s.customer_id === client.customer_id) return { ok: true, label: s.client_portal_name || s.quote_number || 'RFQ' }
+  } else if (rt === 'shipment') {
+    const { data } = await admin.from('shipments').select('customer_name, broker_portal_client, po_number').eq('id', rid).maybeSingle()
+    const s = data as any
+    if (s && s.broker_portal_client) return { ok: true, label: s.customer_name || s.po_number || 'Shipment' }
+  }
+  return { ok: false, label: null }
+}
+
 // ── Email helpers ─────────────────────────────────────────────
 function shell(inner: string): string {
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;border:1px solid #ECEEF3;border-radius:12px;overflow:hidden">`
@@ -212,8 +270,10 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
     broker = { ar, openRfqs, openOrders, completedOrders, revenueActive, revenueCompleted, totalRevenue, totalProfit }
   }
 
+  const team = await buildTeam()
+
   return NextResponse.json(
-    { client: { name: client.name, company }, projects, broker },
+    { client: { name: client.name, company }, projects, broker, team },
     { headers: { 'Cache-Control': 'no-store' } }
   )
 }
@@ -347,6 +407,125 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
         + `<div style="margin:16px 0"><a href="${SITE}/bizdev/client-portals" style="display:inline-block;background:#037f4c;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:14px;font-weight:600">Open in the ERP</a></div>`
         + `<p style="margin:12px 0 0;font-size:12px;color:#9ca3af">Sent from the beyondGREEN client portal.</p></div>`
       await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, subject: `Client message — ${company || client.name || client.email}`, html }) }).catch(() => {})
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Portal: list comments on one record (client + team thread) ──
+  if (action === 'comments') {
+    const client = await clientFromRequest(req)
+    if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    const body = await req.json().catch(() => ({})) as any
+    const rt = String(body.record_type || ''); const rid = String(body.record_id || '')
+    const own = await ownsRecord(client, rt, rid)
+    if (!own.ok) return NextResponse.json({ error: 'not found' }, { status: 404 })
+    const { data } = await admin.from('comments').select('id, author_email, content, created_at').eq('record_type', rt).eq('record_id', rid).order('created_at', { ascending: true })
+    const clientEmail = (client.email || '').toLowerCase()
+    const items = ((data || []) as any[]).map(c => {
+      const email = String(c.author_email || '').toLowerCase()
+      const isStaff = STAFF_DOMAINS.includes(email.split('@')[1] || '')
+      return { id: c.id, content: c.content, date: c.created_at, mine: email === clientEmail && !isStaff, staff: isStaff, author: isStaff ? 'beyondGREEN team' : (email === clientEmail ? 'You' : (c.author_email || 'Client')) }
+    })
+    return NextResponse.json({ comments: items })
+  }
+
+  // ── Portal: post a comment on one record; notifies + emails Rudy ──
+  if (action === 'comment-add') {
+    const client = await clientFromRequest(req)
+    if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    const body = await req.json().catch(() => ({})) as any
+    const rt = String(body.record_type || ''); const rid = String(body.record_id || '')
+    const content = String(body.content || '').trim()
+    if (!content) return NextResponse.json({ error: 'Please enter a comment.' }, { status: 400 })
+    if (content.length > 5000) return NextResponse.json({ error: 'Comment is too long.' }, { status: 400 })
+    const own = await ownsRecord(client, rt, rid)
+    if (!own.ok) return NextResponse.json({ error: 'not found' }, { status: 404 })
+    const { data: ins, error } = await admin.from('comments').insert({ record_type: rt, record_id: rid, author_email: client.email, content }).select('id, created_at').single()
+    if (error) return NextResponse.json({ error: 'Could not post comment.' }, { status: 500 })
+    const company = await companyName(client)
+    await admin.from('notifications').insert({ recipient_email: NOTIFY, sender_email: client.email || 'client-portal', message: `${company || client.name || 'Client'} commented on ${own.label}: ${content.slice(0, 200)}`, page: 'Client Portal', is_read: false, context_url: `${SITE}/bizdev/client-portals` }).then(() => {}, () => {})
+    if (RESEND_API_KEY) {
+      const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">New client comment</p><p style="margin:0 0 10px;font-size:14px">${esc(company || client.name || 'A client')} commented on <strong>${esc(own.label || 'a record')}</strong>:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/bizdev/client-portals" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open in the ERP</a></div>`)
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, subject: `Client comment — ${own.label || company || client.email}`, html }) }).catch(() => {})
+    }
+    return NextResponse.json({ ok: true, id: (ins as any)?.id, date: (ins as any)?.created_at })
+  }
+
+  // ── Portal: client edits the line items of an OPEN (non-accepted) RFQ ──
+  if (action === 'rfq-update') {
+    const client = await clientFromRequest(req)
+    if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    const body = await req.json().catch(() => ({})) as any
+    const rfqId = String(body.rfq_id || '')
+    const lines = Array.isArray(body.lines) ? body.lines : []
+    const { data: q } = await admin.from('quotations').select('customer_id, type, status').eq('id', rfqId).maybeSingle()
+    const qq = q as any
+    if (!qq || qq.customer_id !== client.customer_id || qq.type !== 'rfq') return NextResponse.json({ error: 'not found' }, { status: 404 })
+    if (String(qq.status || '').toLowerCase() === 'accepted') return NextResponse.json({ error: 'This RFQ is accepted and can no longer be edited.' }, { status: 400 })
+    // Preserve our quoted prices (client can't change pricing): map existing prices by line id
+    const { data: existing } = await admin.from('quotation_lines').select('id, unit_price, case_price').eq('quotation_id', rfqId)
+    const priceById: Record<string, any> = {}
+    for (const l of (existing || []) as any[]) priceById[l.id] = l
+    await admin.from('quotation_lines').delete().eq('quotation_id', rfqId)
+    const rows = lines
+      .filter((l: any) => l && (l.description || l.sku || (Number(l.quantity) || 0) > 0))
+      .map((l: any) => {
+        const prev = l.id ? priceById[l.id] : null
+        const qty = Number(l.quantity) || 0
+        const unit = prev ? (Number(prev.unit_price) || 0) : 0
+        return { quotation_id: rfqId, sku: l.sku || null, description: l.description || null, quantity: qty, unit_of_measure: l.unit_of_measure || null, pcs_per_case: l.pcs_per_case != null && l.pcs_per_case !== '' ? Number(l.pcs_per_case) : null, case_price: prev ? prev.case_price : null, unit_price: unit, line_total: qty * unit }
+      })
+    if (rows.length) { const { error } = await admin.from('quotation_lines').insert(rows); if (error) return NextResponse.json({ error: 'Could not save changes.' }, { status: 500 }) }
+    const company = await companyName(client)
+    await admin.from('notifications').insert({ recipient_email: NOTIFY, sender_email: client.email || 'client-portal', message: `${company || client.name || 'Client'} edited RFQ line items — please review.`, page: 'Client Portal', is_read: false, context_url: `${SITE}/sales/quotations` }).then(() => {}, () => {})
+    if (RESEND_API_KEY) {
+      const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">Client updated an RFQ</p><p style="margin:0 0 10px;font-size:14px">${esc(company || client.name || 'A client')} made changes to the items on an open RFQ. Review the updated line items in the ERP.</p><div style="margin:16px 0"><a href="${SITE}/sales/quotations" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open RFQs</a></div>`)
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, subject: `RFQ edited by ${company || client.name || 'client'}`, html }) }).catch(() => {})
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Portal: message a specific team member (DM in the ERP + email) ──
+  if (action === 'message-user') {
+    const client = await clientFromRequest(req)
+    if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    const body = await req.json().catch(() => ({})) as any
+    const to = String(body.recipient_email || '').toLowerCase().trim()
+    const content = String(body.content || '').trim()
+    if (!TEAM_EMAILS.has(to)) return NextResponse.json({ error: 'Unknown recipient.' }, { status: 400 })
+    if (!content) return NextResponse.json({ error: 'Please enter a message.' }, { status: 400 })
+    if (content.length > 5000) return NextResponse.json({ error: 'Message is too long.' }, { status: 400 })
+    const company = await companyName(client)
+    const senderName = `${company || 'Client'}${client.name ? ` (${client.name})` : ''}`
+    await admin.from('direct_messages').insert({ sender_email: client.email || 'client-portal', sender_name: senderName, recipient_email: to, content })
+    await admin.from('notifications').insert({ recipient_email: to, sender_email: client.email || 'client-portal', message: `New message from ${company || client.name || 'a client'}: ${content.slice(0, 200)}`, page: 'Messages', is_read: false, type: 'message' }).then(() => {}, () => {})
+    if (RESEND_API_KEY) {
+      const member = PORTAL_TEAM.find(m => m.email.toLowerCase() === to)
+      const first = (member?.name || '').split(' ')[0] || 'there'
+      const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">New message from ${esc(company || 'a client')}</p><p style="margin:0 0 10px;font-size:14px">Hi ${esc(first)}, you received a new message from <strong>${esc(company || client.name || 'a client')}</strong> in the client portal:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/messages" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open your messages</a></div>`)
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [to], cc: [NOTIFY], reply_to: client.email || undefined, subject: `New message from ${company || client.name || 'client'}`, html }) }).catch(() => {})
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Staff: when a staff comment is posted in the ERP, email the connected portal client ──
+  if (action === 'notify-comment') {
+    const staff = await staffEmail(req)
+    if (!staff) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    const body = await req.json().catch(() => ({})) as any
+    const rt = String(body.record_type || ''); const rid = String(body.record_id || '')
+    const content = String(body.content || '').trim()
+    if (!rt || !rid || !content) return NextResponse.json({ ok: false })
+    let customerId: string | null = null; let label: string | null = null
+    if (rt === 'sales_order') { const { data } = await admin.from('sales_orders').select('customer_id, client_portal_name, order_number, po_number').eq('id', rid).maybeSingle(); const s = data as any; if (s) { customerId = s.customer_id; label = s.client_portal_name || s.order_number || s.po_number || 'your order' } }
+    else if (rt === 'quotation') { const { data } = await admin.from('quotations').select('customer_id, client_portal_name, quote_number').eq('id', rid).maybeSingle(); const s = data as any; if (s) { customerId = s.customer_id; label = s.client_portal_name || s.quote_number || 'your RFQ' } }
+    if (!customerId) return NextResponse.json({ ok: false })
+    const { data: c } = await admin.from('portal_clients').select('email, name, company_name, is_active').eq('customer_id', customerId).maybeSingle()
+    const cl = c as any
+    if (!cl || !cl.is_active || !cl.email) return NextResponse.json({ ok: false })
+    if (RESEND_API_KEY) {
+      const inner = `<p style="margin:0 0 6px;font-size:16px;font-weight:700">New reply from the beyondGREEN team</p><p style="margin:0 0 10px;font-size:14px">There's a new comment on <strong>${esc(label || 'your project')}</strong>:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/portal" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">View in your portal</a></div>`
+      await sendClientEmail(cl.email, `New reply on ${label || 'your project'}`, inner)
     }
     return NextResponse.json({ ok: true })
   }
