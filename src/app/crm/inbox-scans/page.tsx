@@ -51,6 +51,67 @@ function LeadChips({ title, leads, tone }: { title: string; leads: Lead[]; tone:
   )
 }
 
+interface Suggestion { email: string; source: string; confidence: string; note: string }
+
+function BouncedLeadRow({ lead, sb }: { lead: Lead; sb: ReturnType<typeof createSupabaseBrowserClient> }) {
+  const [state, setState] = useState<'idle' | 'finding' | 'found' | 'applying' | 'applied'>('idle')
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [msg, setMsg] = useState('')
+
+  async function find() {
+    setState('finding'); setMsg('')
+    try { await sb.from('customers').update({ is_active: false }).eq('id', lead.customer_id) } catch { /* already inactive */ }
+    try {
+      const r = await fetch('/api/leads/find-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: lead.customer_id }) })
+      const j = await r.json()
+      setSuggestions(j.suggestions || []); setMsg(j.message || ''); setState('found')
+    } catch { setMsg('Search failed.'); setState('found') }
+  }
+  async function apply(email: string) {
+    setState('applying')
+    try {
+      const r = await fetch('/api/leads/apply-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: lead.customer_id, email }) })
+      const j = await r.json()
+      if (!r.ok) { setMsg(j.error || 'Apply failed.'); setState('found'); return }
+      setMsg(j.message || 'Applied.'); setState('applied')
+    } catch { setMsg('Apply failed.'); setState('found') }
+  }
+  const cc = (c: string) => c === 'high' ? 'bg-emerald-100 text-emerald-700' : c === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
+
+  return (
+    <div className="border border-[#F0D9D9] rounded-lg px-3 py-2 mb-1.5 bg-white">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-semibold text-[#1A1D2E] text-sm">{lead.company || lead.email}</span>
+        <span className="text-[11px] text-gray-400 truncate max-w-[220px]">{lead.email}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <a href={`/sales/leads?item=${lead.customer_id}`} target="_blank" rel="noreferrer" className="text-[11px] text-gray-400 hover:underline">open ↗</a>
+          {state === 'applied' ? (
+            <span className="text-[11px] font-semibold text-emerald-600">✓ Fixed &amp; re-enrolled</span>
+          ) : (
+            <button onClick={find} disabled={state === 'finding' || state === 'applying'} className="text-[11px] px-2 py-1 rounded bg-[#3B6FE0] text-white font-semibold hover:bg-[#2E5CC7] disabled:opacity-50">
+              {state === 'finding' ? 'Searching the web…' : 'Find working email'}
+            </button>
+          )}
+        </div>
+      </div>
+      {state === 'applied' && <p className="text-[11px] text-emerald-700 mt-1">{msg}</p>}
+      {(state === 'found' || state === 'applying') && (
+        <div className="mt-2 space-y-1">
+          {suggestions.length === 0 && <p className="text-[11px] text-gray-500">{msg || 'No candidates found.'}</p>}
+          {suggestions.map((sg, i) => (
+            <div key={i} className="flex items-center gap-2 text-[11px] bg-[#F8FAFF] border border-[#E4E6EE] rounded px-2 py-1">
+              <span className="font-mono text-[#1A1D2E]">{sg.email}</span>
+              <span className={`px-1.5 py-0.5 rounded-full ${cc(sg.confidence)}`}>{sg.confidence}</span>
+              <span className="text-gray-400 truncate max-w-[240px]" title={sg.source}>{sg.note || sg.source}</span>
+              <button onClick={() => apply(sg.email)} disabled={state === 'applying'} className="ml-auto text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">Apply</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function InboxScansPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [runs, setRuns] = useState<Run[] | null>(null)
@@ -146,7 +207,12 @@ export default function InboxScansPage() {
                             <p className="text-xs text-gray-400">No new leads affected this run{r.already_bounced || r.already_ooo ? ` (${r.already_bounced} bounces + ${r.already_ooo} out-of-office were already handled earlier).` : '.'}</p>
                           ) : (
                             <>
-                              <LeadChips title="Marked inactive (bounced)" leads={r.details?.bounced || []} tone="#DC2626" />
+                              {(r.details?.bounced || []).length > 0 && (
+                                <div className="mb-3">
+                                  <p className="text-[11px] font-bold mb-1.5" style={{ color: '#DC2626' }}>Marked inactive (bounced) ({(r.details?.bounced || []).length}) — find a working email to reactivate &amp; re-enroll</p>
+                                  {(r.details?.bounced || []).map((l, i) => <BouncedLeadRow key={i} lead={l} sb={sb} />)}
+                                </div>
+                              )}
                               <LeadChips title="Out of office (noted)" leads={r.details?.ooo || []} tone="#B45309" />
                               <LeadChips title="Replies" leads={r.details?.replies || []} tone="#037f4c" />
                             </>
