@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
@@ -14,6 +14,7 @@ interface Sequence {
 interface Enrollment {
   id: string; sequence_id: string; customer_id: string; status: string; current_step: number
   next_send_at: string | null; last_step_sent_at: string | null; enrolled_at: string | null
+  stop_reason?: string | null
 }
 interface Send {
   id: string; enrollment_id: string; sequence_id: string; customer_id: string
@@ -76,6 +77,11 @@ export default function SequencesPage() {
   const [steps, setSteps] = useState<Step[]>([])
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState('')
+  const [enrFilter, setEnrFilter] = useState<'all' | 'bounced' | 'active'>('all')
+  const [fixOpen, setFixOpen] = useState<string | null>(null)
+  const [fixBusy, setFixBusy] = useState<string | null>(null)
+  const [fixSug, setFixSug] = useState<Record<string, any[]>>({})
+  const [fixMsg, setFixMsg] = useState<Record<string, string>>({})
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [sb])
   useEffect(() => { fetch('/api/outlook/status').then(r => r.json()).then(d => setMailboxes(d.mailboxes || [])).catch(() => {}) }, [])
@@ -229,6 +235,27 @@ export default function SequencesPage() {
     load()
   }
 
+  const isBounced = (e: Enrollment) => e.status === 'stopped' && e.stop_reason === 'bounced'
+  async function findFixEmail(e: Enrollment) {
+    setFixOpen(e.id); setFixBusy(e.id); setFixMsg(m => ({ ...m, [e.id]: '' })); setFixSug(su => ({ ...su, [e.id]: [] }))
+    try { await sb.from('customers').update({ is_active: false }).eq('id', e.customer_id) } catch { /* already inactive */ }
+    try {
+      const r = await fetch('/api/leads/find-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: e.customer_id }) })
+      const j = await r.json()
+      setFixSug(su => ({ ...su, [e.id]: j.suggestions || [] })); setFixMsg(m => ({ ...m, [e.id]: j.message || '' }))
+    } catch { setFixMsg(m => ({ ...m, [e.id]: 'Search failed.' })) }
+    setFixBusy(null)
+  }
+  async function applyFixEmail(e: Enrollment, email: string) {
+    setFixBusy(e.id)
+    try {
+      const r = await fetch('/api/leads/apply-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: e.customer_id, email }) })
+      const j = await r.json()
+      if (!r.ok) { setFixMsg(m => ({ ...m, [e.id]: j.error || 'Apply failed.' })); setFixBusy(null); return }
+      setFixBusy(null); setFixOpen(null); load()
+    } catch { setFixMsg(m => ({ ...m, [e.id]: 'Apply failed.' })); setFixBusy(null) }
+  }
+
   const grouped = useMemo(() => {
     const g: Record<string, Sequence[]> = { active: [], paused: [], draft: [] }
     seqs.forEach(s => { const k = s.status === 'active' ? 'active' : s.status === 'paused' ? 'paused' : 'draft'; g[k].push(s) })
@@ -333,6 +360,9 @@ export default function SequencesPage() {
       {/* Sequence detail modal */}
       {detail && (() => {
         const enr = (enrollmentsBySeq[detail.id] || []).sort((a, b) => (b.enrolled_at || '').localeCompare(a.enrolled_at || ''))
+        const bouncedCount = enr.filter(isBounced).length
+        const activeCount = enr.filter(e => e.status === 'active').length
+        const enrShown = enrFilter === 'bounced' ? enr.filter(isBounced) : enrFilter === 'active' ? enr.filter(e => e.status === 'active') : enr
         const sends = (sendsBySeq[detail.id] || [])
         const stepsN = (stepsBySeq[detail.id] || []).length
         return (
@@ -363,6 +393,13 @@ export default function SequencesPage() {
               {detailTab === 'enrollments' ? (
                 <div className="p-5">
                   {enr.length === 0 ? <p className="text-center text-xs text-gray-400 py-6">Nobody enrolled yet. Add leads from the Leads page.</p> : (
+                    <>
+                    <div className="flex items-center gap-1.5 mb-2.5">
+                      <button onClick={() => setEnrFilter('all')} className={`text-[11px] px-2 py-1 rounded-full font-semibold ${enrFilter === 'all' ? 'bg-[#3B6FE0] text-white' : 'bg-gray-100 text-gray-600'}`}>All ({enr.length})</button>
+                      <button onClick={() => setEnrFilter('active')} className={`text-[11px] px-2 py-1 rounded-full font-semibold ${enrFilter === 'active' ? 'bg-[#3B6FE0] text-white' : 'bg-gray-100 text-gray-600'}`}>Active ({activeCount})</button>
+                      <button onClick={() => setEnrFilter('bounced')} className={`text-[11px] px-2 py-1 rounded-full font-semibold ${enrFilter === 'bounced' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600'}`}>Bounced ({bouncedCount})</button>
+                      {enrFilter === 'bounced' && bouncedCount > 0 && <span className="text-[11px] text-gray-400 ml-1">Click &ldquo;Fix email&rdquo; to find a working address and resend email 1.</span>}
+                    </div>
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
@@ -375,15 +412,18 @@ export default function SequencesPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {enr.map(e => {
+                        {enrShown.map(e => {
                           const cn = customerNames[e.customer_id]
                           return (
-                            <tr key={e.id} className="border-b border-[#EEF0F4] last:border-0">
+                            <Fragment key={e.id}>
+                            <tr className="border-b border-[#EEF0F4] last:border-0">
                               <td className="py-2">
                                 <Link href={`/sales/leads?item=${e.customer_id}`} className="text-[#3B6FE0] font-semibold hover:underline">{cn?.name || '(unknown)'}</Link>
                                 {cn?.email && <p className="text-[10px] text-gray-400 truncate max-w-[220px]">{cn.email}</p>}
                               </td>
-                              <td className="py-2"><span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${ENR_COLOR[e.status] || 'bg-gray-100 text-gray-500'}`}>{e.status}</span></td>
+                              <td className="py-2">{isBounced(e)
+                                ? <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-red-100 text-red-700">Bounced</span>
+                                : <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${ENR_COLOR[e.status] || 'bg-gray-100 text-gray-500'}`}>{e.status}</span>}</td>
                               <td className="py-2 text-gray-600">{e.current_step + 1} / {stepsN}</td>
                               <td className="py-2 text-gray-500">{fmtD(e.last_step_sent_at)}</td>
                               <td className="py-2 text-gray-500">{fmtDT(e.next_send_at)}</td>
@@ -394,12 +434,36 @@ export default function SequencesPage() {
                                     <button onClick={() => stopEnrollment(e)} title="Stop" className="text-[10px] px-2 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">Stop</button>
                                   </div>
                                 )}
+                                {isBounced(e) && (
+                                  <button onClick={() => findFixEmail(e)} disabled={fixBusy === e.id} title="Find a working email and resend email 1" className="text-[10px] px-2 py-0.5 rounded border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-50">{fixBusy === e.id && fixOpen === e.id ? 'Searching\u2026' : 'Fix email'}</button>
+                                )}
                               </td>
                             </tr>
+                            {fixOpen === e.id && (
+                              <tr>
+                                <td colSpan={6} className="bg-[#F8FAFF] px-2 py-2 border-b border-[#EEF0F4]">
+                                  {(!fixSug[e.id] || fixSug[e.id].length === 0) && fixBusy === e.id && <p className="text-[11px] text-gray-500">Searching the web for a working email\u2026</p>}
+                                  {(!fixSug[e.id] || fixSug[e.id].length === 0) && fixBusy !== e.id && <p className="text-[11px] text-gray-500">{fixMsg[e.id] || 'No candidates found.'}</p>}
+                                  <div className="space-y-1">
+                                    {(fixSug[e.id] || []).map((sg: any, i: number) => (
+                                      <div key={i} className="flex items-center gap-2 text-[11px] bg-white border border-[#E4E6EE] rounded px-2 py-1">
+                                        <span className="font-mono text-[#1A1D2E]">{sg.email}</span>
+                                        <span className={`px-1.5 py-0.5 rounded-full ${sg.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' : sg.confidence === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{sg.confidence}</span>
+                                        <span className="text-gray-400 truncate max-w-[260px]" title={sg.source}>{sg.note || sg.source}</span>
+                                        <button onClick={() => applyFixEmail(e, sg.email)} disabled={fixBusy === e.id} className="ml-auto text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">Apply &amp; resend</button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <button onClick={() => setFixOpen(null)} className="text-[10px] text-gray-400 hover:underline mt-1">close</button>
+                                </td>
+                              </tr>
+                            )}
+                            </Fragment>
                           )
                         })}
                       </tbody>
                     </table>
+                    </>
                   )}
                 </div>
               ) : detailTab === 'emails' ? (
