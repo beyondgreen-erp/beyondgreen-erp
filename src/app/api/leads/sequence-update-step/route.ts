@@ -14,6 +14,7 @@ function render(t: string, c: any, fromName: string): string {
   const first = (c.contact_name || '').trim().split(/\s+/)[0] || 'there'
   return (t || '')
     .replace(/\{\{\s*company\s*\}\}/gi, c.company_name || 'your team')
+    .replace(/\{\{\s*customer\s*\}\}/gi, c.company_name || 'your team')
     .replace(/\{\{\s*contact\s*\}\}/gi, c.contact_name || 'there')
     .replace(/\{\{\s*first_name\s*\}\}/gi, first)
     .replace(/\{\{\s*city\s*\}\}/gi, c.city || '')
