@@ -23,10 +23,18 @@ function render(t: string, c: any, fromName: string): string {
 }
 
 /**
- * Wraps the body text in a branded HTML shell with beyondGREEN header + footer,
- * and appends the sender's global signature. The bodyText is user-authored plain
- * text with newlines; we escape it, then split on blank lines into paragraphs.
- * signatureHtml comes from user_email_signatures and is trusted HTML.
+ * TEMPLATE: "beyondGREEN Sales Email Template" (aka bG Sales Template v2)
+ *
+ * The standard branded HTML shell every sequence email is wrapped in. Header
+ * uses the real logo image (same asset the signature uses so we know it renders),
+ * clean white background with a green underline, no gradient. Footer is dark
+ * navy with contact info. Signature is auto-appended from user_email_signatures.
+ *
+ * When Rudy says "use the beyondGREEN Sales Email Template," this is what he means.
+ *
+ * bodyText is user-authored plain text with newlines. We escape it, convert
+ * markdown-style [text](url) to short anchor tags, and split on blank lines
+ * into paragraphs.
  */
 export function composeHtml(bodyText: string, signatureHtml: string): string {
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -50,15 +58,14 @@ export function composeHtml(bodyText: string, signatureHtml: string): string {
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
       <tr>
-        <td style="background:linear-gradient(135deg,#00A84F 0%,#037f4c 100%);padding:24px 28px;">
+        <!-- HEADER: bG Standard Sales v2 -->
+        <td style="background:#FFFFFF;padding:22px 28px;border-bottom:3px solid #00A84F;">
           <table role="presentation" width="100%"><tr>
-            <td>
-              <!-- Text-based wordmark so it always renders even when the recipient's client blocks images. -->
-              <div style="color:#FFFFFF;font-weight:800;font-size:26px;letter-spacing:-0.5px;line-height:1;font-family:Arial,Helvetica,sans-serif;">beyondGREEN</div>
-              <div style="color:#B6F0D0;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:4px;font-family:Arial,Helvetica,sans-serif;">biotech · professional</div>
+            <td valign="middle">
+              <img src="https://byndgrn.com/cdn/shop/files/beyondGREEN_biotech_New_Logo.jpg" alt="beyondGREEN biotech" width="180" style="display:block;height:auto;max-width:180px;" />
             </td>
-            <td align="right" style="color:#FFFFFF;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;font-family:Arial,Helvetica,sans-serif;">
-              Made in USA<br>Certified Compostable
+            <td align="right" valign="middle" style="color:#4A5A73;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;font-family:Arial,Helvetica,sans-serif;">
+              Made in USA
             </td>
           </tr></table>
         </td>
