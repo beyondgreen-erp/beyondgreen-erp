@@ -67,6 +67,17 @@ export default function ClientPortalPage() {
     if (r.ok) { setData(await r.json()); setPhase('app') } else { setPhase('login') }
   }, [])
   useEffect(() => { loadMe() }, [loadMe])
+  // Auto-refresh: pick up Sales Order / RFQ saves without a manual reload.
+  useEffect(() => {
+    const refresh = async () => {
+      try { const r = await fetch('/api/portal/me', { cache: 'no-store' }); if (r.ok) setData(await r.json()) } catch { /* ignore transient */ }
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    const id = setInterval(refresh, 30000)
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', onVisible); clearInterval(id) }
+  }, [])
 
   async function login(e: React.FormEvent) {
     e.preventDefault(); setErr(''); setBusy(true)
@@ -114,7 +125,7 @@ export default function ClientPortalPage() {
             <td className="px-3 py-2.5">{d.po_url ? <a href={d.po_url} target="_blank" rel="noopener noreferrer" className="text-[#3B6FE0] font-semibold hover:underline">📄 {d.po_number || 'View PO'}</a> : (d.po_number || <span className="text-gray-300">—</span>)}</td>
             <td className="px-3 py-2.5 text-right text-gray-600">{d.cost != null ? money(d.cost) : '—'}</td>
             <td className="px-3 py-2.5 text-right text-gray-600">{money(d.selling)}</td>
-            <td className="px-3 py-2.5"><span className="font-bold" style={{ color: GREEN }}>{money(d.commission)}</span> <span className="text-[11px] text-gray-400">({d.basis === 'profit_50' ? '50% profit' : '7% PO'})</span></td>
+            <td className="px-3 py-2.5"><span className="font-bold" style={{ color: GREEN }}>{money(d.commission)}</span> <span className="text-[11px] text-gray-400">({d.basis === 'none' ? 'no commission' : d.basis === 'profit_50' ? '50% profit' : '7% PO'})</span></td>
             <td className="px-3 py-2.5">{cstatusPill(d.commission_status, d.commission_status_label)}</td>
           </tr>
         ))}
@@ -217,6 +228,25 @@ export default function ClientPortalPage() {
                 const n = [...broker.openOrders, ...broker.completedOrders].filter((o: any) => o.commission_status !== 'paid_by_bg').length
                 return `Across ${n} project${n === 1 ? '' : 's'} still awaiting customer payment — keep the projects coming to grow this.`
               })()}</p>
+            </div>
+
+            {/* Revenue & profit snapshot */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4">
+                <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Revenue · Active projects</p>
+                <p className="text-2xl font-extrabold text-[#1A1D2E] mt-1">{money(broker.revenueActive)}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">{broker.openOrders.length} open order{broker.openOrders.length === 1 ? '' : 's'}</p>
+              </div>
+              <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4">
+                <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Revenue · Completed</p>
+                <p className="text-2xl font-extrabold text-[#1A1D2E] mt-1">{money(broker.revenueCompleted)}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">{broker.completedOrders.length} completed project{broker.completedOrders.length === 1 ? '' : 's'}</p>
+              </div>
+              <div className="rounded-2xl shadow-sm p-4 text-white" style={{ background: `linear-gradient(120deg, ${GREEN}, ${GREEN2})` }}>
+                <p className="text-[11px] uppercase tracking-wider text-white/80 font-semibold">Total profit generated</p>
+                <p className="text-2xl font-extrabold mt-1">{money(broker.totalProfit)}</p>
+                <p className="text-[11px] text-white/80 mt-0.5">on {money(broker.totalRevenue)} total revenue</p>
+              </div>
             </div>
 
             {/* Open RFQs */}
