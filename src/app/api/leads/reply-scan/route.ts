@@ -101,6 +101,7 @@ export async function GET(req: NextRequest) {
   const today = nowIso.slice(0, 10)
 
   let scanned = 0, bounced = 0, ooo = 0, replies = 0, interested = 0, unsub = 0, declined = 0
+  let alreadyBounced = 0, alreadyOoo = 0
   const perMailbox: any[] = []
 
   for (const mailbox of mailboxes) {
@@ -154,7 +155,7 @@ export async function GET(req: NextRequest) {
         const uniq = [...new Set(matches)]
         for (const addr of uniq) {
           const { cust, enr } = byEmail[addr]
-          if (cust.is_active === false) continue // already handled
+          if (cust.is_active === false) { alreadyBounced++; continue } // already handled on a prior scan
           const note = `[Bounced ${today}] Email to ${addr} was undeliverable — marked inactive.`
           await sb.from('customers').update({
             is_active: false, is_dead_lead: true,
@@ -183,7 +184,7 @@ export async function GET(req: NextRequest) {
           lead.cust.notes = existing ? `${existing}\n${note}` : note
           try { await sb.from('email_logs').insert({ from_email: sender, subject, body_snippet: preview.slice(0, 400), log_type: 'auto_reply', linked_id: lead.cust.id, linked_label: 'Out of office', note: 'ooo', logged_at: received }) } catch { /* ignore */ }
           ooo++; mb.ooo++
-        }
+        } else { alreadyOoo++ }
         continue
       }
 
@@ -213,9 +214,11 @@ export async function GET(req: NextRequest) {
     perMailbox.push(mb)
   }
 
+  const bMore = alreadyBounced ? ` (${alreadyBounced} already inactive from earlier)` : ''
+  const oMore = alreadyOoo ? ` (${alreadyOoo} already noted)` : ''
   return NextResponse.json({
-    scanned, bounced, ooo, replies, interested, unsubscribed: unsub, declined,
+    scanned, bounced, ooo, replies, interested, unsubscribed: unsub, declined, alreadyBounced, alreadyOoo,
     mailboxes: perMailbox,
-    message: `Scanned ${scanned} message(s) across ${mailboxes.length} mailbox(es) · ${bounced} bounced (marked inactive), ${ooo} out-of-office (noted), ${replies} real repl${replies === 1 ? 'y' : 'ies'} (${interested} interested, ${unsub} unsubscribed).`,
+    message: `Scanned ${scanned} message(s) across ${mailboxes.length} mailbox(es) · ${bounced} new bounce${bounced === 1 ? '' : 's'} marked inactive${bMore}, ${ooo} new out-of-office noted${oMore}, ${replies} real repl${replies === 1 ? 'y' : 'ies'} (${interested} interested, ${unsub} unsubscribed).`,
   })
 }
