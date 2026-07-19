@@ -534,7 +534,7 @@ function EditPanel({
                 if (!isEco) return null
                 const selling = parseFloat(form.total_amount || '0') || 0
                 const cost = parseFloat(form.broker_cost || '0') || 0
-                const commission = form.broker_commission_basis === 'profit_50' ? Math.max(0, selling - cost) * 0.5 : selling * 0.07
+                const commission = form.broker_commission_basis === 'none' ? 0 : form.broker_commission_basis === 'profit_50' ? Math.max(0, selling - cost) * 0.5 : selling * 0.07
                 const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                 return (
                   <div className="rounded-xl border border-[#CDD9F0] bg-[#F0F5FF] p-3">
@@ -553,6 +553,7 @@ function EditPanel({
                     <select value={form.broker_commission_basis} onChange={e => setForm(p => ({ ...p, broker_commission_basis: e.target.value }))} className={inp + ' cursor-pointer'}>
                       <option value="po_7">7% of the PO ({fmt(selling * 0.07)})</option>
                       <option value="profit_50">50% of profit ({fmt(Math.max(0, selling - cost) * 0.5)})</option>
+                      <option value="none">No commission ($0.00)</option>
                     </select>
                     <div className="mt-2.5">
                       <span className="text-sm text-gray-600">Commission owed: <strong className="text-[#1E40AF]">{fmt(commission)}</strong></span>
