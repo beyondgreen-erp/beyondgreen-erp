@@ -230,6 +230,13 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       })
       if (error) { alert('Error: ' + error.message); return }
 
+      // If this record is connected to a client portal, email the client about the reply.
+      fetch('/api/portal/notify-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record_type: recordType, record_id: recordId, content: body.trim() }),
+      }).catch(() => {})
+
       // Send @mention notifications
       const mentions = parseMentions(body)
       if (mentions.length > 0) {
