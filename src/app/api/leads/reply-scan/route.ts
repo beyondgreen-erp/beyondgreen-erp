@@ -100,6 +100,46 @@ export async function GET(req: NextRequest) {
   const nowIso = new Date().toISOString()
   const today = nowIso.slice(0, 10)
 
+  // ---- Diagnostic mode: ?debug=1 categorizes the inbox WITHOUT mutating anything ----
+  if (url.searchParams.get('debug') === '1') {
+    const dbg: any[] = []
+    for (const mailbox of mailboxes) {
+      const token = await getOutlookAccessToken(mailbox)
+      if (!token) { dbg.push({ mailbox, error: 'no token' }); continue }
+      const seqIds = ((activeSeqs as any[]) || []).filter(s => s.from_email === mailbox).map(s => s.id)
+      let enrRows: any[] = []
+      if (seqIds.length) { const { data } = await sb.from('sequence_enrollments').select('id, customer_id, status').in('sequence_id', seqIds).limit(5000); enrRows = (data as any[]) || [] }
+      const custIds = [...new Set(enrRows.map(e => e.customer_id))]
+      const custById: Record<string, any> = {}
+      for (let i = 0; i < custIds.length; i += 300) { const { data: cs } = await sb.from('customers').select('id, email').in('id', custIds.slice(i, i + 300)); (cs as any[] || []).forEach(c => { custById[c.id] = c }) }
+      const byEmail: Record<string, boolean> = {}
+      for (const e of enrRows) { const c = custById[e.customer_id]; if (c?.email) byEmail[String(c.email).toLowerCase()] = true }
+      const msgs = await fetchInbox(token, sinceIso)
+      const counts: Record<string, number> = {}
+      const samples: Record<string, any[]> = {}
+      for (const m of msgs) {
+        const sender = String(m.from?.emailAddress?.address || '').toLowerCase()
+        const subject = String(m.subject || '').trim()
+        const preview = String(m.bodyPreview || '')
+        const looksBounce = BOUNCE_SENDER_RE.test(sender) || BOUNCE_SUBJECT_RE.test(subject)
+        const isOOO = OOO_SUBJECT_RE.test(subject)
+        const known = !!byEmail[sender]
+        const emailsInText = [...new Set(((subject + ' ' + preview).toLowerCase().match(EMAIL_RE) || []))]
+        const matched = emailsInText.filter(e => byEmail[e])
+        let cat = 'ignored (not from a lead, not a bounce)'
+        if (looksBounce) cat = matched.length ? 'bounce matched' : 'bounce UNMATCHED (no lead email found in preview)'
+        else if (known && isOOO) cat = 'ooo'
+        else if (known) cat = 'from a lead (would AI-classify)'
+        counts[cat] = (counts[cat] || 0) + 1
+        if (!samples[cat]) samples[cat] = []
+        if (samples[cat].length < 12) samples[cat].push({ from: sender, subject: subject.slice(0, 90) })
+      }
+      dbg.push({ mailbox, total: msgs.length, counts, samples })
+    }
+    return NextResponse.json({ debug: true, mailboxes: dbg })
+  }
+
+
   let scanned = 0, bounced = 0, ooo = 0, replies = 0, interested = 0, unsub = 0, declined = 0
   let alreadyBounced = 0, alreadyOoo = 0
   const perMailbox: any[] = []
