@@ -60,8 +60,19 @@ export default function ClientPortalPage() {
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState('')
-  const [msgState, setMsgState] = useState<'idle' | 'sending' | 'sent'>('idle')
+  // Team messaging
+  const [msgTo, setMsgTo] = useState<any | null>(null)
+  const [msgText, setMsgText] = useState('')
+  const [msgBusy, setMsgBusy] = useState<'idle' | 'sending' | 'sent'>('idle')
+  // Per-record comments
+  const [cmt, setCmt] = useState<{ rt: string; rid: string; title: string } | null>(null)
+  const [cmtList, setCmtList] = useState<any[]>([])
+  const [cmtText, setCmtText] = useState('')
+  const [cmtBusy, setCmtBusy] = useState(false)
+  const [cmtLoading, setCmtLoading] = useState(false)
+  // Editable open RFQs
+  const [rfqEdit, setRfqEdit] = useState<Record<string, any[]>>({})
+  const [rfqSaving, setRfqSaving] = useState<string | null>(null)
 
   const loadMe = useCallback(async () => {
     const r = await fetch('/api/portal/me', { cache: 'no-store' })
@@ -90,15 +101,51 @@ export default function ClientPortalPage() {
     } finally { setBusy(false) }
   }
   async function logout() { await fetch('/api/portal/logout', { method: 'POST' }).catch(() => {}); setData(null); setEmail(''); setPassword(''); setPhase('login') }
-  async function sendMessage(e: React.FormEvent) {
-    e.preventDefault(); if (!msg.trim()) return
-    setMsgState('sending')
-    const r = await fetch('/api/portal/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) })
-    if (r.ok) { setMsg(''); setMsgState('sent'); setTimeout(() => setMsgState('idle'), 4000) } else { setMsgState('idle'); alert('Could not send. Please try again.') }
+
+  // Message a specific team member
+  async function sendUserMessage() {
+    if (!msgTo || !msgText.trim()) return
+    setMsgBusy('sending')
+    try {
+      const r = await fetch('/api/portal/message-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipient_email: msgTo.email, content: msgText.trim() }) })
+      if (r.ok) { setMsgBusy('sent'); setMsgText(''); setTimeout(() => { setMsgTo(null); setMsgBusy('idle') }, 1600) }
+      else { setMsgBusy('idle'); alert('Could not send. Please try again.') }
+    } catch { setMsgBusy('idle') }
+  }
+
+  // Comments on a record
+  async function openComments(rt: string, rid: string, title: string) {
+    setCmt({ rt, rid, title }); setCmtList([]); setCmtText(''); setCmtLoading(true)
+    try { const r = await fetch('/api/portal/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ record_type: rt, record_id: rid }) }); const j = await r.json().catch(() => ({})); setCmtList(j.comments || []) } catch { /* ignore */ } finally { setCmtLoading(false) }
+  }
+  async function postComment() {
+    if (!cmt || !cmtText.trim()) return
+    setCmtBusy(true)
+    try {
+      const r = await fetch('/api/portal/comment-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ record_type: cmt.rt, record_id: cmt.rid, content: cmtText.trim() }) })
+      if (r.ok) { setCmtText(''); const rr = await fetch('/api/portal/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ record_type: cmt.rt, record_id: cmt.rid }) }); const j = await rr.json().catch(() => ({})); setCmtList(j.comments || []) }
+      else { alert('Could not post comment.') }
+    } finally { setCmtBusy(false) }
+  }
+
+  // Editable open RFQs
+  const startRfqEdit = (r: any) => setRfqEdit(prev => ({ ...prev, [r.id]: (r.lines || []).map((l: any) => ({ ...l })) }))
+  const cancelRfqEdit = (id: string) => setRfqEdit(prev => { const n = { ...prev }; delete n[id]; return n })
+  const updRfqLine = (id: string, i: number, field: string, val: any) => setRfqEdit(prev => { const lines = [...(prev[id] || [])]; lines[i] = { ...lines[i], [field]: val }; return { ...prev, [id]: lines } })
+  const addRfqLine = (id: string) => setRfqEdit(prev => ({ ...prev, [id]: [...(prev[id] || []), { description: '', sku: '', quantity: 1, unit: '', pcs_per_case: null }] }))
+  const removeRfqLine = (id: string, i: number) => setRfqEdit(prev => ({ ...prev, [id]: (prev[id] || []).filter((_: any, idx: number) => idx !== i) }))
+  async function saveRfq(id: string) {
+    setRfqSaving(id)
+    try {
+      const lines = (rfqEdit[id] || []).map((l: any) => ({ id: l.id, sku: l.sku, description: l.description, quantity: Number(l.quantity) || 0, unit_of_measure: l.unit, pcs_per_case: l.pcs_per_case }))
+      const r = await fetch('/api/portal/rfq-update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rfq_id: id, lines }) })
+      if (r.ok) { cancelRfqEdit(id); await loadMe() } else { const j = await r.json().catch(() => ({})); alert(j.error || 'Could not save.') }
+    } finally { setRfqSaving(null) }
   }
 
   const projects = data?.projects || []
   const broker = data?.broker || null
+  const team = data?.team || []
   const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   const cstatusPill = (s: string, label: string) => (
@@ -130,11 +177,12 @@ export default function ClientPortalPage() {
           <th className="text-right px-3 py-2 font-semibold">Profit / Loss</th>
           <th className="text-left px-3 py-2 font-semibold">Commission</th>
           <th className="text-left px-3 py-2 font-semibold">Commission Status</th>
+          <th className="text-right px-3 py-2 font-semibold"></th>
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</td></tr>
+          <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</td></tr>
         ) : rows.map((d: any, i: number) => {
           const pl = d.cost != null ? d.selling - d.cost : null
           return (
@@ -147,6 +195,7 @@ export default function ClientPortalPage() {
             <td className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{pl == null ? <span className="text-gray-300">—</span> : <span style={{ color: pl < 0 ? '#DC2626' : GREEN }}>{pl < 0 ? `-${money(Math.abs(pl))}` : money(pl)} <span className="text-[11px] font-normal text-gray-400">{pl < 0 ? 'loss' : 'profit'}</span></span>}</td>
             <td className="px-3 py-2.5"><span className="font-bold" style={{ color: GREEN }}>{money(d.commission)}</span> <span className="text-[11px] text-gray-400">({d.basis === 'none' ? 'no commission' : d.basis === 'profit_50' ? '50% profit' : '7% PO'})</span></td>
             <td className="px-3 py-2.5">{cstatusPill(d.commission_status, d.commission_status_label)}</td>
+            <td className="px-3 py-2.5 text-right"><button onClick={() => openComments(d.source === 'shipment' ? 'shipment' : 'sales_order', d.id, d.name)} className="text-xs font-semibold text-[#3B6FE0] hover:underline whitespace-nowrap">💬 Comment</button></td>
           </tr>
           )
         })}
@@ -237,6 +286,24 @@ export default function ClientPortalPage() {
 
       {/* Projects */}
       <div className="mx-auto max-w-4xl px-4 mt-6 space-y-6">
+        {team.length > 0 && (
+          <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-5">
+            <h2 className="font-extrabold text-[#1A1D2E] text-lg">Our team is your team!</h2>
+            <p className="text-sm text-gray-500 mt-1">Tap anyone to send them a message — they&apos;ll get an email right away.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+              {team.map((m: any) => (
+                <button key={m.email} onClick={() => { setMsgTo(m); setMsgText(''); setMsgBusy('idle') }} className="flex items-center gap-3 text-left rounded-xl border border-[#EEF0F4] hover:border-[#037f4c] hover:bg-[#F0FBF5] transition-colors p-2.5">
+                  <img src={m.avatar} alt={m.name} width={44} height={44} className="rounded-full bg-[#F0F5FF] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-bold text-[#1A1D2E] text-sm leading-tight">{m.name}</p>
+                    <p className="text-[11px] text-gray-500 leading-tight">{m.role}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <p className="text-[12px] text-gray-600 mt-4 bg-[#F7FAF8] border border-[#E4EFE9] rounded-lg px-3 py-2">Don&apos;t worry — this is the team now, and we&apos;re growing. As your orders increase, so will the size of our team. 🌱</p>
+          </div>
+        )}
         {broker && (
           <>
             <style>{`summary{list-style:none}summary::-webkit-details-marker{display:none}details.rb .chev{transition:transform .15s}details.rb[open]>summary .chev{transform:rotate(90deg)}`}</style>
@@ -294,7 +361,41 @@ export default function ClientPortalPage() {
                               {r.export_country && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#FEF3C7', color: '#B45309' }}>Export: {r.export_country}</span>}
                             </div>
                           )}
-                          {r.lines.length === 0 ? <p className="text-sm text-gray-400 py-1">No line items on this RFQ.</p> : (() => {
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <button onClick={() => openComments('quotation', r.id, r.name)} className="text-xs font-semibold text-[#3B6FE0] hover:underline">💬 Comment</button>
+                            {String(r.status || '').toLowerCase() !== 'accepted' && !rfqEdit[r.id] && (
+                              <button onClick={() => startRfqEdit(r)} className="text-xs font-semibold text-[#B45309] hover:underline">✏️ Request changes to items</button>
+                            )}
+                          </div>
+                          {rfqEdit[r.id] ? (
+                            <div className="rounded-lg border border-[#F0D9A8] bg-[#FFFCF5] p-3 space-y-2">
+                              <p className="text-[11px] text-[#B45309] font-semibold">Editing items — change quantities, descriptions, add or remove lines, then Save. Pricing stays as we quoted it, and we&apos;ll be notified of your changes.</p>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm min-w-[520px]">
+                                  <thead><tr className="text-[11px] uppercase text-gray-400"><th className="text-left py-1">Product</th><th className="text-left py-1">SKU</th><th className="text-right py-1">Qty</th><th className="text-left py-1">Unit</th><th className="text-right py-1">Pcs/Case</th><th className="py-1"></th></tr></thead>
+                                  <tbody>
+                                    {(rfqEdit[r.id] || []).map((l: any, i: number) => (
+                                      <tr key={i} className="border-t border-[#F4F5F8]">
+                                        <td className="py-1 pr-1"><input value={l.description ?? ''} onChange={e => updRfqLine(r.id, i, 'description', e.target.value)} className="w-full min-w-[120px] border border-[#E4E6EE] rounded px-2 py-1 text-xs" placeholder="Product" /></td>
+                                        <td className="py-1 pr-1"><input value={l.sku ?? ''} onChange={e => updRfqLine(r.id, i, 'sku', e.target.value)} className="w-20 border border-[#E4E6EE] rounded px-2 py-1 text-xs" placeholder="SKU" /></td>
+                                        <td className="py-1 pr-1"><input type="number" value={l.quantity ?? ''} onChange={e => updRfqLine(r.id, i, 'quantity', e.target.value)} className="w-16 border border-[#E4E6EE] rounded px-2 py-1 text-xs text-right" /></td>
+                                        <td className="py-1 pr-1"><input value={l.unit ?? ''} onChange={e => updRfqLine(r.id, i, 'unit', e.target.value)} className="w-16 border border-[#E4E6EE] rounded px-2 py-1 text-xs" placeholder="ea" /></td>
+                                        <td className="py-1 pr-1"><input type="number" value={l.pcs_per_case ?? ''} onChange={e => updRfqLine(r.id, i, 'pcs_per_case', e.target.value === '' ? null : parseFloat(e.target.value))} className="w-16 border border-[#E4E6EE] rounded px-2 py-1 text-xs text-right" /></td>
+                                        <td className="py-1 text-right"><button onClick={() => removeRfqLine(r.id, i)} className="text-red-500 text-xs px-1" title="Remove line">✕</button></td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <button onClick={() => addRfqLine(r.id)} className="text-xs font-semibold text-[#3B6FE0] hover:underline">+ Add line</button>
+                                <div className="flex gap-2">
+                                  <button onClick={() => cancelRfqEdit(r.id)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Cancel</button>
+                                  <button onClick={() => saveRfq(r.id)} disabled={rfqSaving === r.id} className="text-xs px-3 py-1.5 rounded-lg text-white font-semibold disabled:opacity-50" style={{ background: GREEN }}>{rfqSaving === r.id ? 'Saving…' : 'Save changes'}</button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : r.lines.length === 0 ? <p className="text-sm text-gray-400 py-1">No line items on this RFQ.</p> : (() => {
                             const anyPrice = r.lines.some((l: any) => l.unit_price != null || l.line_total != null)
                             const quotedTotal = r.lines.reduce((s: number, l: any) => s + (l.line_total != null ? l.line_total : (l.unit_price != null && l.quantity != null ? l.unit_price * l.quantity : 0)), 0)
                             return (
@@ -384,20 +485,60 @@ export default function ClientPortalPage() {
         </section>
         )}
 
-        {/* Message */}
-        <section>
-          <h2 className="font-bold text-[#1A1D2E] text-lg mb-3 px-1">Message us</h2>
-          <form onSubmit={sendMessage} className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4">
-            {msgState === 'sent' && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-lg px-3 py-2 mb-3">Message sent — our team will get back to you.</div>}
-            <textarea value={msg} onChange={e => setMsg(e.target.value)} rows={3} placeholder="Ask a question or send us an update…" className="w-full bg-white border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40 resize-none" />
-            <div className="flex justify-end mt-2">
-              <button type="submit" disabled={msgState === 'sending' || !msg.trim()} className="text-white font-semibold rounded-lg px-5 py-2 text-sm disabled:opacity-50 shadow-sm" style={{ background: GREEN }}>{msgState === 'sending' ? 'Sending…' : 'Send message'}</button>
-            </div>
-          </form>
-        </section>
-
-        <p className="text-center text-[11px] text-gray-400 pt-2">beyondGREEN Biotech · For anything else, message us above or email info@byndgrn.com.</p>
+        <p className="text-center text-[11px] text-gray-400 pt-2">beyondGREEN Biotech · Questions? Message any team member above, comment on a specific order, or email info@byndgrn.com.</p>
       </div>
+
+      {/* Team member message modal */}
+      {msgTo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => msgBusy !== 'sending' && setMsgTo(null)}>
+          <div className="fixed inset-0" style={{ background: 'rgba(26,32,53,0.5)' }} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <img src={msgTo.avatar} width={40} height={40} className="rounded-full bg-[#F0F5FF]" alt="" />
+              <div><p className="font-bold text-[#1A1D2E]">Message {msgTo.name}</p><p className="text-[11px] text-gray-500">{msgTo.role}</p></div>
+            </div>
+            {msgBusy === 'sent' ? (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-lg px-3 py-2.5">Sent! {String(msgTo.name).split(' ')[0]} will get an email and see it in the ERP.</div>
+            ) : (
+              <>
+                <textarea value={msgText} onChange={e => setMsgText(e.target.value)} rows={4} placeholder={`Write a message to ${String(msgTo.name).split(' ')[0]}…`} className="w-full border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40 resize-none" />
+                <div className="flex justify-end gap-2 mt-3">
+                  <button onClick={() => setMsgTo(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700">Cancel</button>
+                  <button onClick={sendUserMessage} disabled={msgBusy === 'sending' || !msgText.trim()} className="text-white font-semibold rounded-lg px-5 py-2 text-sm disabled:opacity-50" style={{ background: GREEN }}>{msgBusy === 'sending' ? 'Sending…' : 'Send'}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Per-record comment modal */}
+      {cmt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setCmt(null)}>
+          <div className="fixed inset-0" style={{ background: 'rgba(26,32,53,0.5)' }} />
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3.5 border-b border-[#EEF0F4] flex items-center justify-between gap-3">
+              <div className="min-w-0"><p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Comments</p><p className="font-bold text-[#1A1D2E] truncate">{cmt.title}</p></div>
+              <button onClick={() => setCmt(null)} className="text-gray-400 text-2xl leading-none shrink-0">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {cmtLoading ? <p className="text-sm text-gray-400 text-center py-4">Loading…</p> : cmtList.length === 0 ? <p className="text-sm text-gray-400 text-center py-6">No comments yet. Ask us anything about this — we&apos;ll get an email and reply here.</p> : cmtList.map((c: any) => (
+                <div key={c.id} className={`flex ${c.staff ? 'justify-start' : 'justify-end'}`}>
+                  <div className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-sm ${c.staff ? 'bg-[#F0F5FF] text-[#1A1D2E]' : 'text-white'}`} style={c.staff ? {} : { background: GREEN }}>
+                    <p className="text-[10px] font-bold mb-0.5 opacity-70">{c.author}</p>
+                    <p className="whitespace-pre-wrap break-words">{c.content}</p>
+                    <p className="text-[10px] opacity-60 mt-1">{c.date ? timeAgo(c.date) : ''}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="p-3 border-t border-[#EEF0F4] flex gap-2">
+              <input value={cmtText} onChange={e => setCmtText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); postComment() } }} placeholder="Write a comment or question…" className="flex-1 border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40" />
+              <button onClick={postComment} disabled={cmtBusy || !cmtText.trim()} className="text-white font-semibold rounded-lg px-4 py-2 text-sm disabled:opacity-50" style={{ background: GREEN }}>{cmtBusy ? '…' : 'Send'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
