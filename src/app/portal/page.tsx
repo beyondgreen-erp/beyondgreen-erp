@@ -1,5 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* Eco Maven portal: per-project profit/loss column */
 export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TONES } from '@/lib/portalStages'
