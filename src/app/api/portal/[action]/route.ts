@@ -164,12 +164,16 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
     }
   }
 
-  // Eco Maven broker portal: deals (cost/selling/commission), open A/R, and RFQ documents
+  // Eco Maven broker portal: grouped projects (Open RFQs / Open Orders / Completed) with PO docs + commission status
   let broker: any = null
   if ((company || '').toLowerCase().includes('eco maven') && client.customer_id) {
-    const [{ data: bdeals }, { data: brfqs }] = await Promise.all([
-      admin.from('sales_orders').select('id, order_number, po_number, status, client_portal_name, total, total_amount, subtotal, broker_cost, broker_commission_basis, broker_commission_paid, created_at').eq('customer_id', client.customer_id).eq('archived', false).order('created_at', { ascending: false }),
-      admin.from('quotations').select('id, quote_number, client_portal_name, status, created_at, notes, delivery_address').eq('customer_id', client.customer_id).eq('type', 'rfq').order('created_at', { ascending: false }),
+    const COMPLETED = new Set(['Shipped', 'Closed', 'Cancelled', 'Completed', 'Delivered'])
+    const RFQ_CLOSED = new Set(['won', 'lost', 'converted', 'closed', 'archived', 'expired', 'ordered'])
+    const STATUS_LABEL: Record<string, string> = { paid_by_bg: 'Paid by beyondGREEN', waiting_customer: 'Waiting on Customer Payment' }
+    const [{ data: bdeals }, { data: brfqs }, { data: bships }] = await Promise.all([
+      admin.from('sales_orders').select('id, order_number, po_number, status, client_portal_name, total, total_amount, subtotal, purchase_order_url, broker_cost, broker_commission_basis, broker_commission_status, broker_commission_paid, created_at').eq('customer_id', client.customer_id).eq('archived', false).order('created_at', { ascending: false }),
+      admin.from('quotations').select('id, quote_number, client_portal_name, status, is_active, created_at, notes, delivery_address').eq('customer_id', client.customer_id).eq('type', 'rfq').order('created_at', { ascending: false }),
+      admin.from('shipments').select('id, customer_name, po_number, status, delivery_status, total_value, packing_slip_url, pod_file_url, ship_date, order_date, broker_cost, broker_commission_basis, broker_commission_status').not('broker_portal_client', 'is', null).order('ship_date', { ascending: false, nullsFirst: false }),
     ])
     const rfqIds = ((brfqs || []) as any[]).map(r => r.id)
     const linesByRfq: Record<string, any[]> = {}
@@ -177,16 +181,23 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
       const { data: lns } = await admin.from('quotation_lines').select('quotation_id, sku, description, quantity, unit_of_measure').in('quotation_id', rfqIds)
       for (const l of (lns || []) as any[]) { (linesByRfq[l.quotation_id] ||= []).push({ sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit_of_measure }) }
     }
-    const deals = ((bdeals || []) as any[]).map(o => {
-      const selling = Number(o.total_amount ?? o.total ?? o.subtotal ?? 0)
+    const commissionOf = (selling: number, cost: number | null, basis: string) => basis === 'profit_50' ? Math.max(0, selling - (cost || 0)) * 0.5 : selling * 0.07
+    const mapOrder = (o: any, selling: number, po_url: string | null, source: string) => {
       const cost = o.broker_cost != null ? Number(o.broker_cost) : null
       const basis = o.broker_commission_basis || 'po_7'
-      const commission = basis === 'profit_50' ? Math.max(0, selling - (cost || 0)) * 0.5 : selling * 0.07
-      return { id: o.id, name: o.client_portal_name || o.order_number || o.po_number || 'Project', po_number: o.po_number || null, status: o.status || null, cost, selling, basis, commission, paid: !!o.broker_commission_paid }
-    })
-    const ar = deals.filter(d => !d.paid).reduce((s, d) => s + d.commission, 0)
-    const rfqs = ((brfqs || []) as any[]).map(r => ({ id: r.id, number: r.quote_number || 'RFQ', name: r.client_portal_name || r.quote_number || 'RFQ', status: r.status || null, date: r.created_at, lines: linesByRfq[r.id] || [] }))
-    broker = { ar, deals, rfqs }
+      const commission = commissionOf(selling, cost, basis)
+      const cstatus = o.broker_commission_status || (o.broker_commission_paid ? 'paid_by_bg' : 'waiting_customer')
+      return { id: o.id, source, name: o.client_portal_name || o.order_number || o.po_number || o.customer_name || 'Project', po_number: o.po_number || null, po_url, status: o.status || o.delivery_status || null, cost, selling, basis, commission, commission_status: cstatus, commission_status_label: STATUS_LABEL[cstatus] || 'Waiting on Customer Payment' }
+    }
+    const allSo = ((bdeals || []) as any[]).map(o => mapOrder(o, Number(o.total_amount ?? o.total ?? o.subtotal ?? 0), o.purchase_order_url || null, 'sales_order'))
+    const shipMapped = ((bships || []) as any[]).map(s => mapOrder(s, Number(s.total_value ?? 0), s.packing_slip_url || s.pod_file_url || null, 'shipment'))
+    const openOrders = allSo.filter(o => !COMPLETED.has(o.status || ''))
+    const completedOrders = [...allSo.filter(o => COMPLETED.has(o.status || '')), ...shipMapped]
+    const openRfqs = ((brfqs || []) as any[])
+      .filter(r => (r.is_active === undefined || r.is_active) && !RFQ_CLOSED.has(String(r.status || '').toLowerCase()))
+      .map(r => ({ id: r.id, number: r.quote_number || 'RFQ', name: r.client_portal_name || r.quote_number || 'RFQ', status: r.status || null, date: r.created_at, lines: linesByRfq[r.id] || [] }))
+    const ar = [...openOrders, ...completedOrders].filter(o => o.commission_status !== 'paid_by_bg').reduce((s, o) => s + o.commission, 0)
+    broker = { ar, openRfqs, openOrders, completedOrders }
   }
 
   return NextResponse.json(
