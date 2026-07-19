@@ -490,22 +490,52 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     const client = await clientFromRequest(req)
     if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     const body = await req.json().catch(() => ({})) as any
-    const to = String(body.recipient_email || '').toLowerCase().trim()
+    const kind = String(body.kind || 'direct')
     const content = String(body.content || '').trim()
-    if (!TEAM_EMAILS.has(to)) return NextResponse.json({ error: 'Unknown recipient.' }, { status: 400 })
     if (!content) return NextResponse.json({ error: 'Please enter a message.' }, { status: 400 })
     if (content.length > 5000) return NextResponse.json({ error: 'Message is too long.' }, { status: 400 })
+    const targets: string[] = kind === 'group' ? PORTAL_TEAM.map(m => m.email.toLowerCase()) : [String(body.recipient_email || '').toLowerCase().trim()]
+    if (kind !== 'group' && !TEAM_EMAILS.has(targets[0])) return NextResponse.json({ error: 'Unknown recipient.' }, { status: 400 })
     const company = await companyName(client)
     const senderName = `${company || 'Client'}${client.name ? ` (${client.name})` : ''}`
-    await admin.from('direct_messages').insert({ sender_email: client.email || 'client-portal', sender_name: senderName, recipient_email: to, content })
-    await admin.from('notifications').insert({ recipient_email: to, sender_email: client.email || 'client-portal', message: `New message from ${company || client.name || 'a client'}: ${content.slice(0, 200)}`, page: 'Messages', is_read: false, type: 'message' }).then(() => {}, () => {})
+    const threadKey = kind === 'group' ? `grp:${client.id}` : `dm:${client.id}:${targets[0]}`
+    const rows = targets.map(t => ({ sender_email: client.email || 'client-portal', sender_name: senderName, recipient_email: t, content, thread_key: threadKey }))
+    await admin.from('direct_messages').insert(rows)
+    for (const t of targets) { await admin.from('notifications').insert({ recipient_email: t, sender_email: client.email || 'client-portal', message: `New message from ${company || client.name || 'a client'}: ${content.slice(0, 200)}`, page: 'Messages', is_read: false, type: 'message' }).then(() => {}, () => {}) }
     if (RESEND_API_KEY) {
-      const member = PORTAL_TEAM.find(m => m.email.toLowerCase() === to)
-      const first = (member?.name || '').split(' ')[0] || 'there'
-      const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">New message from ${esc(company || 'a client')}</p><p style="margin:0 0 10px;font-size:14px">Hi ${esc(first)}, you received a new message from <strong>${esc(company || client.name || 'a client')}</strong> in the client portal:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/messages" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open your messages</a></div>`)
-      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [to], cc: [NOTIFY], reply_to: client.email || undefined, subject: `New message from ${company || client.name || 'client'}`, html }) }).catch(() => {})
+      const isGroup = kind === 'group'
+      const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">New message from ${esc(company || 'a client')}</p><p style="margin:0 0 10px;font-size:14px">You received a new ${isGroup ? 'team ' : ''}message from <strong>${esc(company || client.name || 'a client')}</strong> in the client portal:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/messages" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open your messages</a></div>`)
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: targets, cc: [NOTIFY], reply_to: client.email || undefined, subject: isGroup ? `New team message from ${company || client.name || 'client'}` : `New message from ${company || client.name || 'client'}`, html }) }).catch(() => {})
     }
     return NextResponse.json({ ok: true })
+  }
+
+  // ── Portal: fetch a persistent message thread (1:1 with a member, or the whole-team group) ──
+  if (action === 'thread') {
+    const client = await clientFromRequest(req)
+    if (!client) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    const body = await req.json().catch(() => ({})) as any
+    const kind = String(body.kind || 'direct')
+    const me = client.email || 'client-portal'
+    const meLower = me.toLowerCase()
+    const nameFor = (email: string) => { const e = (email || '').toLowerCase(); if (e === meLower) return 'You'; const m = PORTAL_TEAM.find(x => x.email.toLowerCase() === e); return m ? m.name : 'beyondGREEN team' }
+    let msgs: any[] = []
+    if (kind === 'group') {
+      const grpKey = `grp:${client.id}`
+      const { data: a } = await admin.from('direct_messages').select('id, sender_email, content, created_at').eq('thread_key', grpKey)
+      const { data: b } = await admin.from('direct_messages').select('id, sender_email, content, created_at').eq('recipient_email', me).is('thread_key', null)
+      const teamReplies = ((b || []) as any[]).filter(r => TEAM_EMAILS.has(String(r.sender_email).toLowerCase()))
+      const seen = new Set<string>()
+      msgs = [...((a || []) as any[]), ...teamReplies].filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true })
+    } else {
+      const to = String(body.recipient_email || '').toLowerCase().trim()
+      if (!TEAM_EMAILS.has(to)) return NextResponse.json({ error: 'Unknown recipient.' }, { status: 400 })
+      const { data } = await admin.from('direct_messages').select('id, sender_email, content, created_at, thread_key').or(`and(sender_email.eq.${me},recipient_email.eq.${to}),and(sender_email.eq.${to},recipient_email.eq.${me})`)
+      msgs = ((data || []) as any[]).filter(r => !String(r.thread_key || '').startsWith('grp:'))
+    }
+    msgs.sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))
+    const items = msgs.map(r => ({ id: r.id, content: r.content, date: r.created_at, mine: String(r.sender_email).toLowerCase() === meLower, author: nameFor(r.sender_email) }))
+    return NextResponse.json({ messages: items })
   }
 
   // ── Staff: when a staff comment is posted in the ERP, email the connected portal client ──
