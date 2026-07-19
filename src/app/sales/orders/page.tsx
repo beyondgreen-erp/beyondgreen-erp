@@ -53,6 +53,7 @@ interface SalesOrder {
   broker_cost?: number | null
   broker_commission_basis?: string | null
   broker_commission_paid?: boolean | null
+  broker_commission_status?: string | null
   customer?: { id: string; company_name: string; email?: string | null; phone?: string | null } | null
 }
 
@@ -291,7 +292,7 @@ const emptyForm = {
   bol: '', additional_comments: '',
   terms: 'Net 30', fob: 'Santa Ana', sales_rep: 'RP',
   client_portal_visible: false, client_portal_name: '',
-  broker_cost: '', broker_commission_basis: 'po_7', broker_commission_paid: false,
+  broker_cost: '', broker_commission_basis: 'po_7', broker_commission_paid: false, broker_commission_status: 'waiting_customer',
 }
 type F = typeof emptyForm
 
@@ -553,14 +554,15 @@ function EditPanel({
                       <option value="po_7">7% of the PO ({fmt(selling * 0.07)})</option>
                       <option value="profit_50">50% of profit ({fmt(Math.max(0, selling - cost) * 0.5)})</option>
                     </select>
-                    <div className="flex items-center justify-between mt-2.5">
+                    <div className="mt-2.5">
                       <span className="text-sm text-gray-600">Commission owed: <strong className="text-[#1E40AF]">{fmt(commission)}</strong></span>
-                      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-                        <input type="checkbox" checked={form.broker_commission_paid} onChange={e => setForm(p => ({ ...p, broker_commission_paid: e.target.checked }))} className="w-4 h-4 accent-[#1E40AF]" />
-                        Commission paid
-                      </label>
                     </div>
-                    <p className="text-[11px] text-gray-500 mt-1.5">Shows in Eco Maven&rsquo;s portal. Unpaid commissions add to their open A/R.</p>
+                    <label className="block text-[11px] text-gray-500 mb-1 mt-2">Commission status</label>
+                    <select value={form.broker_commission_status} onChange={e => setForm(p => ({ ...p, broker_commission_status: e.target.value }))} className={inp + ' cursor-pointer'}>
+                      <option value="waiting_customer">Waiting on Customer Payment</option>
+                      <option value="paid_by_bg">Paid by beyondGREEN</option>
+                    </select>
+                    <p className="text-[11px] text-gray-500 mt-1.5">Shows in Eco Maven&rsquo;s portal. Commission still &ldquo;Waiting on Customer Payment&rdquo; adds to their open A/R.</p>
                   </div>
                 )
               })()}
@@ -1131,6 +1133,7 @@ export default function OrdersPage() {
       broker_cost: order.broker_cost != null ? String(order.broker_cost) : '',
       broker_commission_basis: order.broker_commission_basis || 'po_7',
       broker_commission_paid: !!order.broker_commission_paid,
+      broker_commission_status: order.broker_commission_status || (order.broker_commission_paid ? 'paid_by_bg' : 'waiting_customer'),
     })
     setErr(''); setEditOpen(true)
   }
@@ -1176,7 +1179,8 @@ export default function OrdersPage() {
       client_portal_name: form.client_portal_name || null,
       broker_cost: form.broker_cost ? parseFloat(form.broker_cost) : null,
       broker_commission_basis: form.broker_commission_basis || null,
-      broker_commission_paid: !!form.broker_commission_paid,
+      broker_commission_status: form.broker_commission_status || 'waiting_customer',
+      broker_commission_paid: form.broker_commission_status === 'paid_by_bg',
     }
 
     let orderId = editingOrder?.id
