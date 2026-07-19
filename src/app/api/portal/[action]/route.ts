@@ -181,7 +181,7 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
       const { data: lns } = await admin.from('quotation_lines').select('quotation_id, sku, description, quantity, unit_of_measure').in('quotation_id', rfqIds)
       for (const l of (lns || []) as any[]) { (linesByRfq[l.quotation_id] ||= []).push({ sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit_of_measure }) }
     }
-    const commissionOf = (selling: number, cost: number | null, basis: string) => basis === 'profit_50' ? Math.max(0, selling - (cost || 0)) * 0.5 : selling * 0.07
+    const commissionOf = (selling: number, cost: number | null, basis: string) => basis === 'none' ? 0 : basis === 'profit_50' ? Math.max(0, selling - (cost || 0)) * 0.5 : selling * 0.07
     const mapOrder = (o: any, selling: number, po_url: string | null, source: string) => {
       const cost = o.broker_cost != null ? Number(o.broker_cost) : null
       const basis = o.broker_commission_basis || 'po_7'
@@ -197,7 +197,13 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
       .filter(r => (r.is_active === undefined || r.is_active) && !RFQ_CLOSED.has(String(r.status || '').toLowerCase()))
       .map(r => ({ id: r.id, number: r.quote_number || 'RFQ', name: r.client_portal_name || r.quote_number || 'RFQ', status: r.status || null, date: r.created_at, lines: linesByRfq[r.id] || [] }))
     const ar = [...openOrders, ...completedOrders].filter(o => o.commission_status !== 'paid_by_bg').reduce((s, o) => s + o.commission, 0)
-    broker = { ar, openRfqs, openOrders, completedOrders }
+    const sum = (arr: any[], f: (o: any) => number) => arr.reduce((s, o) => s + (f(o) || 0), 0)
+    const revenueActive = sum(openOrders, o => o.selling)
+    const revenueCompleted = sum(completedOrders, o => o.selling)
+    const totalRevenue = revenueActive + revenueCompleted
+    const totalCost = sum([...openOrders, ...completedOrders], o => o.cost || 0)
+    const totalProfit = totalRevenue - totalCost
+    broker = { ar, openRfqs, openOrders, completedOrders, revenueActive, revenueCompleted, totalRevenue, totalProfit }
   }
 
   return NextResponse.json(
