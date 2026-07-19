@@ -92,9 +92,22 @@ export default function SequenceReviewPage() {
       const d = draftFor(r)
       await sb.from('sequence_sends').update({ subject: d.subject, body: d.body }).eq('id', r.id)
     }
-    const res = await fetch('/api/leads/sequence-approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ send_ids: ids }) })
-    const j = await res.json()
-    alert(j.message || j.error || 'Done')
+    // Dispatch in chunks so a big batch (e.g. 250) can't exceed the serverless timeout.
+    const CHUNK = 40
+    let totalSent = 0
+    const allErrors: string[] = []
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK)
+      setBusy(`Sending ${Math.min(i + slice.length, ids.length)}/${ids.length}\u2026`)
+      try {
+        const res = await fetch('/api/leads/sequence-approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ send_ids: slice }) })
+        const j = await res.json()
+        if (!res.ok) { allErrors.push(j.error || 'batch failed'); break }
+        totalSent += j.sent || 0
+        if (Array.isArray(j.errors)) allErrors.push(...j.errors)
+      } catch { allErrors.push('network error'); break }
+    }
+    alert(`Sent ${totalSent} email(s).` + (allErrors.length ? ` ${allErrors.length} issue(s) \u2014 see Send history.` : ''))
     setBusy(''); setSelected({}); setDrafts({}); load()
   }
   async function skip(ids: string[]) {
