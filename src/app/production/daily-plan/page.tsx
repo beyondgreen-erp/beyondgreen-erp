@@ -1,4 +1,5 @@
 'use client'
+// daily-plan record board — machine/product/operator dropdowns
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
