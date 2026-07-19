@@ -103,6 +103,8 @@ export async function GET(req: NextRequest) {
   let scanned = 0, bounced = 0, ooo = 0, replies = 0, interested = 0, unsub = 0, declined = 0
   let alreadyBounced = 0, alreadyOoo = 0
   const perMailbox: any[] = []
+  const detBounced: any[] = [], detOoo: any[] = [], detReplies: any[] = []
+  const triggeredBy = (url.searchParams.get('src') === 'cron') ? 'cron' : 'manual'
 
   for (const mailbox of mailboxes) {
     const token = await getOutlookAccessToken(mailbox)
@@ -165,6 +167,7 @@ export async function GET(req: NextRequest) {
           cust.is_active = false
           if (enr) await sb.from('sequence_enrollments').update({ status: 'stopped', stop_reason: 'bounced', updated_at: nowIso }).eq('id', enr.id)
           try { await sb.from('email_logs').insert({ from_email: addr, subject, body_snippet: preview.slice(0, 400), log_type: 'bounce', linked_id: cust.id, linked_label: 'Lead bounced · inactive', note: 'undeliverable', logged_at: received }) } catch { /* ignore */ }
+          detBounced.push({ email: addr, company: cust.company_name || null, customer_id: cust.id })
           bounced++; mb.bounced++
         }
         continue
@@ -183,6 +186,7 @@ export async function GET(req: NextRequest) {
           await sb.from('customers').update({ notes: existing ? `${existing}\n${note}` : note, updated_at: nowIso }).eq('id', lead.cust.id)
           lead.cust.notes = existing ? `${existing}\n${note}` : note
           try { await sb.from('email_logs').insert({ from_email: sender, subject, body_snippet: preview.slice(0, 400), log_type: 'auto_reply', linked_id: lead.cust.id, linked_label: 'Out of office', note: 'ooo', logged_at: received }) } catch { /* ignore */ }
+          detOoo.push({ email: sender, company: lead.cust.company_name || null, customer_id: lead.cust.id })
           ooo++; mb.ooo++
         } else { alreadyOoo++ }
         continue
@@ -210,15 +214,30 @@ export async function GET(req: NextRequest) {
       if (lead.enr) await sb.from('sequence_enrollments').update({ status: enrStatus, replied_at: nowIso, stop_reason: `${intent}: ${reason}`, updated_at: nowIso }).eq('id', lead.enr.id)
       await sb.from('customers').update(custPatch).eq('id', lead.cust.id)
       try { await sb.from('email_logs').insert({ from_email: sender, subject, body_snippet: preview.slice(0, 400), log_type: 'reply', linked_id: lead.cust.id, linked_label: `Lead reply · ${intent}`, note: reason, logged_at: received }) } catch { /* ignore */ }
+      detReplies.push({ email: sender, company: lead.cust.company_name || null, customer_id: lead.cust.id, intent, reason })
     }
     perMailbox.push(mb)
   }
 
   const bMore = alreadyBounced ? ` (${alreadyBounced} already inactive from earlier)` : ''
   const oMore = alreadyOoo ? ` (${alreadyOoo} already noted)` : ''
+  const message = `Scanned ${scanned} message(s) across ${mailboxes.length} mailbox(es) · ${bounced} new bounce${bounced === 1 ? '' : 's'} marked inactive${bMore}, ${ooo} new out-of-office noted${oMore}, ${replies} real repl${replies === 1 ? 'y' : 'ies'} (${interested} interested, ${unsub} unsubscribed).`
+
+  // Record this run so it shows up in CRM → Inbox Scans.
+  let runId: string | null = null
+  try {
+    const { data: run } = await sb.from('reply_scan_runs').insert({
+      triggered_by: triggeredBy,
+      mailboxes,
+      scanned, bounced, ooo, replies, interested, unsubscribed: unsub, declined,
+      already_bounced: alreadyBounced, already_ooo: alreadyOoo,
+      details: { bounced: detBounced, ooo: detOoo, replies: detReplies, message },
+    }).select('id').single()
+    runId = (run as any)?.id ?? null
+  } catch { /* ignore logging failures */ }
+
   return NextResponse.json({
-    scanned, bounced, ooo, replies, interested, unsubscribed: unsub, declined, alreadyBounced, alreadyOoo,
-    mailboxes: perMailbox,
-    message: `Scanned ${scanned} message(s) across ${mailboxes.length} mailbox(es) · ${bounced} new bounce${bounced === 1 ? '' : 's'} marked inactive${bMore}, ${ooo} new out-of-office noted${oMore}, ${replies} real repl${replies === 1 ? 'y' : 'ies'} (${interested} interested, ${unsub} unsubscribed).`,
+    runId, scanned, bounced, ooo, replies, interested, unsubscribed: unsub, declined, alreadyBounced, alreadyOoo,
+    mailboxes: perMailbox, message,
   })
 }
