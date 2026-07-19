@@ -22,12 +22,13 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const LOOKBACK_DAYS = 14
 const MAX_MESSAGES = 200
-const MAX_BODY_FETCHES = 40 // cap Graph body lookups for bounces so we stay under the timeout
+const MAX_BODY_FETCHES = 200 // cap Graph body lookups for bounces so we stay under the timeout
 
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi
 const BOUNCE_SENDER_RE = /postmaster|mailer-daemon|mail delivery (subsystem|system)|microsoftexchange|no[-.]?reply@.*(mail|exchange)/i
 const BOUNCE_SUBJECT_RE = /undeliverable|delivery (has )?failed|delivery status notification|delivery failure|returned mail|address (not found|couldn'?t be found|rejected)|recipient.*(not found|reject)|mailbox (full|unavailable|not found)|550 5\.|message not delivered/i
 const OOO_SUBJECT_RE = /^(automatic reply|auto:|auto reply|autoreply|out of office|out-of-office)\b|out of (the )?office|automatic reply|on (vacation|leave|holiday|pto)|away from (the )?office|currently (out|away|unavailable)/i
+const stripBouncePrefix = (subj: string) => subj.replace(/^(undeliverable|automatic reply|auto|re|fwd?|delivery status notification|mail delivery)\s*:?\s*/i, '').trim()
 
 type Intent = 'interested' | 'meeting' | 'question' | 'not_interested' | 'unsubscribe' | 'auto_reply' | 'other'
 
@@ -100,52 +101,6 @@ export async function GET(req: NextRequest) {
   const nowIso = new Date().toISOString()
   const today = nowIso.slice(0, 10)
 
-  // ---- Diagnostic mode: ?debug=1 categorizes the inbox WITHOUT mutating anything ----
-  if (url.searchParams.get('debug') === '1') {
-    const dbg: any[] = []
-    for (const mailbox of mailboxes) {
-      const token = await getOutlookAccessToken(mailbox)
-      if (!token) { dbg.push({ mailbox, error: 'no token' }); continue }
-      const seqIds = ((activeSeqs as any[]) || []).filter(s => s.from_email === mailbox).map(s => s.id)
-      let enrRows: any[] = []
-      if (seqIds.length) { const { data } = await sb.from('sequence_enrollments').select('id, customer_id, status').in('sequence_id', seqIds).limit(5000); enrRows = (data as any[]) || [] }
-      const custIds = [...new Set(enrRows.map(e => e.customer_id))]
-      const custById: Record<string, any> = {}
-      for (let i = 0; i < custIds.length; i += 300) { const { data: cs } = await sb.from('customers').select('id, email').in('id', custIds.slice(i, i + 300)); (cs as any[] || []).forEach(c => { custById[c.id] = c }) }
-      const byEmail: Record<string, boolean> = {}
-      for (const e of enrRows) { const c = custById[e.customer_id]; if (c?.email) byEmail[String(c.email).toLowerCase()] = true }
-      // subject -> to_email map from outgoing sends (for subject-based bounce matching)
-      let sentSubjMap: Record<string, string> = {}
-      if (seqIds.length) {
-        const { data: sends } = await sb.from('sequence_sends').select('subject,to_email').in('sequence_id', seqIds).limit(5000)
-        for (const sd of (sends as any[]) || []) { const k = String(sd.subject || '').trim().toLowerCase(); if (k && sd.to_email) sentSubjMap[k] = String(sd.to_email).toLowerCase() }
-      }
-      const stripPrefix = (subj: string) => subj.replace(/^(undeliverable|automatic reply|auto:|re|fwd?|delivery status notification|mail delivery)\s*:?\s*/i, '').trim()
-      const msgs = await fetchInbox(token, sinceIso)
-      let matchPreview = 0, matchBody = 0, matchSubject = 0, stillUnmatched = 0, bodyFetches = 0
-      const unmatchedSamples: any[] = []
-      for (const m of msgs) {
-        const sender = String(m.from?.emailAddress?.address || '').toLowerCase()
-        const subject = String(m.subject || '').trim()
-        const preview = String(m.bodyPreview || '')
-        const looksBounce = BOUNCE_SENDER_RE.test(sender) || BOUNCE_SUBJECT_RE.test(subject)
-        if (!looksBounce) continue
-        // 1) preview
-        let matches = [...new Set(((subject + ' ' + preview).toLowerCase().match(EMAIL_RE) || []))].filter(e => byEmail[e])
-        if (matches.length) { matchPreview++; continue }
-        // 2) body
-        if (bodyFetches < 200) { bodyFetches++; const full = (await fetchBody(token, m.id)).toLowerCase(); matches = [...new Set((full.match(EMAIL_RE) || []))].filter(e => byEmail[e]) }
-        if (matches.length) { matchBody++; continue }
-        // 3) subject vs outgoing sends
-        const key = stripPrefix(subject).toLowerCase()
-        if (sentSubjMap[key] && byEmail[sentSubjMap[key]]) { matchSubject++; continue }
-        stillUnmatched++
-        if (unmatchedSamples.length < 10) unmatchedSamples.push({ from: sender, subject: subject.slice(0, 80), strippedKey: key.slice(0, 60), hadSentMatch: !!sentSubjMap[key] })
-      }
-      dbg.push({ mailbox, total: msgs.length, sentSubjCount: Object.keys(sentSubjMap).length, bounce: { matchPreview, matchBody, matchSubject, stillUnmatched }, unmatchedSamples })
-    }
-    return NextResponse.json({ debug: true, mailboxes: dbg })
-  }
 
 
   let scanned = 0, bounced = 0, ooo = 0, replies = 0, interested = 0, unsub = 0, declined = 0
@@ -180,6 +135,15 @@ export async function GET(req: NextRequest) {
       if (!byEmail[key]) byEmail[key] = { cust: c, enr: e }
     }
 
+    // Outgoing-subject -> recipient email, so a bounce whose subject echoes our
+    // sent subject ("Undeliverable: <our subject>") can be matched to the lead
+    // even when the failed address isn't in the bounce preview/body.
+    const sentSubjMap: Record<string, string> = {}
+    if (seqIds.length) {
+      const { data: sends } = await sb.from('sequence_sends').select('subject,to_email').in('sequence_id', seqIds).limit(5000)
+      for (const sd of (sends as any[]) || []) { const k = String(sd.subject || '').trim().toLowerCase(); if (k && sd.to_email) sentSubjMap[k] = String(sd.to_email).toLowerCase() }
+    }
+
     const msgs = await fetchInbox(token, sinceIso)
     let bodyFetches = 0
     const mb = { mailbox, scanned: msgs.length, bounced: 0, ooo: 0, replies: 0 }
@@ -195,12 +159,19 @@ export async function GET(req: NextRequest) {
 
       // ---- Bounce / NDR: find the failed lead address and mark it inactive ----
       if (looksBounce) {
-        let hay = (subject + ' ' + preview).toLowerCase()
+        const hay = (subject + ' ' + preview).toLowerCase()
         let matches = (hay.match(EMAIL_RE) || []).map(x => x.toLowerCase()).filter(x => byEmail[x])
+        // Fallback 1: pull the failed address from the full NDR body.
         if (!matches.length && bodyFetches < MAX_BODY_FETCHES) {
           bodyFetches++
           const full = (await fetchBody(token, m.id)).toLowerCase()
           matches = (full.match(EMAIL_RE) || []).map(x => x.toLowerCase()).filter(x => byEmail[x])
+        }
+        // Fallback 2: match the bounce subject back to the original outgoing email.
+        if (!matches.length) {
+          const key = stripBouncePrefix(subject).toLowerCase()
+          const to = key && sentSubjMap[key]
+          if (to && byEmail[to]) matches = [to]
         }
         const uniq = [...new Set(matches)]
         for (const addr of uniq) {
