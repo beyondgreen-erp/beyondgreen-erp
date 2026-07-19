@@ -117,7 +117,7 @@ export default function DailyPlanPage() {
     await sb.from('production_day_plans').delete().eq('id', p.id); load()
   }
   async function delLine(l: Line) { if (!confirm(`Remove ${l.machine_code} from this plan?`)) return; await sb.from('production_plan_lines').delete().eq('id', l.id); load() }
-  function setAddField(planId: string, patch: any) { setAddForm(a => ({ ...a, [planId]: { machine: '', product: '', operator: '', ...a[planId], ...patch } })) }
+  function setAddField(planId: string, patch: any) { setAddForm(a => { const cur = a[planId] || { machine: '', product: '', operator: '' }; return { ...a, [planId]: { ...cur, ...patch } } }) }
   async function addLine(p: Plan) {
     const f = addForm[p.id] || { machine: '', product: '', operator: '' }
     if (!f.machine) { flash('Pick a machine first.'); return }
