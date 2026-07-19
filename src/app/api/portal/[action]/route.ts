@@ -13,6 +13,10 @@ export const revalidate = 0
 
 const COOKIE = 'bg_portal'
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || 'https://beyondgreen-erp.vercel.app'
+// Client-facing base URL. Set NEXT_PUBLIC_PORTAL_URL to the dedicated portal host
+// (e.g. https://portal.byndgrn.com) so client emails never reveal the ERP domain.
+// Falls back to SITE until configured.
+const PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_URL || SITE
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const FROM_EMAIL = process.env.FROM_EMAIL || 'erp@beyondgreenbiotech.com'
 const NOTIFY = 'Rudyp@beyondgreenbiotech.com'
@@ -158,7 +162,7 @@ function milestoneEmailInner(project: string, prevLabel: string | null, label: s
     + `<p style="margin:0 0 14px;font-size:17px;font-weight:700">${esc(project)}</p>`
     + `<div style="margin:0 0 16px">${flow}</div>`
     + `<p style="margin:0 0 18px;font-size:14px;line-height:1.6">Your project has moved to <strong>${esc(label)}</strong>. You can see the full timeline anytime in your portal.</p>`
-    + `<div style="margin:0"><a href="${SITE}/portal" style="display:inline-block;background:#037f4c;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:14px;font-weight:600">View progress</a></div>`
+    + `<div style="margin:0"><a href="${PORTAL_URL}/portal" style="display:inline-block;background:#037f4c;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:14px;font-weight:600">View progress</a></div>`
 }
 
 export async function GET(req: NextRequest, { params }: { params: { action: string } }) {
@@ -333,7 +337,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     if (!company && cl.customer_id) { const { data: cust } = await admin.from('customers').select('company_name').eq('id', cl.customer_id).maybeSingle(); company = (cust as any)?.company_name || null }
     const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '')
     await admin.from('portal_password_tokens').insert({ token, portal_client_id: cl.id, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString() })
-    const link = `${SITE}/portal/set-password?token=${token}`
+    const link = `${PORTAL_URL}/portal/set-password?token=${token}`
     const ok = await sendClientEmail(cl.email, 'Your beyondGREEN project portal', accessEmailInner(cl.name, company, link))
     if (!ok) return NextResponse.json({ error: 'Could not send the email. Try again.' }, { status: 502 })
     return NextResponse.json({ ok: true })
@@ -554,7 +558,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     const cl = c as any
     if (!cl || !cl.is_active || !cl.email) return NextResponse.json({ ok: false })
     if (RESEND_API_KEY) {
-      const inner = `<p style="margin:0 0 6px;font-size:16px;font-weight:700">New reply from the beyondGREEN team</p><p style="margin:0 0 10px;font-size:14px">There's a new comment on <strong>${esc(label || 'your project')}</strong>:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/portal" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">View in your portal</a></div>`
+      const inner = `<p style="margin:0 0 6px;font-size:16px;font-weight:700">New reply from the beyondGREEN team</p><p style="margin:0 0 10px;font-size:14px">There's a new comment on <strong>${esc(label || 'your project')}</strong>:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${PORTAL_URL}/portal" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">View in your portal</a></div>`
       await sendClientEmail(cl.email, `New reply on ${label || 'your project'}`, inner)
     }
     return NextResponse.json({ ok: true })
