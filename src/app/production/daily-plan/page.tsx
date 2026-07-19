@@ -1,147 +1,222 @@
 'use client'
-import ShareLink from '@/components/ShareLink'
-import { useItemDeepLink } from '@/components/useItemDeepLink'
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import ImportExportBar from '@/components/ImportExportBar'
 
-interface WorkOrder { id: string; wo_number: string }
-interface Machine { id: string; name: string }
-interface DailyPlan { id: string; plan_date: string | null; work_order_id: string | null; machine_id: string | null; target_qty: number; actual_qty: number; status: string; notes: string | null; is_active: boolean }
-const STATUSES = ['Planned','In Progress','Complete','Delayed']
-const SC: Record<string,string> = { Planned:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', 'In Progress':'bg-blue-500/15 text-blue-400 border-blue-500/20', Complete:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Delayed:'bg-red-500/15 text-red-400 border-red-500/20' }
-const empty = { plan_date:'', work_order_id:'', machine_id:'', target_qty:'0', actual_qty:'0', status:'Planned', notes:'' }
-type F = typeof empty
-const fmtD=(d:string|null)=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
-function dbErr(e:{code?:string;message:string;hint?:string}){console.error(e);return[e.message,e.code&&`(${e.code})`,e.hint&&`Hint: ${e.hint}`].filter(Boolean).join(' — ')}
+interface Plan { id: string; plan_date: string; share_token: string; title: string | null; status: string; notes: string | null }
+interface Line { id: string; plan_id: string; machine_code: string; product: string | null; operator: string | null; status: string; sort_order: number }
+interface Stat { qty: number; unit: string; lastAt: string | null; lastStatus: string | null; count: number }
+
+const LINE_SC: Record<string, string> = {
+  Planned: 'bg-gray-100 text-gray-600', Running: 'bg-emerald-100 text-emerald-700',
+  Down: 'bg-red-100 text-red-700', Offline: 'bg-gray-200 text-gray-500', Complete: 'bg-blue-100 text-blue-700',
+}
+const fmtDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+const fmtTime = (d: string | null) => d ? new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—'
+
+function parsePlanText(text: string): { planDate: string; lines: { machine: string; product: string; operator: string }[] } {
+  const raw = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  let planDate = ''
+  const lines: { machine: string; product: string; operator: string }[] = []
+  for (const line of raw) {
+    if (/production plan/i.test(line) || (/^\d{1,2}\/\d{1,2}/.test(line) && line.indexOf('-') === -1)) {
+      const dm = line.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/)
+      if (dm) { const y = dm[3] ? (dm[3].length === 2 ? '20' + dm[3] : dm[3]) : String(new Date().getFullYear()); planDate = `${y}-${String(+dm[1]).padStart(2, '0')}-${String(+dm[2]).padStart(2, '0')}` }
+      continue
+    }
+    const dash = line.indexOf('-')
+    if (dash === -1) continue
+    const machine = line.slice(0, dash).trim()
+    const rest = line.slice(dash + 1).trim()
+    if (!machine) continue
+    const parts = rest.split(/\s+-\s+/)
+    lines.push({ machine, product: (parts[0] || '').trim(), operator: parts.slice(1).join(' - ').trim() })
+  }
+  return { planDate, lines }
+}
 
 export default function DailyPlanPage() {
-  const sb=useMemo(()=>createSupabaseBrowserClient(),[])
-  const [rows,setRows]=useState<DailyPlan[]>([])
-  const [workOrders,setWorkOrders]=useState<WorkOrder[]>([])
-  const [machines,setMachines]=useState<Machine[]>([])
-  const [loading,setLoading]=useState(true)
-  const [search,setSearch]=useState('')
-  const [archived,setArchived]=useState(false)
-  const [open,setOpen]=useState(false)
-  const [editing,setEditing]=useState<DailyPlan|null>(null)
-  const [form,setForm]=useState<F>(empty)
-  const [saving,setSaving]=useState(false)
-  const [busy,setBusy]=useState(false)
-  const [err,setErr]=useState('')
-  const ref=useRef<HTMLDivElement>(null)
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [plans, setPlans] = useState<Plan[]>([])
+  const [linesByPlan, setLinesByPlan] = useState<Record<string, Line[]>>({})
+  const [statByLine, setStatByLine] = useState<Record<string, Stat>>({})
+  const [loading, setLoading] = useState(true)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [toast, setToast] = useState('')
+  // New-plan drawer
+  const [newOpen, setNewOpen] = useState(false)
+  const [paste, setPaste] = useState('')
+  const [planDate, setPlanDate] = useState('')
+  const [err, setErr] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  async function load(){
+  const load = useCallback(async () => {
     setLoading(true)
-    const [{data:dp},{data:wo},{data:m}]=await Promise.all([
-      sb.from('daily_plan').select('*').order('plan_date',{ascending:false}),
-      sb.from('work_orders').select('id,wo_number').eq('is_active',true).order('wo_number'),
-      sb.from('machines').select('id,name').eq('is_active',true).order('name'),
-    ])
-    if(dp) setRows(dp as DailyPlan[])
-    if(wo) setWorkOrders(wo as WorkOrder[])
-    if(m) setMachines(m as Machine[])
+    const { data: pl } = await sb.from('production_day_plans').select('*').order('plan_date', { ascending: false }).limit(60)
+    const planList = (pl as Plan[]) || []
+    setPlans(planList)
+    const ids = planList.map(p => p.id)
+    if (ids.length) {
+      const [{ data: ln }, { data: lg }] = await Promise.all([
+        sb.from('production_plan_lines').select('*').in('plan_id', ids).order('sort_order').order('machine_code'),
+        sb.from('production_output_logs').select('plan_line_id, output_qty, unit, running_status, logged_at').in('plan_id', ids).order('logged_at', { ascending: false }),
+      ])
+      const byPlan: Record<string, Line[]> = {}
+      ;(ln as Line[] || []).forEach(l => { (byPlan[l.plan_id] ||= []).push(l) })
+      setLinesByPlan(byPlan)
+      const stat: Record<string, Stat> = {}
+      ;(lg as any[] || []).forEach(l => {
+        const s = stat[l.plan_line_id] ||= { qty: 0, unit: 'cases', lastAt: null, lastStatus: null, count: 0 }
+        s.qty += Number(l.output_qty) || 0; s.count += 1
+        if (!s.lastAt) { s.lastAt = l.logged_at; s.lastStatus = l.running_status; s.unit = l.unit || 'cases' }
+      })
+      setStatByLine(stat)
+    } else { setLinesByPlan({}); setStatByLine({}) }
     setLoading(false)
+  }, [sb])
+  useEffect(() => { load() }, [load])
+
+  const preview = useMemo(() => parsePlanText(paste), [paste])
+  useEffect(() => { if (preview.planDate && !planDate) setPlanDate(preview.planDate) }, [preview.planDate]) // eslint-disable-line
+
+  function flash(m: string) { setToast(m); setTimeout(() => setToast(''), 2500) }
+  function publicUrl(token: string) { return `${typeof window !== 'undefined' ? window.location.origin : ''}/dp/${token}` }
+  function copyLink(p: Plan) { navigator.clipboard?.writeText(publicUrl(p.share_token)); flash('Operator link copied — paste it into WhatsApp') }
+
+  async function createPlan() {
+    setErr('')
+    const date = planDate || preview.planDate
+    if (!date) { setErr('Pick a plan date.'); return }
+    if (!preview.lines.length) { setErr('Paste the plan text — no machine lines detected.'); return }
+    setSaving(true)
+    const { data: plan, error } = await sb.from('production_day_plans').insert({ plan_date: date, title: `Production Plan ${date}` }).select('*').single()
+    if (error) { setSaving(false); setErr(error.code === '23505' ? 'A plan for that date already exists — delete it first or pick another date.' : error.message); return }
+    const rows = preview.lines.map((l, i) => ({ plan_id: (plan as Plan).id, machine_code: l.machine, product: l.product || null, operator: l.operator || null, sort_order: i, status: (l.product || '').toLowerCase() === 'offline' ? 'Offline' : 'Planned' }))
+    const { error: le } = await sb.from('production_plan_lines').insert(rows)
+    setSaving(false)
+    if (le) { setErr(le.message); return }
+    setNewOpen(false); setPaste(''); setPlanDate(''); await load(); flash('Plan created — copy the link and send it in WhatsApp')
   }
-  useEffect(()=>{load()},[]) // eslint-disable-line
 
-  const womap=Object.fromEntries(workOrders.map(w=>[w.id,w.wo_number]))
-  const mmap=Object.fromEntries(machines.map(m=>[m.id,m.name]))
-  const filtered=rows.filter(r=>{
-    if(!archived&&!r.is_active) return false
-    if(archived&&r.is_active) return false
-    if(!search) return true
-    const q=search.toLowerCase()
-    return (r.work_order_id?womap[r.work_order_id]||'':'').toLowerCase().includes(q)||(r.machine_id?mmap[r.machine_id]||'':'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
-  })
-
-  function openAdd(){setEditing(null);setForm({...empty,plan_date:new Date().toISOString().slice(0,10)});setErr('');setOpen(true)}
-  function openEdit(r:DailyPlan){setEditing(r);setForm({plan_date:r.plan_date??'',work_order_id:r.work_order_id??'',machine_id:r.machine_id??'',target_qty:String(r.target_qty),actual_qty:String(r.actual_qty),status:r.status,notes:r.notes??''});setErr('');setOpen(true)}
-  function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
-  useItemDeepLink(rows, openEdit)
-
-  async function save(){
-    setErr('');setSaving(true)
-    const target=parseFloat(form.target_qty)||0
-    const actual=parseFloat(form.actual_qty)||0
-    const p={plan_date:form.plan_date||null,work_order_id:form.work_order_id||null,machine_id:form.machine_id||null,target_qty:target,actual_qty:actual,status:form.status,notes:form.notes.trim()||null}
-    const{error}=editing?await sb.from('daily_plan').update({...p,updated_at:new Date().toISOString()}).eq('id',editing.id):await sb.from('daily_plan').insert({...p,is_active:true})
-    if(error){setErr(dbErr(error));setSaving(false);return}
-    setSaving(false);close();load()
+  async function deletePlan(p: Plan) {
+    if (!confirm(`Delete the ${fmtDate(p.plan_date)} plan and all its logs?`)) return
+    await sb.from('production_day_plans').delete().eq('id', p.id); load()
   }
-  async function toggleArchive(){if(!editing)return;setBusy(true);await sb.from('daily_plan').update({is_active:!editing.is_active,updated_at:new Date().toISOString()}).eq('id',editing.id);setBusy(false);close();load()}
-  async function handleDelete(){if(!editing)return;if(!confirm('Permanently delete this plan entry? This cannot be undone.'))return;const{error}=await sb.from('daily_plan').delete().eq('id',editing.id);if(error){alert('Delete failed: '+error.message);return}close();load()}
+  async function delLine(l: Line) { if (!confirm(`Remove ${l.machine_code} from this plan?`)) return; await sb.from('production_plan_lines').delete().eq('id', l.id); load() }
 
-  const inp='w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
+  const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30'
 
   return (
-    <div className="p-4 md:p-8 min-h-screen">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+    <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
+      {toast && <div className="fixed top-4 right-4 z-[70] bg-[#1A1D2E] text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-lg">{toast}</div>}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">PRODUCTION</span>
-          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Daily Plan</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${archived?'archived':'active'} plan${filtered.length!==1?'s':''}`}</p>
+          <span className="mon-tag" style={{ background: '#00A84F22', color: '#037f4c' }}>🏭 Production</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Daily Production Plan</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Build tomorrow&rsquo;s plan, share the link in WhatsApp, and watch actual output come back every 2 hours.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <ImportExportBar table="daily_plan" filename="daily_plan" columns={[
-            { header: 'Plan Date', dbKey: 'plan_date', example: '2024-02-05', required: true },
-            { header: 'WO Number', dbKey: 'wo_number', example: 'WO-2024-001', lookup: { fromTable: 'work_orders', matchField: 'wo_number', storeAs: 'work_order_id' } },
-            { header: 'Machine Name', dbKey: 'machine_name', example: 'Injection Molder 1', lookup: { fromTable: 'machines', matchField: 'name', storeAs: 'machine_id' } },
-            { header: 'Target Qty', dbKey: 'target_qty', example: '500' },
-            { header: 'Actual Qty', dbKey: 'actual_qty', example: '0' },
-            { header: 'Status', dbKey: 'status', example: 'Planned' },
-            { header: 'Notes', dbKey: 'notes', example: '' },
-          ]} onImportDone={load} />
-          <button onClick={openAdd} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Plan</button>
+        <button onClick={() => { setNewOpen(true); setErr(''); }} className="text-white font-semibold rounded-lg px-4 py-2 text-sm shadow-sm hover:opacity-90 whitespace-nowrap" style={{ background: '#037f4c' }}>+ New day plan</button>
+      </div>
+
+      <div className="bg-[#F0FBF5] border border-[#CDE9DA] rounded-lg px-4 py-2.5 mb-4 text-[13px] text-[#0F5132]">
+        Create a plan (paste your WhatsApp &ldquo;Production Plan&rdquo; text), then <strong>Copy operator link</strong> and drop it in the WhatsApp group. Each operator taps their machine and logs output, running/down status, and a note every 2 hours — the actuals show up here live.
+      </div>
+
+      {loading ? <p className="text-gray-400 text-sm">Loading…</p> : plans.length === 0 ? (
+        <div className="bg-white rounded-xl border border-[#ECEEF3] p-10 text-center">
+          <p className="text-sm text-gray-500">No plans yet.</p>
+          <p className="text-xs text-gray-400 mt-1">Click &ldquo;New day plan&rdquo; and paste your production plan to get started.</p>
         </div>
-      </div>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input placeholder="Search plans…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"/></div>
-        <label className="flex items-center gap-2 cursor-pointer select-none"><div onClick={()=>setArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${archived?'bg-emerald-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${archived?'translate-x-4':'translate-x-0.5'}`}/></div><span className="text-sm text-gray-400">Show Archived</span></label>
-      </div>
-      <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto">
-        {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
-        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived plans.':'No plans yet.'}</p></div>
-        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-[#E4E6EE]">{['Date','Work Order','Machine','Target Qty','Actual Qty','Variance','Status'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
-        <tbody>{filtered.map((r,i)=>{
-          const variance=r.actual_qty-r.target_qty
-          return <tr key={r.id} onClick={()=>openEdit(r)} className={`border-b border-[#E4E6EE]/60 last:border-0 cursor-pointer hover:bg-[#F9FAFB] transition-colors ${i%2===0?'':'bg-[#F5F6FA]/10'}`}>
-            <td className="px-5 py-3.5 text-[#1A1D2E] font-medium">{fmtD(r.plan_date)}</td>
-            <td className="px-5 py-3.5 text-gray-400 font-mono text-xs">{r.work_order_id?womap[r.work_order_id]||'—':'—'}</td>
-            <td className="px-5 py-3.5 text-gray-400">{r.machine_id?mmap[r.machine_id]||'—':'—'}</td>
-            <td className="px-5 py-3.5 text-gray-400">{r.target_qty}</td>
-            <td className="px-5 py-3.5 text-gray-400">{r.actual_qty}</td>
-            <td className={`px-5 py-3.5 font-medium ${variance>0?'text-emerald-400':variance<0?'text-red-400':'text-gray-500'}`}>{variance>0?'+':''}{variance}</td>
-            <td className="px-5 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border ${SC[r.status]||SC.Planned}`}>{r.status}</span></td>
-          </tr>
-        })}</tbody></table>}
-      </div>
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
-      <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit Plan':'Add Plan'}</h2><div className="flex items-center gap-2">{editing && <ShareLink id={editing.id} />}<button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div></div>
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          <div><label className="block text-xs text-gray-400 mb-1.5">Plan Date</label><input type="date" value={form.plan_date} onChange={e=>setForm(p=>({...p,plan_date:e.target.value}))} className={inp}/></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Work Order</label><select value={form.work_order_id} onChange={e=>setForm(p=>({...p,work_order_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{workOrders.map(w=><option key={w.id} value={w.id}>{w.wo_number}</option>)}</select></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Machine</label><select value={form.machine_id} onChange={e=>setForm(p=>({...p,machine_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs text-gray-400 mb-1.5">Target Qty</label><input type="number" value={form.target_qty} onChange={e=>setForm(p=>({...p,target_qty:e.target.value}))} className={inp}/></div>
-            <div><label className="block text-xs text-gray-400 mb-1.5">Actual Qty</label><input type="number" value={form.actual_qty} onChange={e=>setForm(p=>({...p,actual_qty:e.target.value}))} className={inp}/></div>
+      ) : (
+        <div className="space-y-4">
+          {plans.map(p => {
+            const lines = linesByPlan[p.id] || []
+            const loggedCount = lines.filter(l => (statByLine[l.id]?.count || 0) > 0).length
+            const isColl = collapsed[p.id]
+            return (
+              <div key={p.id} className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-[#EEF0F4] bg-[#F8FAFF] flex-wrap">
+                  <button onClick={() => setCollapsed(c => ({ ...c, [p.id]: !c[p.id] }))} className="text-gray-400 text-xs">{isColl ? '▸' : '▾'}</button>
+                  <p className="text-sm font-bold text-[#1A1D2E]">{fmtDate(p.plan_date)}</p>
+                  <span className="text-[11px] text-gray-500">{lines.length} machines · {loggedCount} reporting</span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button onClick={() => copyLink(p)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#037f4c] text-white font-semibold hover:opacity-90">Copy operator link</button>
+                    <a href={publicUrl(p.share_token)} target="_blank" rel="noreferrer" className="text-[11px] px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Open ↗</a>
+                    <button onClick={() => deletePlan(p)} className="text-[11px] px-2 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50">Delete</button>
+                  </div>
+                </div>
+                {!isColl && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[720px]">
+                      <thead><tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                        <th className="text-left px-4 py-2 font-semibold">Machine</th>
+                        <th className="text-left px-3 py-2 font-semibold">What to run</th>
+                        <th className="text-left px-3 py-2 font-semibold">Operator</th>
+                        <th className="text-left px-3 py-2 font-semibold">Live status</th>
+                        <th className="text-right px-3 py-2 font-semibold">Actual output</th>
+                        <th className="text-left px-3 py-2 font-semibold">Last log</th>
+                        <th className="px-3 py-2"></th>
+                      </tr></thead>
+                      <tbody>
+                        {lines.map(l => {
+                          const s = statByLine[l.id]
+                          const live = s?.lastStatus || l.status
+                          return (
+                            <tr key={l.id} className="border-b border-[#EEF0F4] last:border-0">
+                              <td className="px-4 py-2.5 font-bold text-[#1A1D2E]">{l.machine_code}</td>
+                              <td className="px-3 py-2.5 text-gray-700">{l.product || '—'}</td>
+                              <td className="px-3 py-2.5 text-gray-500">{l.operator || '—'}</td>
+                              <td className="px-3 py-2.5"><span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${LINE_SC[live] || 'bg-gray-100 text-gray-500'}`}>{live}</span></td>
+                              <td className="px-3 py-2.5 text-right font-semibold text-[#1A1D2E]">{s && s.count ? `${s.qty} ${s.unit}` : <span className="text-gray-300">no logs</span>}</td>
+                              <td className="px-3 py-2.5 text-gray-500 text-xs">{s?.lastAt ? `${fmtTime(s.lastAt)} · ${s.count} log${s.count === 1 ? '' : 's'}` : '—'}</td>
+                              <td className="px-3 py-2.5 text-right"><button onClick={() => delLine(l)} className="text-[11px] text-gray-400 hover:text-red-500">remove</button></td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {newOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={() => setNewOpen(false)}>
+          <div className="w-[600px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-[#EEF0F4] px-5 py-3 flex items-center justify-between z-10">
+              <h2 className="font-bold text-[#1A1D2E]">New day plan</h2>
+              <button onClick={() => setNewOpen(false)} className="text-sm px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Close</button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-gray-500">Paste your WhatsApp production plan below. The machine, product and operator are detected automatically.</p>
+              <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={14} placeholder={"7/20 Production Plan\nMM1 - Knife\nEXT 1 - 8x13 BG - Florentino/Ramon\n..."} className={inp + ' font-mono text-xs'} />
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-500">Plan date</label>
+                <input type="date" value={planDate} onChange={e => setPlanDate(e.target.value)} className={inp + ' max-w-[180px]'} />
+                <span className="text-[11px] text-gray-400">{preview.lines.length} machine line{preview.lines.length === 1 ? '' : 's'} detected</span>
+              </div>
+              {preview.lines.length > 0 && (
+                <div className="border border-[#EEF0F4] rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4] bg-[#F8FAFF]"><th className="text-left px-3 py-1.5">Machine</th><th className="text-left px-3 py-1.5">Product</th><th className="text-left px-3 py-1.5">Operator</th></tr></thead>
+                    <tbody>
+                      {preview.lines.map((l, i) => (
+                        <tr key={i} className="border-b border-[#EEF0F4] last:border-0"><td className="px-3 py-1.5 font-semibold">{l.machine}</td><td className="px-3 py-1.5">{l.product || '—'}</td><td className="px-3 py-1.5 text-gray-500">{l.operator || '—'}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {err && <p className="text-xs text-red-600">{err}</p>}
+              <button onClick={createPlan} disabled={saving} className="w-full rounded-lg py-2.5 text-white font-semibold disabled:opacity-50" style={{ background: '#037f4c' }}>{saving ? 'Creating…' : 'Create plan'}</button>
+            </div>
           </div>
-          {(parseFloat(form.target_qty)||0)>0&&<div className="bg-[#F9FAFB]/50 rounded-lg px-3 py-2.5 flex justify-between"><span className="text-xs text-gray-500">Variance</span><span className={`text-sm font-medium ${(parseFloat(form.actual_qty)||0)-(parseFloat(form.target_qty)||0)>=0?'text-emerald-400':'text-red-400'}`}>{((parseFloat(form.actual_qty)||0)-(parseFloat(form.target_qty)||0)>0?'+':'')}{(parseFloat(form.actual_qty)||0)-(parseFloat(form.target_qty)||0)}</span></div>}
-          <div><label className="block text-xs text-gray-400 mb-1.5">Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>{STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-          <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={3} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
         </div>
-        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
-          {err&&<div className="flex gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5"><svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p className="text-red-400 text-xs">{err}</p></div>}
-          <div className="flex gap-3">
-            {editing&&<button onClick={handleDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>}
-            {editing&&<button onClick={toggleArchive} disabled={busy} className="text-sm px-3 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50">{editing.is_active?'Archive':'Restore'}</button>}
-            <button onClick={close} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-            <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">{saving?'Saving…':'Save'}</button>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
