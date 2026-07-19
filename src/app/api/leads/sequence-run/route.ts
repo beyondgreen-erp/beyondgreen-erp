@@ -32,9 +32,13 @@ export function composeHtml(bodyText: string, signatureHtml: string): string {
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   // Split the plain-text body on blank lines → paragraphs; single \n inside a
   // paragraph becomes <br>. Also auto-link https:// URLs so they're clickable.
-  const linkify = (s: string) => s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#00A84F;text-decoration:underline;">$1</a>')
+  // Convert markdown-style [text](url) links to anchor tags. We do this on the
+  // escaped text (so brackets survive) but before bare-URL linkify so the URL
+  // inside the markdown syntax isn't double-processed.
+  const mdLink = (s: string) => s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" style="color:#00A84F;text-decoration:underline;font-weight:600;">$1</a>')
+  const linkify = (s: string) => s.replace(/(?<!href=")(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#00A84F;text-decoration:underline;">$1</a>')
   const paragraphs = (bodyText || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
-  const bodyHtml = paragraphs.map(p => `<p style="margin:0 0 14px;line-height:1.55;color:#1A1D2E;font-size:15px;">${linkify(escape(p)).replace(/\n/g, '<br>')}</p>`).join('')
+  const bodyHtml = paragraphs.map(p => `<p style="margin:0 0 14px;line-height:1.55;color:#1A1D2E;font-size:15px;">${linkify(mdLink(escape(p))).replace(/\n/g, '<br>')}</p>`).join('')
 
   const sig = signatureHtml
     ? `<div style="margin-top:22px;padding-top:14px;border-top:1px solid #E4E6EE;">${signatureHtml}</div>`
