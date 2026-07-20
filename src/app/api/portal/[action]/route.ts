@@ -16,7 +16,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL || 'https://beyondgreen-erp.vercel
 // Client-facing base URL. Set NEXT_PUBLIC_PORTAL_URL to the dedicated portal host
 // (e.g. https://portal.byndgrn.com) so client emails never reveal the ERP domain.
 // Falls back to SITE until configured.
-const PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_URL || SITE
+const PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_URL || 'https://byndgrn-portal.vercel.app'
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const FROM_EMAIL = process.env.FROM_EMAIL || 'erp@beyondgreenbiotech.com'
 const NOTIFY = 'Rudyp@beyondgreenbiotech.com'
