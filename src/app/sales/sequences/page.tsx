@@ -80,7 +80,7 @@ export default function SequencesPage() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const [detail, setDetail] = useState<Sequence | null>(null)
-  const [detailTab, setDetailTab] = useState<'enrollments' | 'sends'>('enrollments')
+  const [detailTab, setDetailTab] = useState<'emails' | 'enrollments' | 'sends'>('emails')
   const [pendingCount, setPendingCount] = useState(0)
 
   const [editing, setEditing] = useState<Sequence | null>(null)
@@ -114,7 +114,7 @@ export default function SequencesPage() {
     const [{ data: s }, { data: st }, en, { data: sends }] = await Promise.all([
       sb.from('sequences').select('*').order('created_at', { ascending: false }),
       sb.from('sequence_steps').select('*').order('step_number'),
-      fetchAllPaginated<Enrollment>((from, to) => sb.from('sequence_enrollments').select('*').range(from, to).returns<Enrollment[]>()),
+      fetchAllPaginated<Enrollment>((from, to) => sb.from('sequence_enrollments').select('*').range(from, to)),
       sb.from('sequence_sends').select('id,enrollment_id,sequence_id,customer_id,step_number,to_email,subject,status,sent_at,error').order('sent_at', { ascending: false, nullsFirst: false }).limit(500),
     ])
     setSeqs((s as Sequence[]) || [])
@@ -363,10 +363,40 @@ export default function SequencesPage() {
                 <div><p className="text-gray-400 uppercase text-[10px]">Send days</p><p className="font-semibold truncate">{(detail.send_days || []).join(', ') || '—'}</p></div>
               </div>
               <div className="flex gap-1 border-b border-[#EEF0F4] px-5">
+                <button onClick={() => setDetailTab('emails')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'emails' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Emails ({stepsN})</button>
                 <button onClick={() => setDetailTab('enrollments')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'enrollments' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Enrolled leads ({enr.length})</button>
                 <button onClick={() => setDetailTab('sends')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'sends' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Send history ({sends.length})</button>
               </div>
-              {detailTab === 'enrollments' ? (
+              {detailTab === 'emails' ? (
+                <div className="p-5 space-y-3">
+                  {(stepsBySeq[detail.id] || []).length === 0 ? (
+                    <p className="text-center text-xs text-gray-400 py-6">No email templates configured. Click Edit to add steps.</p>
+                  ) : (
+                    (stepsBySeq[detail.id] || []).sort((a, b) => a.step_number - b.step_number).map((s, i) => (
+                      <div key={s.id || i} className="border border-[#ECEEF3] rounded-lg p-4 bg-[#FBFCFE]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-6 h-6 rounded-full bg-[#3B6FE0] text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                          <span className="text-[11px] text-gray-500 font-semibold">
+                            {i === 0 ? 'Sent on enrollment (Day 0)' : `+${s.delay_days || 0} day${(s.delay_days || 0) === 1 ? '' : 's'} after previous step`}
+                          </span>
+                          <span className="ml-auto text-[10px] uppercase text-gray-400 font-bold tracking-wider">Step {i + 1} of {stepsN}</span>
+                        </div>
+                        <div className="mb-2">
+                          <p className="text-[10px] uppercase font-bold text-gray-400 mb-0.5">Subject</p>
+                          <p className="text-sm font-semibold text-[#1A1D2E]">{s.subject || <span className="italic text-gray-400">(no subject)</span>}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-gray-400 mb-0.5">Body</p>
+                          <pre className="text-[12px] text-gray-700 whitespace-pre-wrap font-sans leading-relaxed border-l-2 border-[#E4E6EE] pl-3 max-h-64 overflow-y-auto">{s.body || <span className="italic text-gray-400">(no body)</span>}</pre>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div className="text-center pt-2">
+                    <button onClick={() => openEdit(detail)} className="text-xs px-4 py-2 rounded-lg bg-[#3B6FE0] text-white font-semibold hover:bg-[#2E5CC7]">Edit templates</button>
+                  </div>
+                </div>
+              ) : detailTab === 'enrollments' ? (
                 <div className="p-5">
                   {enr.length === 0 ? <p className="text-center text-xs text-gray-400 py-6">Nobody enrolled yet. Add leads from the Leads page.</p> : (
                     <table className="w-full text-xs">
