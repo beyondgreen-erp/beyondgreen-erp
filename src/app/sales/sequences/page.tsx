@@ -206,7 +206,7 @@ export default function SequencesPage() {
     load()
   }
   async function pauseLead(customerId: string) {
-    const reason = window.prompt('Reason for pausing this lead? (e.g. "not now", "wrong contact", "asked to stop")', 'not now')
+    const reason = prompt('Reason for pausing this lead? (e.g. "not now", "wrong contact", "asked to stop")', 'not now')
     if (reason === null) return
     await fetch('/api/leads/sequence-pause-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_ids: [customerId], reason }) })
     load()
@@ -352,6 +352,22 @@ export default function SequencesPage() {
                   <h2 className="font-bold text-[#1A1D2E] truncate">{detail.name}</h2>
                 </div>
                 <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      setRunning('Queueing…')
+                      try {
+                        const r = await fetch(`/api/leads/sequence-run?sequence_id=${encodeURIComponent(detail.id)}`)
+                        const j = await r.json()
+                        alert(j.message || j.error || 'Done')
+                      } catch { alert('Send run failed.') }
+                      setRunning(''); load()
+                    }}
+                    disabled={!!running}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                    title="Render the next batch of emails into the Review queue (respects daily cap)"
+                  >
+                    {running || `Send next ${Math.min(detail.daily_cap || 40, 500)} to review`}
+                  </button>
                   <button onClick={() => openEdit(detail)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Edit</button>
                   <button onClick={() => setDetail(null)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Close</button>
                 </div>
