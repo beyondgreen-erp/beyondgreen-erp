@@ -114,7 +114,7 @@ export default function SequencesPage() {
     const [{ data: s }, { data: st }, en, { data: sends }] = await Promise.all([
       sb.from('sequences').select('*').order('created_at', { ascending: false }),
       sb.from('sequence_steps').select('*').order('step_number'),
-      fetchAllPaginated<Enrollment>((from, to) => sb.from('sequence_enrollments').select('*').range(from, to)),
+      fetchAllPaginated<Enrollment>((from, to) => sb.from('sequence_enrollments').select('*').range(from, to).returns<Enrollment[]>()),
       sb.from('sequence_sends').select('id,enrollment_id,sequence_id,customer_id,step_number,to_email,subject,status,sent_at,error').order('sent_at', { ascending: false, nullsFirst: false }).limit(500),
     ])
     setSeqs((s as Sequence[]) || [])
