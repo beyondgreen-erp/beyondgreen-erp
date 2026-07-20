@@ -22,7 +22,7 @@ export interface PoExtracted {
 }
 
 interface Props {
-  salesOrderId: string
+  salesOrderId?: string | null
   onExtracted?: (data: PoExtracted, path: string) => void
 }
 
@@ -42,13 +42,13 @@ export default function PoExtractUpload({ salesOrderId, onExtracted }: Props) {
     setErr(''); setData(null); setBusy(true); setFileName(file.name)
     try {
       const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const p = `${salesOrderId}/${Date.now()}_${safe}`
+      const p = `${salesOrderId || 'unassigned'}/${Date.now()}_${safe}`
       setStage('Uploading...')
       const up = await sb.storage.from('po-documents').upload(p, file, { upsert: true, contentType: file.type || undefined })
       if (up.error) throw new Error('Upload failed: ' + up.error.message)
       setPath(p)
       setStage('Reading the PO with AI...')
-      const { data: res, error: fnErr } = await sb.functions.invoke('extract-po', { body: { path: p, salesOrderId } })
+      const { data: res, error: fnErr } = await sb.functions.invoke('extract-po', { body: { path: p, salesOrderId: salesOrderId || null } })
       if (fnErr) throw new Error('Extraction failed: ' + fnErr.message)
       if ((res as any)?.error) throw new Error((res as any).error)
       const extracted = (res as any)?.extracted as PoExtracted
