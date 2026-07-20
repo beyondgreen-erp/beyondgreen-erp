@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-// Portal-host isolation active (see PORTAL_HOSTS). Rebuild marker: 2026-07-20.
+// Portal-host isolation active (see PORTAL_HOSTS). Rebuild marker: 2026-07-20b (no-cache).
 
 // Hostnames that serve ONLY the client portal (comma-separated in the env var).
 // e.g. NEXT_PUBLIC_PORTAL_HOSTS="portal.byndgrn.com,byndgrn-portal.vercel.app"
