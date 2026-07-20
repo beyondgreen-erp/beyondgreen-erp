@@ -181,52 +181,68 @@ export default function ClientPortalPage() {
     return <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color }}>{status}</span>
   }
 
-  const ordersTable = (rows: any[], emptyMsg: string) => (
-    <table className="w-full text-sm min-w-[980px]">
-      <thead>
-        <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
-          <th className="text-left px-4 py-2 font-semibold">Project</th>
-          <th className="text-left px-3 py-2 font-semibold">Status</th>
-          <th className="text-left px-3 py-2 font-semibold">PO</th>
-          <th className="text-right px-3 py-2 font-semibold">Cost</th>
-          <th className="text-right px-3 py-2 font-semibold">Selling</th>
-          <th className="text-right px-3 py-2 font-semibold">Profit / Loss</th>
-          <th className="text-left px-3 py-2 font-semibold">Commission</th>
-          <th className="text-left px-3 py-2 font-semibold">Commission Status</th>
-          <th className="text-right px-3 py-2 font-semibold"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.length === 0 ? (
-          <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</td></tr>
-        ) : rows.map((d: any, i: number) => {
-          const pl = d.cost != null ? d.selling - d.cost : null
-          return (
-          <tr key={d.id} className={i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}>
-            <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{d.name}</td>
-            <td className="px-3 py-2.5">{statusPill(d.status)}</td>
-            <td className="px-3 py-2.5">{d.po_url ? <a href={d.po_url} target="_blank" rel="noopener noreferrer" className="text-[#3B6FE0] font-semibold hover:underline">📄 {d.po_number || 'View PO'}</a> : (d.po_number || <span className="text-gray-300">—</span>)}</td>
-            <td className="px-3 py-2.5 text-right text-gray-600">{d.cost != null ? money(d.cost) : '—'}</td>
-            <td className="px-3 py-2.5 text-right text-gray-600">{money(d.selling)}</td>
-            <td className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{pl == null ? <span className="text-gray-300">—</span> : <span style={{ color: pl < 0 ? '#DC2626' : GREEN }}>{pl < 0 ? `-${money(Math.abs(pl))}` : money(pl)} <span className="text-[11px] font-normal text-gray-400">{pl < 0 ? 'loss' : 'profit'}</span></span>}</td>
-            <td className="px-3 py-2.5"><span className="font-bold" style={{ color: GREEN }}>{money(d.commission)}</span> <span className="text-[11px] text-gray-400">({d.basis === 'none' ? 'no commission' : d.basis === 'profit_50' ? '50% profit' : '7% PO'})</span></td>
-            <td className="px-3 py-2.5">{cstatusPill(d.commission_status, d.commission_status_label)}</td>
-            <td className="px-3 py-2.5 text-right"><button onClick={() => openComments(d.source === 'shipment' ? 'shipment' : 'sales_order', d.id, d.name)} className="text-xs font-semibold text-[#3B6FE0] hover:underline whitespace-nowrap">💬 Comment</button></td>
-          </tr>
-          )
-        })}
-      </tbody>
-    </table>
+  const ordersList = (rows: any[], emptyMsg: string) => (
+    rows.length === 0
+      ? <p className="px-4 py-6 text-center text-gray-400 text-sm">{emptyMsg}</p>
+      : <div className="divide-y divide-[#F1F3F9]">
+          {rows.map((d: any) => {
+            const pl = d.profit != null ? d.profit : (d.cost != null ? d.selling - d.cost : null)
+            return (
+            <details key={d.id}>
+              <summary className="flex items-center justify-between gap-2 px-4 py-2.5 cursor-pointer hover:bg-[#F7FAFF]">
+                <span className="chev text-[9px] text-gray-300 shrink-0">&#9654;</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-[#1A1D2E] text-sm leading-tight truncate">{d.name}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">{statusPill(d.status)}{cstatusPill(d.commission_status, d.commission_status_label)}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-bold text-[#1A1D2E] text-sm leading-tight">{money(d.selling)}</p>
+                  <p className="text-[11px] leading-tight" style={{ color: GREEN }}>{money(d.commission)} comm.</p>
+                </div>
+              </summary>
+              <div className="px-4 pb-3 pt-1 bg-[#FBFCFE]">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs mb-2">
+                  <div><span className="text-gray-400">PO</span><br />{d.po_url ? <a href={d.po_url} target="_blank" rel="noopener noreferrer" className="text-[#3B6FE0] font-semibold hover:underline">📄 {d.po_number || 'View PO'}</a> : (d.po_number || <span className="text-gray-300">—</span>)}</div>
+                  <div><span className="text-gray-400">Cost</span><br /><span className="text-gray-700">{d.cost != null ? money(d.cost) : '—'}</span></div>
+                  <div><span className="text-gray-400">Selling</span><br /><span className="text-gray-700">{money(d.selling)}</span></div>
+                  <div><span className="text-gray-400">Profit / Loss</span><br />{pl == null ? <span className="text-gray-300">—</span> : <span style={{ color: pl < 0 ? '#DC2626' : GREEN, fontWeight: 600 }}>{pl < 0 ? `-${money(Math.abs(pl))}` : money(pl)}</span>}</div>
+                  <div><span className="text-gray-400">Commission</span><br /><span style={{ color: GREEN, fontWeight: 700 }}>{money(d.commission)}</span> <span className="text-gray-400">({d.basis === 'none' ? 'none' : d.basis === 'profit_50' ? '50% profit' : '7% PO'})</span></div>
+                  <div><span className="text-gray-400">Commission status</span><br />{cstatusPill(d.commission_status, d.commission_status_label)}</div>
+                </div>
+                {d.lines && d.lines.length > 0 ? (
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-[10px] uppercase text-gray-400"><th className="text-left py-1">Item</th><th className="text-left py-1">SKU</th><th className="text-right py-1">Qty</th><th className="text-right py-1">Shipped</th><th className="text-left py-1 pl-2">Stage</th></tr></thead>
+                    <tbody>
+                      {d.lines.map((l: any, i: number) => (
+                        <tr key={i} className="border-t border-[#F1F3F9]">
+                          <td className="py-1 text-gray-700">{l.description || '—'}</td>
+                          <td className="py-1 text-gray-500 font-mono">{l.sku || '—'}</td>
+                          <td className="py-1 text-right text-gray-600">{l.quantity ?? '—'} {l.unit || ''}</td>
+                          <td className="py-1 text-right text-gray-600">{l.shipped ?? '—'}</td>
+                          <td className="py-1 pl-2">{l.status ? statusPill(l.status) : <span className="text-gray-300">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : <p className="text-xs text-gray-400 py-1">{d.source === 'shipment' ? 'Historical shipment — no line items on file.' : 'No line items on this order.'}</p>}
+                <div className="mt-2">
+                  <button onClick={(e) => { e.preventDefault(); openComments(d.source === 'shipment' ? 'shipment' : 'sales_order', d.id, d.name) }} className="text-xs font-semibold text-[#3B6FE0] hover:underline">💬 Comment</button>
+                </div>
+              </div>
+            </details>
+            )
+          })}
+        </div>
   )
 
-  const groupCard = (title: string, color: string, count: number, children: any) => (
-    <details className="rb bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" open>
+  const groupCard = (title: string, color: string, count: number, children: any, startOpen = true) => (
+    <details className="rb bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" open={startOpen}>
       <summary className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: `${color}14`, borderLeft: `5px solid ${color}` }}>
         <span className="chev text-[10px]" style={{ color, display: 'inline-block' }}>&#9654;</span>
         <span className="font-bold text-sm" style={{ color }}>{title}</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: `${color}26`, color }}>{count}</span>
       </summary>
-      <div className="overflow-x-auto">{children}</div>
+      <div>{children}</div>
     </details>
   )
   const company = data?.client?.company || data?.client?.name || 'Your account'
@@ -284,7 +300,8 @@ export default function ClientPortalPage() {
         </div>
       </div>
 
-      {/* Summary cards (overlap header) */}
+      {/* Summary cards (overlap header) — hidden for the broker view (uses A/R + revenue instead) */}
+      {!broker && (
       <div className="mx-auto max-w-4xl px-4 -mt-10">
         <div className="grid grid-cols-3 gap-3">
           {[
@@ -299,63 +316,68 @@ export default function ClientPortalPage() {
           ))}
         </div>
       </div>
+      )}
 
       {/* Projects */}
-      <div className="mx-auto max-w-4xl px-4 mt-6 space-y-6">
+      <div className="mx-auto max-w-4xl px-4 mt-5 space-y-4">
         {team.length > 0 && (
-          <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-5">
-            <h2 className="font-extrabold text-[#1A1D2E] text-lg">Our team is your team!</h2>
-            <p className="text-sm text-gray-500 mt-1">Tap anyone to send them a message — they&apos;ll get an email right away.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+          <details className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4" open>
+            <summary className="cursor-pointer flex items-center justify-between gap-2">
+              <h2 className="font-extrabold text-[#1A1D2E] text-base">Our team is your team!</h2>
+              <span className="chev text-[10px] text-gray-300">&#9654;</span>
+            </summary>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
               {team.map((m: any) => (
-                <button key={m.email} onClick={() => openThread({ kind: 'direct', email: m.email, name: m.name, role: m.role, avatar: m.avatar })} className="flex items-center gap-3 text-left rounded-xl border border-[#EEF0F4] hover:border-[#037f4c] hover:bg-[#F0FBF5] transition-colors p-2.5">
-                  <img src={m.avatar} alt={m.name} width={44} height={44} className="rounded-full bg-[#F0F5FF] shrink-0" />
+                <button key={m.email} onClick={() => openThread({ kind: 'direct', email: m.email, name: m.name, role: m.role, avatar: m.avatar })} className="flex items-center gap-2 text-left rounded-xl border border-[#EEF0F4] hover:border-[#037f4c] hover:bg-[#F0FBF5] transition-colors p-2">
+                  <img src={m.avatar} alt={m.name} width={34} height={34} className="rounded-full bg-[#F0F5FF] shrink-0" />
                   <div className="min-w-0">
-                    <p className="font-bold text-[#1A1D2E] text-sm leading-tight">{m.name}</p>
-                    <p className="text-[11px] text-gray-500 leading-tight">{m.role}</p>
+                    <p className="font-bold text-[#1A1D2E] text-[13px] leading-tight">{m.name}</p>
+                    <p className="text-[10px] text-gray-500 leading-tight">{m.role}</p>
                   </div>
                 </button>
               ))}
             </div>
-            <button onClick={() => openThread({ kind: 'group', name: 'Whole team', role: 'Everyone above' })} className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl border border-[#037f4c]/30 bg-[#F0FBF5] hover:bg-[#E3F5EC] transition-colors py-2.5 text-sm font-semibold text-[#037f4c]">
+            <button onClick={() => openThread({ kind: 'group', name: 'Whole team', role: 'Everyone above' })} className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl border border-[#037f4c]/30 bg-[#F0FBF5] hover:bg-[#E3F5EC] transition-colors py-2 text-[13px] font-semibold text-[#037f4c]">
               <div className="flex -space-x-2">
-                {team.slice(0, 4).map((m: any) => <img key={m.email} src={m.avatar} width={22} height={22} className="rounded-full ring-2 ring-white bg-[#F0F5FF]" alt="" />)}
+                {team.slice(0, 4).map((m: any) => <img key={m.email} src={m.avatar} width={20} height={20} className="rounded-full ring-2 ring-white bg-[#F0F5FF]" alt="" />)}
               </div>
               Message the whole team
             </button>
-            <p className="text-[12px] text-gray-600 mt-4 bg-[#F7FAF8] border border-[#E4EFE9] rounded-lg px-3 py-2">This is just the beginning — we&apos;re actively growing our team and will keep adding dedicated resources to support you. As we scale together, you&apos;ll always have the right people to turn to for assistance. 🌱</p>
-          </div>
+            <p className="text-[11px] text-gray-600 mt-2.5 bg-[#F7FAF8] border border-[#E4EFE9] rounded-lg px-3 py-1.5">This is just the beginning — we&apos;re actively growing our team and will keep adding dedicated resources to support you as we scale together. 🌱</p>
+          </details>
         )}
         {broker && (
           <>
-            <style>{`summary{list-style:none}summary::-webkit-details-marker{display:none}details.rb .chev{transition:transform .15s}details.rb[open]>summary .chev{transform:rotate(90deg)}`}</style>
+            <style>{`summary{list-style:none}summary::-webkit-details-marker{display:none}.chev{transition:transform .15s}details[open]>summary .chev{transform:rotate(90deg)}`}</style>
 
             {/* Open A/R hero */}
-            <div className="rounded-2xl p-5 text-white shadow-sm" style={{ background: `linear-gradient(120deg, ${GREEN}, ${GREEN2})` }}>
-              <p className="text-white/80 text-xs uppercase tracking-wider font-semibold">Your open commission (accounts receivable)</p>
-              <p className="text-4xl font-extrabold mt-1">{money(broker.ar)}</p>
-              <p className="text-white/80 text-sm mt-1">{(() => {
-                const n = [...broker.openOrders, ...broker.completedOrders].filter((o: any) => o.commission_status !== 'paid_by_bg').length
-                return `Across ${n} project${n === 1 ? '' : 's'} still awaiting customer payment — keep the projects coming to grow this.`
-              })()}</p>
+            <div className="rounded-2xl px-5 py-3.5 text-white shadow-sm flex items-center justify-between gap-3" style={{ background: `linear-gradient(120deg, ${GREEN}, ${GREEN2})` }}>
+              <div className="min-w-0">
+                <p className="text-white/80 text-[11px] uppercase tracking-wider font-semibold">Open commission (accounts receivable)</p>
+                <p className="text-white/80 text-xs mt-0.5">{(() => {
+                  const n = [...broker.openOrders, ...broker.completedOrders].filter((o: any) => o.commission_status !== 'paid_by_bg').length
+                  return `${n} project${n === 1 ? '' : 's'} awaiting customer payment — keep them coming to grow this.`
+                })()}</p>
+              </div>
+              <p className="text-3xl font-extrabold shrink-0">{money(broker.ar)}</p>
             </div>
 
             {/* Revenue & profit snapshot */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4">
-                <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Revenue · Active projects</p>
-                <p className="text-2xl font-extrabold text-[#1A1D2E] mt-1">{money(broker.revenueActive)}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">{broker.openOrders.length} open order{broker.openOrders.length === 1 ? '' : 's'}</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Rev · Active</p>
+                <p className="text-lg sm:text-xl font-extrabold text-[#1A1D2E]">{money(broker.revenueActive)}</p>
+                <p className="text-[10px] text-gray-400">{broker.openOrders.length} open</p>
               </div>
-              <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4">
-                <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Revenue · Completed</p>
-                <p className="text-2xl font-extrabold text-[#1A1D2E] mt-1">{money(broker.revenueCompleted)}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">{broker.completedOrders.length} completed project{broker.completedOrders.length === 1 ? '' : 's'}</p>
+              <div className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Rev · Completed</p>
+                <p className="text-lg sm:text-xl font-extrabold text-[#1A1D2E]">{money(broker.revenueCompleted)}</p>
+                <p className="text-[10px] text-gray-400">{broker.completedOrders.length} done</p>
               </div>
-              <div className="rounded-2xl shadow-sm p-4 text-white" style={{ background: `linear-gradient(120deg, ${GREEN}, ${GREEN2})` }}>
-                <p className="text-[11px] uppercase tracking-wider text-white/80 font-semibold">Total profit generated</p>
-                <p className="text-2xl font-extrabold mt-1">{money(broker.totalProfit)}</p>
-                <p className="text-[11px] text-white/80 mt-0.5">on {money(broker.totalRevenue)} total revenue</p>
+              <div className="rounded-2xl shadow-sm px-3 py-2.5 text-white" style={{ background: `linear-gradient(120deg, ${GREEN}, ${GREEN2})` }}>
+                <p className="text-[10px] uppercase tracking-wider text-white/80 font-semibold">Total profit</p>
+                <p className="text-lg sm:text-xl font-extrabold">{money(broker.totalProfit)}</p>
+                <p className="text-[10px] text-white/80">on {money(broker.totalRevenue)} rev</p>
               </div>
             </div>
 
@@ -469,10 +491,10 @@ export default function ClientPortalPage() {
             ))}
 
             {/* Open Orders */}
-            {groupCard('Open Orders', '#3B6FE0', broker.openOrders.length, ordersTable(broker.openOrders, 'No open orders right now.'))}
+            {groupCard('Open Orders', '#3B6FE0', broker.openOrders.length, ordersList(broker.openOrders, 'No open orders right now.'))}
 
             {/* Closed & Completed Orders */}
-            {groupCard('Closed & Completed Orders', GREEN, broker.completedOrders.length, ordersTable(broker.completedOrders, 'No completed orders yet.'))}
+            {groupCard('Closed & Completed Orders', GREEN, broker.completedOrders.length, ordersList(broker.completedOrders, 'No completed orders yet.'), false)}
           </>
         )}
         {broker && (
