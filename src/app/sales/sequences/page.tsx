@@ -25,9 +25,9 @@ const VARS = ['{{company}}', '{{contact}}', '{{first_name}}', '{{city}}', '{{sta
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const DEFAULT_STEPS: Step[] = [
   { step_number: 1, delay_days: 0, subject: 'Compostable packaging for {{company}}', body: 'Hi {{first_name}},\n\nI came across {{company}} and thought our certified-compostable cutlery and packaging could be a great fit. Would you be open to a quick look?\n\nBest,\n{{my_name}}\nbeyondGREEN' },
-  { step_number: 2, delay_days: 2, subject: 'Re: Compostable packaging for {{company}}', body: 'Hi {{first_name}},\n\nJust floating this back to the top â happy to send samples so your team can see the quality first-hand.\n\n{{my_name}}' },
+  { step_number: 2, delay_days: 2, subject: 'Re: Compostable packaging for {{company}}', body: 'Hi {{first_name}},\n\nJust floating this back to the top — happy to send samples so your team can see the quality first-hand.\n\n{{my_name}}' },
   { step_number: 3, delay_days: 3, subject: 'A quick idea for {{company}}', body: 'Hi {{first_name}},\n\nMany {{industry}} businesses are switching to compostable to meet customer demand and local mandates. Worth a 10-minute call?\n\n{{my_name}}' },
-  { step_number: 4, delay_days: 4, subject: 'Still worth a look?', body: 'Hi {{first_name}},\n\nNo worries if the timing is off â should I circle back next quarter, or is there a better person at {{company}} to talk to?\n\n{{my_name}}' },
+  { step_number: 4, delay_days: 4, subject: 'Still worth a look?', body: 'Hi {{first_name}},\n\nNo worries if the timing is off — should I circle back next quarter, or is there a better person at {{company}} to talk to?\n\n{{my_name}}' },
 ]
 
 const STATUS_GROUPS = [
@@ -49,10 +49,10 @@ const SEND_COLOR: Record<string, string> = {
   failed: 'bg-red-100 text-red-700',
 }
 
-const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'â'
-const fmtDT = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'â'
+const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
+const fmtDT = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
-async function fetchAllPaginated<T>(query: (from: number, to: number) => Promise<{ data: T[] | null }>) {
+async function fetchAllPaginated<T>(query: (from: number, to: number) => PromiseLike<{ data: T[] | null }>) {
   const PAGE = 1000; const all: T[] = []; let from = 0
   while (true) {
     const { data } = await query(from, from + PAGE - 1)
@@ -98,12 +98,12 @@ export default function SequencesPage() {
   const protectedChosen = !!selectedMailbox?.is_protected
 
   async function scanReplies() {
-    setRunning('Scanning repliesâ¦')
+    setRunning('Scanning replies…')
     try { const r = await fetch('/api/leads/reply-scan'); const j = await r.json(); alert(j.message || j.error || 'Done') } catch { alert('Reply scan failed.') }
     setRunning(''); load()
   }
   async function runNow() {
-    setRunning('Sending due emailsâ¦')
+    setRunning('Sending due emails…')
     try { const r = await fetch('/api/leads/sequence-run'); const j = await r.json(); alert(j.message || j.error || 'Done') } catch { alert('Send run failed.') }
     setRunning(''); load()
   }
@@ -177,7 +177,7 @@ export default function SequencesPage() {
   async function save() {
     if (!form.name?.trim()) { alert('Give the sequence a name.'); return }
     if (!form.from_email) { alert('Choose a sending mailbox (From email).'); return }
-    if (!mailboxes.find(m => m.email === form.from_email)) { alert('That sending mailbox isnât connected. Connect it in Settings â Email first.'); return }
+    if (!mailboxes.find(m => m.email === form.from_email)) { alert('That sending mailbox isn’t connected. Connect it in Settings → Email first.'); return }
     if (protectedChosen && !allowProtected) { alert('That mailbox is marked as protected. Tick the confirm box if you really want to send from it.'); return }
     setSaving(true)
     const payload = {
@@ -219,7 +219,7 @@ export default function SequencesPage() {
   async function sendNext(enr: Enrollment) {
     // Prefer approving an existing pending review send. Otherwise force-run
     // this sequence bypassing the send-day check (via sequence_id param).
-    setRunning('Sendingâ¦')
+    setRunning('Sending…')
     try {
       const { data: pending } = await sb.from('sequence_sends').select('id').eq('enrollment_id', enr.id).eq('status', 'review').limit(1)
       if (pending && pending.length) {
@@ -249,14 +249,14 @@ export default function SequencesPage() {
     <div className="min-h-screen mon-page p-4 md:p-6">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
         <div>
-          <span className="mon-tag t-blue">ð§ CRM Â· Sequences</span>
+          <span className="mon-tag t-blue">📧 CRM · Sequences</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Outreach Sequences</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Multi-step follow-up cadences. Sends run every 10 min via cron â no manual trigger needed.</p>
+          <p className="text-gray-500 text-sm mt-0.5">Multi-step follow-up cadences. Sends run every 10 min via cron — no manual trigger needed.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {running && <span className="text-xs text-gray-500">{running}</span>}
           <Link href="/sales/sequences/review" className={`text-sm px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 ${pendingCount ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200' : 'border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]'}`}>
-            ð¥ Review queue{pendingCount ? ` (${pendingCount})` : ''}
+            📥 Review queue{pendingCount ? ` (${pendingCount})` : ''}
           </Link>
           <Link href="/settings/email-signature" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Signature</Link>
           <button onClick={scanReplies} disabled={!!running} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50">Scan replies</button>
@@ -265,7 +265,7 @@ export default function SequencesPage() {
         </div>
       </div>
 
-      {loading ? <p className="text-gray-400 text-sm">Loadingâ¦</p> : (
+      {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-4">
           {STATUS_GROUPS.map(group => {
             const list = grouped[group.key] || []
@@ -310,7 +310,7 @@ export default function SequencesPage() {
                                 </td>
                                 <td className="px-3 py-2.5 text-xs text-gray-500">
                                   <p className="truncate max-w-[220px]">{s.from_email || 'no from set'}</p>
-                                  <p className="text-[11px] text-gray-400">{stepsN} step{stepsN !== 1 ? 's' : ''} Â· cap {s.daily_cap}/day</p>
+                                  <p className="text-[11px] text-gray-400">{stepsN} step{stepsN !== 1 ? 's' : ''} · cap {s.daily_cap}/day</p>
                                 </td>
                                 <td className="px-3 py-2.5 text-right font-bold text-indigo-600">{active}</td>
                                 <td className="px-3 py-2.5 text-right"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${todayCount ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>{todayCount}</span></td>
@@ -318,10 +318,10 @@ export default function SequencesPage() {
                                 <td className="px-3 py-2.5 text-right text-gray-500">{finished}</td>
                                 <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                                   <div className="flex justify-end gap-1">
-                                    {s.status !== 'active' ? <button onClick={() => setStatus(s, 'active')} title="Activate" className="w-7 h-7 rounded-lg border border-[#DCEFE3] text-[#00A84F] hover:bg-[#F2FBF6] text-sm">â¶</button>
-                                      : <button onClick={() => setStatus(s, 'paused')} title="Pause" className="w-7 h-7 rounded-lg border border-[#F3E5C0] text-[#9A5B00] hover:bg-[#FFF8E7] text-sm">â¸</button>}
-                                    <button onClick={() => openEdit(s)} title="Edit" className="w-7 h-7 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E] text-sm">â</button>
-                                    <button onClick={() => del(s)} title="Delete" className="w-7 h-7 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 text-sm">ð</button>
+                                    {s.status !== 'active' ? <button onClick={() => setStatus(s, 'active')} title="Activate" className="w-7 h-7 rounded-lg border border-[#DCEFE3] text-[#00A84F] hover:bg-[#F2FBF6] text-sm">▶</button>
+                                      : <button onClick={() => setStatus(s, 'paused')} title="Pause" className="w-7 h-7 rounded-lg border border-[#F3E5C0] text-[#9A5B00] hover:bg-[#FFF8E7] text-sm">⏸</button>}
+                                    <button onClick={() => openEdit(s)} title="Edit" className="w-7 h-7 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E] text-sm">✎</button>
+                                    <button onClick={() => del(s)} title="Delete" className="w-7 h-7 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 text-sm">🗑</button>
                                   </div>
                                 </td>
                               </tr>
@@ -357,10 +357,10 @@ export default function SequencesPage() {
                 </div>
               </div>
               <div className="px-5 py-4 grid grid-cols-4 gap-3 border-b border-[#EEF0F4] text-xs">
-                <div><p className="text-gray-400 uppercase text-[10px]">From</p><p className="font-semibold truncate">{detail.from_email || 'â'}</p></div>
+                <div><p className="text-gray-400 uppercase text-[10px]">From</p><p className="font-semibold truncate">{detail.from_email || '—'}</p></div>
                 <div><p className="text-gray-400 uppercase text-[10px]">Steps</p><p className="font-semibold">{stepsN}</p></div>
                 <div><p className="text-gray-400 uppercase text-[10px]">Cap</p><p className="font-semibold">{detail.daily_cap}/day</p></div>
-                <div><p className="text-gray-400 uppercase text-[10px]">Send days</p><p className="font-semibold truncate">{(detail.send_days || []).join(', ') || 'â'}</p></div>
+                <div><p className="text-gray-400 uppercase text-[10px]">Send days</p><p className="font-semibold truncate">{(detail.send_days || []).join(', ') || '—'}</p></div>
               </div>
               <div className="flex gap-1 border-b border-[#EEF0F4] px-5">
                 <button onClick={() => setDetailTab('enrollments')} className={`text-xs px-3 py-2 font-semibold ${detailTab === 'enrollments' ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-400'}`}>Enrolled leads ({enr.length})</button>
@@ -398,12 +398,12 @@ export default function SequencesPage() {
                                   {e.status === 'active' && (
                                     <>
                                       <button onClick={() => sendNext(e)} title="Send next step now" className="text-[10px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">Send now</button>
-                                      <button onClick={() => pauseLead(e.customer_id)} title="Pause lead (stops all their sequences)" className="text-[10px] px-2 py-0.5 rounded border border-amber-200 text-amber-600 hover:bg-amber-50">â¸ Pause lead</button>
+                                      <button onClick={() => pauseLead(e.customer_id)} title="Pause lead (stops all their sequences)" className="text-[10px] px-2 py-0.5 rounded border border-amber-200 text-amber-600 hover:bg-amber-50">⏸ Pause lead</button>
                                       <button onClick={() => stopEnrollment(e)} title="Stop just this sequence" className="text-[10px] px-2 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">Stop</button>
                                     </>
                                   )}
                                   {e.status === 'paused' && (
-                                    <button onClick={() => unpauseLead(e.customer_id)} title="Unpause lead (resumes their sequences)" className="text-[10px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">â¶ Unpause</button>
+                                    <button onClick={() => unpauseLead(e.customer_id)} title="Unpause lead (resumes their sequences)" className="text-[10px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">▶ Unpause</button>
                                   )}
                                 </div>
                               </td>
@@ -455,7 +455,7 @@ export default function SequencesPage() {
               <h2 className="font-bold text-[#1A1D2E]">{editing ? 'Edit sequence' : 'New sequence'}</h2>
               <div className="flex gap-2">
                 <button onClick={close} className="text-sm px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Cancel</button>
-                <button onClick={save} disabled={saving} className="text-sm px-4 py-1.5 rounded-lg bg-[#3B6FE0] text-white">{saving ? 'Savingâ¦' : 'Save'}</button>
+                <button onClick={save} disabled={saving} className="text-sm px-4 py-1.5 rounded-lg bg-[#3B6FE0] text-white">{saving ? 'Saving…' : 'Save'}</button>
               </div>
             </div>
             <div className="p-5 space-y-4">
@@ -465,13 +465,13 @@ export default function SequencesPage() {
                 <div className="col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">Send from mailbox</label>
                   {mailboxes.length === 0 ? (
-                    <div className="text-xs rounded-lg bg-[#FCE8EC] text-[#A11B30] border border-[#F3C6CF] px-3 py-2">No mailboxes connected. Connect one in <b>Settings â Email</b> first.</div>
+                    <div className="text-xs rounded-lg bg-[#FCE8EC] text-[#A11B30] border border-[#F3C6CF] px-3 py-2">No mailboxes connected. Connect one in <b>Settings → Email</b> first.</div>
                   ) : (
                     <select value={form.from_email || ''} onChange={e => { setForm((f: any) => ({ ...f, from_email: e.target.value })); setAllowProtected(false) }} className={inp}>
-                      <option value="">â choose a mailbox â</option>
+                      <option value="">— choose a mailbox —</option>
                       {mailboxes.map(m => (
                         <option key={m.email} value={m.email}>
-                          {m.email}{m.is_outreach_default ? '  â outreach (recommended)' : ''}{m.is_protected ? '  â  primary â not for cold outreach' : ''}
+                          {m.email}{m.is_outreach_default ? '  ✓ outreach (recommended)' : ''}{m.is_protected ? '  ⚠ primary — not for cold outreach' : ''}
                         </option>
                       ))}
                     </select>
@@ -483,7 +483,7 @@ export default function SequencesPage() {
 
               {protectedChosen && (
                 <div className="rounded-lg bg-[#FCE8EC] border-2 border-[#E0244B] px-3 py-2.5">
-                  <p className="text-sm font-bold text-[#A11B30]">â  {form.from_email} is your primary business mailbox</p>
+                  <p className="text-sm font-bold text-[#A11B30]">⚠ {form.from_email} is your primary business mailbox</p>
                   <p className="text-[12px] text-[#A11B30] mt-0.5">Sending cold outreach from here can hurt deliverability. Use your dedicated outreach mailbox instead.</p>
                   <label className="flex items-center gap-2 mt-2 text-[12px] text-[#A11B30] font-medium">
                     <input type="checkbox" checked={allowProtected} onChange={e => setAllowProtected(e.target.checked)} />
@@ -506,7 +506,7 @@ export default function SequencesPage() {
                   </div>
                 </label>
               </div>
-              <p className="text-[11px] text-gray-500">Your <Link href="/settings/email-signature" className="text-[#3B6FE0] underline">global signature</Link> is auto-appended to every email â you don't paste it into the step body.</p>
+              <p className="text-[11px] text-gray-500">Your <Link href="/settings/email-signature" className="text-[#3B6FE0] underline">global signature</Link> is auto-appended to every email — you don't paste it into the step body.</p>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -519,10 +519,10 @@ export default function SequencesPage() {
                       <div className="flex items-center gap-2 mb-2">
                         <span className="w-6 h-6 rounded-full bg-[#3B6FE0] text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
                         <span className="text-xs text-gray-500">{i === 0 ? 'Sent on enrollment' : <>Wait <input type="number" value={st.delay_days} onChange={e => updateStep(i, { delay_days: Number(e.target.value) })} className="w-12 border border-[#E4E6EE] rounded px-1 py-0.5 text-xs mx-1" /> day(s) after previous</>}</span>
-                        <button onClick={() => removeStep(i)} className="ml-auto text-gray-400 hover:text-red-600 text-sm">Ã</button>
+                        <button onClick={() => removeStep(i)} className="ml-auto text-gray-400 hover:text-red-600 text-sm">×</button>
                       </div>
                       <input value={st.subject} onChange={e => updateStep(i, { subject: e.target.value })} placeholder="Subject" className={inp + ' mb-2'} />
-                      <textarea rows={4} value={st.body} onChange={e => updateStep(i, { body: e.target.value })} placeholder="Email bodyâ¦" className={inp + ' resize-y font-mono text-xs'} />
+                      <textarea rows={4} value={st.body} onChange={e => updateStep(i, { body: e.target.value })} placeholder="Email body…" className={inp + ' resize-y font-mono text-xs'} />
                     </div>
                   ))}
                 </div>
