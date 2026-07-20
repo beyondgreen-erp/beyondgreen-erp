@@ -249,13 +249,21 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
         ;(artByRfq[a.record_id] ||= []).push({ name: a.file_name, type: a.file_type, url: signed?.signedUrl || null })
       }
     }
+    // Line items for the client's sales orders (shown when an order row is expanded)
+    const soIds = ((bdeals || []) as any[]).map(o => o.id)
+    const linesBySo: Record<string, any[]> = {}
+    if (soIds.length) {
+      const { data: solns } = await admin.from('sales_order_lines').select('sales_order_id, sku, description, quantity, quantity_shipped, unit_of_measure, unit_price, production_status, qty_per_case, line_number').in('sales_order_id', soIds).order('line_number', { ascending: true })
+      for (const l of (solns || []) as any[]) { (linesBySo[l.sales_order_id] ||= []).push({ sku: l.sku, description: l.description, quantity: l.quantity != null ? Number(l.quantity) : null, shipped: l.quantity_shipped != null ? Number(l.quantity_shipped) : null, unit: l.unit_of_measure, unit_price: l.unit_price != null ? Number(l.unit_price) : null, status: l.production_status || null, qty_per_case: l.qty_per_case != null ? Number(l.qty_per_case) : null }) }
+    }
     const commissionOf = (selling: number, cost: number | null, basis: string) => basis === 'none' ? 0 : basis === 'profit_50' ? Math.max(0, selling - (cost || 0)) * 0.5 : selling * 0.07
     const mapOrder = (o: any, selling: number, po_url: string | null, source: string) => {
       const cost = o.broker_cost != null ? Number(o.broker_cost) : null
       const basis = o.broker_commission_basis || 'po_7'
       const commission = commissionOf(selling, cost, basis)
       const cstatus = o.broker_commission_status || (o.broker_commission_paid ? 'paid_by_bg' : 'waiting_customer')
-      return { id: o.id, source, name: o.client_portal_name || o.order_number || o.po_number || o.customer_name || 'Project', po_number: o.po_number || null, po_url, status: o.status || o.delivery_status || null, cost, selling, basis, commission, commission_status: cstatus, commission_status_label: STATUS_LABEL[cstatus] || 'Waiting on Customer Payment' }
+      const profit = cost != null ? selling - cost : null
+      return { id: o.id, source, name: o.client_portal_name || o.order_number || o.po_number || o.customer_name || 'Project', po_number: o.po_number || null, po_url, status: o.status || o.delivery_status || null, cost, selling, profit, basis, commission, commission_status: cstatus, commission_status_label: STATUS_LABEL[cstatus] || 'Waiting on Customer Payment', lines: source === 'sales_order' ? (linesBySo[o.id] || []) : [] }
     }
     const allSo = ((bdeals || []) as any[]).map(o => mapOrder(o, Number(o.total_amount ?? o.total ?? o.subtotal ?? 0), o.purchase_order_url || null, 'sales_order'))
     const shipMapped = ((bships || []) as any[]).map(s => mapOrder(s, Number(s.total_value ?? 0), s.packing_slip_url || s.pod_file_url || null, 'shipment'))
