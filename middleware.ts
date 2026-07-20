@@ -28,6 +28,17 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const host = (request.headers.get('host') || '').toLowerCase().split(':')[0]
 
+  // Temporary diagnostic — remove after verifying host isolation.
+  if (request.nextUrl.searchParams.get('__mwdebug') === '1') {
+    return new NextResponse(JSON.stringify({
+      host,
+      forwardedHost: request.headers.get('x-forwarded-host'),
+      nextUrlHost: request.nextUrl.host,
+      portalHosts: PORTAL_HOSTS,
+      onPortalHost: PORTAL_HOSTS.includes(host),
+    }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
+  }
+
   // ── Dedicated portal host: only the portal exists here; the ERP is hidden. ──
   if (PORTAL_HOSTS.length > 0 && PORTAL_HOSTS.includes(host)) {
     if (isPortalPath(pathname) || STATIC_RE.test(pathname) || pathname.startsWith('/_next/')) {
