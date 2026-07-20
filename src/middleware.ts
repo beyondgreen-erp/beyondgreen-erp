@@ -4,8 +4,34 @@ import type { NextRequest } from 'next/server'
 
 const ALLOWED_DOMAINS = ['beyondgreenbiotech.com', 'byndgrn.com']
 
+// Hostnames that serve ONLY the client portal. On these hosts the ERP is hidden:
+// every non-portal path (including the bare domain and /login) redirects to /portal,
+// so clients can never reach the staff login by trimming the URL. The built-in
+// default guarantees isolation even if the env var isn't inlined into the Edge runtime.
+const PORTAL_HOSTS = Array.from(new Set([
+  'byndgrn-portal.vercel.app',
+  ...(process.env.NEXT_PUBLIC_PORTAL_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+]))
+
+function isPortalPath(pathname: string): boolean {
+  return pathname === '/portal' || pathname.startsWith('/portal/') ||
+    pathname.startsWith('/api/portal') || pathname.startsWith('/api/avatar') ||
+    pathname.startsWith('/_next') || pathname === '/sw.js' || pathname === '/manifest.json' ||
+    /\.(?:png|jpe?g|gif|svg|ico|webp|css|js|woff2?|ttf|otf|map)$/i.test(pathname)
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const host = (request.headers.get('host') || '').toLowerCase().split(':')[0]
+
+  // Dedicated portal host: only the client portal is reachable; the ERP is invisible.
+  if (PORTAL_HOSTS.includes(host)) {
+    if (isPortalPath(pathname)) return NextResponse.next()
+    const url = request.nextUrl.clone()
+    url.pathname = '/portal'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
 
   if (
     pathname.startsWith('/login') ||
