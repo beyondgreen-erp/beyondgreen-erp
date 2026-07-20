@@ -206,7 +206,7 @@ export default function SequencesPage() {
     load()
   }
   async function pauseLead(customerId: string) {
-    const reason = prompt('Reason for pausing this lead? (e.g. "not now", "wrong contact", "asked to stop")', 'not now')
+    const reason = window.prompt('Reason for pausing this lead? (e.g. "not now", "wrong contact", "asked to stop")', 'not now')
     if (reason === null) return
     await fetch('/api/leads/sequence-pause-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_ids: [customerId], reason }) })
     load()
