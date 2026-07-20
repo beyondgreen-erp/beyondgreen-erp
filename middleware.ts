@@ -8,8 +8,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 // On one of these hosts the ERP is completely invisible: every non-portal path is
 // redirected to /portal, so clients can never reach the staff login by trimming the
 // URL. Leave the env var empty and nothing changes.
-const PORTAL_HOSTS = (process.env.NEXT_PUBLIC_PORTAL_HOSTS || '')
-  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+// Built-in default guarantees isolation even if the env var isn't inlined into the
+// Edge runtime; the env var can add more hosts.
+const PORTAL_HOSTS = Array.from(new Set([
+  'byndgrn-portal.vercel.app',
+  ...(process.env.NEXT_PUBLIC_PORTAL_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+]))
 
 const STATIC_RE = /\.(?:pdf|png|jpe?g|gif|svg|webp|ico|txt|xml|json|webmanifest|woff2?|ttf|csv|zip|map|html)$/i
 
