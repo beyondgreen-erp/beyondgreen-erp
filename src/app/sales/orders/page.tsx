@@ -666,8 +666,9 @@ function EditPanel({
                 <label className="block text-xs text-gray-400 mb-1.5">PO Document URL</label>
                 <input value={form.purchase_order_url} onChange={e => setForm(p => ({ ...p, purchase_order_url: e.target.value }))} className={inp} placeholder="https://…"/>
               </div>
-              {editing && (
-                <PoExtractUpload salesOrderId={editing.id} onExtracted={(d, p) => setForm(prev => ({
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">📎 Upload Purchase Order <span className="normal-case text-gray-300">(PDF or image — we&rsquo;ll store it &amp; auto-read the fields)</span></label>
+                <PoExtractUpload salesOrderId={editing?.id} onExtracted={(d, p) => setForm(prev => ({
                   ...prev,
                   purchase_order_url: p || prev.purchase_order_url,
                   order_number: d.po_number || prev.order_number,
@@ -677,7 +678,7 @@ function EditPanel({
                   ship_date: d.ship_date || prev.ship_date,
                   total_amount: (d.total != null ? String(d.total) : prev.total_amount),
                 }))}/>
-              )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Packing Slip URL</label>
