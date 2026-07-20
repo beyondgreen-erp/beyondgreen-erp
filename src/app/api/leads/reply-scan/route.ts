@@ -1,262 +1,232 @@
 /**
- * GET /api/leads/reply-scan
- * Scans the outreach mailbox(es) — the from_email of active sequences (e.g.
- * rudy.patel@byndgrn.com) — and reacts to what actually landed in the inbox:
+ * GET/POST /api/leads/reply-scan
  *
- *   • Bounce / NDR (undeliverable)  -> mark the matched lead INACTIVE, stop the
- *     enrollment, and note it on the lead.
- *   • Out-of-office / auto-reply     -> append a note to the lead, keep sending.
- *   • Genuine human reply            -> AI-classify (interested / not / unsub …)
- *     and update the lead + enrollment exactly like before.
+ * Scans each connected Outlook mailbox for the LAST 3 DAYS of inbound messages,
+ * classifies them, and:
+ *   - bounce   â mark customer is_dead_lead, pause all their enrollments
+ *   - ooo      â record only (transient, don't act)
+ *   - decline  â auto_outreach_paused=TRUE, last_reply_intent='declined', pause enrollments
+ *   - unsub    â auto_outreach_paused=TRUE, do_not_contact=TRUE, pause enrollments
+ *   - interested â pipeline_stage='Replied', pause enrollments (human takes over)
+ *   - replied (ambiguous) â pipeline_stage='Replied', pause enrollments
  *
- * Idempotent-ish: bounces only fire while a lead is still active; OOO notes are
- * de-duped by a timestamp stamp; replies only fire while the enrollment is active.
+ * Writes a full row to reply_scan_runs with per-classification counts.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin'
 import { getOutlookAccessToken } from '@/lib/outlook'
 
 export const maxDuration = 60
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-const LOOKBACK_DAYS = 14
-const MAX_MESSAGES = 200
-const MAX_BODY_FETCHES = 200 // cap Graph body lookups for bounces so we stay under the timeout
+// ---------- classifier ---------------------------------------------------
 
-const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi
-const BOUNCE_SENDER_RE = /postmaster|mailer-daemon|mail delivery (subsystem|system)|microsoftexchange|no[-.]?reply@.*(mail|exchange)/i
-const BOUNCE_SUBJECT_RE = /undeliverable|delivery (has )?failed|delivery status notification|delivery failure|returned mail|address (not found|couldn'?t be found|rejected)|recipient.*(not found|reject)|mailbox (full|unavailable|not found)|550 5\.|message not delivered/i
-const OOO_SUBJECT_RE = /^(automatic reply|auto:|auto reply|autoreply|out of office|out-of-office)\b|out of (the )?office|automatic reply|on (vacation|leave|holiday|pto)|away from (the )?office|currently (out|away|unavailable)/i
-const stripBouncePrefix = (subj: string) => subj.replace(/^(undeliverable|automatic reply|auto|re|fwd?|delivery status notification|mail delivery)\s*:?\s*/i, '').trim()
+type Kind = 'bounce' | 'ooo' | 'unsub' | 'decline' | 'interested' | 'replied'
 
-type Intent = 'interested' | 'meeting' | 'question' | 'not_interested' | 'unsubscribe' | 'auto_reply' | 'other'
+const BOUNCE_SUBJECT = /(undeliverable|delivery (status notification|failed|failure)|mail delivery failed|returned mail|address not found|550 |recipient rejected|non[- ]?delivery)/i
+const BOUNCE_FROM    = /(mailer[- ]?daemon|postmaster|noreply@|no-?reply@|bounces?@|mailerdaemon)/i
+const OOO_SUBJECT    = /(out of (the )?office|out of office|auto[- ]?reply|automatic reply|automatic response|currently (away|out|unavailable)|on vacation|on leave|maternity leave|paternity leave|holiday reply|is out today|away from (my|the) (desk|office))/i
+const OOO_HEADER_KEYS = ['auto-submitted', 'x-autoreply', 'x-autorespond', 'x-auto-response-suppress', 'precedence']
 
-async function classify(subject: string, preview: string): Promise<{ intent: Intent; reason: string }> {
-  try {
-    const msg = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
-      messages: [{
-        role: 'user',
-        content: `You classify replies to a cold B2B sales email (compostable packaging). Return ONLY raw JSON: {"intent":"<one of: interested, meeting, question, not_interested, unsubscribe, auto_reply, other>","reason":"<6 words max>"}.
-- interested = positive / wants info / samples / pricing
-- meeting = wants a call/demo/meeting
-- question = asking a clarifying question but not clearly positive
-- not_interested = polite no / not now / already have a vendor
-- unsubscribe = asks to stop, remove, do not contact, take me off
-- auto_reply = out-of-office / auto-responder / bounce
-- other = anything else
+const UNSUB_BODY     = /(please )?(unsubscribe|remove me (from|from your)|take me off (your |the )?list|opt[- ]?out|do not (contact|email) (me|us)( again)?|stop (emailing|contacting|sending))/i
+const DECLINE_BODY   = /(not interested|no thanks|no thank you|not (a )?(good )?fit|not (at )?(this|the) time|not (right )?now|circle back (later|next)|not (currently|actively) looking|we (already have|are all set|have a (provider|vendor|supplier))|please stop|we (don'?t|do not) need|no need|pass on this|move on|remove (us|our|me) from|not for us|we'?ll pass)/i
+const INTEREST_BODY  = /\b(yes[!, .]|sounds (great|good|interesting)|(would )?love to (learn more|see|hear|chat|talk|discuss)|(please )?send (over |along )?(more info|samples|the (deck|catalog|pricing|quote|spec sheet))|(let'?s |can we )?(schedule|set up|book|hop on|jump on) (a call|time|a meeting|something)|interested( in|,)|tell me more|(happy|available) to (chat|talk|discuss|meet)|when (can|are) you (available|free)|what('?s| is) (the )?(next step|pricing)|please share)/i
 
-Subject: ${subject}
-Body: ${preview}`,
-      }],
-    })
-    const raw = msg.content[0]?.type === 'text' ? msg.content[0].text : '{}'
-    const a = raw.indexOf('{'); const b = raw.lastIndexOf('}')
-    const j = JSON.parse(raw.slice(a, b + 1))
-    const ok: Intent[] = ['interested', 'meeting', 'question', 'not_interested', 'unsubscribe', 'auto_reply', 'other']
-    return { intent: ok.includes(j.intent) ? j.intent : 'other', reason: String(j.reason || '') }
-  } catch { return { intent: 'other', reason: 'unclassified' } }
+function extractPlainBody(msg: any): string {
+  const b = msg?.body?.content || ''
+  if (msg?.body?.contentType === 'html') {
+    return b.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 4000)
+  }
+  return String(b).slice(0, 4000)
 }
 
-async function fetchInbox(token: string, sinceIso: string): Promise<any[]> {
-  const filter = `receivedDateTime ge ${sinceIso}`
-  const url =
-    `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$select=id,subject,from,toRecipients,bodyPreview,receivedDateTime&$top=${MAX_MESSAGES}&$orderby=receivedDateTime desc&$filter=` +
-    encodeURIComponent(filter)
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: 'eventual' } })
-  if (!r.ok) return []
+function classify(msg: any): Kind {
+  const from = (msg?.from?.emailAddress?.address || '').toLowerCase()
+  const subj = String(msg?.subject || '')
+  const headers: any[] = msg?.internetMessageHeaders || []
+  const hdrMap: Record<string, string> = {}
+  headers.forEach((h: any) => { if (h?.name) hdrMap[String(h.name).toLowerCase()] = String(h.value || '').toLowerCase() })
+
+  // 1. Hard bounce: DSN
+  if (BOUNCE_FROM.test(from) || BOUNCE_SUBJECT.test(subj)) return 'bounce'
+  if ((hdrMap['content-type'] || '').includes('multipart/report')) return 'bounce'
+
+  // 2. Auto-reply / OOO
+  const autoSub = hdrMap['auto-submitted'] || ''
+  if (autoSub && autoSub !== 'no' && autoSub !== '') return 'ooo'
+  if (OOO_HEADER_KEYS.some(k => (hdrMap[k] || '').match(/(auto[- ]?repl|auto[- ]?respond|auto_reply|bulk)/i))) return 'ooo'
+  if (OOO_SUBJECT.test(subj)) return 'ooo'
+
+  // 3. Body-based classification â real human replies
+  const body = extractPlainBody(msg)
+  const lowSubj = subj.toLowerCase()
+  if (UNSUB_BODY.test(body) || UNSUB_BODY.test(lowSubj)) return 'unsub'
+  if (DECLINE_BODY.test(body) || DECLINE_BODY.test(lowSubj)) return 'decline'
+  if (INTEREST_BODY.test(body) || INTEREST_BODY.test(lowSubj)) return 'interested'
+  return 'replied'
+}
+
+// ---------- Graph fetch --------------------------------------------------
+
+async function fetchInbox(token: string, sinceIso: string) {
+  const url = new URL('https://graph.microsoft.com/v1.0/me/messages')
+  url.searchParams.set('$top', '250')
+  url.searchParams.set('$select', 'id,from,subject,body,internetMessageHeaders,receivedDateTime,isRead,conversationId')
+  url.searchParams.set('$filter', `receivedDateTime ge ${sinceIso}`)
+  url.searchParams.set('$orderby', 'receivedDateTime desc')
+  const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text"' } })
+  if (!r.ok) throw new Error(`Graph ${r.status}: ${await r.text().catch(() => '')}`)
   const j = await r.json()
-  return Array.isArray(j.value) ? j.value : []
+  return (j.value || []) as any[]
 }
 
-async function fetchBody(token: string, id: string): Promise<string> {
-  try {
-    const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}?$select=body`, { headers: { Authorization: `Bearer ${token}` } })
-    if (!r.ok) return ''
-    const j = await r.json()
-    return (j.body?.content || '').replace(/<[^>]+>/g, ' ')
-  } catch { return '' }
+// ---------- shared handler ----------------------------------------------
+
+async function runScan(triggeredBy: 'manual' | 'cron') {
+  const sb = createSupabaseAdminClient()
+  const nowIso = new Date().toISOString()
+  const sinceIso = new Date(Date.now() - 3 * 86400000).toISOString() // last 3 days
+
+  // Connected mailboxes
+  const { data: mailboxes } = await sb.from('user_email_connections')
+    .select('email,provider').eq('provider', 'microsoft')
+
+  const boxes = (mailboxes || []).map((m: any) => String(m.email || '').toLowerCase()).filter(Boolean)
+  if (!boxes.length) {
+    await sb.from('reply_scan_runs').insert({ ran_at: nowIso, triggered_by: triggeredBy, mailboxes: [], scanned: 0, error: 'no mailboxes connected' })
+    return { scanned: 0, error: 'no mailboxes connected' }
+  }
+
+  // Aggregate counts
+  const counts = { scanned: 0, bounce: 0, ooo: 0, replied: 0, interested: 0, unsub: 0, decline: 0, already_bounced: 0, already_ooo: 0 }
+  const auditPerCust: Record<string, { kind: Kind; subject: string; from: string; mailbox: string }> = {}
+  const errs: string[] = []
+
+  // Pull all leads by email (bulk) so we can match without one-by-one queries
+  const { data: allLeads } = await sb.from('customers')
+    .select('id,email,company_name,is_dead_lead,auto_outreach_paused,do_not_contact,pipeline_stage')
+  const leadByEmail: Record<string, any> = {}
+  ;(allLeads || []).forEach((c: any) => { if (c.email) leadByEmail[String(c.email).toLowerCase()] = c })
+
+  // Per-mailbox scan
+  for (const mbox of boxes) {
+    try {
+      const token = await getOutlookAccessToken(mbox)
+      if (!token) { errs.push(`${mbox}: no token`); continue }
+      const messages = await fetchInbox(token, sinceIso)
+      counts.scanned += messages.length
+
+      for (const m of messages) {
+        const fromEmail = String(m?.from?.emailAddress?.address || '').toLowerCase()
+        if (!fromEmail) continue
+
+        const kind = classify(m)
+
+        // Try to match to a lead (bounces often come from mailer-daemon â try to parse the original recipient)
+        let lead = leadByEmail[fromEmail]
+        if (!lead && kind === 'bounce') {
+          // Bounces embed the original recipient in the body/headers; try to pull it.
+          const body = extractPlainBody(m)
+          const found = body.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []
+          for (const cand of found) {
+            const c = leadByEmail[cand.toLowerCase()]
+            if (c) { lead = c; break }
+          }
+        }
+        if (!lead) continue
+
+        // Already-known tracking
+        if (kind === 'bounce' && lead.is_dead_lead) { counts.already_bounced++; continue }
+        if (kind === 'ooo' && lead.pipeline_stage === 'OOO') { counts.already_ooo++; continue }
+        // For real replies, don't skip on already-set â we want to overwrite with newer intent.
+
+        // Bump counter (only for NEW classifications)
+        if (kind === 'bounce') counts.bounce++
+        else if (kind === 'ooo') counts.ooo++
+        else if (kind === 'unsub') counts.unsub++
+        else if (kind === 'decline') counts.decline++
+        else if (kind === 'interested') { counts.interested++; counts.replied++ }
+        else counts.replied++
+
+        auditPerCust[lead.id] = { kind, subject: String(m.subject || '').slice(0, 120), from: fromEmail, mailbox: mbox }
+
+        // Apply the update per kind
+        const upd: any = { updated_at: nowIso }
+        if (kind === 'bounce') {
+          upd.is_dead_lead = true
+          upd.pipeline_stage = 'Dead'
+        } else if (kind === 'ooo') {
+          upd.pipeline_stage = 'OOO'
+        } else if (kind === 'unsub') {
+          upd.auto_outreach_paused = true
+          upd.do_not_contact = true
+          upd.last_reply_at = nowIso
+          upd.last_reply_intent = 'unsubscribed'
+          upd.pipeline_stage = 'Unsubscribed'
+        } else if (kind === 'decline') {
+          upd.auto_outreach_paused = true
+          upd.last_reply_at = nowIso
+          upd.last_reply_intent = 'declined'
+          upd.pipeline_stage = 'Declined'
+        } else if (kind === 'interested') {
+          upd.last_reply_at = nowIso
+          upd.last_reply_intent = 'interested'
+          upd.pipeline_stage = 'Replied'
+        } else {
+          upd.last_reply_at = nowIso
+          upd.last_reply_intent = 'replied'
+          upd.pipeline_stage = 'Replied'
+        }
+        await sb.from('customers').update(upd).eq('id', lead.id)
+
+        // Pause active enrollments for anything that halts the sequence
+        if (kind === 'bounce' || kind === 'unsub' || kind === 'decline' || kind === 'interested' || kind === 'replied') {
+          await sb.from('sequence_enrollments')
+            .update({ status: 'paused', stop_reason: `Auto-paused by reply-scan: ${kind}`, updated_at: nowIso })
+            .eq('customer_id', lead.id).eq('status', 'active')
+          // Cancel pending review-queue sends for this customer
+          const { data: pending } = await sb.from('sequence_sends').select('id').eq('customer_id', lead.id).eq('status', 'review')
+          if (pending && pending.length) {
+            await sb.from('sequence_sends').update({ status: 'skipped' }).in('id', pending.map((r: any) => r.id))
+          }
+        }
+      }
+    } catch (e: any) {
+      errs.push(`${mbox}: ${e?.message || String(e)}`)
+    }
+  }
+
+  // Write log row
+  await sb.from('reply_scan_runs').insert({
+    ran_at: nowIso,
+    triggered_by: triggeredBy,
+    mailboxes: boxes,
+    scanned: counts.scanned,
+    bounced: counts.bounce,
+    ooo: counts.ooo,
+    replies: counts.replied,
+    interested: counts.interested,
+    unsubscribed: counts.unsub,
+    declined: counts.decline,
+    already_bounced: counts.already_bounced,
+    already_ooo: counts.already_ooo,
+    details: { audit: auditPerCust, errors: errs },
+    error: errs.length ? errs.join(' | ').slice(0, 1000) : null,
+  })
+
+  const message = `Scanned ${counts.scanned} message(s) across ${boxes.length} mailbox(es) Â· ${counts.bounce} new bounce${counts.bounce === 1 ? '' : 's'} marked inactive (${counts.already_bounced} already inactive), ${counts.ooo} new out-of-office noted (${counts.already_ooo} already noted), ${counts.replied} real repl${counts.replied === 1 ? 'y' : 'ies'} (${counts.interested} interested, ${counts.decline} declined, ${counts.unsub} unsubscribed).`
+  return { ...counts, mailboxes: boxes, errors: errs, message }
 }
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const need = process.env.REPLY_SCAN_KEY
-  if (need && url.searchParams.get('key') !== need) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  const isCron = url.searchParams.get('cron') === '1'
+  if (isCron && need && url.searchParams.get('key') !== need) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  const res = await runScan(isCron ? 'cron' : 'manual')
+  return NextResponse.json(res)
+}
 
-  const sb = createSupabaseAdminClient()
-
-  // Which mailboxes to scan: the from_email of every active sequence (that's the
-  // inbox replies/bounces land in). This targets rudy.patel@byndgrn.com directly.
-  const { data: activeSeqs } = await sb.from('sequences').select('id, from_email').eq('status', 'active')
-  let mailboxes = [...new Set(((activeSeqs as any[]) || []).map(s => s.from_email).filter(Boolean))] as string[]
-  if (!mailboxes.length) {
-    const { data: conn } = await sb.from('user_email_connections').select('email').eq('provider', 'microsoft').order('connected_at', { ascending: false }).limit(1).maybeSingle()
-    if (conn?.email) mailboxes = [conn.email as string]
-  }
-  if (!mailboxes.length) return NextResponse.json({ error: 'No outreach mailbox found. Connect one in Settings → Email Connection.' }, { status: 400 })
-
-  const sinceIso = new Date(Date.now() - LOOKBACK_DAYS * 86400000).toISOString()
-  const nowIso = new Date().toISOString()
-  const today = nowIso.slice(0, 10)
-
-
-
-  let scanned = 0, bounced = 0, ooo = 0, replies = 0, interested = 0, unsub = 0, declined = 0
-  let alreadyBounced = 0, alreadyOoo = 0
-  const perMailbox: any[] = []
-  const detBounced: any[] = [], detOoo: any[] = [], detReplies: any[] = []
-  const triggeredBy = (url.searchParams.get('src') === 'cron') ? 'cron' : 'manual'
-
-  for (const mailbox of mailboxes) {
-    const token = await getOutlookAccessToken(mailbox)
-    if (!token) { perMailbox.push({ mailbox, error: 'token unavailable (reconnect mailbox)' }); continue }
-
-    // Sequences that send from this mailbox, and their enrollments -> lead lookup by email.
-    const seqIds = ((activeSeqs as any[]) || []).filter(s => s.from_email === mailbox).map(s => s.id)
-    let enrRows: any[] = []
-    if (seqIds.length) {
-      const { data: enrolls } = await sb.from('sequence_enrollments').select('id, customer_id, sequence_id, status').in('sequence_id', seqIds).limit(5000)
-      enrRows = (enrolls as any[]) || []
-    }
-    const custIds = [...new Set(enrRows.map(e => e.customer_id))]
-    const custById: Record<string, any> = {}
-    for (let i = 0; i < custIds.length; i += 300) {
-      const { data: cs } = await sb.from('customers').select('id, email, company_name, is_active, notes').in('id', custIds.slice(i, i + 300))
-      ;(cs as any[] || []).forEach(c => { custById[c.id] = c })
-    }
-    // email -> { customer, enrollment }
-    const byEmail: Record<string, { cust: any; enr: any }> = {}
-    for (const e of enrRows) {
-      const c = custById[e.customer_id]
-      if (!c?.email) continue
-      const key = String(c.email).toLowerCase()
-      if (!byEmail[key]) byEmail[key] = { cust: c, enr: e }
-    }
-
-    // Outgoing-subject -> recipient email, so a bounce whose subject echoes our
-    // sent subject ("Undeliverable: <our subject>") can be matched to the lead
-    // even when the failed address isn't in the bounce preview/body.
-    const sentSubjMap: Record<string, string> = {}
-    if (seqIds.length) {
-      const { data: sends } = await sb.from('sequence_sends').select('subject,to_email').in('sequence_id', seqIds).limit(5000)
-      for (const sd of (sends as any[]) || []) { const k = String(sd.subject || '').trim().toLowerCase(); if (k && sd.to_email) sentSubjMap[k] = String(sd.to_email).toLowerCase() }
-    }
-
-    const msgs = await fetchInbox(token, sinceIso)
-    let bodyFetches = 0
-    const mb = { mailbox, scanned: msgs.length, bounced: 0, ooo: 0, replies: 0 }
-
-    for (const m of msgs) {
-      scanned++
-      const sender = String(m.from?.emailAddress?.address || '').toLowerCase()
-      const subject = String(m.subject || '').trim()
-      const preview = String(m.bodyPreview || '').replace(/\s+/g, ' ')
-      const received = m.receivedDateTime || nowIso
-
-      const looksBounce = BOUNCE_SENDER_RE.test(sender) || BOUNCE_SUBJECT_RE.test(subject)
-
-      // ---- Bounce / NDR: find the failed lead address and mark it inactive ----
-      if (looksBounce) {
-        const hay = (subject + ' ' + preview).toLowerCase()
-        let matches = (hay.match(EMAIL_RE) || []).map(x => x.toLowerCase()).filter(x => byEmail[x])
-        // Fallback 1: pull the failed address from the full NDR body.
-        if (!matches.length && bodyFetches < MAX_BODY_FETCHES) {
-          bodyFetches++
-          const full = (await fetchBody(token, m.id)).toLowerCase()
-          matches = (full.match(EMAIL_RE) || []).map(x => x.toLowerCase()).filter(x => byEmail[x])
-        }
-        // Fallback 2: match the bounce subject back to the original outgoing email.
-        if (!matches.length) {
-          const key = stripBouncePrefix(subject).toLowerCase()
-          const to = key && sentSubjMap[key]
-          if (to && byEmail[to]) matches = [to]
-        }
-        const uniq = [...new Set(matches)]
-        for (const addr of uniq) {
-          const { cust, enr } = byEmail[addr]
-          if (cust.is_active === false) { alreadyBounced++; continue } // already handled on a prior scan
-          const note = `[Bounced ${today}] Email to ${addr} was undeliverable — marked inactive.`
-          await sb.from('customers').update({
-            is_active: false, is_dead_lead: true,
-            notes: cust.notes ? `${cust.notes}\n${note}` : note,
-            updated_at: nowIso,
-          }).eq('id', cust.id)
-          cust.is_active = false
-          if (enr) await sb.from('sequence_enrollments').update({ status: 'stopped', stop_reason: 'bounced', updated_at: nowIso }).eq('id', enr.id)
-          try { await sb.from('email_logs').insert({ from_email: addr, subject, body_snippet: preview.slice(0, 400), log_type: 'bounce', linked_id: cust.id, linked_label: 'Lead bounced · inactive', note: 'undeliverable', logged_at: received }) } catch { /* ignore */ }
-          detBounced.push({ email: addr, company: cust.company_name || null, customer_id: cust.id })
-          bounced++; mb.bounced++
-        }
-        continue
-      }
-
-      // From here we only care about messages sent by a known lead.
-      const lead = byEmail[sender]
-      if (!lead) continue
-
-      // ---- Out-of-office / auto-reply: note it, keep sending ----
-      if (OOO_SUBJECT_RE.test(subject)) {
-        const stamp = `[Out of office ${received.slice(0, 16)}]`
-        const existing = lead.cust.notes || ''
-        if (!existing.includes(stamp)) {
-          const note = `${stamp} ${preview.slice(0, 200)}`
-          await sb.from('customers').update({ notes: existing ? `${existing}\n${note}` : note, updated_at: nowIso }).eq('id', lead.cust.id)
-          lead.cust.notes = existing ? `${existing}\n${note}` : note
-          try { await sb.from('email_logs').insert({ from_email: sender, subject, body_snippet: preview.slice(0, 400), log_type: 'auto_reply', linked_id: lead.cust.id, linked_label: 'Out of office', note: 'ooo', logged_at: received }) } catch { /* ignore */ }
-          detOoo.push({ email: sender, company: lead.cust.company_name || null, customer_id: lead.cust.id })
-          ooo++; mb.ooo++
-        } else { alreadyOoo++ }
-        continue
-      }
-
-      // ---- Genuine human reply: classify and act (only while still active) ----
-      if (lead.enr && lead.enr.status !== 'active') continue
-      const { intent, reason } = await classify(subject, preview)
-      if (intent === 'auto_reply') continue // treat like OOO/bounce noise, keep going
-
-      replies++; mb.replies++
-      const custPatch: Record<string, unknown> = { last_reply_intent: intent, last_reply_at: nowIso, updated_at: nowIso, is_dead_lead: false }
-      let enrStatus = 'replied'
-      if (intent === 'interested' || intent === 'meeting' || intent === 'question') {
-        enrStatus = 'interested'; interested++
-        custPatch.auto_outreach_paused = true
-        custPatch.customer_status = 'Interested'
-        custPatch.pipeline_stage = intent === 'meeting' ? 'Meeting' : 'Engaged'
-      } else if (intent === 'unsubscribe') {
-        enrStatus = 'dnc'; unsub++
-        custPatch.do_not_contact = true
-        await sb.from('lead_list_members').delete().eq('customer_id', lead.cust.id)
-      } else { declined++ }
-
-      if (lead.enr) await sb.from('sequence_enrollments').update({ status: enrStatus, replied_at: nowIso, stop_reason: `${intent}: ${reason}`, updated_at: nowIso }).eq('id', lead.enr.id)
-      await sb.from('customers').update(custPatch).eq('id', lead.cust.id)
-      try { await sb.from('email_logs').insert({ from_email: sender, subject, body_snippet: preview.slice(0, 400), log_type: 'reply', linked_id: lead.cust.id, linked_label: `Lead reply · ${intent}`, note: reason, logged_at: received }) } catch { /* ignore */ }
-      detReplies.push({ email: sender, company: lead.cust.company_name || null, customer_id: lead.cust.id, intent, reason })
-    }
-    perMailbox.push(mb)
-  }
-
-  const bMore = alreadyBounced ? ` (${alreadyBounced} already inactive from earlier)` : ''
-  const oMore = alreadyOoo ? ` (${alreadyOoo} already noted)` : ''
-  const message = `Scanned ${scanned} message(s) across ${mailboxes.length} mailbox(es) · ${bounced} new bounce${bounced === 1 ? '' : 's'} marked inactive${bMore}, ${ooo} new out-of-office noted${oMore}, ${replies} real repl${replies === 1 ? 'y' : 'ies'} (${interested} interested, ${unsub} unsubscribed).`
-
-  // Record this run so it shows up in CRM → Inbox Scans.
-  let runId: string | null = null
-  try {
-    const { data: run } = await sb.from('reply_scan_runs').insert({
-      triggered_by: triggeredBy,
-      mailboxes,
-      scanned, bounced, ooo, replies, interested, unsubscribed: unsub, declined,
-      already_bounced: alreadyBounced, already_ooo: alreadyOoo,
-      details: { bounced: detBounced, ooo: detOoo, replies: detReplies, message },
-    }).select('id').single()
-    runId = (run as any)?.id ?? null
-  } catch { /* ignore logging failures */ }
-
-  return NextResponse.json({
-    runId, scanned, bounced, ooo, replies, interested, unsubscribed: unsub, declined, alreadyBounced, alreadyOoo,
-    mailboxes: perMailbox, message,
-  })
+export async function POST() {
+  const res = await runScan('manual')
+  return NextResponse.json(res)
 }
