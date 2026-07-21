@@ -20,6 +20,7 @@ import OutreachDrawer from '@/components/OutreachDrawer'
 
 interface Customer {
   id: string; company_name: string; contact_name: string | null; email: string | null
+  customer_code: number | null
   phone: string | null; billing_address: string | null; shipping_address: string | null
   payment_terms: string | null; notes: string | null; is_active: boolean; created_at: string
   pipeline_stage: string | null; deal_value: number | null; probability: number | null
@@ -246,6 +247,7 @@ export default function CustomersPage() {
     const q = search.toLowerCase()
     const pc = primaryContacts[c.id]
     return c.company_name.toLowerCase().includes(q) ||
+      String(c.customer_code ?? '').includes(q) ||
       (c.contact_name??'').toLowerCase().includes(q) ||
       (c.email??'').toLowerCase().includes(q) ||
       (pc?.full_name??'').toLowerCase().includes(q) ||
@@ -860,7 +862,7 @@ export default function CustomersPage() {
                       {!isParent&&!isChild&&<div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span></div>}
                       {(isParent||isChild)&&<div className={`w-7 h-7 rounded-full ${isParent?'bg-teal-700':avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span></div>}
                       <div>
-                        <span className={`font-medium ${isParent?'text-teal-800':'text-[#1A1D2E]'}`}>{c.company_name}</span>
+                        <span className={`font-medium ${isParent?'text-teal-800':'text-[#1A1D2E]'}`}>{c.company_name}</span>{c.customer_code?<span className="ml-2 text-[11px] font-mono text-gray-400">#{c.customer_code}</span>:null}
                         {isParent&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-teal-500/20 text-teal-400 border border-teal-500/30 rounded">Parent · {children.length} locations</span>}
                         {isChild&&<span className="ml-2 text-xs text-gray-600">location</span>}
                         {c.is_merged&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded">Merged</span>}
@@ -974,7 +976,7 @@ export default function CustomersPage() {
           <div className="flex items-center gap-3 min-w-0">
             {editing&&<div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0"><span className="text-white font-bold text-xs">{initials(editing.company_name)}</span></div>}
             <div className="min-w-0">
-              <h2 className="text-lg truncate">{editing?editing.company_name:'Add Customer'}</h2>
+              <h2 className="text-lg truncate">{editing?editing.company_name:'Add Customer'}{editing?.customer_code?<span className="ml-2 text-sm font-mono text-gray-400">#{editing.customer_code}</span>:null}</h2>
               <p className="text-xs text-white/80 truncate">
                 {editing?.customer_status||'Lead'}
                 {editing?.is_merged&&<span className="ml-2">· Merged</span>}
