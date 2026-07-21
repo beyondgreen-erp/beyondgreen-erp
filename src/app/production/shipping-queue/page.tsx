@@ -195,6 +195,16 @@ export default function ShippingQueuePage() {
         productId: l.product_id || null,
       }
     })
+    // Apply any saved SKU→GTIN overrides (covers SKUs that aren't in the inventory product list).
+    try {
+      const skuList = [...new Set(rowsOut.map(r => String(r.sku || '').trim().toUpperCase()).filter(Boolean))]
+      if (skuList.length) {
+        const { data: ov } = await sb.from('sku_gtin_overrides').select('sku, gtin_image_url').in('sku', skuList)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ovMap: Record<string, string> = {}; ((ov as any[]) || []).forEach((o: any) => { ovMap[String(o.sku).toUpperCase()] = o.gtin_image_url })
+        for (const r of rowsOut) { if (!r.gtinImageUrl) { const u = ovMap[String(r.sku || '').trim().toUpperCase()]; if (u) r.gtinImageUrl = u } }
+      }
+    } catch { /* ignore */ }
     // Restore a saved draft (pallet configurations, parcel flag, BOL form) if one exists.
     try {
       const { data: od } = await sb.from('sales_orders').select('pack_draft').eq('id', item.sales_order_id).single()
@@ -485,6 +495,8 @@ export default function ShippingQueuePage() {
       let saved = 0
       if (pid) { const { data } = await sb.from('products').update({ gtin_image_url: url }).eq('id', pid).select('id'); saved = (data as unknown[])?.length || 0 }
       if (!saved) { const { data } = await sb.from('products').update({ gtin_image_url: url }).ilike('sku', sku).select('id'); saved = (data as unknown[])?.length || 0 }
+      // Persist a SKU→GTIN fallback so it sticks even when the SKU has no inventory product.
+      try { await sb.from('sku_gtin_overrides').upsert({ sku: sku.trim().toUpperCase(), gtin_image_url: url, updated_at: new Date().toISOString() }) } catch { /* ignore */ }
       setMissing(m => m.filter(s => s !== sku))
     } catch (e) { alert('GTIN upload failed: ' + (e as Error).message) }
     setBusy('')
