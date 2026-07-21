@@ -76,7 +76,7 @@ interface OrderLine {
   line_number: number | null
 }
 
-interface Product { id: string; sku: string; product_name: string; unit_cost: number | null; unit_of_measure: string | null }
+interface Product { id: string; sku: string; product_name: string; unit_cost: number | null; unit_of_measure: string | null; our_part_number: string | null; supplier_part_number: string | null }
 interface Customer { id: string; company_name: string }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ function SkuAssign({ lineId, onAssigned }: { lineId: string; onAssigned: (sku: s
   useEffect(() => {
     if (q.length < 1) { setResults([]); return }
     const t = setTimeout(async () => {
-      const { data } = await sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
+      const { data } = await sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure,our_part_number,supplier_part_number').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
       setResults((data ?? []) as Product[])
       setOpen(true)
     }, 200)
@@ -300,6 +300,8 @@ interface EditLineState {
   _key: string
   id?: string
   sku: string
+  our_part_number: string
+  supplier_part_number: string
   description: string
   quantity: string
   completed_qty: string
@@ -368,7 +370,7 @@ function EditPanel({
   ).slice(0, 8)
 
   function addLine(preset?: Partial<EditLineState>) {
-    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, ...preset }])
+    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', our_part_number: '', supplier_part_number: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, ...preset }])
   }
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch } : l)) }
@@ -726,7 +728,7 @@ function EditPanel({
                         <div className="absolute top-full left-0 right-0 bg-white border border-[#E4E6EE] rounded-lg shadow-xl z-10 overflow-hidden mt-0.5 max-h-40 overflow-y-auto">
                           {skuMatches.map(p => (
                             <button key={p.id} onMouseDown={() => {
-                              updateLine(line._key, { sku: p.sku, description: p.product_name, product_id: p.id, sku_flagged: false, unit_price: (p.unit_cost != null && !line.unit_price) ? String(p.unit_cost) : line.unit_price })
+                              updateLine(line._key, { sku: p.sku, description: p.product_name, product_id: p.id, sku_flagged: false, our_part_number: p.our_part_number || line.our_part_number, supplier_part_number: p.supplier_part_number || line.supplier_part_number, unit_price: (p.unit_cost != null && !line.unit_price) ? String(p.unit_cost) : line.unit_price })
                               setSkuDropdown(null)
                             }} className="w-full text-left px-3 py-2 text-xs border-b border-[#E4E6EE] last:border-0 hover:bg-[#F5F6FA] transition-colors">
                               <span className="text-emerald-400 font-mono font-bold">{p.sku}</span>
@@ -763,6 +765,12 @@ function EditPanel({
                       placeholder="Production Status" className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     <input value={line.added_details} onChange={e => updateLine(line._key, { added_details: e.target.value })}
                       placeholder="Details / Specs" className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={line.our_part_number} onChange={e => updateLine(line._key, { our_part_number: e.target.value })}
+                      placeholder="Our Part #" className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                    <input value={line.supplier_part_number} onChange={e => updateLine(line._key, { supplier_part_number: e.target.value })}
+                      placeholder="Supplier Part #" className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                   </div>
                 </div>
               ))}
@@ -876,7 +884,7 @@ export default function OrdersPage() {
     const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }, { data: pc }] = await Promise.all([
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone)').eq('archived', false).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
-      sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure').eq('is_active', true).order('sku'),
+      sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure,our_part_number,supplier_part_number').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id').eq('sku_flagged', true),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
       sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
@@ -1106,6 +1114,8 @@ export default function OrdersPage() {
       _key: l.id,
       id: l.id,
       sku: l.sku ?? '',
+      our_part_number: l.our_part_number ?? '',
+      supplier_part_number: l.supplier_part_number ?? '',
       description: l.description ?? '',
       quantity: String(l.quantity ?? 1),
       completed_qty: String(l.completed_qty ?? l.quantity_shipped ?? 0),
@@ -1242,6 +1252,8 @@ export default function OrdersPage() {
       }
       const extLine: Record<string,any> = {
         completed_qty: parseFloat(line.completed_qty) || 0,
+        our_part_number: line.our_part_number.trim() || null,
+        supplier_part_number: line.supplier_part_number.trim() || null,
         packaging: line.packaging || null,
         production_status: line.production_status || null,
         added_details: line.added_details || null,
