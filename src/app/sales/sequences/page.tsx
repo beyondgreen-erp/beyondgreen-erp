@@ -140,13 +140,23 @@ export default function SequencesPage() {
     }
 
     const sendsBy: Record<string, Send[]> = {}
-    const todayCount: Record<string, number> = {}
-    ;((sends as Send[]) || []).forEach(sd => {
-      (sendsBy[sd.sequence_id] ||= []).push(sd)
-      if (sd.status === 'sent' && sd.sent_at && sd.sent_at >= startOfDay.toISOString()) todayCount[sd.sequence_id] = (todayCount[sd.sequence_id] || 0) + 1
-    })
+    ;((sends as Send[]) || []).forEach(sd => { (sendsBy[sd.sequence_id] ||= []).push(sd) })
     setSendsBySeq(sendsBy)
+
+    // Sent-today has to be an authoritative count per sequence — the sends slice
+    // above is only the last 500 rows, so we'd under-count once a sequence goes
+    // past that. Do a lightweight count query per active sequence in parallel.
+    const seqList = (s as Sequence[]) || []
+    const todayCount: Record<string, number> = {}
+    const todayIso = startOfDay.toISOString()
+    await Promise.all(seqList.map(async (sq) => {
+      const { count } = await sb.from('sequence_sends')
+        .select('id', { count: 'exact', head: true })
+        .eq('sequence_id', sq.id).eq('status', 'sent').gte('sent_at', todayIso)
+      todayCount[sq.id] = count || 0
+    }))
     setSentTodayBySeq(todayCount)
+
     const { count: pending } = await sb.from('sequence_sends').select('id', { count: 'exact', head: true }).eq('status', 'review')
     setPendingCount(pending || 0)
     setLoading(false)
@@ -260,6 +270,7 @@ export default function SequencesPage() {
           </Link>
           <Link href="/settings/email-signature" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Signature</Link>
           <button onClick={scanReplies} disabled={!!running} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50">Scan replies</button>
+          <Link href="/sales/sequences/scans" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Scan history</Link>
           <button onClick={runNow} disabled={!!running} className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E] disabled:opacity-50">Send due now</button>
           <button onClick={openNew} className="text-sm px-4 py-2 rounded-lg bg-[#3B6FE0] text-white hover:bg-[#2E5CC7] font-semibold">+ New Sequence</button>
         </div>
