@@ -14,6 +14,8 @@ import Comments from '@/components/Comments'
 interface Product {
   id: string
   sku: string
+  our_part_number: string | null
+  supplier_part_number: string | null
   product_name: string
   product_category: string | null
   category: string | null
@@ -53,6 +55,8 @@ const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-
 
 const emptyForm = {
   sku: '',
+  our_part_number: '',
+  supplier_part_number: '',
   product_name: '',
   product_category: '',
   category: '',
@@ -147,6 +151,18 @@ const EditPanel = memo(function EditPanel({
               readOnly={!!editing}
               placeholder="e.g. BG-1001"
               className={`w-full bg-white border border-emerald-500/30 text-emerald-400 placeholder-gray-600 rounded-lg px-4 py-3 text-lg font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition ${editing ? 'opacity-70 cursor-not-allowed' : ''}`}/>
+          </div>
+
+          {/* Part numbers */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Our Part #</label>
+              <input value={form.our_part_number} onChange={e => setForm(p => ({ ...p, our_part_number: e.target.value }))} placeholder="Internal part #" className={inp}/>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Supplier Part #</label>
+              <input value={form.supplier_part_number} onChange={e => setForm(p => ({ ...p, supplier_part_number: e.target.value }))} placeholder="Supplier part #" className={inp}/>
+            </div>
           </div>
 
           {/* Product Name */}
@@ -406,6 +422,8 @@ export default function InventoryPage() {
     setEditing(r)
     setForm({
       sku: r.sku,
+      our_part_number: r.our_part_number ?? '',
+      supplier_part_number: r.supplier_part_number ?? '',
       product_name: r.product_name ?? '',
       product_category: r.product_category ?? '',
       category: r.category ?? '',
@@ -441,6 +459,8 @@ export default function InventoryPage() {
     setErr(''); setSaving(true)
     const payload: Record<string, any> = {
       sku: form.sku.trim(),
+      our_part_number: form.our_part_number.trim() || null,
+      supplier_part_number: form.supplier_part_number.trim() || null,
       product_name: form.product_name.trim(),
       product_category: form.product_category || null,
       category: form.category || null,
