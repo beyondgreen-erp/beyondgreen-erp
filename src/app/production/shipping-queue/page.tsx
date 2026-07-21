@@ -101,6 +101,10 @@ export default function ShippingQueuePage() {
   const [coBolUrl, setCoBolUrl] = useState('')
   const [coPhotos, setCoPhotos] = useState<{ url: string; type: string }[]>([])
   const [coSummary, setCoSummary] = useState('')
+  const [shipCarrier, setShipCarrier] = useState('')
+  const [shipTracking, setShipTracking] = useState('')
+  const [shipCost, setShipCost] = useState('')
+  const [shipBrokerCost, setShipBrokerCost] = useState('')
   const [coBusy, setCoBusy] = useState('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [])
@@ -146,6 +150,7 @@ export default function ShippingQueuePage() {
     if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' }
     setPreviewUrl('')
     setShipPrep({}); setCloseout(false); setCoShipId(''); setCoSlipUrl(''); setCoBolUrl(''); setCoPhotos([]); setCoSummary(''); setCoBusy('')
+    setShipCarrier(''); setShipTracking(''); setShipCost(''); setShipBrokerCost('')
   }
 
   async function openOrder(item: QueueItem) {
@@ -269,6 +274,16 @@ export default function ShippingQueuePage() {
 
   const activeItem = items.find(i => i.id === openId)
   const o = activeItem?.sales_orders
+  const shipPrefillRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!openId) { shipPrefillRef.current = null; return }
+    if (shipPrefillRef.current === openId) return
+    const ord = items.find(i => i.id === openId)?.sales_orders
+    if (!ord) return
+    shipPrefillRef.current = openId
+    setShipCarrier((ord.carrier as string | null) || '')
+    setShipTracking((ord.tracking_number as string | null) || '')
+  }, [openId, items])
   const st = o ? shipTo(o) : { name: '', addr: '' }
 
   // ---- Configurations → expanded pallets -----------------------------------
@@ -642,8 +657,7 @@ export default function ShippingQueuePage() {
     try { await sb.from('sales_orders').update({ ship_prep: next }).eq('id', activeItem.sales_order_id) } catch { /* */ }
   }
   const requiredDocs = parcel ? ['packingList', 'caseLabels'] : ['bol', 'packingList', 'palletLabels', 'caseLabels']
-  const canMove = requiredDocs.every(k => shipPrep[k])
-  const requiredPhotoTypes = parcel ? ['package', 'shipping_label'] : ['packed_pallet', 'shipping_label', 'sealed_cases', 'bol_document']
+  const canMove = true // documents are optional — shipping no longer requires labels/BOL
 
   function startCloseout() { setCoShipId((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString()); setCoSlipUrl(''); setCoBolUrl(''); setCoPhotos([]); setCoSummary(''); setCoBusy(''); setCloseout(true) }
 
@@ -683,15 +697,16 @@ export default function ShippingQueuePage() {
     setCoBusy('')
   }
   const needBolDoc = !parcel && !!shipPrep.bol
-  const photosOk = requiredPhotoTypes.every(t => coPhotos.some(p => p.type === t))
-  const canConfirm = !!coSlipUrl && (!needBolDoc || !!coBolUrl) && photosOk && !!coSummary
+  const canConfirm = true // photos & signed docs are optional — attach if you want, but not required
 
   async function createShipment(extra: Record<string, unknown>) {
     if (!activeItem || !o) return
     const now = new Date()
     await sb.from('shipments').insert({
       id: coShipId || undefined, sales_order_id: activeItem.sales_order_id, order_id: activeItem.sales_order_id,
-      customer_name: st.name, po_number: o.po_number || null, carrier: o.carrier || null,
+      customer_name: st.name, po_number: o.po_number || null,
+      carrier: (shipCarrier || o.carrier) || null, tracking_number: (shipTracking || o.tracking_number) || null,
+      ship_cost: shipCost ? parseFloat(shipCost) : null, broker_cost: shipBrokerCost ? parseFloat(shipBrokerCost) : null,
       ship_date: now.toISOString().slice(0, 10), shipped_at: now.toISOString(), order_date: o.order_date || null,
       total_value: o.total_amount ?? o.total ?? o.total_value ?? null, ship_to_address: st.addr || null,
       bol_number: bolForm?.bolNumber || null, packing_slip_url: coSlipUrl || null, pod_file_url: coBolUrl || null,
@@ -710,7 +725,7 @@ export default function ShippingQueuePage() {
     setCoBusy('move')
     try {
       await createShipment({ id: coShipId, delivery_status: 'Shipped', status: 'Shipped', ai_summary: coSummary || null })
-      await sb.from('sales_orders').update({ status: 'Shipped' }).eq('id', activeItem.sales_order_id)
+      await sb.from('sales_orders').update({ status: 'Shipped', carrier: (shipCarrier || o?.carrier) || null, tracking_number: (shipTracking || o?.tracking_number) || null }).eq('id', activeItem.sales_order_id)
     } catch (e) { alert('Move failed: ' + (e as Error).message); setCoBusy(''); return }
     setOpenId(null); resetPackState(); load()
   }
@@ -724,7 +739,7 @@ export default function ShippingQueuePage() {
     try {
       const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString()
       await createShipment({ id, delivery_status: 'Shipped', status: 'Shipped', ai_summary: 'Manually marked shipped via override — closeout documents not attached.' })
-      await sb.from('sales_orders').update({ status: 'Shipped' }).eq('id', activeItem.sales_order_id)
+      await sb.from('sales_orders').update({ status: 'Shipped', carrier: (shipCarrier || o?.carrier) || null, tracking_number: (shipTracking || o?.tracking_number) || null }).eq('id', activeItem.sales_order_id)
     } catch (e) { alert('Override failed: ' + (e as Error).message); setBusy(''); return }
     setBusy(''); setOpenId(null); resetPackState(); load()
   }
@@ -1036,6 +1051,14 @@ export default function ShippingQueuePage() {
                             <span className="text-sm font-semibold text-[#1A1D2E]">Ship it</span>
                             {!canMove && <span className="ml-auto text-xs text-gray-400">Generate all required documents to unlock</span>}
                           </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                            <div><label className="block text-[11px] text-gray-500 mb-0.5">Carrier</label><input list="dl-carriers" value={shipCarrier} onChange={e => setShipCarrier(e.target.value)} placeholder={parcel ? 'UPS, FedEx…' : 'e.g. XPO, Estes'} className={inp} /></div>
+                            <div><label className="block text-[11px] text-gray-500 mb-0.5">{parcel ? 'Tracking #' : 'PRO / Tracking #'}</label><input value={shipTracking} onChange={e => setShipTracking(e.target.value)} className={inp} /></div>
+                            <div><label className="block text-[11px] text-gray-500 mb-0.5">Shipping cost ($)</label><input type="number" min="0" step="0.01" value={shipCost} onChange={e => setShipCost(e.target.value)} className={inp} /></div>
+                            {!parcel && <div><label className="block text-[11px] text-gray-500 mb-0.5">Broker cost ($)</label><input type="number" min="0" step="0.01" value={shipBrokerCost} onChange={e => setShipBrokerCost(e.target.value)} className={inp} /></div>}
+                          </div>
+                          <datalist id="dl-carriers"><option value="UPS" /><option value="FedEx" /><option value="USPS" /><option value="DHL" /><option value="XPO" /><option value="Old Dominion" /><option value="Estes" /><option value="R+L Carriers" /><option value="SAIA" /><option value="TForce Freight" /><option value="ABF Freight" /></datalist>
+                          <p className="text-[11px] text-gray-400 mb-2">Documents below are optional — you can ship without generating labels or a BOL.</p>
                           <div className="flex flex-wrap gap-2 mb-3">
                             {requiredDocs.map(k => (
                               <span key={k} className={`text-xs px-2 py-1 rounded-full border ${shipPrep[k] ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
