@@ -993,23 +993,32 @@ export default function ShippingQueuePage() {
                             <span className="text-sm font-semibold text-[#1A1D2E]">Print labels</span>
                             {!labelsUnlocked && <span className="ml-auto text-xs text-gray-400">Case labels are ready now · pallet labels unlock after the BOL</span>}
                           </div>
-                          {missing.length > 0 && (
-                            <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
-                              <p className="text-amber-800 mb-2"><b>GTIN barcode image is missing</b> for {missing.length} SKU{missing.length !== 1 ? 's' : ''}. Upload the unique GTIN barcode image for each — it will be used on this order&apos;s case labels and saved to the Inventory board for next time.</p>
-                              <div className="space-y-1.5">
-                                {missing.map(sku => (
-                                  <div key={sku} className="flex items-center gap-2 bg-white rounded-md border border-amber-200 px-2.5 py-1.5">
-                                    <span className="font-mono font-semibold text-[#1A1D2E] w-28 truncate">{sku}</span>
-                                    <span className="text-gray-500 flex-1 truncate">{plan.find(r => r.sku === sku)?.description || ''}</span>
-                                    <label className={`${btn} bg-amber-600 text-white border-amber-600 cursor-pointer ${busy === 'gtin-' + sku ? 'opacity-60' : ''}`}>
-                                      {busy === 'gtin-' + sku ? 'Uploading…' : '⬆ Upload GTIN'}
-                                      <input type="file" accept="image/*" className="hidden" disabled={busy === 'gtin-' + sku}
-                                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadGtin(sku, f); e.currentTarget.value = '' }} />
-                                    </label>
-                                  </div>
-                                ))}
+                          {plan.length > 0 && (
+                            <div className="text-xs border border-gray-200 rounded-lg p-3 mb-3 bg-gray-50/60">
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <span className="font-semibold text-[#1A1D2E]">GTIN barcode images</span>
+                                <span className="text-gray-400 truncate">Upload or replace the image printed on each case label — saved to Inventory for next time</span>
                               </div>
-                              <p className="text-amber-700 mt-2">Then click <b>Case Labels</b> again to generate.</p>
+                              <div className="space-y-1.5">
+                                {[...new Map(plan.map(r => [r.sku, r] as const)).values()].map(r => {
+                                  const isMissing = missing.includes(r.sku)
+                                  return (
+                                    <div key={r.sku} className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 ${isMissing ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'}`}>
+                                      <span className="font-mono font-semibold text-[#1A1D2E] w-28 truncate">{r.sku}</span>
+                                      {r.gtinImageUrl
+                                        ? <span className="text-emerald-600 shrink-0 whitespace-nowrap">● Custom image</span>
+                                        : (r.upc ? <span className="text-gray-500 shrink-0 whitespace-nowrap">UPC barcode</span> : <span className="text-amber-600 shrink-0 whitespace-nowrap">● No barcode</span>)}
+                                      <span className="text-gray-400 flex-1 truncate">{r.description || ''}</span>
+                                      <label className={`${btn} shrink-0 cursor-pointer ${r.gtinImageUrl ? 'bg-white border-gray-300' : 'bg-amber-600 text-white border-amber-600'} ${busy === 'gtin-' + r.sku ? 'opacity-60' : ''}`}>
+                                        {busy === 'gtin-' + r.sku ? 'Uploading…' : (r.gtinImageUrl ? '↻ Replace' : '⬆ Upload GTIN')}
+                                        <input type="file" accept="image/*" className="hidden" disabled={busy === 'gtin-' + r.sku}
+                                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadGtin(r.sku, f); e.currentTarget.value = '' }} />
+                                      </label>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                              {missing.length > 0 && <p className="text-amber-700 mt-2">Missing a barcode for {missing.length} SKU{missing.length !== 1 ? 's' : ''}. Upload above, then click <b>Case Labels</b>.</p>}
                             </div>
                           )}
                           <div className="flex flex-wrap gap-2">
