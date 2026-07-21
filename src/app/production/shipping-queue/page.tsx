@@ -48,7 +48,7 @@ interface ExpandedPallet {
 }
 const DEFAULT_L = 48, DEFAULT_W = 40
 function newConfig(id: number): PalletConfig {
-  return { id, count: 1, lengthIn: DEFAULT_L, widthIn: DEFAULT_W, heightIn: 0, weightLb: 0, freightClass: '', nmfc: '', stackable: false, notes: '', contents: [] }
+  return { id, count: 1, lengthIn: DEFAULT_L, widthIn: DEFAULT_W, heightIn: 0, weightLb: 0, freightClass: '', nmfc: '', stackable: false, notes: '', contents: [{ sku: '', casesPerPallet: 0 }] }
 }
 interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string }
 
@@ -878,7 +878,7 @@ export default function ShippingQueuePage() {
                             <span className="ml-auto text-xs text-gray-400">{totals.pallets} pallet{totals.pallets !== 1 ? 's' : ''} · {totals.cases} cases · {totals.weight} lb</span>
                             <button onClick={autoPack} className={`${btn} bg-violet-600 text-white border-violet-600`} title="Generate a starting configuration per SKU">✨ Auto-pack</button>
                           </div>
-                          <p className="text-xs text-gray-500 mb-3">Add a configuration for each type of pallet — how many identical pallets, their size and weight, and what&apos;s on each. Add more than one SKU for a mixed pallet.</p>
+                          <p className="text-xs text-gray-500 mb-3">Add a pallet and choose which SKU(s) go on it &mdash; you pick, nothing is auto-assigned. Put 2 or 3 SKUs on one pallet for a mixed pallet. Set &ldquo;# of pallets&rdquo; above 1 only if several pallets are identical. (&#10024; Auto-pack is an optional shortcut.)</p>
 
                           {/* Per-SKU allocation tracker */}
                           <div className="flex flex-wrap gap-1.5 mb-3">
@@ -921,7 +921,7 @@ export default function ShippingQueuePage() {
                             })}
                           </div>
 
-                          <button onClick={() => openConfig()} className={`${btn} w-full justify-center border-dashed border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-600`}>+ Add configuration</button>
+                          <button onClick={() => openConfig()} className={`${btn} w-full justify-center border-dashed border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-600`}>+ Add pallet — pick the SKUs</button>
 
                           {anyUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Every SKU should be fully assigned — the chips above turn green when a SKU&apos;s cases are all on pallets.</div>}
                           {!anyUnallocated && anyPalletMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Enter a <b>weight per pallet</b> on each configuration so the BOL and labels are accurate.</div>}
@@ -1080,7 +1080,7 @@ export default function ShippingQueuePage() {
               </div>
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <label><span className={lbl}># of pallets</span><input type="number" min={1} value={d.count} onChange={e => patchDraft({ count: Math.max(1, Number(e.target.value) || 1) })} className={cin} /></label>
+                  <label><span className={lbl}># of identical pallets</span><input type="number" min={1} value={d.count} onChange={e => patchDraft({ count: Math.max(1, Number(e.target.value) || 1) })} className={cin} /></label>
                   <label><span className={lbl}>Weight / pallet (lb)</span><input type="number" min={0} value={d.weightLb || ''} placeholder="0" onChange={e => patchDraft({ weightLb: Math.max(0, Number(e.target.value) || 0) })} className={cin} /></label>
                   <label className="col-span-2"><span className={lbl}>Dimensions L × W × H (in)</span>
                     <div className="flex items-center gap-1">
