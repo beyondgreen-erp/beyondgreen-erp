@@ -975,11 +975,11 @@ export default function ShippingQueuePage() {
                         </div>
 
                         {/* STEP 3 — Print labels */}
-                        <div className={`rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm ${!labelsUnlocked ? 'opacity-60' : ''}`}>
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-3">
-                            <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center font-semibold shrink-0 ${labelsUnlocked ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>3</span>
+                            <span className="w-6 h-6 rounded-full text-xs flex items-center justify-center font-semibold shrink-0 bg-indigo-50 text-indigo-600">3</span>
                             <span className="text-sm font-semibold text-[#1A1D2E]">Print labels</span>
-                            {!labelsUnlocked && <span className="ml-auto text-xs text-gray-400">Unlocks after the BOL is finalized</span>}
+                            {!labelsUnlocked && <span className="ml-auto text-xs text-gray-400">Case labels are ready now · pallet labels unlock after the BOL</span>}
                           </div>
                           {missing.length > 0 && (
                             <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
@@ -1001,8 +1001,8 @@ export default function ShippingQueuePage() {
                             </div>
                           )}
                           <div className="flex flex-wrap gap-2">
-                            <button onClick={genCaseLabels} disabled={!labelsUnlocked || busy === 'labels'} className={`${btn} bg-white border-gray-300`}>🏷️ Case Labels</button>
-                            <button onClick={genPalletLabels} disabled={!labelsUnlocked} className={`${btn} bg-white border-gray-300`}>📦 Pallet Labels</button>
+                            <button onClick={genCaseLabels} disabled={busy === 'labels' || plan.length === 0} title={plan.length === 0 ? 'Configure packing first' : ''} className={`${btn} bg-white border-gray-300`}>🏷️ Case Labels</button>
+                            <button onClick={genPalletLabels} disabled={!labelsUnlocked} title={!labelsUnlocked ? 'Unlocks after the BOL is finalized' : ''} className={`${btn} bg-white border-gray-300`}>📦 Pallet Labels</button>
                             <button onClick={genPackingList} className={`${btn} bg-white border-gray-300`}>📋 Packing List</button>
                             <button onClick={genPickTickets} className={`${btn} bg-emerald-600 text-white border-emerald-600`} title="Save pallets & print a scannable pick ticket per pallet">🎫 Pick Tickets</button>
                           </div>
