@@ -38,6 +38,7 @@ interface SalesOrder {
   customer_email: string | null
   customer_phone: string | null
   shipping_address: string | null
+  billing_address: string | null
   additional_comments: string | null
   purchase_order_url: string | null
   packing_slip_url: string | null
@@ -288,7 +289,7 @@ const emptyForm = {
   notes: '', order_section: '', order_number: '', po_number: '', status: 'Pending', facility: '',
   monday_item_id: '', order_date: '', production_start: '', estimated_completion: '',
   ship_date: '', customer_id: '', customer_label: '', customer_email: '', customer_phone: '',
-  shipping_address: '', total_amount: '', purchase_order_url: '', packing_slip_url: '',
+  shipping_address: '', billing_address: '', total_amount: '', purchase_order_url: '', packing_slip_url: '',
   bol: '', additional_comments: '',
   terms: 'Net 30', fob: 'Santa Ana', sales_rep: 'RP',
   client_portal_visible: false, client_portal_name: '',
@@ -649,9 +650,15 @@ function EditPanel({
                   <input value={form.customer_phone} onChange={e => setForm(p => ({ ...p, customer_phone: e.target.value }))} className={inp}/>
                 </div>
               </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Shipping Address</label>
-                <textarea rows={2} value={form.shipping_address} onChange={e => setForm(p => ({ ...p, shipping_address: e.target.value }))} className={inp + ' resize-none'}/>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Billing Address</label>
+                  <textarea rows={2} value={form.billing_address} onChange={e => setForm(p => ({ ...p, billing_address: e.target.value }))} className={inp + ' resize-none'} placeholder="Bill-to address"/>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Shipping Address</label>
+                  <textarea rows={2} value={form.shipping_address} onChange={e => setForm(p => ({ ...p, shipping_address: e.target.value }))} className={inp + ' resize-none'} placeholder="Ship-to address"/>
+                </div>
               </div>
             </div>
           </div>
@@ -1145,6 +1152,7 @@ export default function OrdersPage() {
       customer_email: order.customer_email ?? '',
       customer_phone: order.customer_phone ?? '',
       shipping_address: order.shipping_address ?? '',
+      billing_address: order.billing_address ?? '',
       total_amount: orderValue(order) ? String(orderValue(order)) : '',
       purchase_order_url: order.purchase_order_url ?? '',
       packing_slip_url: order.packing_slip_url ?? '',
@@ -1180,6 +1188,7 @@ export default function OrdersPage() {
       total: form.total_amount ? parseFloat(form.total_amount) : 0,
       tax_pct: 0,
       shipping_address: form.shipping_address || null,
+      billing_address: form.billing_address || null,
     }
     // SO# (order_number): use what was typed; if blank keep the existing number when editing,
     // or leave it off for a new order so the database assigns the next sequence value.
