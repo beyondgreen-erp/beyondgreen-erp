@@ -1082,8 +1082,21 @@ export default function OrdersPage() {
   }
 
   // Form helpers
-  function openAdd() {
-    setEditingOrder(null); setForm(emptyForm); setEditLines([]); setErr(''); setEditOpen(true)
+  async function openAdd() {
+    setEditingOrder(null); setEditLines([]); setErr('')
+    // Auto-assign the next SO number in the 31487+ sequence (ignores legacy/oversized refs).
+    let next = 31487
+    try {
+      const { data } = await sb.from('sales_orders').select('order_number')
+      const nums = (data || [])
+        .map((r: any) => String(r.order_number ?? '').trim())
+        .filter((s: string) => /^[0-9]+$/.test(s))
+        .map(Number)
+        .filter((n: number) => n >= 31487 && n <= 999999)
+      next = Math.max(31486, ...nums) + 1
+    } catch { /* fall back to 31487 */ }
+    setForm({ ...emptyForm, order_number: String(next) })
+    setEditOpen(true)
   }
 
   async function openEdit(order: SalesOrder) {
