@@ -3,12 +3,12 @@
  *
  * Scans each connected Outlook mailbox for the LAST 3 DAYS of inbound messages,
  * classifies them, and:
- *   - bounce   â mark customer is_dead_lead, pause all their enrollments
- *   - ooo      â record only (transient, don't act)
- *   - decline  â auto_outreach_paused=TRUE, last_reply_intent='declined', pause enrollments
- *   - unsub    â auto_outreach_paused=TRUE, do_not_contact=TRUE, pause enrollments
- *   - interested â pipeline_stage='Replied', pause enrollments (human takes over)
- *   - replied (ambiguous) â pipeline_stage='Replied', pause enrollments
+ *   - bounce   → mark customer is_dead_lead, pause all their enrollments
+ *   - ooo      → record only (transient, don't act)
+ *   - decline  → auto_outreach_paused=TRUE, last_reply_intent='declined', pause enrollments
+ *   - unsub    → auto_outreach_paused=TRUE, do_not_contact=TRUE, pause enrollments
+ *   - interested → pipeline_stage='Replied', pause enrollments (human takes over)
+ *   - replied (ambiguous) → pipeline_stage='Replied', pause enrollments
  *
  * Writes a full row to reply_scan_runs with per-classification counts.
  */
@@ -56,7 +56,7 @@ function classify(msg: any): Kind {
   if (OOO_HEADER_KEYS.some(k => (hdrMap[k] || '').match(/(auto[- ]?repl|auto[- ]?respond|auto_reply|bulk)/i))) return 'ooo'
   if (OOO_SUBJECT.test(subj)) return 'ooo'
 
-  // 3. Body-based classification â real human replies
+  // 3. Body-based classification — real human replies
   const body = extractPlainBody(msg)
   const lowSubj = subj.toLowerCase()
   if (UNSUB_BODY.test(body) || UNSUB_BODY.test(lowSubj)) return 'unsub'
@@ -101,97 +101,123 @@ async function runScan(triggeredBy: 'manual' | 'cron') {
   const auditPerCust: Record<string, { kind: Kind; subject: string; from: string; mailbox: string }> = {}
   const errs: string[] = []
 
-  // Pull all leads by email (bulk) so we can match without one-by-one queries
-  const { data: allLeads } = await sb.from('customers')
-    .select('id,email,company_name,is_dead_lead,auto_outreach_paused,do_not_contact,pipeline_stage')
-  const leadByEmail: Record<string, any> = {}
-  ;(allLeads || []).forEach((c: any) => { if (c.email) leadByEmail[String(c.email).toLowerCase()] = c })
+  // ---- Pull messages FIRST, then look up only the leads we need. ----
+  // Old code did `sb.from('customers').select(...)` which Supabase caps at
+  // 1,000 rows server-side. With 14k+ customers that meant ~93% of replies
+  // silently failed the leadByEmail lookup and were dropped. See:
+  // reply for rick@zumaandsons.com Jul 20 2026 that never registered.
+  type FetchedMsg = { mbox: string; msg: any }
+  const allMessages: FetchedMsg[] = []
 
-  // Per-mailbox scan
   for (const mbox of boxes) {
     try {
       const token = await getOutlookAccessToken(mbox)
       if (!token) { errs.push(`${mbox}: no token`); continue }
       const messages = await fetchInbox(token, sinceIso)
       counts.scanned += messages.length
-
-      for (const m of messages) {
-        const fromEmail = String(m?.from?.emailAddress?.address || '').toLowerCase()
-        if (!fromEmail) continue
-
-        const kind = classify(m)
-
-        // Try to match to a lead (bounces often come from mailer-daemon â try to parse the original recipient)
-        let lead = leadByEmail[fromEmail]
-        if (!lead && kind === 'bounce') {
-          // Bounces embed the original recipient in the body/headers; try to pull it.
-          const body = extractPlainBody(m)
-          const found = body.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []
-          for (const cand of found) {
-            const c = leadByEmail[cand.toLowerCase()]
-            if (c) { lead = c; break }
-          }
-        }
-        if (!lead) continue
-
-        // Already-known tracking
-        if (kind === 'bounce' && lead.is_dead_lead) { counts.already_bounced++; continue }
-        if (kind === 'ooo' && lead.pipeline_stage === 'OOO') { counts.already_ooo++; continue }
-        // For real replies, don't skip on already-set â we want to overwrite with newer intent.
-
-        // Bump counter (only for NEW classifications)
-        if (kind === 'bounce') counts.bounce++
-        else if (kind === 'ooo') counts.ooo++
-        else if (kind === 'unsub') counts.unsub++
-        else if (kind === 'decline') counts.decline++
-        else if (kind === 'interested') { counts.interested++; counts.replied++ }
-        else counts.replied++
-
-        auditPerCust[lead.id] = { kind, subject: String(m.subject || '').slice(0, 120), from: fromEmail, mailbox: mbox }
-
-        // Apply the update per kind
-        const upd: any = { updated_at: nowIso }
-        if (kind === 'bounce') {
-          upd.is_dead_lead = true
-          upd.pipeline_stage = 'Dead'
-        } else if (kind === 'ooo') {
-          upd.pipeline_stage = 'OOO'
-        } else if (kind === 'unsub') {
-          upd.auto_outreach_paused = true
-          upd.do_not_contact = true
-          upd.last_reply_at = nowIso
-          upd.last_reply_intent = 'unsubscribed'
-          upd.pipeline_stage = 'Unsubscribed'
-        } else if (kind === 'decline') {
-          upd.auto_outreach_paused = true
-          upd.last_reply_at = nowIso
-          upd.last_reply_intent = 'declined'
-          upd.pipeline_stage = 'Declined'
-        } else if (kind === 'interested') {
-          upd.last_reply_at = nowIso
-          upd.last_reply_intent = 'interested'
-          upd.pipeline_stage = 'Replied'
-        } else {
-          upd.last_reply_at = nowIso
-          upd.last_reply_intent = 'replied'
-          upd.pipeline_stage = 'Replied'
-        }
-        await sb.from('customers').update(upd).eq('id', lead.id)
-
-        // Pause active enrollments for anything that halts the sequence
-        if (kind === 'bounce' || kind === 'unsub' || kind === 'decline' || kind === 'interested' || kind === 'replied') {
-          await sb.from('sequence_enrollments')
-            .update({ status: 'paused', stop_reason: `Auto-paused by reply-scan: ${kind}`, updated_at: nowIso })
-            .eq('customer_id', lead.id).eq('status', 'active')
-          // Cancel pending review-queue sends for this customer
-          const { data: pending } = await sb.from('sequence_sends').select('id').eq('customer_id', lead.id).eq('status', 'review')
-          if (pending && pending.length) {
-            await sb.from('sequence_sends').update({ status: 'skipped' }).in('id', pending.map((r: any) => r.id))
-          }
-        }
-      }
+      for (const m of messages) allMessages.push({ mbox, msg: m })
     } catch (e: any) {
       errs.push(`${mbox}: ${e?.message || String(e)}`)
+    }
+  }
+
+  // Collect every email address we need to resolve to a lead:
+  //   - direct from-address on every message
+  //   - for probable bounces (from address looks like a daemon), also parse
+  //     the ORIGINAL recipient out of the body/headers
+  const needed = new Set<string>()
+  for (const { msg } of allMessages) {
+    const fromEmail = String(msg?.from?.emailAddress?.address || '').toLowerCase()
+    if (fromEmail) needed.add(fromEmail)
+    if (BOUNCE_FROM.test(fromEmail) || BOUNCE_SUBJECT.test(String(msg?.subject || ''))) {
+      const body = extractPlainBody(msg)
+      const found = body.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []
+      for (const cand of found) needed.add(cand.toLowerCase())
+    }
+  }
+
+  // Chunked lookup — .in() with too many items also truncates via URL length,
+  // so keep batches conservative.
+  const leadByEmail: Record<string, any> = {}
+  if (needed.size) {
+    const emails = [...needed]
+    const CHUNK = 200
+    for (let i = 0; i < emails.length; i += CHUNK) {
+      const batch = emails.slice(i, i + CHUNK)
+      const { data: rows, error } = await sb.from('customers')
+        .select('id,email,company_name,is_dead_lead,auto_outreach_paused,do_not_contact,pipeline_stage')
+        .in('email', batch)
+      if (error) { errs.push(`lookup: ${error.message}`); continue }
+      ;(rows || []).forEach((c: any) => { if (c.email) leadByEmail[String(c.email).toLowerCase()] = c })
+    }
+  }
+
+  // Now walk messages and apply the classification.
+  for (const { mbox, msg: m } of allMessages) {
+    const fromEmail = String(m?.from?.emailAddress?.address || '').toLowerCase()
+    if (!fromEmail) continue
+
+    const kind = classify(m)
+
+    let lead = leadByEmail[fromEmail]
+    if (!lead && kind === 'bounce') {
+      const body = extractPlainBody(m)
+      const found = body.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []
+      for (const cand of found) {
+        const c = leadByEmail[cand.toLowerCase()]
+        if (c) { lead = c; break }
+      }
+    }
+    if (!lead) continue
+
+    if (kind === 'bounce' && lead.is_dead_lead) { counts.already_bounced++; continue }
+    if (kind === 'ooo' && lead.pipeline_stage === 'OOO') { counts.already_ooo++; continue }
+
+    if (kind === 'bounce') counts.bounce++
+    else if (kind === 'ooo') counts.ooo++
+    else if (kind === 'unsub') counts.unsub++
+    else if (kind === 'decline') counts.decline++
+    else if (kind === 'interested') { counts.interested++; counts.replied++ }
+    else counts.replied++
+
+    auditPerCust[lead.id] = { kind, subject: String(m.subject || '').slice(0, 120), from: fromEmail, mailbox: mbox }
+
+    const upd: any = { updated_at: nowIso }
+    if (kind === 'bounce') {
+      upd.is_dead_lead = true
+      upd.pipeline_stage = 'Dead'
+    } else if (kind === 'ooo') {
+      upd.pipeline_stage = 'OOO'
+    } else if (kind === 'unsub') {
+      upd.auto_outreach_paused = true
+      upd.do_not_contact = true
+      upd.last_reply_at = nowIso
+      upd.last_reply_intent = 'unsubscribed'
+      upd.pipeline_stage = 'Unsubscribed'
+    } else if (kind === 'decline') {
+      upd.auto_outreach_paused = true
+      upd.last_reply_at = nowIso
+      upd.last_reply_intent = 'declined'
+      upd.pipeline_stage = 'Declined'
+    } else if (kind === 'interested') {
+      upd.last_reply_at = nowIso
+      upd.last_reply_intent = 'interested'
+      upd.pipeline_stage = 'Replied'
+    } else {
+      upd.last_reply_at = nowIso
+      upd.last_reply_intent = 'replied'
+      upd.pipeline_stage = 'Replied'
+    }
+    await sb.from('customers').update(upd).eq('id', lead.id)
+
+    if (kind === 'bounce' || kind === 'unsub' || kind === 'decline' || kind === 'interested' || kind === 'replied') {
+      await sb.from('sequence_enrollments')
+        .update({ status: 'paused', stop_reason: `Auto-paused by reply-scan: ${kind}`, updated_at: nowIso })
+        .eq('customer_id', lead.id).eq('status', 'active')
+      const { data: pending } = await sb.from('sequence_sends').select('id').eq('customer_id', lead.id).eq('status', 'review')
+      if (pending && pending.length) {
+        await sb.from('sequence_sends').update({ status: 'skipped' }).in('id', pending.map((r: any) => r.id))
+      }
     }
   }
 
@@ -213,7 +239,7 @@ async function runScan(triggeredBy: 'manual' | 'cron') {
     error: errs.length ? errs.join(' | ').slice(0, 1000) : null,
   })
 
-  const message = `Scanned ${counts.scanned} message(s) across ${boxes.length} mailbox(es) Â· ${counts.bounce} new bounce${counts.bounce === 1 ? '' : 's'} marked inactive (${counts.already_bounced} already inactive), ${counts.ooo} new out-of-office noted (${counts.already_ooo} already noted), ${counts.replied} real repl${counts.replied === 1 ? 'y' : 'ies'} (${counts.interested} interested, ${counts.decline} declined, ${counts.unsub} unsubscribed).`
+  const message = `Scanned ${counts.scanned} message(s) across ${boxes.length} mailbox(es) · ${counts.bounce} new bounce${counts.bounce === 1 ? '' : 's'} marked inactive (${counts.already_bounced} already inactive), ${counts.ooo} new out-of-office noted (${counts.already_ooo} already noted), ${counts.replied} real repl${counts.replied === 1 ? 'y' : 'ies'} (${counts.interested} interested, ${counts.decline} declined, ${counts.unsub} unsubscribed).`
   return { ...counts, mailboxes: boxes, errors: errs, message }
 }
 
