@@ -134,6 +134,8 @@ export default function QuotationsPage() {
     export_country: 'China',
     client_portal_visible: false,
     client_portal_name: '',
+    billing_address: '',
+    shipping_address: '',
   })
   const [lines, setLines] = useState<Partial<QuoteLine>[]>([])
   const [productSearch, setProductSearch] = useState('')
@@ -270,6 +272,8 @@ export default function QuotationsPage() {
       export_country: 'China',
       client_portal_visible: false,
       client_portal_name: '',
+      billing_address: '',
+      shipping_address: '',
     })
     setLines([{ sku: '', product_name: '', description: '', quantity: 1, unit_price: 0, line_total: 0, product_id: null }])
     setPanelTab('overview')
@@ -301,6 +305,8 @@ export default function QuotationsPage() {
       export_country: (q as any).export_country ?? 'China',
       client_portal_visible: q.client_portal_visible ?? false,
       client_portal_name: q.client_portal_name ?? '',
+      billing_address: (q as any).billing_address ?? '',
+      shipping_address: (q as any).shipping_address ?? '',
     })
     setLines([])
     setPanelTab('overview')
@@ -424,6 +430,8 @@ export default function QuotationsPage() {
         export_country: form.export_country || null,
         client_portal_visible: !!form.client_portal_visible,
         client_portal_name: form.client_portal_name || null,
+        billing_address: form.billing_address || null,
+        shipping_address: form.shipping_address || null,
       }
 
       let quoteId = editing?.id
@@ -1000,6 +1008,14 @@ export default function QuotationsPage() {
                     className={inp}
                     style={{ ...inpStyle, resize: 'vertical' }}
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Billing Address</label>
+                  <textarea value={form.billing_address} onChange={e => setForm(p => ({ ...p, billing_address: e.target.value }))} rows={3} placeholder="Bill-to address…" className={inp} style={{ ...inpStyle, resize: 'vertical' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Shipping Address</label>
+                  <textarea value={form.shipping_address} onChange={e => setForm(p => ({ ...p, shipping_address: e.target.value }))} rows={3} placeholder="Ship-to address…" className={inp} style={{ ...inpStyle, resize: 'vertical' }} />
                 </div>
                 <div className="col-span-2 rounded-xl border border-[#CDE9DA] bg-[#F0FBF5] p-3">
                   <label className="block text-sm font-semibold text-[#0F5132] mb-1.5">Client portal</label>
