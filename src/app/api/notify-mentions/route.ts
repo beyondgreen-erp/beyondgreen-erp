@@ -71,16 +71,23 @@ export async function POST(req: Request) {
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
 
     let notified = 0
+    let emailed = 0
+    const emailErrors: string[] = []
     for (const recipEmail of Array.from(recipientEmails)) {
-      // 1. Write to notifications table (shows in bell)
-      await sb.from('notifications').insert({
-        recipient_email: recipEmail,
-        sender_email: authorEmail,
-        message: snippet,
-        page: pageLabel,
-        is_read: false,
-        context_url: contextUrl,
-      }).single()
+      // 1. Write to notifications table (shows in bell) — always attempt, independent of email
+      try {
+        await sb.from('notifications').insert({
+          recipient_email: recipEmail,
+          sender_email: authorEmail,
+          message: snippet,
+          page: pageLabel,
+          is_read: false,
+          context_url: contextUrl,
+        })
+        notified++
+      } catch (e) {
+        console.error('[notify-mentions] notification insert failed for', recipEmail, e)
+      }
 
       // 2. Send email via Resend
       if (RESEND_API_KEY) {
@@ -106,25 +113,36 @@ export async function POST(req: Request) {
 </div>
 </body></html>`
 
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${RESEND_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: `beyondGREEN ERP <${FROM_EMAIL}>`,
-            to: [recipEmail],
-            subject: `${authorName || authorEmail.split('@')[0]} mentioned you in ${pageLabel}`,
-            html,
-          }),
-        })
+        try {
+          const emailRes = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${RESEND_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from: `beyondGREEN ERP <${FROM_EMAIL}>`,
+              to: [recipEmail],
+              reply_to: [authorEmail],
+              subject: `${authorName || authorEmail.split('@')[0]} mentioned you in ${pageLabel}`,
+              html,
+            }),
+          })
+          if (emailRes.ok) {
+            emailed++
+          } else {
+            const errBody = await emailRes.text().catch(() => '')
+            console.error('[notify-mentions] Resend send failed', emailRes.status, 'to', recipEmail, errBody)
+            emailErrors.push(`${recipEmail}: ${emailRes.status} ${errBody.slice(0, 200)}`)
+          }
+        } catch (e) {
+          console.error('[notify-mentions] Resend fetch threw for', recipEmail, e)
+          emailErrors.push(`${recipEmail}: ${String(e)}`)
+        }
       }
-
-      notified++
     }
 
-    return Response.json({ ok: true, notified })
+    return Response.json({ ok: true, notified, emailed, emailErrors })
   } catch (err) {
     console.error('[notify-mentions]', err)
     return Response.json({ error: 'Failed to send notifications' }, { status: 500 })
