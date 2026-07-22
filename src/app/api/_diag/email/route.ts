@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // TEMPORARY read-only diagnostic — checks Resend config/domain verification.
 // Sends no email. Returns domain names + verification status only (no secrets).
 // Safe to delete after use.
@@ -12,9 +13,9 @@ export async function GET() {
     const res = await fetch('https://api.resend.com/domains', {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     })
-    const data = await res.json()
+    const data: any = await res.json()
     const domains = Array.isArray(data?.data)
-      ? data.data.map((d) => ({ name: d.name, status: d.status, region: d.region }))
+      ? data.data.map((d: any) => ({ name: d.name, status: d.status, region: d.region }))
       : data
     return Response.json({
       keyPresent: true,
