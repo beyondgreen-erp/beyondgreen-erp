@@ -215,6 +215,7 @@ export default function SamplesPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [shipSample, setShipSample] = useState<Sample | null>(null)
   const [userEmail, setUserEmail] = useState('')
+  const dragId = useRef<string | null>(null)
 
   const [detail, setDetail] = useState<Sample | null>(null)
   const [editing, setEditing] = useState(false)
@@ -345,6 +346,17 @@ export default function SamplesPage() {
   const groupRows = (key: string) => rows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
   const extra = Array.from(new Set(rows.map(r => r.group_name || '').filter(k => k && !GROUPS.some(g => g.key === k))))
   const allGroups = [...GROUPS, ...extra.map(k => ({ key: k, color: '#9699A6' }))]
+  // Drag a submission into another group. Dropping into "Shipped Samples" also marks it Shipped.
+  async function moveToGroup(targetGroup: string) {
+    const id = dragId.current; dragId.current = null
+    if (!id) return
+    const row = rows.find(r => r.id === id)
+    if (!row || (row.group_name || '') === targetGroup) return
+    const patch: any = { group_name: targetGroup, updated_at: new Date().toISOString() }
+    if (targetGroup === 'Shipped Samples') { patch.status = 'Shipped'; if (!(row as any).shipped_at) patch.shipped_at = new Date().toISOString() }
+    setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
+    await sb.from('sample_submissions').update(patch).eq('id', id)
+  }
   const shownCount = allGroups.reduce((a, g) => a + groupRows(g.key).length, 0)
 
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
@@ -394,7 +406,7 @@ export default function SamplesPage() {
             const gr = groupRows(group.key); const isCol = collapsed[group.key]
             const cost = gr.reduce((a, r) => a + (Number(r.ship_cost) || 0), 0)
             return (
-              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => moveToGroup(group.key)}>
                 <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                   <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: group.color }}>{group.key}</span>
@@ -422,7 +434,7 @@ export default function SamplesPage() {
                           const nFiles = r.attachments?.length || 0
                           const nc = commentCounts[r.id] || 0
                           return (
-                            <tr key={r.id} id={'item-' + r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openDetail(r)}>
+                            <tr key={r.id} id={'item-' + r.id} draggable onDragStart={e => { dragId.current = r.id; e.dataTransfer.effectAllowed = 'move' }} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openDetail(r)}>
                               <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E]">{r.name || <span className="text-gray-300">Untitled</span>}</td>
                               <td className="px-3 py-2.5"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</span></td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600 truncate max-w-[220px]">{r.customer_email || '—'}</td>
