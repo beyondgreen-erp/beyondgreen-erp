@@ -36,16 +36,31 @@ function render(t: string, c: any, fromName: string): string {
  * markdown-style [text](url) to short anchor tags, and split on blank lines
  * into paragraphs.
  */
-export function composeHtml(bodyText: string, signatureHtml: string): string {
+export function composeHtml(bodyText: string, signatureHtml: string, plainText: boolean = false): string {
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  // Split the plain-text body on blank lines → paragraphs; single \n inside a
-  // paragraph becomes <br>. Also auto-link https:// URLs so they're clickable.
   // Convert markdown-style [text](url) links to anchor tags. We do this on the
   // escaped text (so brackets survive) but before bare-URL linkify so the URL
   // inside the markdown syntax isn't double-processed.
   const mdLink = (s: string) => s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" style="color:#00A84F;text-decoration:underline;font-weight:600;">$1</a>')
   const linkify = (s: string) => s.replace(/(?<!href=")(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#00A84F;text-decoration:underline;">$1</a>')
   const paragraphs = (bodyText || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+
+  // Plain-text mode: no branded shell, no footer, no unsubscribe legalese.
+  // Reads like a hand-typed message from Outlook/Gmail. Dodges spam filters
+  // that flag heavily-designed cold outreach as automated marketing.
+  if (plainText) {
+    const linkifyPlain = (s: string) => s.replace(/(?<!href=")(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#0066CC;">$1</a>')
+    const bodyHtml = paragraphs.map(p =>
+      `<p style="margin:0 0 12px 0;font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1F1F1F;line-height:1.5;">${linkifyPlain(mdLink(escape(p))).replace(/\n/g, '<br>')}</p>`
+    ).join('')
+    const sigBlock = signatureHtml
+      ? `<div style="margin-top:14px;font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1F1F1F;">${signatureHtml}</div>`
+      : ''
+    return `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Calibri,Arial,sans-serif;">${bodyHtml}${sigBlock}</body></html>`
+  }
+
+  // Split the plain-text body on blank lines → paragraphs; single \n inside a
+  // paragraph becomes <br>. Also auto-link https:// URLs so they're clickable.
   const bodyHtml = paragraphs.map(p => `<p style="margin:0 0 14px;line-height:1.55;color:#1A1D2E;font-size:15px;">${linkify(mdLink(escape(p))).replace(/\n/g, '<br>')}</p>`).join('')
 
   const sig = signatureHtml
@@ -188,7 +203,7 @@ export async function GET(req: NextRequest) {
 
       const subject = render(step.subject || '', c, seq.from_name)
       const bodyText = render(step.body || '', c, seq.from_name)
-      const html = composeHtml(bodyText, sigFor(seq.from_email))
+      const html = composeHtml(bodyText, sigFor(seq.from_email), !!seq.plain_text)
 
       if (requireReview) {
         // Queue in the review inbox and hold the enrollment step where it is.
