@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const seqIds = [...new Set(rows.map((r: any) => r.sequence_id))] as string[]
   const enrIds = [...new Set(rows.map((r: any) => r.enrollment_id))] as string[]
   const [seqs, enrs, { data: sigs }, steps] = await Promise.all([
-    chunkedIn<any>('sequences', 'id', seqIds, 'id,name,from_email,from_name'),
+    chunkedIn<any>('sequences', 'id', seqIds, 'id,name,from_email,from_name,plain_text'),
     chunkedIn<any>('sequence_enrollments', 'id', enrIds, '*'),
     sb.from('user_email_signatures').select('user_email,signature_html'),
     chunkedIn<any>('sequence_steps', 'sequence_id', seqIds, 'sequence_id,step_number,delay_days'),
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     const token = await getToken(seq.from_email)
     if (!token) { errors.push(`send ${row.id}: mailbox ${seq.from_email} not connected`); continue }
 
-    const html = composeHtml(row.body || '', sigBy[String(seq.from_email).toLowerCase()] || '')
+    const html = composeHtml(row.body || '', sigBy[String(seq.from_email).toLowerCase()] || '', !!seq.plain_text)
     try {
       await sendViaGraph(token, { to: row.to_email, subject: row.subject, html })
       await sb.from('sequence_sends').update({ status: 'sent', sent_at: nowIso }).eq('id', row.id)
