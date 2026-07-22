@@ -34,8 +34,8 @@ const GROUPS = [
 
 function isContacted(l: Lead) { return !!l.contacted_at || (!!l.pipeline_stage && l.pipeline_stage !== 'Lead' && l.pipeline_stage !== 'New') }
 function isReplied(l: Lead) { const s = (l.pipeline_stage || '').toLowerCase(); return s === 'interested' || s === 'replied' || s === 'warm' }
-const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'â'
-const fmtDT = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'â'
+const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
+const fmtDT = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
 export default function LeadsPage() {
   const [tab, setTab] = useState<'leads' | 'scrape' | 'market'>('leads')
@@ -131,13 +131,13 @@ export default function LeadsPage() {
 
   async function runScrape() {
     if (!zip.trim()) { setScrapeMsg('Enter a ZIP code.'); return }
-    setScrapeBusy(true); setScrapeMsg('Searching Google Places and extracting emailsâ¦'); setJustAdded([])
+    setScrapeBusy(true); setScrapeMsg('Searching Google Places and extracting emails…'); setJustAdded([])
     try {
       const res = await fetch('/api/leads/scrape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, zip: zip.trim(), radiusMiles: radius, createdBy: userEmail }) })
       const j = await res.json()
-      setScrapeMsg(j.error ? `â ï¸ ${j.error}` : `â ${j.message}`)
+      setScrapeMsg(j.error ? `⚠️ ${j.error}` : `✅ ${j.message}`)
       if (!j.error) { setJustAdded(j.newLeads || []); await load() }
-    } catch (e) { setScrapeMsg('â ï¸ ' + (e as Error).message) }
+    } catch (e) { setScrapeMsg('⚠️ ' + (e as Error).message) }
     setScrapeBusy(false)
   }
 
@@ -164,7 +164,7 @@ export default function LeadsPage() {
     const eligible = ids.filter(id => !paused.find((p: any) => p.id === id))
     if (paused.length) {
       const names = paused.map((p: any) => p.company_name || p.id).slice(0, 5).join(', ')
-      if (!confirm(`${paused.length} paused lead(s) will be SKIPPED: ${names}${paused.length > 5 ? 'â¦' : ''}\n\nContinue enrolling the other ${eligible.length}?`)) return
+      if (!confirm(`${paused.length} paused lead(s) will be SKIPPED: ${names}${paused.length > 5 ? '…' : ''}\n\nContinue enrolling the other ${eligible.length}?`)) return
     }
     if (!eligible.length) { setSel({}); return }
     const rows = eligible.map(cid => ({ sequence_id: seqId, customer_id: cid, enrolled_by: userEmail, status: 'active', current_step: 0, next_send_at: new Date().toISOString() }))
@@ -172,7 +172,7 @@ export default function LeadsPage() {
     setSel({}); load()
   }
   async function stopSequenceForLead(customerId: string) {
-    if (!confirm('Stop this leadâs sequence? No more follow-ups will be sent.')) return
+    if (!confirm('Stop this lead’s sequence? No more follow-ups will be sent.')) return
     await sb.from('sequence_enrollments').update({ status: 'stopped', updated_at: new Date().toISOString() }).eq('customer_id', customerId).eq('status', 'active')
     load()
   }
@@ -222,13 +222,13 @@ export default function LeadsPage() {
     <div className="min-h-screen mon-page p-4 md:p-6">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
         <div>
-          <span className="mon-tag t-purple">ð¯ CRM Â· Leads</span>
+          <span className="mon-tag t-purple">🎯 CRM · Leads</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Leads</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{leads.length.toLocaleString()} leads Â· {withEmail.toLocaleString()} with email Â· <b className="text-amber-600">{totalNew.toLocaleString()} not yet contacted</b></p>
+          <p className="text-gray-500 text-sm mt-0.5">{leads.length.toLocaleString()} leads · {withEmail.toLocaleString()} with email · <b className="text-amber-600">{totalNew.toLocaleString()} not yet contacted</b></p>
         </div>
         <div className="flex gap-2 items-center">
-          <Link href="/sales/sequences" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Sequences â</Link>
-          <Link href="/sales/campaign" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Campaigns â</Link>
+          <Link href="/sales/sequences" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Sequences →</Link>
+          <Link href="/sales/campaign" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Campaigns →</Link>
         </div>
       </div>
 
@@ -237,15 +237,15 @@ export default function LeadsPage() {
       {tab === 'leads' && (
         <>
           <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, email, city, industryâ¦" className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40" />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, email, city, industry…" className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40" />
             {selCount > 0 && (
               <div className="flex items-center gap-2 ml-auto text-xs flex-wrap">
                 <span className="text-gray-500 font-semibold">{selCount} selected:</span>
                 <button onClick={() => markContacted(true)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-blue-50 text-blue-700 font-semibold">Mark Contacted</button>
                 <button onClick={() => markContacted(false)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">Uncontact</button>
-                <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">â Prospect</button>
+                <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">→ Prospect</button>
                 <select value="" onChange={e => { if (e.target.value) enrollSelected(e.target.value) }} className="px-2 py-1.5 rounded border border-[#E4E6EE] bg-indigo-50 text-indigo-700 font-semibold">
-                  <option value="">+ Add to sequenceâ¦</option>
+                  <option value="">+ Add to sequence…</option>
                   {sequences.map(s => <option key={s.id} value={s.id}>{s.name}{s.status !== 'active' ? ` (${s.status})` : ''}</option>)}
                 </select>
                 <button onClick={deleteSelected} className="px-2.5 py-1.5 rounded border border-red-200 bg-red-50 text-red-600 font-semibold">Delete</button>
@@ -253,7 +253,7 @@ export default function LeadsPage() {
             )}
           </div>
 
-          {loading ? <p className="text-gray-400 text-sm">Loadingâ¦</p> : (
+          {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
             <div className="space-y-4">
               {GROUPS.map(group => {
                 const rows = grouped[group.key] || []
@@ -293,12 +293,12 @@ export default function LeadsPage() {
                                   <tr key={l.id} className={`hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'} ${l.auto_outreach_paused ? 'bg-amber-50/40' : ''}`}>
                                     <td className="px-3 py-2"><input type="checkbox" checked={!!sel[l.id]} onChange={e => setSel(s => ({ ...s, [l.id]: e.target.checked }))} /></td>
                                     <td className="px-3 py-2">
-                                      <p className="font-semibold text-[#1A1D2E]">{l.company_name || '(unnamed)'}{l.website && <a href={l.website} target="_blank" rel="noreferrer" className="text-[#3B6FE0] ml-1 text-xs">â</a>}</p>
+                                      <p className="font-semibold text-[#1A1D2E]">{l.company_name || '(unnamed)'}{l.website && <a href={l.website} target="_blank" rel="noreferrer" className="text-[#3B6FE0] ml-1 text-xs">↗</a>}</p>
                                       {l.phone && <p className="text-[10px] text-gray-400">{l.phone}</p>}
                                     </td>
-                                    <td className="px-3 py-2 text-gray-500">{[l.city, l.state].filter(Boolean).join(', ') || 'â'}</td>
+                                    <td className="px-3 py-2 text-gray-500">{[l.city, l.state].filter(Boolean).join(', ') || '—'}</td>
                                     <td className="px-3 py-2">{l.email ? <a href={`mailto:${l.email}`} className="text-[#3B6FE0]">{l.email}</a> : <span className="text-amber-500 text-[11px]">no email</span>}</td>
-                                    <td className="px-3 py-2 text-gray-500 truncate max-w-[120px]" title={l.industry || ''}>{l.industry || 'â'}</td>
+                                    <td className="px-3 py-2 text-gray-500 truncate max-w-[120px]" title={l.industry || ''}>{l.industry || '—'}</td>
                                     <td className="px-3 py-2">
                                       {enr ? (
                                         <div>
@@ -313,26 +313,26 @@ export default function LeadsPage() {
                                           </div>
                                           <div className="flex gap-1 mt-1">
                                             <button onClick={() => sendNextNow(l.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">Send now</button>
-                                            <button onClick={() => pauseLead(l.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-amber-200 text-amber-600 hover:bg-amber-50" title="Pause this lead â stops all their sequences and blocks future enrollment">â¸ Pause</button>
+                                            <button onClick={() => pauseLead(l.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-amber-200 text-amber-600 hover:bg-amber-50" title="Pause this lead — stops all their sequences and blocks future enrollment">⏸ Pause</button>
                                             <button onClick={() => stopSequenceForLead(l.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">Stop</button>
                                           </div>
                                         </div>
                                       ) : l.is_dead_lead ? (
-                                        <span className="text-[11px] text-gray-500">â  Dead lead</span>
+                                        <span className="text-[11px] text-gray-500">☠ Dead lead</span>
                                       ) : l.auto_outreach_paused ? (
                                         <div>
-                                          <span className="text-[11px] font-semibold text-amber-600">â¸ Paused{l.last_reply_intent ? ` â ${l.last_reply_intent}` : ''}</span>
-                                          <button onClick={() => unpauseLead(l.id)} className="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">â¶ Unpause</button>
+                                          <span className="text-[11px] font-semibold text-amber-600">⏸ Paused{l.last_reply_intent ? ` — ${l.last_reply_intent}` : ''}</span>
+                                          <button onClick={() => unpauseLead(l.id)} className="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">▶ Unpause</button>
                                         </div>
                                       ) : isReplied(l) ? (
-                                        <span className="text-[11px] font-semibold text-emerald-700">Replied â {l.pipeline_stage}</span>
+                                        <span className="text-[11px] font-semibold text-emerald-700">Replied — {l.pipeline_stage}</span>
                                       ) : isContacted(l) ? (
                                         <span className="text-[11px] text-blue-600">Contacted {fmtD(l.contacted_at)}</span>
                                       ) : (
                                         <span className="text-[11px] text-amber-600">Not contacted</span>
                                       )}
                                     </td>
-                                    <td className="px-3 py-2 text-right"><button onClick={() => deleteOne(l.id)} className="text-red-400 hover:text-red-600 text-sm">ð</button></td>
+                                    <td className="px-3 py-2 text-right"><button onClick={() => deleteOne(l.id)} className="text-red-400 hover:text-red-600 text-sm">🗑</button></td>
                                   </tr>
                                 )
                               })}
@@ -364,14 +364,14 @@ export default function LeadsPage() {
             <div><label className="block text-xs text-gray-500 mb-1">ZIP code</label><input value={zip} onChange={e => setZip(e.target.value)} placeholder="92705" className="w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Radius: <b>{radius} mi</b></label><input type="range" min={5} max={50} value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full" /></div>
             <div className="md:col-span-4">
-              <button onClick={runScrape} disabled={scrapeBusy} className="px-4 py-2 rounded-lg bg-[#3B6FE0] text-white text-sm font-semibold disabled:opacity-50">{scrapeBusy ? 'Scrapingâ¦' : 'ð Find Leads'}</button>
+              <button onClick={runScrape} disabled={scrapeBusy} className="px-4 py-2 rounded-lg bg-[#3B6FE0] text-white text-sm font-semibold disabled:opacity-50">{scrapeBusy ? 'Scraping…' : '🔍 Find Leads'}</button>
               {scrapeMsg && <span className="ml-3 text-xs text-gray-600">{scrapeMsg}</span>}
             </div>
           </div>
 
           {justAdded.length > 0 && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-              <p className="text-sm font-semibold text-emerald-800 mb-2">â Just added {justAdded.length} new leads</p>
+              <p className="text-sm font-semibold text-emerald-800 mb-2">✅ Just added {justAdded.length} new leads</p>
               <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
                 {justAdded.map(n => (
                   <div key={n.id} className="flex justify-between gap-2 border-b border-emerald-100 py-0.5">
@@ -380,7 +380,7 @@ export default function LeadsPage() {
                   </div>
                 ))}
               </div>
-              <button onClick={() => setTab('leads')} className="mt-2 text-xs font-semibold text-[#3B6FE0]">View in Leads â</button>
+              <button onClick={() => setTab('leads')} className="mt-2 text-xs font-semibold text-[#3B6FE0]">View in Leads →</button>
             </div>
           )}
 
@@ -394,8 +394,8 @@ export default function LeadsPage() {
                 {scrapes.map(s => (
                   <div key={s.id} className="flex items-center gap-3 py-1.5 border-b border-gray-100">
                     <span className="font-medium flex-1 truncate">{s.prompt}</span>
-                    <span className="text-gray-500">ZIP {s.zip} Â· {s.radius_miles} mi</span>
-                    <span className="text-gray-500">{s.new_count} new Â· {s.emails_found} emails</span>
+                    <span className="text-gray-500">ZIP {s.zip} · {s.radius_miles} mi</span>
+                    <span className="text-gray-500">{s.new_count} new · {s.emails_found} emails</span>
                     <span className="text-gray-400">{s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</span>
                   </div>
                 ))}
@@ -411,7 +411,7 @@ export default function LeadsPage() {
             <label className="block text-xs text-gray-500 mb-1">Which product do you want to sell? Where should we target?</label>
             <div className="flex gap-2">
               <input value={product} onChange={e => setProduct(e.target.value)} placeholder="e.g. compostable cutlery, PLA cold cups, kraft takeout bags" className="flex-1 border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm" />
-              <button onClick={analyze} disabled={marketBusy} className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-50">{marketBusy ? 'Analyzingâ¦' : 'â¨ Find Best Markets'}</button>
+              <button onClick={analyze} disabled={marketBusy} className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-50">{marketBusy ? 'Analyzing…' : '✨ Find Best Markets'}</button>
             </div>
             <p className="text-[11px] text-gray-400 mt-2">Weighs plastic/foam ban laws and demographic behavior.</p>
           </div>
@@ -426,7 +426,7 @@ export default function LeadsPage() {
                     <p className="text-xs text-gray-600 mb-1"><b className="text-emerald-700">Regulation:</b> {r.regulationAngle}</p>
                     <p className="text-xs text-gray-600 mb-2"><b className="text-blue-700">Demographics:</b> {r.demographicAngle}</p>
                     {r.suggestedZips && r.suggestedZips.length > 0 && (
-                      <div className="flex flex-wrap gap-1">{r.suggestedZips.map(z => <button key={z} onClick={() => { setZip(z); setTab('scrape') }} className="text-[11px] px-2 py-1 rounded bg-gray-100 hover:bg-indigo-100">Scrape {z} â</button>)}</div>
+                      <div className="flex flex-wrap gap-1">{r.suggestedZips.map(z => <button key={z} onClick={() => { setZip(z); setTab('scrape') }} className="text-[11px] px-2 py-1 rounded bg-gray-100 hover:bg-indigo-100">Scrape {z} →</button>)}</div>
                     )}
                   </div>
                 ))}
