@@ -825,6 +825,17 @@ function EditPanel({
 export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
+
+  // Deep-link: open the item referenced by ?item=<id> in the URL (used by @mention notifications).
+  const deepLinkOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const openId = new URLSearchParams(window.location.search).get('item')
+    if (!openId || deepLinkOpenedRef.current === openId) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = (orders as any[]).find((x) => x && x.id === openId)
+    if (target) { deepLinkOpenedRef.current = openId; openEdit(target) }
+  }, [orders]) // eslint-disable-line react-hooks/exhaustive-deps
   const [view, setView] = useState<'board'|'table'|'walmart'>('board')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
