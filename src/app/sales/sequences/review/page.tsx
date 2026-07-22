@@ -92,9 +92,26 @@ export default function SequenceReviewPage() {
       const d = draftFor(r)
       await sb.from('sequence_sends').update({ subject: d.subject, body: d.body }).eq('id', r.id)
     }
-    const res = await fetch('/api/leads/sequence-approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ send_ids: ids }) })
-    const j = await res.json()
-    alert(j.message || j.error || 'Done')
+    // Chunk client-side: the approve route has maxDuration=60s and Graph API
+    // caps at ~100-150 sends per invocation before Vercel kills it. Send in
+    // batches of 75 with a short breather so the whole 1000+ queue completes.
+    const CHUNK = 75
+    let totalSent = 0, totalErr = 0
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const batch = ids.slice(i, i + CHUNK)
+      setBusy(`Sending ${i + 1}–${Math.min(i + CHUNK, ids.length)} of ${ids.length}…`)
+      try {
+        const res = await fetch('/api/leads/sequence-approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ send_ids: batch }) })
+        const j = await res.json()
+        // Count sent from the message string if numeric, else assume batch length
+        const m = String(j.message || '').match(/(\d+)\s*sent/i)
+        totalSent += m ? Number(m[1]) : (j.sent || batch.length)
+        if (j.error) totalErr++
+      } catch { totalErr++ }
+      // Small breather so we don't slam Graph API back-to-back
+      if (i + CHUNK < ids.length) await new Promise(r => setTimeout(r, 800))
+    }
+    alert(`Done. Sent ~${totalSent} of ${ids.length}${totalErr ? ` · ${totalErr} batch error(s)` : ''}.`)
     setBusy(''); setSelected({}); setDrafts({}); load()
   }
   async function skip(ids: string[]) {
@@ -106,7 +123,7 @@ export default function SequenceReviewPage() {
   }
   async function pauseLead(customerId: string, sendId: string) {
     const reason = prompt('Reason for pausing this lead?', 'not now'); if (reason === null) return
-    setBusy('Pausingâ¦')
+    setBusy('Pausing…')
     await fetch('/api/leads/sequence-pause-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_ids: [customerId], reason }) })
     setBusy(''); await load()
   }
@@ -146,7 +163,7 @@ export default function SequenceReviewPage() {
   <table role="presentation" width="100%"><tr>
     <td>
       <div style="color:#FFF;font-weight:800;font-size:22px;letter-spacing:-0.5px;line-height:1;font-family:Arial,Helvetica,sans-serif;">beyondGREEN</div>
-      <div style="color:#B6F0D0;font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;font-family:Arial,Helvetica,sans-serif;">biotech Â· professional</div>
+      <div style="color:#B6F0D0;font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;font-family:Arial,Helvetica,sans-serif;">biotech · professional</div>
     </td>
     <td align="right" style="color:#FFF;font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;font-family:Arial,Helvetica,sans-serif;">Made in USA<br>Compostable</td>
   </tr></table>
@@ -165,7 +182,7 @@ export default function SequenceReviewPage() {
     <div className="min-h-screen mon-page p-4 md:p-6">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
         <div>
-          <span className="mon-tag t-blue">ð§ Sequence Review</span>
+          <span className="mon-tag t-blue">📧 Sequence Review</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Review before send</h1>
           <p className="text-gray-500 text-sm mt-0.5">Each sequence email waits here for you to approve. Edit one recipient, or fix the template to update every pending copy.</p>
         </div>
@@ -173,12 +190,12 @@ export default function SequenceReviewPage() {
           <Link href="/settings/email-signature" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Edit signature</Link>
           <Link href="/sales/sequences" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Back to Sequences</Link>
           <button onClick={() => approve(rows?.map(r => r.id) || [])} disabled={!totalPending || !!busy} className="text-sm px-3 py-2 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50">
-            Approve all {totalPending ? `(${totalPending})` : ''}
+            {busy && busy.startsWith('Sending') ? busy : `Approve all ${totalPending ? `(${totalPending})` : ''}`}
           </button>
         </div>
       </div>
 
-      {rows == null ? <p className="text-gray-400 text-sm">Loadingâ¦</p> : rows.length === 0 ? (
+      {rows == null ? <p className="text-gray-400 text-sm">Loading…</p> : rows.length === 0 ? (
         <div className="bg-white rounded-xl border border-[#ECEEF3] p-10 text-center">
           <p className="text-sm text-gray-500">No pending emails to review.</p>
           <p className="text-xs text-gray-400 mt-1">When a sequence's next step comes due, it will appear here for approval.</p>
@@ -204,9 +221,9 @@ export default function SequenceReviewPage() {
                         <input type="checkbox" checked={stepSelected.length === list.length && list.length > 0} onChange={e => setAllInStep(list, e.target.checked)} />
                         <span className="text-xs font-bold text-[#1A1D2E]">Step {stepNum}</span>
                         <span className="text-[11px] text-gray-500 truncate max-w-[400px]">{step?.subject || '(no template subject)'}</span>
-                        <span className="text-[11px] text-gray-400 ml-1">Â· {list.length} recipient{list.length !== 1 ? 's' : ''}</span>
+                        <span className="text-[11px] text-gray-400 ml-1">· {list.length} recipient{list.length !== 1 ? 's' : ''}</span>
                         <div className="ml-auto flex gap-1">
-                          <button onClick={() => openTemplateEditor(stepKey)} className="text-[11px] px-2 py-1 rounded border border-[#E4E6EE] text-[#3B6FE0] font-semibold hover:bg-[#F2F6FF]">â Edit template</button>
+                          <button onClick={() => openTemplateEditor(stepKey)} className="text-[11px] px-2 py-1 rounded border border-[#E4E6EE] text-[#3B6FE0] font-semibold hover:bg-[#F2F6FF]">✎ Edit template</button>
                           <button onClick={() => approve(list.map(r => r.id))} disabled={!!busy} className="text-[11px] px-2 py-1 rounded border border-emerald-200 text-emerald-600 font-semibold hover:bg-emerald-50">Send all in this step</button>
                           <button onClick={() => skip(list.map(r => r.id))} disabled={!!busy} className="text-[11px] px-2 py-1 rounded border border-amber-200 text-amber-600 font-semibold hover:bg-amber-50">Skip all</button>
                         </div>
@@ -236,12 +253,12 @@ export default function SequenceReviewPage() {
                                   </td>
                                   <td className="px-3 py-2">
                                     <p className="text-[#1A1D2E] truncate max-w-[560px]">{d.subject}</p>
-                                    {dirty && <span className="text-[10px] font-bold text-amber-600">â unsaved edits</span>}
+                                    {dirty && <span className="text-[10px] font-bold text-amber-600">● unsaved edits</span>}
                                   </td>
                                   <td className="px-3 py-2 text-right">
                                     <button onClick={e => { e.stopPropagation(); approve([r.id]) }} disabled={!!busy} className="text-[11px] px-2 py-1 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">Send</button>
                                     <button onClick={e => { e.stopPropagation(); skip([r.id]) }} disabled={!!busy} className="text-[11px] ml-1 px-2 py-1 rounded border border-amber-200 text-amber-600 font-semibold hover:bg-amber-50">Skip</button>
-                                    <button onClick={e => { e.stopPropagation(); pauseLead(r.customer_id, r.id) }} disabled={!!busy} className="text-[11px] ml-1 px-2 py-1 rounded border border-amber-300 text-amber-700 font-semibold hover:bg-amber-50">â¸ Pause</button>
+                                    <button onClick={e => { e.stopPropagation(); pauseLead(r.customer_id, r.id) }} disabled={!!busy} className="text-[11px] ml-1 px-2 py-1 rounded border border-amber-300 text-amber-700 font-semibold hover:bg-amber-50">⏸ Pause</button>
                                   </td>
                                 </tr>
                                 {isOpen && (
@@ -264,7 +281,7 @@ export default function SequenceReviewPage() {
                                         <div>
                                           <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Live preview (with your signature)</p>
                                           <div className="border border-[#E4E6EE] rounded-lg bg-white p-4 max-h-[420px] overflow-y-auto text-xs">
-                                            <p className="text-[10px] text-gray-400 mb-1">From: {seq?.from_email} â {r.to_email}</p>
+                                            <p className="text-[10px] text-gray-400 mb-1">From: {seq?.from_email} → {r.to_email}</p>
                                             <p className="font-bold text-[#1A1D2E] mb-2">{d.subject || '(no subject)'}</p>
                                             <div dangerouslySetInnerHTML={{ __html: previewHtml(r) }} />
                                           </div>
@@ -306,7 +323,7 @@ export default function SequenceReviewPage() {
                 <div><p className="text-[10px] uppercase font-bold text-gray-400">Template edit</p><h2 className="font-bold text-[#1A1D2E]">Step {step?.step_number} template</h2></div>
                 <div className="flex gap-2">
                   <button onClick={() => setTemplateEdit(null)} className="text-sm px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Cancel</button>
-                  <button onClick={saveTemplate} disabled={!!busy} className="text-sm px-4 py-1.5 rounded-lg bg-[#3B6FE0] text-white">{busy === 'tpl' ? 'Savingâ¦' : `Save & re-render ${cnt}`}</button>
+                  <button onClick={saveTemplate} disabled={!!busy} className="text-sm px-4 py-1.5 rounded-lg bg-[#3B6FE0] text-white">{busy === 'tpl' ? 'Saving…' : `Save & re-render ${cnt}`}</button>
                 </div>
               </div>
               <div className="p-5 space-y-3">
