@@ -3,7 +3,7 @@ import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef} from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
@@ -92,6 +92,17 @@ export default function QuotationsPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
   const router = useRouter()
   const [quotes, setQuotes] = useState<Quote[]>([])
+
+  // Deep-link: open the item referenced by ?item=<id> in the URL (used by @mention notifications).
+  const deepLinkOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const openId = new URLSearchParams(window.location.search).get('item')
+    if (!openId || deepLinkOpenedRef.current === openId) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = (quotes as any[]).find((x) => x && x.id === openId)
+    if (target) { deepLinkOpenedRef.current = openId; openEdit(target) }
+  }, [quotes]) // eslint-disable-line react-hooks/exhaustive-deps
   useItemDeepLink(quotes, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [portals, setPortals] = useState<PortalClient[]>([])
