@@ -88,6 +88,30 @@ export default function DailyShipReportPage() {
     const { data } = await sb.from('daily_ship_report').insert({ group_name: group, position: max + 1000, amazon: 0, shopify: 0, faire: 0, chewy: 0, b2b: 0 }).select('*').single()
     if (data) { setRows(rs => [...rs, data as Row]); setEdit({ id: (data as any).id, field: 'name' }) }
   }
+  // Create a brand-new week group. Auto-suggests the next Mon–Fri after the most recent day,
+  // in the same "Month M/D/YY-Month M/D/YY" label style, and seeds one blank day so it appears.
+  async function addWeek() {
+    const dates = rows.map(r => r.ship_date).filter(Boolean).sort() as string[]
+    const latest = dates[dates.length - 1]
+    let mon: Date
+    if (latest) {
+      const d = new Date(latest + 'T00:00:00')
+      const daysToNextMon = ((8 - d.getDay()) % 7) || 7
+      mon = new Date(d); mon.setDate(d.getDate() + daysToNextMon)
+    } else {
+      const t = new Date(); const add = ((8 - t.getDay()) % 7) || 7
+      mon = new Date(t); mon.setDate(t.getDate() + add)
+    }
+    const fri = new Date(mon); fri.setDate(mon.getDate() + 4)
+    const mn = (x: Date) => x.toLocaleDateString('en-US', { month: 'long' })
+    const f = (x: Date) => `${x.getMonth() + 1}/${x.getDate()}/${String(x.getFullYear()).slice(2)}`
+    const suggested = `${mn(mon)} ${f(mon)}-${mn(fri)} ${f(fri)}`
+    const name = window.prompt('Name the new week group:', suggested)
+    if (name == null || !name.trim()) return
+    const monISO = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`
+    const { data } = await sb.from('daily_ship_report').insert({ group_name: name.trim(), position: 1000, ship_date: monISO, amazon: 0, shopify: 0, faire: 0, chewy: 0, b2b: 0 }).select('*').single()
+    if (data) { setRows(rs => [...rs, data as Row]); setCollapsed(c => ({ ...c, [name.trim()]: false })); setEdit({ id: (data as any).id, field: 'name' }) }
+  }
   async function del(id: string) {
     if (!confirm('Delete this row?')) return
     setRows(rs => rs.filter(r => r.id !== id)); await sb.from('daily_ship_report').delete().eq('id', id)
@@ -169,7 +193,10 @@ export default function DailyShipReportPage() {
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">2026 Daily Ship Report</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : (revealed ? `${shown} of ${rows.length} days · ${money(grand, 0)} shipped YTD` : `${shown} of ${rows.length} days · ••••••• shipped YTD`)}</p>
         </div>
-        <button onClick={() => addItem(groups[0]?.key || '(no week)')} className="mon-btn">+ New day</button>
+        <div className="flex items-center gap-2">
+          <button onClick={addWeek} className="mon-btn" style={{ background: '#fff', color: '#00A84F', border: '1px solid #00A84F' }}>+ New week</button>
+          <button onClick={() => addItem(groups[0]?.key || '(no week)')} className="mon-btn">+ New day</button>
+        </div>
       </div>
 
       {!loading && (
