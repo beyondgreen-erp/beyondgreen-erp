@@ -33,6 +33,17 @@ export default function VaultPage() {
   const pwRef = useRef<HTMLInputElement>(null)
 
   const [rows, setRows] = useState<VaultItem[]>([])
+
+  // Deep-link: open the item referenced by ?item=<id> in the URL (used by @mention notifications).
+  const deepLinkOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const openId = new URLSearchParams(window.location.search).get('item')
+    if (!openId || deepLinkOpenedRef.current === openId) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = (rows as any[]).find((x) => x && x.id === openId)
+    if (target) { deepLinkOpenedRef.current = openId; openEdit(target) }
+  }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
