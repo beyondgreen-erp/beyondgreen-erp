@@ -2,7 +2,7 @@
 import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef} from 'react'
 import nextDynamic from 'next/dynamic'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
@@ -81,6 +81,17 @@ function trackingUrl(carrier: string | null, tracking: string | null): string | 
 export default function ShipmentsPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Shipment[]>([])
+
+  // Deep-link: open the item referenced by ?item=<id> in the URL (used by @mention notifications).
+  const deepLinkOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const openId = new URLSearchParams(window.location.search).get('item')
+    if (!openId || deepLinkOpenedRef.current === openId) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = (rows as any[]).find((x) => x && x.id === openId)
+    if (target) { deepLinkOpenedRef.current = openId; openEdit(target) }
+  }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
   useItemDeepLink(rows, openEdit)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'table' | 'map' | 'heatmap' | 'analytics' | 'cancelled'>('table')
