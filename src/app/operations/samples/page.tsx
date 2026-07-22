@@ -207,6 +207,17 @@ function Stat({ label, value, c }: { label: string; value: string | number; c?: 
 export default function SamplesPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Sample[]>([])
+
+  // Deep-link: open the item referenced by ?item=<id> in the URL (used by @mention notifications).
+  const deepLinkOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const openId = new URLSearchParams(window.location.search).get('item')
+    if (!openId || deepLinkOpenedRef.current === openId) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = (rows as any[]).find((x) => x && x.id === openId)
+    if (target) { deepLinkOpenedRef.current = openId; openDetail(target) }
+  }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
   const [items, setItems] = useState<Record<string, Line[]>>({})
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
