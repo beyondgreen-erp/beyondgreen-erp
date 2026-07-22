@@ -116,6 +116,17 @@ function Stat({ label, value, c }: { label: string; value: string | number; c?: 
 export default function CustomersPage() {
   const supabase = useMemo(()=>createSupabaseBrowserClient(),[])
   const [customers, setCustomers] = useState<Customer[]>([])
+
+  // Deep-link: open the item referenced by ?item=<id> in the URL (used by @mention notifications).
+  const deepLinkOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const openId = new URLSearchParams(window.location.search).get('item')
+    if (!openId || deepLinkOpenedRef.current === openId) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = (customers as any[]).find((x) => x && x.id === openId)
+    if (target) { deepLinkOpenedRef.current = openId; openEdit(target) }
+  }, [customers]) // eslint-disable-line react-hooks/exhaustive-deps
   useItemDeepLink(customers, openEdit)
   const [primaryContacts, setPrimaryContacts] = useState<Record<string,Contact>>({})
   const [loading, setLoading] = useState(true)
