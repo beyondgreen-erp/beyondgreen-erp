@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import Comments from '@/components/Comments'
 
 interface Row {
   id: string; name: string | null; channel: string | null; status: string | null; ship_date: string | null
@@ -10,7 +11,6 @@ interface Row {
   comments: string | null; position: number | null
 }
 
-// Status labels + colors mirror the Monday.com FBA/WFS board.
 const STATUSES = [
   { label: 'Ready to Ship', hex: '#00c875' },
   { label: 'Pallet Prep', hex: '#cab641' },
@@ -27,13 +27,13 @@ const GROUPS = [
   { key: 'WFS Shipment', color: '#A25DDC' },
   { key: 'Shipped', color: '#00A84F' },
 ]
+const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
-function Stat({ label, value, c, sub }: { label: string; value: string; c?: string; sub?: string }) {
+function Stat({ label, value, c }: { label: string; value: string; c?: string }) {
   return (
     <div className="mon-stat stat-card" style={c ? ({ ['--c']: c } as any) : undefined}>
       <p className="text-xs font-semibold text-gray-400">{label}</p>
       <p className="mon-stat-val mt-0.5">{value}</p>
-      {sub && <p className="text-xs mt-0.5 text-gray-400">{sub}</p>}
     </div>
   )
 }
@@ -44,9 +44,14 @@ export default function FbaBoard() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [edit, setEdit] = useState<{ id: string; field: string } | null>(null)
-  const [statusOpen, setStatusOpen] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState('')
   const dragId = useRef<string | null>(null)
+
+  const [detail, setDetail] = useState<Row | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState<any>({})
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -55,6 +60,7 @@ export default function FbaBoard() {
     setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
+  useEffect(() => { sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) }) }, [sb])
 
   const q = search.trim().toLowerCase()
   const match = (r: Row) => !q || [r.name, r.inbound_shipment_id, r.status, r.comments].some(v => (v || '').toLowerCase().includes(q))
@@ -75,16 +81,53 @@ export default function FbaBoard() {
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...obj } : r))
     await sb.from('fba_shipments').update({ ...obj, updated_at: new Date().toISOString() }).eq('id', id)
   }
+
+  function formFrom(r: Row) {
+    return {
+      name: r.name ?? '', status: r.status ?? '', channel: r.channel ?? '', ship_date: r.ship_date ?? '',
+      inbound_shipment_id: r.inbound_shipment_id ?? '',
+      quantity_requested: r.quantity_requested ?? '', quantity_shipped: r.quantity_shipped ?? '',
+      comments: r.comments ?? '',
+    }
+  }
+  function openDetail(r: Row) { setEditing(false); setDetail(r) }
+  function closeDetail() { setDetail(null); setEditing(false) }
+  function startEdit() { if (!detail) return; setForm(formFrom(detail)); setEditing(true) }
+
   async function addItem(channel: string) {
-    const max = Math.max(0, ...rows.filter(r => r.channel === channel).map(r => r.position || 0))
+    const max = Math.max(0, ...rows.filter(r => (r.channel || '') === channel).map(r => r.position || 0))
     const { data } = await sb.from('fba_shipments').insert({ channel, name: '', status: null, position: max + 1000 }).select('*').single()
-    if (data) { setRows(rs => [...rs, data as Row]); setEdit({ id: (data as any).id, field: 'name' }) }
+    if (data) { const r = data as Row; setRows(rs => [...rs, r]); setDetail(r); setForm(formFrom(r)); setEditing(true) }
   }
-  async function del(id: string) {
+
+  async function saveDetail() {
+    if (!detail) return
+    setSaving(true)
+    const payload: Partial<Row> = {
+      name: (form.name || '').trim() || null,
+      status: form.status || null,
+      channel: form.channel || null,
+      ship_date: form.ship_date || null,
+      inbound_shipment_id: (form.inbound_shipment_id || '').trim() || null,
+      quantity_requested: form.quantity_requested === '' || form.quantity_requested == null ? null : Number(form.quantity_requested),
+      quantity_shipped: form.quantity_shipped === '' || form.quantity_shipped == null ? null : Number(form.quantity_shipped),
+      comments: (form.comments || '').trim() || null,
+    }
+    await sb.from('fba_shipments').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', detail.id)
+    setRows(rs => rs.map(x => x.id === detail.id ? { ...x, ...payload } : x))
+    setDetail(d => d ? { ...d, ...payload } : d)
+    setEditing(false); setSaving(false)
+  }
+
+  async function deleteDetail() {
+    if (!detail) return
     if (!confirm('Delete this item?')) return
-    setRows(rs => rs.filter(r => r.id !== id))
-    await sb.from('fba_shipments').delete().eq('id', id)
+    setDeleting(true)
+    await sb.from('fba_shipments').delete().eq('id', detail.id)
+    setRows(rs => rs.filter(x => x.id !== detail.id))
+    setDeleting(false); closeDetail()
   }
+
   function onDrop(targetChannel: string, beforeId: string | null) {
     const id = dragId.current; dragId.current = null
     if (!id) return
@@ -100,41 +143,16 @@ export default function FbaBoard() {
     patch(id, { channel: targetChannel, position: pos })
   }
 
-  const inp = 'w-full bg-white border border-[#0086C0] rounded px-2 py-1 text-[13px] focus:outline-none'
-  const cellCls = 'px-3 py-2.5 text-[13px] text-[#1A1D2E] align-middle'
+  const deepLinkOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const openId = new URLSearchParams(window.location.search).get('item')
+    if (!openId || deepLinkOpenedRef.current === openId) return
+    const target = rows.find(x => x.id === openId)
+    if (target) { deepLinkOpenedRef.current = openId; openDetail(target) }
+  }, [rows]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const TextCell = ({ r, field, mono, ph }: { r: Row; field: keyof Row; mono?: boolean; ph?: string }) => {
-    const editing = edit?.id === r.id && edit?.field === field
-    const val = (r as any)[field]
-    if (editing) return <input autoFocus defaultValue={val ?? ''} onBlur={e => { patch(r.id, { [field]: e.target.value.trim() || null } as any); setEdit(null) }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEdit(null) }} className={inp} />
-    return <div onClick={() => setEdit({ id: r.id, field })} className={`cursor-text min-h-[22px] rounded px-1 hover:bg-[#F0F4F9] ${mono ? 'font-mono text-xs text-gray-500' : ''}`}>{val || <span className="text-gray-300">{ph || '+'}</span>}</div>
-  }
-  const NumCell = ({ r, field }: { r: Row; field: keyof Row }) => {
-    const editing = edit?.id === r.id && edit?.field === field
-    const val = (r as any)[field]
-    if (editing) return <input type="number" autoFocus defaultValue={val ?? ''} onBlur={e => { patch(r.id, { [field]: e.target.value === '' ? null : Number(e.target.value) } as any); setEdit(null) }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEdit(null) }} className={inp + ' text-right'} />
-    return <div onClick={() => setEdit({ id: r.id, field })} className="cursor-text min-h-[22px] rounded px-1 text-right hover:bg-[#F0F4F9] tabular-nums font-medium">{val == null ? <span className="text-gray-300">+</span> : Number(val).toLocaleString()}</div>
-  }
-  const DateCell = ({ r }: { r: Row }) => {
-    const editing = edit?.id === r.id && edit?.field === 'ship_date'
-    if (editing) return <input type="date" autoFocus defaultValue={r.ship_date ?? ''} onBlur={e => { patch(r.id, { ship_date: e.target.value || null }); setEdit(null) }} onKeyDown={e => { if (e.key === 'Escape') setEdit(null) }} className={inp} />
-    return <div onClick={() => setEdit({ id: r.id, field: 'ship_date' })} className="cursor-text min-h-[22px] rounded px-1 hover:bg-[#F0F4F9] text-gray-600">{r.ship_date ? new Date(r.ship_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : <span className="text-gray-300">+</span>}</div>
-  }
-  const StatusCell = ({ r }: { r: Row }) => (
-    <div className="relative">
-      <button onClick={() => setStatusOpen(statusOpen === r.id ? null : r.id)} className="w-full text-white text-[12px] font-semibold rounded-full px-2.5 py-1 text-center truncate" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</button>
-      {statusOpen === r.id && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setStatusOpen(null)} />
-          <div className="absolute z-20 mt-1 left-0 w-48 bg-white rounded-lg shadow-xl border border-[#E4E6EE] p-1">
-            {STATUSES.map(s => <button key={s.label} onClick={() => { patch(r.id, { status: s.label }); setStatusOpen(null) }} className="block w-full text-white text-[12px] font-semibold rounded px-2 py-1.5 mb-1 text-center" style={{ background: s.hex }}>{s.label}</button>)}
-            <button onClick={() => { patch(r.id, { status: null }); setStatusOpen(null) }} className="block w-full text-gray-500 text-[12px] rounded px-2 py-1.5 hover:bg-gray-100">Clear</button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-
+  const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const cols = [
     { h: 'Item', w: 'min-w-[240px]' }, { h: 'Status', w: 'w-[150px]' }, { h: 'Ship Date', w: 'w-[120px]' },
     { h: 'Inbound Shipment ID', w: 'w-[170px]' }, { h: 'Qty Req', w: 'w-[90px]' }, { h: 'Qty Shipped', w: 'w-[100px]' },
@@ -143,7 +161,6 @@ export default function FbaBoard() {
 
   return (
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
           <span className="mon-tag">🚚 FBA / WFS</span>
@@ -156,7 +173,6 @@ export default function FbaBoard() {
         </button>
       </div>
 
-      {/* Stats */}
       {!loading && (
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
           <Stat label="Total Items" value={String(stats.total)} c="#0086C0" />
@@ -168,7 +184,6 @@ export default function FbaBoard() {
         </div>
       )}
 
-      {/* Search */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -203,27 +218,25 @@ export default function FbaBoard() {
                         <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                           <th className="w-6" />
                           {cols.map(c => <th key={c.h} className={`text-left font-semibold px-3 py-2 ${c.w}`}>{c.h}</th>)}
-                          <th className="w-8" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EAECF2]">
                         {gr.map((r, i) => (
-                          <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
-                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab select-none" draggable onDragStart={() => { dragId.current = r.id }} title="Drag to reorder or move">&#8942;&#8942;</td>
-                            <td className={cellCls + ' font-semibold'}><TextCell r={r} field="name" ph="Item name" /></td>
-                            <td className="px-3 py-1.5 w-[150px]"><StatusCell r={r} /></td>
-                            <td className={cellCls}><DateCell r={r} /></td>
-                            <td className={cellCls}><TextCell r={r} field="inbound_shipment_id" mono ph="—" /></td>
-                            <td className={cellCls}><NumCell r={r} field="quantity_requested" /></td>
-                            <td className={cellCls}><NumCell r={r} field="quantity_shipped" /></td>
-                            <td className={cellCls}><TextCell r={r} field="comments" ph="—" /></td>
-                            <td className="text-center"><button onClick={() => del(r.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i className="ti ti-trash text-sm" /></button></td>
+                          <tr key={r.id} id={'item-' + r.id} className={`group cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onClick={() => openDetail(r)} onDragOver={e => e.preventDefault()} onDrop={e => { e.stopPropagation(); onDrop(group.key, r.id) }}>
+                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab select-none" draggable onDragStart={e => { dragId.current = r.id; e.stopPropagation() }} onClick={e => e.stopPropagation()} title="Drag to reorder or move">&#8942;&#8942;</td>
+                            <td className="px-3 py-2.5 text-[13px] font-semibold text-[#1A1D2E]">{r.name || <span className="text-gray-300">Untitled</span>}</td>
+                            <td className="px-3 py-2.5"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</span></td>
+                            <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_date)}</td>
+                            <td className="px-3 py-2.5 text-[13px] font-mono text-gray-500">{r.inbound_shipment_id || '—'}</td>
+                            <td className="px-3 py-2.5 text-[13px] text-right tabular-nums text-gray-700">{r.quantity_requested != null ? Number(r.quantity_requested).toLocaleString() : '—'}</td>
+                            <td className="px-3 py-2.5 text-[13px] text-right tabular-nums text-gray-700">{r.quantity_shipped != null ? Number(r.quantity_shipped).toLocaleString() : '—'}</td>
+                            <td className="px-3 py-2.5 text-[13px] text-gray-600 truncate max-w-[220px]">{r.comments || '—'}</td>
                           </tr>
                         ))}
-                        {gr.length === 0 && <tr><td colSpan={9} className="px-4 py-3 text-center text-gray-400 text-xs italic">Drop items here or add one below</td></tr>}
+                        {gr.length === 0 && <tr><td colSpan={8} className="px-4 py-3 text-center text-gray-400 text-xs italic">Drop items here or add one below</td></tr>}
                         <tr>
                           <td />
-                          <td colSpan={8} className="px-3 py-2"><button onClick={() => addItem(group.key)} className="text-[13px] text-gray-400 hover:text-[#0086C0]">+ Add item</button></td>
+                          <td colSpan={7} className="px-3 py-2"><button onClick={() => addItem(group.key)} className="text-[13px] text-gray-400 hover:text-[#0086C0]">+ Add item</button></td>
                         </tr>
                       </tbody>
                     </table>
@@ -232,6 +245,73 @@ export default function FbaBoard() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={closeDetail}>
+          <div className="relative w-full max-w-[760px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: statusHex(detail.status) === '#c4c4c4' ? '#0086C0' : statusHex(detail.status) }}>
+              <div className="min-w-0">
+                <p className="text-white/70 text-xs uppercase tracking-wide">FBA / WFS · {detail.channel || '—'}</p>
+                <h2 className="text-xl font-bold leading-tight">{detail.name || 'Untitled'}</h2>
+                {detail.status && <span className="inline-block mt-1.5 text-[11px] font-semibold rounded-full px-2.5 py-0.5" style={{ background: 'rgba(255,255,255,0.25)' }}>{detail.status}</span>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {!editing && (
+                  <>
+                    <button onClick={startEdit} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">✎ Edit</button>
+                    <button onClick={deleteDetail} disabled={deleting} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-red-500 disabled:opacity-50 transition-colors">{deleting ? 'Deleting…' : '🗑 Delete'}</button>
+                  </>
+                )}
+                <button onClick={closeDetail} className="text-white/80 hover:text-white text-2xl leading-none pl-1">&times;</button>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
+              {editing ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                  <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Item name</span><input className={inputCls} value={form.name} onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))} /></label>
+                  <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Status</span>
+                    <select className={inputCls} value={form.status} onChange={e => setForm((f: any) => ({ ...f, status: e.target.value }))}>
+                      <option value="">—</option>{STATUSES.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
+                    </select></label>
+                  <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Group</span>
+                    <select className={inputCls} value={form.channel} onChange={e => setForm((f: any) => ({ ...f, channel: e.target.value }))}>
+                      {allGroups.map(g => <option key={g.key} value={g.key}>{g.key}</option>)}
+                    </select></label>
+                  <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Ship Date</span><input type="date" className={inputCls} value={form.ship_date} onChange={e => setForm((f: any) => ({ ...f, ship_date: e.target.value }))} /></label>
+                  <label className="col-span-2"><span className="text-[11px] uppercase tracking-wide text-gray-400">Inbound Shipment ID</span><input className={inputCls} value={form.inbound_shipment_id} onChange={e => setForm((f: any) => ({ ...f, inbound_shipment_id: e.target.value }))} /></label>
+                  <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Qty Requested</span><input type="number" className={inputCls} value={form.quantity_requested} onChange={e => setForm((f: any) => ({ ...f, quantity_requested: e.target.value }))} /></label>
+                  <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Qty Shipped</span><input type="number" className={inputCls} value={form.quantity_shipped} onChange={e => setForm((f: any) => ({ ...f, quantity_shipped: e.target.value }))} /></label>
+                  <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Comments</span><textarea rows={3} className={inputCls + ' resize-none'} value={form.comments} onChange={e => setForm((f: any) => ({ ...f, comments: e.target.value }))} /></label>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                  <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Group</p><p className="text-gray-800 mt-0.5">{detail.channel || <span className="text-gray-300">—</span>}</p></div>
+                  <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Ship Date</p><p className="text-gray-800 mt-0.5">{fmtD(detail.ship_date)}</p></div>
+                  <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Inbound Shipment ID</p><p className="text-gray-800 mt-0.5 font-mono break-words">{detail.inbound_shipment_id || <span className="text-gray-300">—</span>}</p></div>
+                  <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Qty Requested</p><p className="text-gray-800 mt-0.5 tabular-nums">{detail.quantity_requested != null ? Number(detail.quantity_requested).toLocaleString() : <span className="text-gray-300">—</span>}</p></div>
+                  <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Qty Shipped</p><p className="text-gray-800 mt-0.5 tabular-nums">{detail.quantity_shipped != null ? Number(detail.quantity_shipped).toLocaleString() : <span className="text-gray-300">—</span>}</p></div>
+                  <div className="col-span-2 sm:col-span-3"><p className="text-[11px] uppercase tracking-wide text-gray-400">Comments</p><p className="text-gray-800 mt-0.5 whitespace-pre-line break-words">{detail.comments || <span className="text-gray-300">—</span>}</p></div>
+                </div>
+              )}
+
+              {editing && (
+                <div className="flex items-center justify-between gap-3 border-t border-[#EEF0F4] pt-4">
+                  <button onClick={deleteDetail} disabled={deleting || saving} className="text-xs font-semibold rounded-lg px-3 py-2 text-red-600 hover:bg-red-50 disabled:opacity-50">{deleting ? 'Deleting…' : '🗑 Delete record'}</button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setEditing(false)} disabled={saving} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                    <button onClick={saveDetail} disabled={saving} className="text-sm px-4 py-2 rounded-lg text-white font-semibold disabled:opacity-50" style={{ background: '#0086C0' }}>{saving ? 'Saving…' : 'Save changes'}</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-[#EEF0F4] pt-4">
+                <Comments recordId={detail.id} recordType="fba_shipment" currentUserEmail={userEmail} title="Notes & Comments" />
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
