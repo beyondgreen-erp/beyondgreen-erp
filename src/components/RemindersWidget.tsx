@@ -45,6 +45,7 @@ export default function RemindersWidget() {
   const [tableExists, setTableExists] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [detail, setDetail] = useState<Reminder | null>(null)
   const [form, setForm] = useState({
     title: '', notes: '', due_date: '', due_time: '',
     priority: 'medium', reminder_type: 'personal', color: '#1D9E75',
@@ -289,23 +290,52 @@ export default function RemindersWidget() {
           </div>
         )}
 
-        {overdue.map(r => <ReminderRow key={r.id} reminder={r} isOverdue onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} />)}
+        {overdue.map(r => <ReminderRow key={r.id} reminder={r} isOverdue onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} onOpen={setDetail} />)}
 
         {dueToday.length > 0 && (
           <div className="px-4 py-1.5 bg-amber-500/5">
             <p className="text-xs text-amber-400 font-medium uppercase tracking-wide">Due Today</p>
           </div>
         )}
-        {dueToday.map(r => <ReminderRow key={r.id} reminder={r} isToday onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} />)}
+        {dueToday.map(r => <ReminderRow key={r.id} reminder={r} isToday onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} onOpen={setDetail} />)}
 
         {upcoming.length > 0 && dueToday.length > 0 && (
           <div className="px-4 py-1.5 bg-[#F5F6FA]">
             <p className="text-xs text-[#9CA3AF] font-medium uppercase tracking-wide">Upcoming</p>
           </div>
         )}
-        {upcoming.map(r => <ReminderRow key={r.id} reminder={r} onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} />)}
+        {upcoming.map(r => <ReminderRow key={r.id} reminder={r} onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} onOpen={setDetail} />)}
       </div>
     </div>
+    {detail && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setDetail(null)}>
+        <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#E4E6EE]">
+            <div className="flex items-start gap-2 min-w-0">
+              <span className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${PRIORITY_DOT[detail.priority] ?? 'bg-[#D0D3E0]'}`} />
+              <h3 className="text-[#1A1D2E] font-semibold text-base leading-snug break-words">{detail.title}</h3>
+            </div>
+            <button onClick={() => setDetail(null)} className="text-[#9CA3AF] hover:text-[#1A1D2E] text-2xl leading-none shrink-0">&times;</button>
+          </div>
+          <div className="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="px-2 py-0.5 rounded-full bg-[#F1F2F6] text-[#5A5A6A] capitalize">{(detail.reminder_type || 'other').replace('_', ' ')}</span>
+              <span className="px-2 py-0.5 rounded-full bg-[#F1F2F6] text-[#5A5A6A] capitalize">{detail.priority} priority</span>
+              {detail.daily_email && <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">📧 Daily email</span>}
+            </div>
+            {detail.due_date && <p className="text-sm text-[#5A5A6A]">Due {new Date(detail.due_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}{detail.due_time ? ' at ' + detail.due_time : ''}</p>}
+            {detail.notes ? <p className="text-sm text-[#1A1D2E] whitespace-pre-line break-words">{detail.notes}</p> : <p className="text-sm text-[#9CA3AF] italic">No notes</p>}
+          </div>
+          <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-[#E4E6EE] bg-[#FAFBFD]">
+            <button onClick={() => { deleteReminder(detail.id); setDetail(null) }} className="text-xs font-semibold text-red-500 hover:bg-red-50 px-3 py-2 rounded-lg">Delete</button>
+            <div className="flex gap-2">
+              <button onClick={() => setDetail(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Close</button>
+              <button onClick={() => { completeReminder(detail.id); setDetail(null) }} className="text-sm px-4 py-2 rounded-lg bg-[#00C896] hover:bg-[#00B085] text-black font-semibold">✓ Complete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     {showFromEmail && <QuickReminderModal userEmail={userEmail} onClose={() => setShowFromEmail(false)} onSaved={() => { if (userEmail) fetchReminders(userEmail) }} />}
     </>
   )
@@ -319,13 +349,14 @@ interface RowProps {
   priorityDot: Record<string, string>
   onComplete: (id: string) => void
   onDelete: (id: string) => void
+  onOpen: (r: Reminder) => void
 }
 
-function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, onComplete, onDelete }: RowProps) {
+function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, onComplete, onDelete, onOpen }: RowProps) {
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 hover:bg-[#F5F6FA] transition-colors group ${isOverdue ? 'bg-red-500/5' : isToday ? 'bg-amber-500/5' : ''}`}>
+    <div onClick={() => onOpen(r)} className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-[#F5F6FA] transition-colors group ${isOverdue ? 'bg-red-500/5' : isToday ? 'bg-amber-500/5' : ''}`}>
       <button
-        onClick={() => onComplete(r.id)}
+        onClick={(e) => { e.stopPropagation(); onComplete(r.id) }}
         className="mt-0.5 w-4 h-4 rounded-full border-2 border-[#D0D3E0] hover:border-[#00C896] flex-shrink-0 transition-colors"
         title="Mark complete"
       />
@@ -348,7 +379,7 @@ function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, 
       </div>
       <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${priorityDot[r.priority] ?? 'bg-[#D0D3E0]'}`} />
       <button
-        onClick={() => onDelete(r.id)}
+        onClick={(e) => { e.stopPropagation(); onDelete(r.id) }}
         className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-[#5A5A6A] hover:text-red-400 transition-all flex-shrink-0"
         title="Delete"
       >
