@@ -62,6 +62,7 @@ export async function POST(req: Request) {
       quotation: '/sales/quotations', quotations: '/sales/quotations', quotation_art: '/sales/quotations',
       shipment: '/shipments', shipments: '/shipments',
       invoice: '/sales/invoices', invoices: '/sales/invoices',
+      fba_shipment: '/operations/fba', fba_shipments: '/operations/fba',
       lead: '/sales/leads', leads: '/sales/leads',
     }
     const boardPath = recordType ? RECORD_PATHS[recordType] : undefined
