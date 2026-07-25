@@ -9,6 +9,8 @@ interface Row {
   id: string; name: string | null; channel: string | null; status: string | null; ship_date: string | null
   inbound_shipment_id: string | null; quantity_requested: number | null; quantity_shipped: number | null
   comments: string | null; position: number | null
+  product_id?: string | null; inventory_deducted?: boolean | null; inventory_deducted_qty?: number | null
+  products?: { sku: string | null; product_name: string | null; on_hand_qty: number | null } | null
 }
 
 const STATUSES = [
@@ -47,6 +49,8 @@ export default function FbaBoard() {
   const [userEmail, setUserEmail] = useState('')
   const dragId = useRef<string | null>(null)
 
+  const [prodSearch, setProdSearch] = useState('')
+  const [prodResults, setProdResults] = useState<any[]>([])
   const [detail, setDetail] = useState<Row | null>(null)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<any>({})
@@ -55,7 +59,7 @@ export default function FbaBoard() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await sb.from('fba_shipments').select('*').order('position', { ascending: true, nullsFirst: false })
+    const { data } = await sb.from('fba_shipments').select('*, products(sku, product_name, on_hand_qty)').order('position', { ascending: true, nullsFirst: false })
     setRows((data as Row[]) || [])
     setLoading(false)
   }, [sb])
@@ -82,12 +86,30 @@ export default function FbaBoard() {
     await sb.from('fba_shipments').update({ ...obj, updated_at: new Date().toISOString() }).eq('id', id)
   }
 
+  // Ultron: link FBA/WFS rows to the Inventory board (products) and deduct on ship.
+  async function searchProducts(term: string) {
+    setProdSearch(term)
+    if (!term.trim()) { setProdResults([]); return }
+    const { data } = await sb.from('products').select('id, sku, product_name, on_hand_qty').or(`sku.ilike.%${term}%,product_name.ilike.%${term}%`).limit(8)
+    setProdResults((data as any[]) || [])
+  }
+  function selectProduct(pr: any) {
+    setForm((f: any) => ({ ...f, product_id: pr.id, product_sku: pr.sku, product_name: pr.product_name, on_hand_qty: pr.on_hand_qty, name: (f.name || '').trim() ? f.name : (pr.product_name || pr.sku || '') }))
+    setProdSearch(''); setProdResults([])
+  }
+  async function adjustInventory(productId: string, delta: number) {
+    const { data } = await sb.from('products').select('on_hand_qty').eq('id', productId).single()
+    const cur = Number((data as any)?.on_hand_qty || 0)
+    await sb.from('products').update({ on_hand_qty: cur + delta }).eq('id', productId)
+  }
+
   function formFrom(r: Row) {
     return {
       name: r.name ?? '', status: r.status ?? '', channel: r.channel ?? '', ship_date: r.ship_date ?? '',
       inbound_shipment_id: r.inbound_shipment_id ?? '',
       quantity_requested: r.quantity_requested ?? '', quantity_shipped: r.quantity_shipped ?? '',
       comments: r.comments ?? '',
+      product_id: r.product_id ?? null, product_sku: r.products?.sku ?? '', product_name: r.products?.product_name ?? '', on_hand_qty: r.products?.on_hand_qty ?? null,
     }
   }
   function openDetail(r: Row) { setEditing(false); setDetail(r) }
@@ -103,20 +125,41 @@ export default function FbaBoard() {
   async function saveDetail() {
     if (!detail) return
     setSaving(true)
+    const qtyShipped = form.quantity_shipped === '' || form.quantity_shipped == null ? null : Number(form.quantity_shipped)
+    const pid = form.product_id || null
+    const newStatus = form.status || null
+
+    // Ultron inventory sync: reverse any prior deduction, then deduct if now Shipped.
+    try {
+      if (detail.inventory_deducted && detail.product_id && Number(detail.inventory_deducted_qty || 0) > 0) {
+        await adjustInventory(detail.product_id, Number(detail.inventory_deducted_qty))
+      }
+    } catch { /* ignore */ }
+    let invDeducted = false, invQty = 0
+    try {
+      if (newStatus === 'Shipped' && pid && Number(qtyShipped || 0) > 0) {
+        await adjustInventory(pid, -Number(qtyShipped))
+        invDeducted = true; invQty = Number(qtyShipped)
+      }
+    } catch { /* ignore */ }
+
     const payload: Partial<Row> = {
       name: (form.name || '').trim() || null,
-      status: form.status || null,
+      status: newStatus,
       channel: form.channel || null,
       ship_date: form.ship_date || null,
       inbound_shipment_id: (form.inbound_shipment_id || '').trim() || null,
       quantity_requested: form.quantity_requested === '' || form.quantity_requested == null ? null : Number(form.quantity_requested),
-      quantity_shipped: form.quantity_shipped === '' || form.quantity_shipped == null ? null : Number(form.quantity_shipped),
+      quantity_shipped: qtyShipped,
       comments: (form.comments || '').trim() || null,
+      product_id: pid,
+      inventory_deducted: invDeducted,
+      inventory_deducted_qty: invQty,
     }
     await sb.from('fba_shipments').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', detail.id)
-    setRows(rs => rs.map(x => x.id === detail.id ? { ...x, ...payload } : x))
-    setDetail(d => d ? { ...d, ...payload } : d)
     setEditing(false); setSaving(false)
+    setDetail(null)
+    load()
   }
 
   async function deleteDetail() {
@@ -196,6 +239,7 @@ export default function FbaBoard() {
         </div>
       </div>
 
+      <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Inventory-linked (Ultron). Link each item to an Inventory SKU. When an item&rsquo;s status is set to <b>Shipped</b>, the shipped quantity is automatically deducted from that SKU&rsquo;s on-hand inventory. Inventory is the source of truth for product data.</div>
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-2.5 mb-6">
           {allGroups.map(group => {
@@ -224,7 +268,7 @@ export default function FbaBoard() {
                         {gr.map((r, i) => (
                           <tr key={r.id} id={'item-' + r.id} className={`group cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onClick={() => openDetail(r)} onDragOver={e => e.preventDefault()} onDrop={e => { e.stopPropagation(); onDrop(group.key, r.id) }}>
                             <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab select-none" draggable onDragStart={e => { dragId.current = r.id; e.stopPropagation() }} onClick={e => e.stopPropagation()} title="Drag to reorder or move">&#8942;&#8942;</td>
-                            <td className="px-3 py-2.5 text-[13px] font-semibold text-[#1A1D2E]">{r.name || <span className="text-gray-300">Untitled</span>}</td>
+                            <td className="px-3 py-2.5 text-[13px] font-semibold text-[#1A1D2E]"><span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: r.product_id ? '#10B981' : '#F59E0B' }} title={r.product_id ? `Linked to Inventory${r.products?.sku ? ' · ' + r.products.sku : ''}` : 'Not linked to an Inventory SKU'} />{r.name || <span className="text-gray-300">Untitled</span>}</td>
                             <td className="px-3 py-2.5"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</span></td>
                             <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_date)}</td>
                             <td className="px-3 py-2.5 text-[13px] font-mono text-gray-500">{r.inbound_shipment_id || '—'}</td>
@@ -272,6 +316,29 @@ export default function FbaBoard() {
               {editing ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                   <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Item name</span><input className={inputCls} value={form.name} onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))} /></label>
+                  <div className="col-span-2 sm:col-span-3">
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">🔗 Inventory SKU (Ultron)</span>
+                    {form.product_id ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[13px] font-mono px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">{form.product_sku || 'Linked SKU'}</span>
+                        {form.product_name && <span className="text-xs text-gray-500 truncate">{form.product_name}</span>}
+                        {form.on_hand_qty != null && <span className="text-[11px] text-gray-400 shrink-0">on hand {Number(form.on_hand_qty).toLocaleString()}</span>}
+                        <button type="button" onClick={() => setForm((f: any) => ({ ...f, product_id: null, product_sku: '', product_name: '', on_hand_qty: null }))} className="ml-auto text-xs text-gray-400 hover:text-red-500">Unlink</button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input className={inputCls} placeholder="Search Inventory by SKU or name…" value={prodSearch} onChange={e => searchProducts(e.target.value)} />
+                        {prodResults.length > 0 && (
+                          <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-lg divide-y max-h-44 overflow-y-auto">
+                            {prodResults.map((pr: any) => (
+                              <button type="button" key={pr.id} onClick={() => selectProduct(pr)} className="w-full text-left px-3 py-1.5 text-xs hover:bg-[#F2F6FF]"><span className="font-mono">{pr.sku}</span> · {pr.product_name} <span className="text-gray-400">(on hand {Number(pr.on_hand_qty || 0).toLocaleString()})</span></button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-gray-400 mt-1">Set status to <b>Shipped</b> to deduct Qty Shipped from this SKU&rsquo;s on-hand inventory.</p>
+                  </div>
                   <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Status</span>
                     <select className={inputCls} value={form.status} onChange={e => setForm((f: any) => ({ ...f, status: e.target.value }))}>
                       <option value="">—</option>{STATUSES.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
@@ -289,6 +356,7 @@ export default function FbaBoard() {
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                   <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Group</p><p className="text-gray-800 mt-0.5">{detail.channel || <span className="text-gray-300">—</span>}</p></div>
+                  <div className="col-span-2 sm:col-span-3"><p className="text-[11px] uppercase tracking-wide text-gray-400">🔗 Inventory SKU</p>{detail.product_id ? (<p className="text-gray-800 mt-0.5"><span className="font-mono">{detail.products?.sku || 'Linked'}</span>{detail.products?.product_name ? ' · ' + detail.products.product_name : ''} <span className="text-gray-400 text-xs">(on hand {Number(detail.products?.on_hand_qty || 0).toLocaleString()})</span>{detail.inventory_deducted ? <span className="ml-2 text-[11px] font-semibold text-emerald-600">✓ {Number(detail.inventory_deducted_qty || 0).toLocaleString()} deducted</span> : null}</p>) : (<p className="text-amber-600 mt-0.5 text-xs">Not linked to Inventory</p>)}</div>
                   <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Ship Date</p><p className="text-gray-800 mt-0.5">{fmtD(detail.ship_date)}</p></div>
                   <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Inbound Shipment ID</p><p className="text-gray-800 mt-0.5 font-mono break-words">{detail.inbound_shipment_id || <span className="text-gray-300">—</span>}</p></div>
                   <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Qty Requested</p><p className="text-gray-800 mt-0.5 tabular-nums">{detail.quantity_requested != null ? Number(detail.quantity_requested).toLocaleString() : <span className="text-gray-300">—</span>}</p></div>
