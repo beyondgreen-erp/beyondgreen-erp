@@ -29,7 +29,8 @@ const GROUPS = [
   { key: 'Prepped & Ready for Dispatch', color: '#A25DDC' },
   { key: 'Cancelled', color: '#E2445C' },
 ]
-const STATUS_OPTIONS = ['Waiting for PU', 'Shipped', 'ON HOLD', 'Waiting PU DATE', 'Awaiting WM Guidance', 'Resubmit PO', 'PU Date Assigned', '3rd Party', 'beyondGREEN Ship', 'Resubmitted - Awaiting Confirmation', 'MABD', 'Cancelled', 'Partial Shipped', 'Trailer Overflow', 'Duplicate', 'BUILDING ORDER']
+// Unified with the Sales Order board so both boards share one status vocabulary (no operational-flow mismatch).
+const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Awaiting BOM Components', 'Production Queue', 'In Production', 'QC', 'Ready to Ship', 'Ready at Will Call', 'Partially Shipped', 'Shipped', 'On Hold', 'Cancelled', 'Closed']
 
 const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 const fmt$ = (n: number | null) => (n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
