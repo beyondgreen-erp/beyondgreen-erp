@@ -399,7 +399,7 @@ export default function QuotationsPage() {
     if (q.length < 2) { setProductResults([]); return }
     const { data } = await supabase
       .from('products')
-      .select('id, sku, product_name, unit_cost, msrp, wholesale_price')
+      .select('id, sku, product_name, unit_cost, msrp, wholesale_price, case_qty, upc_gtin')
       .or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`)
       .limit(8)
     setProductResults(data ?? [])
@@ -415,12 +415,52 @@ export default function QuotationsPage() {
         product_name: product.product_name,
         product_id: product.id,
         unit_price: price,
+        pcs_per_case: product.case_qty ?? next[lineIdx].pcs_per_case ?? null,
         line_total: (next[lineIdx].quantity ?? 1) * price,
       }
       return next
     })
     setProductSearch('')
     setProductResults([])
+  }
+
+  // ── ULTRON: Inventory board is the single source of truth ─────────────────
+  // Resolve every quote line to a real Inventory product: link existing SKUs,
+  // auto-create brand-new SKUs in Inventory, and push name/price edits back.
+  async function ultronSyncLines(validLines: Partial<QuoteLine>[]): Promise<Partial<QuoteLine>[]> {
+    const out: Partial<QuoteLine>[] = []
+    for (const l of validLines) {
+      let pid = l.product_id ?? null
+      const sku = (l.sku ?? '').trim()
+      const name = (l.product_name ?? '').trim()
+      const price = l.unit_price ?? 0
+      const pushBack = () => {
+        const upd: Record<string, any> = { updated_at: new Date().toISOString() }
+        if (name) upd.product_name = name
+        if (price > 0) upd.wholesale_price = price
+        return upd
+      }
+      if (pid) {
+        try { await supabase.from('products').update(pushBack()).eq('id', pid) } catch { /* ignore */ }
+      } else if (sku) {
+        const { data: found } = await supabase.from('products').select('id').ilike('sku', sku).limit(1)
+        if (found && found.length) {
+          pid = (found[0] as any).id
+          try { await supabase.from('products').update(pushBack()).eq('id', pid) } catch { /* ignore */ }
+        } else {
+          const { data: created, error: cErr } = await supabase.from('products').insert({
+            sku, product_name: name || sku,
+            wholesale_price: price > 0 ? price : null,
+            unit_of_measure: 'EA', is_active: true, inventory_status: 'Active',
+            case_qty: l.pcs_per_case ?? null,
+          }).select('id').single()
+          if (!cErr && created) pid = (created as any).id
+          else { const { data: again } = await supabase.from('products').select('id').ilike('sku', sku).limit(1); pid = (again?.[0] as any)?.id ?? null }
+        }
+      }
+      out.push({ ...l, product_id: pid })
+    }
+    return out
   }
 
   async function handleSave() {
@@ -463,8 +503,9 @@ export default function QuotationsPage() {
       if (quoteId && lines.length > 0) {
         const validLines = lines.filter(l => l.product_name || l.sku || l.description || (l.unit_price ?? 0) > 0)
         if (validLines.length > 0) {
+          const syncedLines = await ultronSyncLines(validLines)
           const { error: linesErr } = await supabase.from('quotation_lines').insert(
-            validLines.map(l => ({
+            syncedLines.map(l => ({
               quotation_id: quoteId,
               product_id: l.product_id ?? null,
               sku: l.sku ?? null,
@@ -1089,6 +1130,10 @@ export default function QuotationsPage() {
           {/* LINE ITEMS TAB */}
           {panelTab === 'lines' && (
             <div className="space-y-4">
+              <div className="flex items-start gap-2 text-[11px] rounded-lg px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] text-[#1D4ED8]">
+                <span>🔗</span>
+                <span><b>Inventory-linked (Ultron).</b> Lines pull live from the Inventory board. Brand-new SKUs are added to Inventory when you save, and name/price edits sync back to the product.</span>
+              </div>
               {/* Product quick-add search */}
               <div className="relative">
                 <svg className="absolute left-3 top-2.5 w-4 h-4" style={{ color: '#9CA3AF' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -1140,9 +1185,14 @@ export default function QuotationsPage() {
                     ) : lines.map((line, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #F3F4F6' }}>
                         <td className="px-3 py-2">
-                          <input value={line.sku ?? ''} onChange={e => updateLine(i, 'sku', e.target.value)} placeholder="SKU"
-                            className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
-                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                          <div className="flex items-center gap-1">
+                            <input value={line.sku ?? ''} onChange={e => updateLine(i, 'sku', e.target.value)} placeholder="SKU"
+                              className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
+                              style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
+                            {line.product_id
+                              ? <span title="Linked to Inventory" style={{ color: '#10B981', fontSize: '11px' }}>●</span>
+                              : (line.sku ? <span title="New SKU — added to Inventory when you save" style={{ color: '#F59E0B', fontSize: '11px' }}>●</span> : null)}
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           <input value={line.product_name ?? line.description ?? ''} onChange={e => updateLine(i, 'product_name', e.target.value)} placeholder="Product / description"
