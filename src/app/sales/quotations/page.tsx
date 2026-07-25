@@ -434,20 +434,17 @@ export default function QuotationsPage() {
       const sku = (l.sku ?? '').trim()
       const name = (l.product_name ?? '').trim()
       const price = l.unit_price ?? 0
-      const pushBack = () => {
-        const upd: Record<string, any> = { updated_at: new Date().toISOString() }
-        if (name) upd.product_name = name
-        if (price > 0) upd.wholesale_price = price
-        return upd
-      }
+      // Inventory prices are the set default and are NEVER overwritten from a quote/RFQ.
+      // The quote keeps its own (possibly negotiated) price on its line.
       if (pid) {
-        try { await supabase.from('products').update(pushBack()).eq('id', pid) } catch { /* ignore */ }
+        // Already linked to an Inventory product — read-only, leave Inventory untouched.
       } else if (sku) {
         const { data: found } = await supabase.from('products').select('id').ilike('sku', sku).limit(1)
         if (found && found.length) {
-          pid = (found[0] as any).id
-          try { await supabase.from('products').update(pushBack()).eq('id', pid) } catch { /* ignore */ }
+          pid = (found[0] as any).id // link only — do not modify the existing product
         } else {
+          // Brand-new SKU: add it to the Inventory board so it stays the complete source of truth.
+          // Seed its default price from this first quote (nothing is being overwritten).
           const { data: created, error: cErr } = await supabase.from('products').insert({
             sku, product_name: name || sku,
             wholesale_price: price > 0 ? price : null,
@@ -1132,7 +1129,7 @@ export default function QuotationsPage() {
             <div className="space-y-4">
               <div className="flex items-start gap-2 text-[11px] rounded-lg px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] text-[#1D4ED8]">
                 <span>🔗</span>
-                <span><b>Inventory-linked (Ultron).</b> Lines pull live from the Inventory board. Brand-new SKUs are added to Inventory when you save, and name/price edits sync back to the product.</span>
+                <span><b>Inventory-linked (Ultron).</b> Lines pull live from the Inventory board (prices are the set default). Change a price here and it stays on this quote only — Inventory is never overwritten. Brand-new SKUs get added to Inventory on save.</span>
               </div>
               {/* Product quick-add search */}
               <div className="relative">
