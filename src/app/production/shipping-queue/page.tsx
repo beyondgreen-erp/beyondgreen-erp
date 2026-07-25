@@ -12,7 +12,7 @@ const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
 const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
 const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
-const SHIPPABLE = ['Ready to Ship', 'Ready at Will Call']
+const SHIPPABLE = ['In Production', 'Ready to Ship', 'Ready at Will Call', 'Partially Shipped']
 const DOC_LABELS: Record<string, string> = { bol: 'BOL', packingList: 'Packing List', palletLabels: 'Pallet Labels', caseLabels: 'Case Labels' }
 
 interface OrderInfo {
@@ -24,6 +24,8 @@ interface OrderInfo {
   customers?: { company_name: string; shipping_address?: string | null }
 }
 interface QueueItem { id: string; sales_order_id: string; status: string; sales_orders?: OrderInfo }
+interface WInfo { name?: string | null; status?: string | null; po_number?: string | null; ship_to?: string | null; ship_due_date?: string | null; order_date?: string | null; carrier?: string | null; total_value?: number | null }
+interface WQueueItem { id: string; status: string; w?: WInfo }
 interface PlanRow {
   sku: string; description: string; units: number; unitsPerCase: number; cases: number
   caseWeightLb: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
@@ -71,6 +73,9 @@ function fmtMoney(n?: number | null) { return n != null ? '$' + Number(n).toLoca
 
 export default function ShippingQueuePage() {
   const [items, setItems] = useState<QueueItem[]>([])
+  const [wItems, setWItems] = useState<WQueueItem[]>([])
+  const [openW, setOpenW] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState<string | null>(null)
   const [draftMsg, setDraftMsg] = useState('')
@@ -113,11 +118,17 @@ export default function ShippingQueuePage() {
     setLoading(true)
     const { data } = await sb.from('sales_orders')
       .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, ship_prep, customers(company_name, shipping_address)')
-      .in('status', SHIPPABLE).order('required_ship_date', { ascending: true, nullsFirst: false })
+      .in('status', SHIPPABLE).eq('archived', false).order('required_ship_date', { ascending: true, nullsFirst: false })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = (data as any[]) || []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setItems(rows.map((o: any) => ({ id: o.id, sales_order_id: o.id, status: o.status, sales_orders: o })))
+    // Mirror Walmart board orders that are in a shippable status (same status vocabulary, non-archived).
+    const { data: wdata } = await sb.from('walmart_board_orders')
+      .select('id, name, status, po_number, ship_to, ship_due_date, order_date, carrier, total_value')
+      .in('status', SHIPPABLE).eq('archived', false).order('ship_due_date', { ascending: true, nullsFirst: false })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setWItems(((wdata as any[]) || []).map((w: any) => ({ id: w.id, status: w.status, w })))
     setLoading(false)
   }, [])
 
@@ -273,6 +284,7 @@ export default function ShippingQueuePage() {
   }
 
   const activeItem = items.find(i => i.id === openId)
+  const activeW = wItems.find(i => i.id === openW)
   const o = activeItem?.sales_orders
   const shipPrefillRef = useRef<string | null>(null)
   useEffect(() => {
@@ -793,6 +805,13 @@ export default function ShippingQueuePage() {
     const io = it.sales_orders
     return [io?.order_number, io?.po_number, io?.customers?.company_name].some(v => (v || '').toString().toLowerCase().includes(q))
   })
+  const wVisible = wItems.filter(it => {
+    if (statusFilter !== 'All' && it.status !== statusFilter) return false
+    if (!query.trim()) return true
+    const q = query.toLowerCase()
+    const w = it.w
+    return [w?.name, w?.po_number, w?.ship_to].some(v => (v || '').toString().toLowerCase().includes(q))
+  })
 
   const photoSlots: { type: string; label: string; req: boolean }[] = parcel
     ? [{ type: 'package', label: 'Sealed package', req: true }, { type: 'shipping_label', label: 'Shipping label', req: true }, { type: 'other', label: 'Other', req: false }]
@@ -807,12 +826,13 @@ export default function ShippingQueuePage() {
         </div>
         <button onClick={() => setShowMaster(s => !s)} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>{showMaster ? 'Hide' : 'Merge BOLs → Master BOL'}</button>
       </div>
-      <p className="text-xs text-gray-400 mb-4">Live from Sales Orders — showing orders with status <b className="text-[#00863F]">Ready to Ship</b> or <b className="text-[#00863F]">Ready at Will Call</b>.</p>
+      <p className="text-xs text-gray-400 mb-2">Live from the Sales Order &amp; Walmart boards — showing orders in <b className="text-[#00863F]">In Production</b>, <b className="text-[#00863F]">Ready to Ship</b>, <b className="text-[#00863F]">Ready at Will Call</b>, or <b className="text-[#00863F]">Partially Shipped</b>.</p>
+      <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Inventory-linked (Ultron). Line items and SKUs pull live from the Inventory board. Statuses are unified with the Sales Order board, and comments sync both ways between this queue and the Sales / Walmart boards.</div>
 
       {/* Search + filter */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search order #, PO #, or customer…" className="flex-1 min-w-[220px] border rounded-lg px-3 py-2 text-sm" />
-        <span className="text-xs text-gray-400">{visible.length} of {items.length}</span>
+        <span className="text-xs text-gray-400">{visible.length + wVisible.length} of {items.length + wItems.length}</span>
       </div>
 
       {showMaster && (
@@ -834,9 +854,23 @@ export default function ShippingQueuePage() {
         </div>
       )}
 
-      {loading ? <p className="text-gray-400">Loading…</p> : visible.length === 0 ? <p className="text-gray-400">No matching orders.</p> : (
-        <div className="space-y-2">
-          {visible.map(item => {
+      {loading ? <p className="text-gray-400">Loading…</p> : (visible.length + wVisible.length) === 0 ? <p className="text-gray-400">No matching orders.</p> : (
+        <div className="space-y-3">
+          {SHIPPABLE.map(g => {
+            const gSales = visible.filter(it => it.status === g)
+            const gW = wVisible.filter(it => it.status === g)
+            if (gSales.length + gW.length === 0) return null
+            const gc = statusColor(g); const isCol = collapsed[g]
+            return (
+              <div key={g} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                <div onClick={() => setCollapsed(c => ({ ...c, [g]: !c[g] }))} className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: gc.bg, borderLeft: '5px solid ' + gc.solid }}>
+                  <span className="text-[10px]" style={{ color: gc.solid, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
+                  <span className="font-bold text-sm" style={{ color: gc.fg }}>{g}</span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: gc.solid + '26', color: gc.fg }}>{gSales.length + gW.length}</span>
+                </div>
+                {!isCol && (
+                <div className="p-2 space-y-2">
+                  {gSales.map(item => {
             const io = item.sales_orders; const open = openId === item.id
             return (
               <div key={item.id} className="rounded-xl border border-gray-200 bg-white shadow-sm mon-row">
@@ -1085,6 +1119,56 @@ export default function ShippingQueuePage() {
               </div>
             )
           })}
+                  {gW.map(w => { const wi = w.w; return (
+                    <div key={'w-' + w.id} className="rounded-xl border border-gray-200 bg-white shadow-sm mon-row">
+                      <button onClick={() => setOpenW(openW === w.id ? null : w.id)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left">
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#0086C0]/10 text-[#0086C0] shrink-0">WALMART</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{wi?.name || '—'}</p>
+                          <p className="text-xs text-gray-500 truncate">{wi?.ship_to || ''}{wi?.po_number ? ' · PO ' + wi?.po_number : ''}</p>
+                        </div>
+                        {(() => { const c = statusColor(w.status); return (<span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{w.status}</span>) })()}
+                        <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{wi?.ship_due_date || ''}</span>
+                        <span className="mon-btn !py-1.5 !px-3 whitespace-nowrap">Open</span>
+                      </button>
+                    </div>
+                  ) })}
+                </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Walmart order (mirrored) drawer ─────────────────────────── */}
+      {openW && activeW && (
+        <div className="mon-backdrop" onClick={() => setOpenW(null)}>
+          <div className="mon-modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
+            <div className="mon-modal-head">
+              <div className="min-w-0">
+                <h2 className="text-lg truncate">{activeW.w?.name || 'Walmart Order'}</h2>
+                <p className="text-white/80 text-xs mt-0.5 truncate">{activeW.w?.ship_to || ''}{activeW.w?.po_number ? ' · PO ' + activeW.w?.po_number : ''}</p>
+                {(() => { const c = statusColor(activeW.status); return (<span className="mon-pill mt-2" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{activeW.status}</span>) })()}
+              </div>
+              <button onClick={() => setOpenW(null)} className="mon-modal-close" aria-label="Close">×</button>
+            </div>
+            <div className="mon-modal-body bg-[#E9ECF2]">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-xs mb-4">
+                <div><span className="text-gray-400 block">PO #</span>{activeW.w?.po_number || '—'}</div>
+                <div><span className="text-gray-400 block">Ship To</span>{activeW.w?.ship_to || '—'}</div>
+                <div><span className="text-gray-400 block">Status</span>{activeW.status}</div>
+                <div><span className="text-gray-400 block">Order Value</span>{fmtMoney(activeW.w?.total_value)}</div>
+                <div><span className="text-gray-400 block">Order Date</span>{activeW.w?.order_date || '—'}</div>
+                <div><span className="text-gray-400 block">Ship Due</span>{activeW.w?.ship_due_date || '—'}</div>
+                <div><span className="text-gray-400 block">Carrier</span>{activeW.w?.carrier || '—'}</div>
+              </div>
+              <div className="rounded-lg bg-[#0086C0]/5 border border-[#0086C0]/20 text-[11px] text-[#0086C0] px-3 py-2 mb-3">Mirrored from the Walmart Orders board. Comments here sync both ways with that board.</div>
+              <div className="border-t border-gray-100 pt-4">
+                <Comments recordType="walmart_order" recordId={activeW.id} currentUserEmail={userEmail} title="Activity Log" />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
