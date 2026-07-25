@@ -119,7 +119,7 @@ export default function ShipmentsPage() {
     (async () => {
       const all: Shipment[] = []
       for (let from = 0; ; from += 1000) {
-        const { data } = await sb.from('shipments').select('*').order('ship_date', { ascending: false, nullsFirst: false }).range(from, from + 999)
+        const { data } = await sb.from('shipments').select('*').eq('archived', false).order('ship_date', { ascending: false, nullsFirst: false }).range(from, from + 999)
         const batch = (data as Shipment[]) || []
         all.push(...batch)
         if (batch.length < 1000) break
