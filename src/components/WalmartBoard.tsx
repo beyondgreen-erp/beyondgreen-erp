@@ -85,7 +85,7 @@ export default function WalmartBoard() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data: o } = await sb.from('walmart_board_orders').select('*').order('board_position', { ascending: true, nullsFirst: false }).order('name', { ascending: true })
+    const { data: o } = await sb.from('walmart_board_orders').select('*').eq('archived', false).order('board_position', { ascending: true, nullsFirst: false }).order('name', { ascending: true })
     const orders = (o as WOrder[]) || []
     setRows(orders)
     const { data: l } = await sb.from('walmart_board_lines').select('*').order('line_number', { ascending: true })
