@@ -105,6 +105,9 @@ export default function ShipmentsPage() {
   const [editing, setEditing] = useState<Shipment | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<Partial<Shipment>>({})
+  // Ultron: line items pulled live from the Inventory board via the linked sales order.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [soLines, setSoLines] = useState<any[]>([])
   const [userEmail, setUserEmail] = useState('')
   const [drillMonth, setDrillMonth] = useState<string | null>(null)
   const [drillWeek, setDrillWeek] = useState<string | null>(null)
@@ -129,13 +132,11 @@ export default function ShipmentsPage() {
   // ── Derived filter options ───────────────────────────────
   const months = useMemo(() => {
     const set = new Set(rows.map(r => r.month_group).filter(Boolean) as string[])
-    const known = MONTH_ORDER.filter(m => set.has(m))
-    // append any month_groups not in the static order (e.g. later 2026 months), newest first, then Cancelled last
-    const extra = Array.from(set).filter(m => m !== 'Cancelled' && !MONTH_ORDER.includes(m))
+    // Chronological: newest month first (current month at top) → oldest; special buckets last.
+    const special = ['Cancelled', 'Unknown'].filter(x => set.has(x))
+    const real = Array.from(set).filter(m => !special.includes(m))
       .sort((a, b) => new Date('1 ' + b).getTime() - new Date('1 ' + a).getTime())
-    const out = [...known, ...extra]
-    if (set.has('Cancelled')) out.push('Cancelled')
-    return out
+    return [...real, ...special]
   }, [rows])
 
   const carriers = useMemo(() => {
@@ -178,7 +179,15 @@ export default function ShipmentsPage() {
 
   // ── Panel open/save ───────────────────────────────────────
   function openEdit(s: Shipment) {
-    setEditing(s); setForm({ ...s }); setOpen(true)
+    setEditing(s); setForm({ ...s }); setOpen(true); setSoLines([])
+    if (s.sales_order_id) {
+      sb.from('sales_order_lines')
+        .select('*, products(sku, product_name, wholesale_price, msrp, unit_cost)')
+        .eq('sales_order_id', s.sales_order_id)
+        .order('line_number', { ascending: true })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then(({ data }) => setSoLines((data as any[]) || []))
+    }
   }
   async function save() {
     if (!editing) return
@@ -315,6 +324,9 @@ export default function ShipmentsPage() {
         </div>
       </div>
 
+      {/* Ultron — Inventory-linked banner */}
+      <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Inventory-linked (Ultron). Shipments land here only once confirmed shipped from the Shipping Queue — the order moves off the Sales Order board, and its comments, documents, photos and files come with it. Line items pull live from the Inventory board. Grouped by ship month, newest first.</div>
+
       {/* Tabs */}
       <div className="flex gap-1 bg-white border border-[#E4E6EE] rounded-xl p-1 mb-5 w-fit">
         <button onClick={() => setTab('table')} className={tabCls('table')}>Board</button>
@@ -350,7 +362,7 @@ export default function ShipmentsPage() {
             <span className="text-gray-600 text-xs self-center ml-1">{filtered.length} results</span>
             <div className="flex items-center gap-1.5 ml-auto text-xs">
               <button onClick={() => setCollapsed(Object.fromEntries(boardGroups.map(g => [g.key, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
-              <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
+              <button onClick={() => setCollapsed(Object.fromEntries(boardGroups.map(g => [g.key, false])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
             </div>
           </div>
 
@@ -360,7 +372,7 @@ export default function ShipmentsPage() {
             <div className="space-y-2.5 mb-6">
               {boardGroups.map((group, gi) => {
                 const gr = group.rows
-                const isCol = collapsed[group.key] ?? true
+                const isCol = collapsed[group.key] ?? (gi !== 0)
                 const cost = gr.reduce((a, r) => a + (r.ship_cost || 0), 0)
                 const color = '#0086C0'
                 return (
@@ -737,6 +749,27 @@ export default function ShipmentsPage() {
                       <p className="text-xs text-gray-600 italic">No invoice linked to this shipment.</p>
                     )}
                   </div>
+                  {editing.sales_order_id && (
+                    <div className="border-t border-[#E4E6EE] pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2">🔗 Line Items — Inventory-linked (Ultron)</p>
+                      {soLines.length === 0 ? (
+                        <p className="text-xs text-gray-500 italic">No line items on the linked order.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {soLines.map((l) => { const pr = l.products; return (
+                            <div key={l.id} className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 text-xs gap-3">
+                              <div className="min-w-0 truncate"><span className="font-mono text-[#1A1D2E]">{l.sku || pr?.sku || '—'}</span> <span className="text-gray-500">{pr?.product_name || l.description || ''}</span></div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <span className="text-gray-400">Qty {l.quantity ?? l.qty ?? '—'}</span>
+                                <span className={pr ? 'text-emerald-600' : 'text-amber-600'} title={pr ? 'Linked to Inventory' : 'Not linked to an Inventory SKU'}>{pr ? '● Inventory' : '○ Unlinked'}</span>
+                              </div>
+                            </div>
+                          )})}
+                        </div>
+                      )}
+                      <p className="text-[10px] text-gray-400 mt-1.5">Pulled live from the Inventory board via the linked sales order. Inventory is the source of truth for product data.</p>
+                    </div>
+                  )}
                   <div className="border-t border-[#E4E6EE] pt-4">
                     <FileUpload supabase={sb} recordType="shipment" recordId={editing.id} currentUserEmail={userEmail} />
                   </div>
