@@ -77,7 +77,7 @@ interface OrderLine {
   line_number: number | null
 }
 
-interface Product { id: string; sku: string; product_name: string; unit_cost: number | null; unit_of_measure: string | null; our_part_number: string | null; supplier_part_number: string | null }
+interface Product { id: string; sku: string; product_name: string; unit_cost: number | null; wholesale_price: number | null; msrp: number | null; unit_of_measure: string | null; our_part_number: string | null; supplier_part_number: string | null }
 interface Customer { id: string; company_name: string }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ function SkuAssign({ lineId, onAssigned }: { lineId: string; onAssigned: (sku: s
   useEffect(() => {
     if (q.length < 1) { setResults([]); return }
     const t = setTimeout(async () => {
-      const { data } = await sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure,our_part_number,supplier_part_number').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
+      const { data } = await sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
       setResults((data ?? []) as Product[])
       setOpen(true)
     }, 200)
@@ -183,7 +183,7 @@ function SkuAssign({ lineId, onAssigned }: { lineId: string; onAssigned: (sku: s
   }, [])
 
   async function assign(p: Product) {
-    await sb.from('sales_order_lines').update({ sku: p.sku, product_id: p.id, sku_flagged: false, description: p.product_name, unit_price: p.unit_cost ?? 0 }).eq('id', lineId)
+    await sb.from('sales_order_lines').update({ sku: p.sku, product_id: p.id, sku_flagged: false, description: p.product_name, unit_price: (p.wholesale_price ?? p.msrp ?? p.unit_cost) ?? 0 }).eq('id', lineId)
     onAssigned(p.sku, p.id)
     setQ(''); setOpen(false)
   }
@@ -570,12 +570,6 @@ function EditPanel({
                   </div>
                 )
               })()}
-              {editing && (
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Monday Item ID</label>
-                  <input value={form.monday_item_id} readOnly className={inp + ' opacity-60 cursor-not-allowed'}/>
-                </div>
-              )}
             </div>
           </div>
 
@@ -717,6 +711,10 @@ function EditPanel({
                 <button onClick={() => addLine()} className="text-xs px-2.5 py-1 rounded bg-[#F5F6FA] hover:bg-gray-600 text-gray-500 transition-colors">+ Add Line</button>
               </div>
             </div>
+            <div className="flex items-start gap-2 text-[11px] rounded-lg px-3 py-2 mb-2 bg-[#EFF6FF] border border-[#DBEAFE] text-[#1D4ED8]">
+              <span>🔗</span>
+              <span><b>Inventory-linked (Ultron).</b> SKUs pull live from the Inventory board (prices are the set default). A price you set here stays on this order only — Inventory is never overwritten. Brand-new SKUs are added to Inventory on save.</span>
+            </div>
             <div className="space-y-2">
               {editLines.map((line, i) => (
                 <div key={line._key} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); reorderLine(line._key) }} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-[#E4E6EE] bg-[#F9FAFB]/30'}`}>
@@ -731,11 +729,14 @@ function EditPanel({
                         onChange={e => { setSkuQ(e.target.value); updateLine(line._key, { sku: e.target.value, sku_flagged: !e.target.value }) }}
                         placeholder="SKU"
                         className={`w-full bg-white border ${line.sku_flagged ? 'border-amber-500/40' : 'border-[#E4E6EE]'} text-emerald-400 placeholder-gray-600 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500 transition`}/>
+                      {line.product_id
+                        ? <span title="Linked to Inventory" className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#10B981', fontSize: '10px' }}>●</span>
+                        : (line.sku ? <span title="New SKU — added to Inventory on save" className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#F59E0B', fontSize: '10px' }}>●</span> : null)}
                       {skuDropdown === i && skuMatches.length > 0 && (
                         <div className="absolute top-full left-0 right-0 bg-white border border-[#E4E6EE] rounded-lg shadow-xl z-10 overflow-hidden mt-0.5 max-h-40 overflow-y-auto">
                           {skuMatches.map(p => (
                             <button key={p.id} onMouseDown={() => {
-                              updateLine(line._key, { sku: p.sku, description: p.product_name, product_id: p.id, sku_flagged: false, our_part_number: p.our_part_number || line.our_part_number, supplier_part_number: p.supplier_part_number || line.supplier_part_number, unit_price: (p.unit_cost != null && !line.unit_price) ? String(p.unit_cost) : line.unit_price })
+                              updateLine(line._key, { sku: p.sku, description: p.product_name, product_id: p.id, sku_flagged: false, our_part_number: p.our_part_number || line.our_part_number, supplier_part_number: p.supplier_part_number || line.supplier_part_number, unit_price: (() => { const px = p.wholesale_price ?? p.msrp ?? p.unit_cost; return (px != null && !line.unit_price) ? String(px) : line.unit_price })() })
                               setSkuDropdown(null)
                             }} className="w-full text-left px-3 py-2 text-xs border-b border-[#E4E6EE] last:border-0 hover:bg-[#F5F6FA] transition-colors">
                               <span className="text-emerald-400 font-mono font-bold">{p.sku}</span>
@@ -902,7 +903,7 @@ export default function OrdersPage() {
     const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }, { data: pc }] = await Promise.all([
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone)').eq('archived', false).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
-      sb.from('products').select('id,sku,product_name,unit_cost,unit_of_measure,our_part_number,supplier_part_number').eq('is_active', true).order('sku'),
+      sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id').eq('sku_flagged', true),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
       sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
@@ -1258,15 +1259,29 @@ export default function OrdersPage() {
       const line = editLines[i]
       if (!line.sku && !line.description) continue
       const prod = products.find(p => p.sku === line.sku)
+      // ULTRON: link to the Inventory product; auto-create brand-new SKUs so Inventory stays the
+      // source of truth. Inventory prices are the set default and are never overwritten from an order.
+      let pid: string | null = line.product_id ?? prod?.id ?? null
+      const skuT = (line.sku || '').trim()
+      if (!pid && skuT) {
+        const { data: found } = await sb.from('products').select('id').ilike('sku', skuT).limit(1)
+        if (found && found.length) pid = (found[0] as any).id
+        else {
+          const upx = parseFloat(line.unit_price)
+          const { data: created, error: cErr } = await sb.from('products').insert({ sku: skuT, product_name: line.description || skuT, wholesale_price: upx > 0 ? upx : null, unit_of_measure: line.unit_of_measure || 'EA', is_active: true, inventory_status: 'Active' }).select('id').single()
+          if (!cErr && created) pid = (created as any).id
+          else { const { data: again } = await sb.from('products').select('id').ilike('sku', skuT).limit(1); pid = (again?.[0] as any)?.id ?? null }
+        }
+      }
       const baseLine: Record<string,any> = {
         sales_order_id: orderId,
-        product_id: line.product_id ?? prod?.id ?? null,
+        product_id: pid,
         sku: line.sku || null,
         description: line.description || prod?.product_name || null,
         quantity: parseFloat(line.quantity) || 1,
         quantity_shipped: parseFloat(line.completed_qty) || 0,
         unit_of_measure: line.unit_of_measure || null,
-        unit_price: (parseFloat(line.unit_price) > 0 ? parseFloat(line.unit_price) : (prod?.unit_cost ?? 0)),
+        unit_price: (parseFloat(line.unit_price) > 0 ? parseFloat(line.unit_price) : ((prod?.wholesale_price ?? prod?.msrp ?? prod?.unit_cost) ?? 0)),
         line_number: i + 1,
         discount_pct: 0,
       }
@@ -1277,7 +1292,7 @@ export default function OrdersPage() {
         packaging: line.packaging || null,
         production_status: line.production_status || null,
         added_details: line.added_details || null,
-        sku_flagged: !line.sku,
+        sku_flagged: !!skuT && !pid,
       }
       const lRes = await sb.from('sales_order_lines').insert({ ...baseLine, ...extLine })
       if (lRes.error?.message?.includes('column')) {
