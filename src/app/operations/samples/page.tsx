@@ -380,21 +380,43 @@ export default function SamplesPage() {
 
   const q = search.trim().toLowerCase()
   const match = (r: Sample) => !q || [r.name, r.customer_email, r.product, r.requestor, r.tracking_number].some(v => (v || '').toLowerCase().includes(q))
-  const groupRows = (key: string) => rows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
-  const extra = Array.from(new Set(rows.map(r => r.group_name || '').filter(k => k && !GROUPS.some(g => g.key === k))))
-  const allGroups = [...GROUPS, ...extra.map(k => ({ key: k, color: '#9699A6' }))]
+  const isShipped = (r: Sample) => (r.group_name || '') === 'Shipped Samples'
+  const shipDate = (r: Sample) => ((r as any).shipped_at as string | null) || r.ship_due_date || r.sample_date || null
+  const monthKey = (r: Sample) => { const d = shipDate(r); if (!d) return 'Shipped — no date'; const dt = new Date(d); return isNaN(dt.getTime()) ? 'Shipped — no date' : dt.toLocaleString('en-US', { month: 'long', year: 'numeric' }) }
+  // Shipped samples are grouped by month shipped (newest first); everything else keeps its group_name.
+  const groupRows = (g: { key: string; shippedMonth?: boolean }) => {
+    const base = g.shippedMonth
+      ? rows.filter(r => isShipped(r) && monthKey(r) === g.key && match(r))
+      : rows.filter(r => (r.group_name || '') === g.key && match(r))
+    return base.sort((a, b) => (a.position || 0) - (b.position || 0))
+  }
+  const pendingGroups = [{ key: 'Pending Sample Shipments', color: '#FDAB3D' }]
+  const extra = Array.from(new Set(rows.map(r => r.group_name || '').filter(k => k && k !== 'Shipped Samples' && k !== 'Pending Sample Shipments')))
+  const shippedMonths = (() => {
+    const m = new Map<string, string>()
+    for (const r of rows) { if (!isShipped(r)) continue; const k = monthKey(r); const d = shipDate(r) || ''; const cur = m.get(k); if (cur === undefined || (d && d > cur)) m.set(k, d) }
+    return [...m.entries()].sort((a, b) => (b[1] || '').localeCompare(a[1] || '')).map(([key]) => ({ key, color: '#00A84F', shippedMonth: true as const }))
+  })()
+  const allGroups: { key: string; color: string; shippedMonth?: boolean }[] = [...pendingGroups, ...extra.map(k => ({ key: k, color: '#9699A6' })), ...shippedMonths]
   // Drag a submission into another group. Dropping into "Shipped Samples" also marks it Shipped.
-  async function moveToGroup(targetGroup: string) {
+  async function moveToGroup(target: { key: string; shippedMonth?: boolean }) {
     const id = dragId.current; dragId.current = null
     if (!id) return
     const row = rows.find(r => r.id === id)
-    if (!row || (row.group_name || '') === targetGroup) return
-    const patch: any = { group_name: targetGroup, updated_at: new Date().toISOString() }
-    if (targetGroup === 'Shipped Samples') { patch.status = 'Shipped'; if (!(row as any).shipped_at) patch.shipped_at = new Date().toISOString() }
+    if (!row) return
+    const patch: any = { updated_at: new Date().toISOString() }
+    if (target.shippedMonth) {
+      if ((row.group_name || '') === 'Shipped Samples') return // already shipped
+      patch.group_name = 'Shipped Samples'; patch.status = 'Shipped'
+      if (!(row as any).shipped_at) patch.shipped_at = new Date().toISOString()
+    } else {
+      if ((row.group_name || '') === target.key) return
+      patch.group_name = target.key
+    }
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
     await sb.from('sample_submissions').update(patch).eq('id', id)
   }
-  const shownCount = allGroups.reduce((a, g) => a + groupRows(g.key).length, 0)
+  const shownCount = allGroups.reduce((a, g) => a + groupRows(g).length, 0)
 
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const cellCls = 'w-full bg-white border border-[#E4E6EE] rounded px-1.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
@@ -440,10 +462,10 @@ export default function SamplesPage() {
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-2.5 mb-6">
           {allGroups.map(group => {
-            const gr = groupRows(group.key); const isCol = collapsed[group.key]
+            const gr = groupRows(group); const isCol = collapsed[group.key]
             const cost = gr.reduce((a, r) => a + (Number(r.ship_cost) || 0), 0)
             return (
-              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => moveToGroup(group.key)}>
+              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => moveToGroup(group)}>
                 <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                   <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: group.color }}>{group.key}</span>
