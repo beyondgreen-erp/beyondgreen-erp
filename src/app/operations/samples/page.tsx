@@ -7,7 +7,7 @@ import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 import Comments from '@/components/Comments'
 
-interface Line { id?: string; _new?: boolean; name: string | null; sku: string | null; quantity: number | null }
+interface Line { id?: string; _new?: boolean; name: string | null; sku: string | null; quantity: number | null; product_id?: string | null }
 interface Sample {
   id: string; name: string | null; requesting_facility: string | null; requestor: string | null; customer_email: string | null
   customer_type: string | null; product: string | null; status: string | null; ship_due_date: string | null; sample_date: string | null
@@ -232,6 +232,8 @@ export default function SamplesPage() {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<any>({})
   const [lineForms, setLineForms] = useState<Line[]>([])
+  const [productSearch, setProductSearch] = useState('')
+  const [productResults, setProductResults] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -263,7 +265,7 @@ export default function SamplesPage() {
 
   const ensureLines = useCallback(async (id: string) => {
     if (items[id]) return
-    const { data } = await sb.from('sample_submission_lines').select('id,name,sku,quantity').eq('sample_id', id).order('line_number')
+    const { data } = await sb.from('sample_submission_lines').select('id,name,sku,quantity,product_id').eq('sample_id', id).order('line_number')
     setItems(m => ({ ...m, [id]: (data as Line[]) || [] }))
   }, [items, sb])
 
@@ -279,12 +281,22 @@ export default function SamplesPage() {
     for (const fld of FIELDS) f[fld.key] = (detail as any)[fld.key] ?? ''
     f.name = detail.name ?? ''
     setForm(f)
-    setLineForms(detailLines.map(l => ({ id: l.id, name: l.name ?? '', sku: l.sku ?? '', quantity: l.quantity })))
+    setLineForms(detailLines.map(l => ({ id: l.id, name: l.name ?? '', sku: l.sku ?? '', quantity: l.quantity, product_id: (l as any).product_id ?? null })))
     setEditing(true)
   }
   const setLine = (idx: number, patch: Partial<Line>) => setLineForms(ls => ls.map((l, i) => i === idx ? { ...l, ...patch } : l))
-  const addLine = () => setLineForms(ls => [...ls, { _new: true, name: '', sku: '', quantity: null }])
+  const addLine = () => setLineForms(ls => [...ls, { _new: true, name: '', sku: '', quantity: null, product_id: null }])
   const removeLine = (idx: number) => setLineForms(ls => ls.filter((_, i) => i !== idx))
+  // ULTRON: pull products live from the Inventory board (source of truth)
+  async function searchProducts(q: string) {
+    if (q.trim().length < 2) { setProductResults([]); return }
+    const { data } = await sb.from('products').select('id, sku, product_name').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
+    setProductResults(data ?? [])
+  }
+  function selectProduct(product: any) {
+    setLineForms(ls => [...ls, { _new: true, name: product.product_name ?? '', sku: product.sku ?? '', quantity: null, product_id: product.id }])
+    setProductSearch(''); setProductResults([])
+  }
 
   async function saveRecord() {
     if (!detail) return
@@ -306,7 +318,21 @@ export default function SamplesPage() {
       for (let idx = 0; idx < lineForms.length; idx++) {
         const l = lineForms[idx]
         const q = l.quantity == null || (l.quantity as any) === '' ? null : Number(l.quantity)
-        const row: any = { sample_id: detail.id, name: (String(l.name ?? '').trim() || null), sku: (String(l.sku ?? '').trim() || null), quantity: isNaN(q as any) ? null : q, line_number: idx + 1 }
+        const sku = String(l.sku ?? '').trim()
+        const name = String(l.name ?? '').trim()
+        // ULTRON: link to the Inventory product; auto-create brand-new SKUs so Inventory
+        // stays the complete source of truth. Existing products are never overwritten.
+        let pid = l.product_id ?? null
+        if (!pid && sku) {
+          const { data: found } = await sb.from('products').select('id').ilike('sku', sku).limit(1)
+          if (found && found.length) pid = (found[0] as any).id
+          else {
+            const { data: created, error: cErr } = await sb.from('products').insert({ sku, product_name: name || sku, unit_of_measure: 'EA', is_active: true, inventory_status: 'Active' }).select('id').single()
+            if (!cErr && created) pid = (created as any).id
+            else { const { data: again } = await sb.from('products').select('id').ilike('sku', sku).limit(1); pid = (again?.[0] as any)?.id ?? null }
+          }
+        }
+        const row: any = { sample_id: detail.id, name: (name || null), sku: (sku || null), quantity: isNaN(q as any) ? null : q, product_id: pid, line_number: idx + 1 }
         if (l._new || !l.id) await sb.from('sample_submission_lines').insert(row)
         else await sb.from('sample_submission_lines').update(row).eq('id', l.id)
       }
@@ -518,6 +544,27 @@ export default function SamplesPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Sample Items</p>
                   {editing && <button onClick={addLine} className="text-xs px-2.5 py-1 rounded-lg bg-[#EAF0FC] text-[#3B6FE0] font-semibold hover:bg-[#DCE7FB]">＋ Add item</button>}
                 </div>
+                {editing && (
+                  <div className="mb-2 space-y-2">
+                    <div className="flex items-start gap-2 text-[11px] rounded-lg px-3 py-2 bg-[#EFF6FF] border border-[#DBEAFE] text-[#1D4ED8]">
+                      <span>🔗</span>
+                      <span><b>Inventory-linked (Ultron).</b> Search the Inventory board to add items. Brand-new SKUs are added to Inventory when you save; Inventory itself is never overwritten.</span>
+                    </div>
+                    <div className="relative">
+                      <input value={productSearch} onChange={e => { setProductSearch(e.target.value); searchProducts(e.target.value) }} placeholder="Quick-add: search Inventory by SKU or name…" className={inputCls} />
+                      {productResults.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-[#E4E6EE] shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+                          {productResults.map((pr: any) => (
+                            <button key={pr.id} onClick={() => selectProduct(pr)} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#F9FAFB] text-left">
+                              <span className="text-xs font-semibold text-[#3B6FE0]">{pr.sku}</span>
+                              <span className="text-xs text-gray-500 truncate">{pr.product_name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {editing ? (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[520px]">
@@ -526,7 +573,14 @@ export default function SamplesPage() {
                         {lineForms.map((l, idx) => (
                           <tr key={l.id || `new-${idx}`} className="border-t border-[#F0F2F6]">
                             <td className="px-2 py-1.5"><input className={cellCls} value={l.name ?? ''} onChange={e => setLine(idx, { name: e.target.value })} /></td>
-                            <td className="px-2 py-1.5"><input className={cellCls + ' font-mono'} value={l.sku ?? ''} onChange={e => setLine(idx, { sku: e.target.value })} /></td>
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-center gap-1">
+                                <input className={cellCls + ' font-mono'} value={l.sku ?? ''} onChange={e => setLine(idx, { sku: e.target.value })} />
+                                {l.product_id
+                                  ? <span title="Linked to Inventory" style={{ color: '#10B981', fontSize: '11px' }}>●</span>
+                                  : (l.sku ? <span title="New SKU — added to Inventory on save" style={{ color: '#F59E0B', fontSize: '11px' }}>●</span> : null)}
+                              </div>
+                            </td>
                             <td className="px-2 py-1.5"><input type="number" className={cellCls} value={l.quantity ?? ''} onChange={e => setLine(idx, { quantity: e.target.value === '' ? null : Number(e.target.value) })} /></td>
                             <td className="px-1 py-1.5 text-center"><button onClick={() => removeLine(idx)} className="text-gray-300 hover:text-red-500 text-base leading-none" title="Remove item">×</button></td>
                           </tr>
