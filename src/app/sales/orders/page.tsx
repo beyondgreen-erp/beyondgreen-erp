@@ -337,6 +337,38 @@ interface EditLineState {
   product_id: string | null
 }
 
+function PriceHint({ sku }: { sku: string }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [hist, setHist] = useState<{ order_number: string; customer_name: string | null; order_date: string | null; unit_price: number }[]>([])
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const s = (sku || '').trim()
+    if (!s) { setHist([]); return }
+    let active = true
+    const t = setTimeout(async () => {
+      const { data } = await sb.rpc('sku_price_history', { p_sku: s, p_limit: 5 })
+      if (active) setHist((data as any[]) || [])
+    }, 350)
+    return () => { active = false; clearTimeout(t) }
+  }, [sku, sb])
+  if (!hist.length) return null
+  const last = hist[0]
+  const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+  return (
+    <div className="text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
+      <span>Last sold: <span className="font-semibold text-[#00863F]">${Number(last.unit_price).toFixed(2)}</span>{last.customer_name ? ` · ${last.customer_name}` : ''}{last.order_date ? ` · ${fmtD(last.order_date)}` : ''}</span>
+      {hist.length > 1 && <button type="button" onClick={() => setOpen(o => !o)} className="text-[#3B6FE0] hover:underline">{open ? 'hide' : `+${hist.length - 1} more`}</button>}
+      {open && (
+        <div className="w-full mt-0.5 space-y-0.5">
+          {hist.slice(1).map((h, i) => (
+            <div key={i} className="text-gray-400">${Number(h.unit_price).toFixed(2)} · {h.customer_name || '—'} · {fmtD(h.order_date)} · {h.order_number}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
   customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads,
@@ -829,6 +861,7 @@ function EditPanel({
                       Line total: <span className="font-semibold text-[#1A1D2E]">{(() => { const q = parseFloat(line.quantity) || 0; const u = parseFloat(line.unit_price) || 0; return u ? '$' + (q * u).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'; })()}</span>
                     </div>
                   </div>
+                  {line.sku && <PriceHint sku={line.sku} />}
                   <div className="grid grid-cols-2 gap-2">
                     <input value={line.production_status} onChange={e => updateLine(line._key, { production_status: e.target.value })}
                       placeholder="Production Status" className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
