@@ -390,7 +390,7 @@ function QuickLinksWidget({ w, onCfg }: { w: Widget; onCfg: (p: any) => void }) 
    ============================================================ */
 function KpiOpenOrders() {
   const [n, setN] = useState<number | null>(null)
-  useEffect(() => { sb.from('sales_orders').select('id', { count: 'exact', head: true }).in('status', OPEN_STATUSES).then(({ count }) => setN(count || 0)) }, [])
+  useEffect(() => { sb.from('sales_orders').select('id', { count: 'exact', head: true }).eq('archived', false).in('status', OPEN_STATUSES).then(({ count }) => setN(count || 0)) }, [])
   return <BigNumber value={n} sub="Open Orders" color="text-indigo-600" href="/sales/orders" />
 }
 function KpiRevenueMTD() {
@@ -417,7 +417,7 @@ function KpiRevenueMTD() {
 }
 function KpiShippingQueue() {
   const [n, setN] = useState<number | null>(null)
-  useEffect(() => { sb.from('sales_orders').select('id', { count: 'exact', head: true }).eq('status', 'Ready to Ship').then(({ count }) => setN(count || 0)) }, [])
+  useEffect(() => { sb.from('sales_orders').select('id', { count: 'exact', head: true }).eq('archived', false).eq('status', 'Ready to Ship').then(({ count }) => setN(count || 0)) }, [])
   return <BigNumber value={n} sub="Ready to Ship" color="text-orange-600" href="/production/shipping-queue" />
 }
 function KpiOverdueInvoices() {
@@ -479,7 +479,7 @@ function TasksWidget() {
 function RecentOrdersWidget() {
   const [rows, setRows] = useState<any[] | null>(null)
   useEffect(() => {
-    sb.from('sales_orders').select('id,order_number,status,total_amount,customers(company_name),updated_at').order('updated_at', { ascending: false }).limit(5)
+    sb.from('sales_orders').select('id,order_number,status,total_amount,customers(company_name),updated_at').eq('archived', false).order('updated_at', { ascending: false }).limit(5)
       .then(({ data }) => setRows(data || []))
   }, [])
   const chip = (s: string) => {
@@ -518,7 +518,7 @@ function PipelineWidget() {
   useEffect(() => {
     (async () => {
       const c: Record<string, number> = {}
-      for (const s of stages) { const { count } = await sb.from('sales_orders').select('id', { count: 'exact', head: true }).eq('status', s.label); c[s.label] = count || 0 }
+      for (const s of stages) { const { count } = await sb.from('sales_orders').select('id', { count: 'exact', head: true }).eq('archived', false).eq('status', s.label); c[s.label] = count || 0 }
       setCounts(c)
     })()
   }, []) // eslint-disable-line
