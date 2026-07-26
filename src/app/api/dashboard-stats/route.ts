@@ -16,6 +16,7 @@ export async function GET() {
     const { count: openOrders } = await sb
       .from('sales_orders')
       .select('id', { count: 'exact', head: true })
+      .eq('archived', false)
       .in('status', OPEN_STATUSES)
     return NextResponse.json({ openOrders: openOrders ?? 0 })
   } catch (e) {
