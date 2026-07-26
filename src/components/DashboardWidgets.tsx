@@ -651,7 +651,7 @@ function WorkflowCategories() {
     { label: 'Partially Shipped', color: '#A25DDC', href: '/sales/orders?status=' + encodeURIComponent('Partially Shipped'), statuses: ['Partially Shipped'] },
     { label: 'On Hold', color: '#E2445C', href: '/sales/orders?status=' + encodeURIComponent('On Hold'), statuses: ['On Hold'] },
     { label: 'Ready for Invoice', color: '#6366F1', href: '/sales/orders?status=' + encodeURIComponent('Ready for Invoice'), statuses: ['Ready for Invoice'] },
-    { label: 'Completed', color: '#1D9E75', href: '/shipments', statuses: ['Shipped', 'Completed', 'Closed'] },
+    { label: 'Completed', color: '#1D9E75', href: '/sales/completed', statuses: ['Shipped', 'Completed', 'Closed'] },
   ]
   useEffect(() => { (async () => {
     const out: Record<string, number> = {}
