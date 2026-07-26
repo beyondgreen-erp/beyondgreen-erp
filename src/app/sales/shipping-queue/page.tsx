@@ -54,7 +54,7 @@ export default function ShippingQueuePage() {
 
   // Ship Now modal
   const [shipModal, setShipModal] = useState<ShipQItem | null>(null)
-  const [shipForm, setShipForm] = useState({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '', reason: '' })
+  const [shipForm, setShipForm] = useState({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '', reason: '', freightCost: '' })
   const [shipping, setShipping] = useState(false)
   const [shipLines, setShipLines] = useState<(ShipLineInput & { line_number?: number })[]>([])
 
@@ -123,7 +123,7 @@ export default function ShippingQueuePage() {
 
   async function openShipModal(item: ShipQItem) {
     setShipModal(item)
-    setShipForm({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '', reason: '' })
+    setShipForm({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '', reason: '', freightCost: '' })
     setShipLines([])
     if (item.order_id) {
       const { data } = await sb.from('sales_order_lines')
@@ -178,6 +178,12 @@ export default function ShippingQueuePage() {
       shipDate: shipForm.shipDate,
       notes: [shipForm.reason ? ('Reason: ' + shipForm.reason) : '', shipForm.notes].filter(Boolean).join(' — '),
     })
+
+    // Record freight cost + automatic 20% customer markup on the created shipment
+    const brokerFreight = parseFloat(shipForm.freightCost)
+    if (brokerFreight > 0 && (result as any)?.undoData?.shipmentId) {
+      await sb.from('shipments').update({ ship_cost: brokerFreight, customer_freight: Math.round(brokerFreight * 1.2 * 100) / 100 }).eq('id', (result as any).undoData.shipmentId)
+    }
 
     setShipping(false)
     setShipModal(null)
@@ -489,6 +495,17 @@ export default function ShippingQueuePage() {
                   placeholder="Optional"
                   className={inp}
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5 font-medium">Freight cost (broker)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">$</span>
+                  <input type="number" min="0" step="0.01" value={shipForm.freightCost} onChange={e => setShipForm(p => ({ ...p, freightCost: e.target.value }))} placeholder="0.00" className={inp + ' pl-6'} />
+                </div>
+                {parseFloat(shipForm.freightCost) > 0 && (
+                  <p className="text-[11px] text-gray-500 mt-1">Customer freight (cost + 20%): <span className="font-semibold text-[#00863F]">${(parseFloat(shipForm.freightCost) * 1.2).toFixed(2)}</span></p>
+                )}
               </div>
 
               <div>
