@@ -11,6 +11,7 @@ import { WorkflowProgressBar } from '@/components/WorkflowMover'
 import { onStatusChange, undoFlow, logActivity, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
+import FileUpload from '@/components/FileUpload'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
 import { statusColor } from '@/lib/statusColors'
 import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
@@ -939,6 +940,24 @@ function EditPanel({
           {editing && (
             <div className="pt-4 border-t border-[#E4E6EE]">
               <Comments recordType="sales_order" recordId={editing.id} currentUserEmail={userEmail} title="Comments & @mentions" />
+            </div>
+          )}
+          {editing && (
+            <div className="pt-4 border-t border-[#E4E6EE]">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Documents</p>
+              <div className="space-y-4">
+                {[
+                  { rt: 'sales_order_po_copy', label: 'Customer PO' },
+                  { rt: 'sales_order_so_copy', label: 'Sales Order copy' },
+                  { rt: 'sales_order_artwork', label: 'Artwork files' },
+                  { rt: 'sales_order_other', label: 'Other documents' },
+                ].map(d => (
+                  <div key={d.rt}>
+                    <label className="block text-[11px] font-medium text-gray-500 mb-1">{d.label}</label>
+                    <FileUpload supabase={sb} recordType={d.rt} recordId={editing.id} currentUserEmail={userEmail} />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {editing && <VersionHistory orderId={editing.id} />}

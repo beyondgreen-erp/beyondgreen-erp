@@ -102,6 +102,11 @@ export default function PurchasingRequestsPage() {
   useEffect(() => { load() }, [load])
 
   const itemsOf = (oid: string) => items.filter(i => i.parent_id === oid).sort((a, b) => (a.position || 0) - (b.position || 0))
+  const updateStatus = async (id: string, status: string) => {
+    setRows(rs => rs.map(r => r.id === id ? { ...r, status: status || null } : r))
+    setDetail((d: any) => d && d.id === id ? { ...d, status: status || null } : d)
+    await sb.from('purchasing_requests').update({ status: status || null }).eq('id', id)
+  }
   const match = (r: any) => {
     if (!q) return true
     const s = q.toLowerCase()
@@ -229,22 +234,22 @@ export default function PurchasingRequestsPage() {
         </div>
       </div>
 
+      <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — status is editable inline and on each record; notes &amp; comments sync two-way with the Sales / Walmart boards.</div>
       <div className="space-y-4">
         {GROUPS.map(group => {
           const gr = groupRows(group.key)
           const isCol = collapsed[group.key]
           return (
-            <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
-              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
+            <div key={group.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
+              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 bg-white rounded-t-xl border-b border-[#EEF0F4]" style={{ borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                 <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                 <span className="font-bold text-sm" style={{ color: group.color }}>{group.title}</span>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: group.color + '26', color: group.color }}>{gr.length}</span>
               </div>
               {!isCol && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[1150px]">
-                    <thead>
-                      <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-[47px] z-20">
+                      <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4] bg-[#FBFCFE]">
                         <th className="text-left px-4 py-2 font-semibold">Item</th>
                         <th className="text-left px-3 py-2 font-semibold w-[140px]">Location</th>
                         <th className="text-left px-3 py-2 font-semibold w-[200px]">Status</th>
@@ -266,7 +271,12 @@ export default function PurchasingRequestsPage() {
                           <tr key={r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => setDetail(r)}>
                             <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{r.name}</td>
                             <td className="px-3 py-2.5">{r.location ? <span className="text-white text-[10px] font-semibold rounded-full px-2 py-0.5 inline-block whitespace-nowrap" style={{ background: LOC_COLORS[r.location] || '#c4c4c4' }}>{r.location}</span> : <span className="text-gray-300">—</span>}</td>
-                            <td className="px-3 py-2.5">{r.status ? <span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block whitespace-nowrap" style={{ background: statusColor(r.status) }}>{r.status}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                              <select value={r.status || ''} onChange={e => updateStatus(r.id, e.target.value)} className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 border-0 cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-black/10 max-w-[180px]" style={{ background: statusColor(r.status) }}>
+                                <option value="" style={{ color: '#111' }}>— Set status —</option>
+                                {STATUS_OPTIONS.map(o => <option key={o} value={o} style={{ background: '#fff', color: '#111' }}>{o}</option>)}
+                              </select>
+                            </td>
                             <td className="px-3 py-2.5 text-gray-600">{r.person_requesting || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{r.po_number || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{r.supplier || '—'}</td>
@@ -280,7 +290,6 @@ export default function PurchasingRequestsPage() {
                       {gr.length === 0 && <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400 text-sm">No requests</td></tr>}
                     </tbody>
                   </table>
-                </div>
               )}
             </div>
           )
@@ -378,7 +387,10 @@ export default function PurchasingRequestsPage() {
                 <p className="text-white/70 text-xs uppercase tracking-wide">{detail.group_title}</p>
                 <h2 className="text-xl font-bold leading-tight">{detail.name}</h2>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  {detail.status && <span className="inline-block text-[11px] font-semibold rounded-full px-2.5 py-0.5" style={{ background: statusColor(detail.status), color: '#fff' }}>{detail.status}</span>}
+                  <select value={detail.status || ''} onChange={e => updateStatus(detail.id, e.target.value)} className="inline-block text-[11px] font-semibold rounded-full px-2.5 py-0.5 border-0 cursor-pointer appearance-none focus:outline-none text-white" style={{ background: statusColor(detail.status) }}>
+                    <option value="" style={{ color: '#111' }}>— Set status —</option>
+                    {STATUS_OPTIONS.map(o => <option key={o} value={o} style={{ background: '#fff', color: '#111' }}>{o}</option>)}
+                  </select>
                   {detail.location && <span className="inline-block text-[11px] font-semibold rounded-full px-2.5 py-0.5 bg-white/20">{detail.location}</span>}
                 </div>
               </div>
