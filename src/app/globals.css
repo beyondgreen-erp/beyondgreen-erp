@@ -263,3 +263,27 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 /* A little celebratory bounce for freshly-updated things */
 @keyframes monPeek { 0%{transform:scale(1);} 40%{transform:scale(1.06);} 100%{transform:scale(1);} }
 .mon-peek { animation:monPeek .4s ease; }
+
+/* ===== Tablet polish — iPad ergonomics for the secondary boards ===== */
+/* Touch devices (iPad): prevent iOS focus auto-zoom, enlarge tap targets, smooth scroll */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea { font-size: 16px !important; }
+
+  .mon-btn, button, [role="button"], a.mon-btn { min-height: 40px; }
+
+  /* Momentum scrolling on any horizontal board / table scroller */
+  .overflow-x-auto, .overflow-auto, table { -webkit-overflow-scrolling: touch; }
+
+  /* Board cards: a little more vertical breathing room for finger taps */
+  .mon-card, .mon-row { touch-action: manipulation; }
+}
+
+/* Tablet portrait/landscape widths: let dense toolbars wrap instead of crushing */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .mon-toolbar, .mon-filters, .mon-actions { flex-wrap: wrap; gap: 8px; }
+  .mon-card { padding-top: 12px; padding-bottom: 12px; }
+  /* Keep wide record-board tables scrollable rather than overflowing the viewport */
+  .mon-board, .mon-board-scroll, .record-board { overflow-x: auto; }
+}
