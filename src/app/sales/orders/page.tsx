@@ -359,6 +359,7 @@ function EditPanel({
   onDownloadSalesOrder: () => void
   onSearchLeads: (q: string) => Promise<{ id: string; company_name: string }[]>
 }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [skuDropdown, setSkuDropdown] = useState<number | null>(null)
   const [skuQ, setSkuQ] = useState('')
   // Customer / lead linking
