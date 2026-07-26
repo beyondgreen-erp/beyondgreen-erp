@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 export default function MobileNav() {
   const pathname = usePathname()
   const [unread, setUnread] = useState(0)
+  const [sprintNotice, setSprintNotice] = useState(false)
 
   useEffect(() => {
     const iv = setInterval(() => {
@@ -51,15 +52,14 @@ export default function MobileNav() {
         <span className="text-[9px] font-medium" style={{ color: isActive('/sales') ? activeColor : inactiveColor }}>Sales</span>
       </Link>
 
-      {/* Production */}
-      <Link href="/production" className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full">
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
-          style={{ color: isActive('/production') ? activeColor : inactiveColor }}>
+      {/* Production — locked behind a "undergoing sprints" notice */}
+      <button onClick={() => setSprintNotice(true)} className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: inactiveColor }}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
-        <span className="text-[9px] font-medium" style={{ color: isActive('/production') ? activeColor : inactiveColor }}>Production</span>
-      </Link>
+        <span className="text-[9px] font-medium" style={{ color: inactiveColor }}>Production</span>
+      </button>
 
       {/* Chat */}
       <button onClick={openChat} className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative">
@@ -77,6 +77,16 @@ export default function MobileNav() {
         <span className="text-[9px] font-medium" style={{ color: inactiveColor }}>Chat</span>
       </button>
 
+      {sprintNotice && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4" style={{ background: 'rgba(20,24,40,0.6)' }} onClick={() => setSprintNotice(false)}>
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 text-center" onClick={e => e.stopPropagation()}>
+            <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[#FDAB3D]/15 flex items-center justify-center text-2xl">🛠️</div>
+            <h2 className="text-lg font-bold text-[#1A1D2E]">Undergoing Sprints</h2>
+            <p className="text-sm text-[#5A6072] mt-2 leading-relaxed">Sorry, this function of the beyondGREEN ERP is undergoing sprints. Check back later or reach out to the admin team for more information.</p>
+            <button onClick={() => setSprintNotice(false)} className="mt-5 w-full rounded-xl bg-[#1A1D2E] text-white text-sm font-semibold py-2.5">Got it</button>
+          </div>
+        </div>
+      )}
     </nav>
   )
 }

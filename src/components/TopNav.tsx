@@ -18,6 +18,9 @@ interface Props {
 
 interface SearchHit { kind: string; label: string; sub?: string; href: string; icon: string; color: string }
 
+// Groups whose dropdown is locked behind a "undergoing sprints" notice.
+const LOCKED_GROUPS = new Set(['Production'])
+
 export default function TopNav({ pageTitle, userEmail, userName, userInitials, avatarColor }: Props) {
   const router = useRouter()
   const pathname = usePathname()
@@ -45,6 +48,7 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   }, [boards, pathname, pageTitle])
 
   const [openGroup, setOpenGroup] = useState<string | null>(null)
+  const [sprintNotice, setSprintNotice] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const navRef = useRef<HTMLDivElement>(null)
 
@@ -150,8 +154,8 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
           {groups.map(g => (
             <div key={g.group} className="relative">
               <button
-                onClick={() => setOpenGroup(o => o === g.group ? null : g.group)}
-                onMouseEnter={() => openGroup && setOpenGroup(g.group)}
+                onClick={() => { if (LOCKED_GROUPS.has(g.group)) { setOpenGroup(null); setSprintNotice(true); return } setOpenGroup(o => o === g.group ? null : g.group) }}
+                onMouseEnter={() => { if (LOCKED_GROUPS.has(g.group)) return; if (openGroup) setOpenGroup(g.group) }}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors"
                 style={{ color: openGroup === g.group ? '#1A1D2E' : '#5A6072', background: openGroup === g.group ? '#F0F1F5' : 'transparent' }}
               >
@@ -238,6 +242,16 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
       </div>
 
       {/* ── Global search palette ── */}
+      {sprintNotice && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center px-4" style={{ background: 'rgba(20,24,40,0.5)' }} onClick={() => setSprintNotice(false)}>
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#E4E6EE] p-6 text-center" onClick={e => e.stopPropagation()}>
+            <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[#FDAB3D]/15 flex items-center justify-center"><i className="ti ti-tools text-2xl text-[#E39A2B]" /></div>
+            <h2 className="text-lg font-bold text-[#1A1D2E]">Undergoing Sprints</h2>
+            <p className="text-sm text-[#5A6072] mt-2 leading-relaxed">Sorry, this function of the beyondGREEN ERP is undergoing sprints. Check back later or reach out to the admin team for more information.</p>
+            <button onClick={() => setSprintNotice(false)} className="mt-5 w-full rounded-xl bg-[#1A1D2E] text-white text-sm font-semibold py-2.5 hover:bg-[#2A2F45] transition-colors">Got it</button>
+          </div>
+        </div>
+      )}
       {searchOpen && (
         <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[12vh] px-4" style={{ background: 'rgba(20,24,40,0.45)' }} onClick={() => setSearchOpen(false)}>
           <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-[#E4E6EE] overflow-hidden" onClick={e => e.stopPropagation()}>
