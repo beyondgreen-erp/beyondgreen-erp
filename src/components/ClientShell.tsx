@@ -98,7 +98,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     <ToastProvider>
       <AuthWatcher />
       <InstallPrompt />
-      <div className="flex min-h-screen" style={{ background: '#F5F6FA' }}>
+      <div className="flex h-screen" style={{ background: '#F5F6FA' }}>
         {/* Top-nav-only layout (sidebar removed) */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Sticky top navigation: group dropdowns + global search + user menu */}
