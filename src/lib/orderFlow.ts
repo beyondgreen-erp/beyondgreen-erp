@@ -271,6 +271,9 @@ export async function onStatusChange(
     } catch { /* notifications are best-effort */ }
   }
 
+  // ── Customer confirmation email (flag-gated; off by default) ──
+  if (newStatus === 'Confirmed' && prevStatus !== 'Confirmed') { try { await emailCustomerOnStatus(orderId, 'confirmed') } catch { /* */ } }
+
   // ── READY TO SHIP / WILL CALL → auto-add to shipping queue ──────────────
   if (newStatus === 'Ready to Ship' || newStatus === 'Ready at Will Call') {
     const { data: existing } = await sb
@@ -400,6 +403,8 @@ export async function onStatusChange(
       .eq('id', orderId)
     await sb.from('shipping_queue').delete().eq('order_id', orderId)
 
+    try { await emailCustomerOnStatus(orderId, 'shipped', { carrier: shipDetails?.carrier, tracking: shipDetails?.trackingNumber, shipDate: shipDetails?.shipDate ?? today }) } catch { /* */ }
+
     return {
       success: true,
       message: `Shipped ✓  Invoice ${invNum} created`,
@@ -526,11 +531,40 @@ export async function shipOrder(
     }
   } catch { /* best-effort */ }
 
+  if (fullyShipped) { try { await emailCustomerOnStatus(orderId, 'shipped', { carrier: shipDetails?.carrier, tracking: shipDetails?.trackingNumber, shipDate }) } catch { /* */ } }
+
   return {
     success: true,
     message: fullyShipped ? `Shipped ✓  Invoice ${invNum} created` : `Partial shipment ✓  Invoice ${invNum} · order stays in queue`,
     undoData: { action: 'undo_ship', orderId, prevStatus: ((order as any)?.status ?? 'Ready to Ship'), invoiceId: (invoice as any)?.id, shipmentId: (shipment as any)?.id, inventoryChanges, shippedLines: toShip.map(l => ({ id: l.id, qty: l.qtyToShip })) },
   }
+}
+
+// ─── Customer status emails (flag-gated; OFF by default via erp_settings.customer_emails) ───
+
+async function emailCustomerOnStatus(orderId: string, kind: 'confirmed' | 'shipped', opts?: { carrier?: string | null; tracking?: string | null; shipDate?: string | null }): Promise<void> {
+  const sb = createSupabaseBrowserClient()
+  const { data: flag } = await sb.from('erp_settings').select('value').eq('key', 'customer_emails').maybeSingle()
+  if ((((flag as any)?.value) || 'off') !== 'on') return
+  const { data: order } = await sb.from('sales_orders').select('order_number, po_number, customer_email, customers(company_name, email)').eq('id', orderId).maybeSingle()
+  const to = (order as any)?.customer_email || (order as any)?.customers?.email
+  if (!to) return
+  const ref = (order as any)?.order_number || (order as any)?.po_number || 'your order'
+  const company = (order as any)?.customers?.company_name || 'there'
+  let subject = ''
+  let html = ''
+  if (kind === 'confirmed') {
+    subject = `Order confirmed — ${ref}`
+    html = `<p>Hi ${company},</p><p>Thank you for your order. We have confirmed <b>${ref}</b> and it is now in our production queue. We will follow up with lead time and shipping details.</p><p>— beyondGREEN</p>`
+  } else {
+    const track = opts?.tracking ? ` Tracking: <b>${opts.tracking}</b>${opts?.carrier ? ' (' + opts.carrier + ')' : ''}.` : ''
+    subject = `Your order has shipped — ${ref}`
+    html = `<p>Hi ${company},</p><p>Good news — your order <b>${ref}</b> has shipped${opts?.shipDate ? ' on ' + opts.shipDate : ''}.${track}</p><p>— beyondGREEN</p>`
+  }
+  try {
+    await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, cc: 'accounting@byndgrn.com', subject, html }) })
+    await sb.from('comments').insert({ record_type: 'sales_order', record_id: orderId, author_email: 'system', content: `Customer email sent (${kind}) to ${to}` })
+  } catch { /* email is best-effort */ }
 }
 
 export async function logActivity(soId: string, userEmail: string, message: string): Promise<void> {
