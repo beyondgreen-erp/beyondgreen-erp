@@ -405,6 +405,23 @@ function VersionHistory({ orderId }: { orderId: string }) {
   )
 }
 
+function LastInvoice({ customerId }: { customerId: string }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [inv, setInv] = useState<{ invoice_display: string; invoice_date: string | null; total_amount: number | null; status: string | null } | null>(null)
+  useEffect(() => {
+    if (!customerId) { setInv(null); return }
+    sb.rpc('last_customer_invoice', { p_customer: customerId }).then(({ data }) => setInv((data && (data as any[])[0]) || null))
+  }, [customerId, sb])
+  if (!inv) return null
+  const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+  const money = (n: number | null) => n != null ? '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+  return (
+    <div className="text-[11px] text-gray-500 border border-[#E4E6EE] rounded-lg px-3 py-2 bg-[#F9FAFB]/60">
+      Last invoice: <span className="font-semibold text-[#1A1D2E]">{inv.invoice_display}</span>{inv.total_amount != null ? ' · ' + money(inv.total_amount) : ''}{inv.invoice_date ? ' · ' + fmtD(inv.invoice_date) : ''}{inv.status ? ' · ' + inv.status : ''}
+    </div>
+  )
+}
+
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
   customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads, userEmail,
@@ -925,6 +942,7 @@ function EditPanel({
             </div>
           )}
           {editing && <VersionHistory orderId={editing.id} />}
+          {form.customer_id && <div className="pt-3"><LastInvoice customerId={form.customer_id} /></div>}
         </div>
 
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
@@ -1074,6 +1092,9 @@ export default function OrdersPage() {
   const [inlineErr, setInlineErr] = useState('')
   const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
   const [userEmail, setUserEmail] = useState('')
+  const [userRole, setUserRole] = useState('')
+  const [verifySlip, setVerifySlip] = useState<SalesOrder | null>(null)
+  const [slipChecks, setSlipChecks] = useState({ qty: false, desc: false, po: false })
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string|null>(null)
@@ -1107,7 +1128,7 @@ export default function OrdersPage() {
       sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
       sb.from('portal_clients').select('id, customer_id, company_name, name, email').eq('is_active', true),
     ])
-    if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) }) }
+    if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) { setUserEmail(data.user.email); sb.from('erp_user_roles').select('role').eq('email', data.user.email).maybeSingle().then(({ data: r }) => setUserRole((r as any)?.role || '')) } }) }
     if (oErr) setLoadError('Failed to load orders: ' + oErr.message)
     else if (o) setOrders(o as SalesOrder[])
     if (c) setCustomers(c as Customer[])
@@ -1589,10 +1610,12 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Sales Orders</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${orders.length} orders`}</p>
         </div>
+        {userRole !== 'accounting' && (
         <button onClick={openAdd} className="mon-btn">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
           New Order
         </button>
+        )}
       </div>
 
       {/* Stats bar */}
@@ -1901,7 +1924,7 @@ export default function OrdersPage() {
                                 Sales Order PDF
                               </button>
                               <button
-                                onClick={e => { e.stopPropagation(); handleDownloadPackingListPdf(order) }}
+                                onClick={e => { e.stopPropagation(); setSlipChecks({ qty: false, desc: false, po: false }); setVerifySlip(order) }}
                                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
                                 style={{ borderColor: '#3B6FE0', color: '#3B6FE0' }}
                               >
@@ -2015,7 +2038,7 @@ export default function OrdersPage() {
                                   Sales Order PDF
                                 </button>
                                 <button
-                                  onClick={e => { e.stopPropagation(); handleDownloadPackingListPdf(order) }}
+                                  onClick={e => { e.stopPropagation(); setSlipChecks({ qty: false, desc: false, po: false }); setVerifySlip(order) }}
                                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
                                   style={{ borderColor: '#3B6FE0', color: '#3B6FE0' }}
                                 >
@@ -2066,6 +2089,26 @@ export default function OrdersPage() {
         />
       )}
 
+      {verifySlip && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setVerifySlip(null)}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-[#1A1D2E] mb-1">Verify before generating</h3>
+            <p className="text-sm text-gray-500 mb-4">Confirm the packing slip matches the order.</p>
+            <div className="space-y-2 mb-5">
+              {([['qty', 'Quantities match the order'], ['desc', 'Descriptions are correct'], ['po', 'PO number matches']] as const).map(([k, label]) => (
+                <label key={k} className="flex items-center gap-2 text-sm text-[#1A1D2E] cursor-pointer">
+                  <input type="checkbox" checked={(slipChecks as any)[k]} onChange={e => setSlipChecks(sc => ({ ...sc, [k]: e.target.checked }))} className="accent-[#00A84F] w-4 h-4" />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setVerifySlip(null)} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button disabled={!(slipChecks.qty && slipChecks.desc && slipChecks.po)} onClick={() => { const o = verifySlip; setVerifySlip(null); if (o) handleDownloadPackingListPdf(o) }} className="px-4 py-2 text-sm rounded-lg bg-[#00854a] text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed">Generate packing slip</button>
+            </div>
+          </div>
+        </div>
+      )}
       <EditPanel
         open={editOpen}
         editing={editingOrder}
