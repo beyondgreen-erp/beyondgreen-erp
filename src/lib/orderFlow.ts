@@ -419,6 +419,120 @@ export async function onStatusChange(
 
 // ─── Activity Log ─────────────────────────────────────────────────────────────
 
+// ─── Ship Order (partial or full) ─────────────────────────────────────────────
+
+export interface ShipLineInput {
+  id: string
+  sku: string | null
+  description: string | null
+  unit_price: number | null
+  unit_of_measure?: string | null
+  quantity: number
+  quantity_shipped: number
+  qtyToShip: number
+}
+
+export async function shipOrder(
+  orderId: string,
+  shipLines: ShipLineInput[],
+  shipDetails?: { carrier?: string; trackingNumber?: string; shipDate?: string; notes?: string }
+): Promise<FlowResult> {
+  const sb = createSupabaseBrowserClient()
+  const today = new Date().toISOString().split('T')[0]
+  const shipDate = shipDetails?.shipDate ?? today
+
+  const toShip = shipLines.filter(l => (l.qtyToShip ?? 0) > 0)
+  if (toShip.length === 0) return { success: false, message: 'Nothing to ship — enter a quantity greater than zero.' }
+
+  const { data: order } = await sb
+    .from('sales_orders')
+    .select('*, customers(company_name, email)')
+    .eq('id', orderId)
+    .maybeSingle()
+  const customerName = (order?.customers as any)?.company_name || ((order as any)?.notes ?? '').split('|')[0].trim() || ''
+  const orderRef = (order as any)?.order_number ?? orderId.slice(0, 8)
+  const shippedSummary = toShip.map(l => `${l.qtyToShip}× ${l.sku || l.description || ''}`.trim()).join(', ')
+
+  // 1. Shipment record
+  const { data: shipment, error: shipErr } = await sb.from('shipments').insert({
+    customer_name: customerName,
+    po_number: orderRef,
+    order_date: (order as any)?.order_date ?? null,
+    ship_date: shipDate,
+    carrier: shipDetails?.carrier ?? null,
+    tracking_number: shipDetails?.trackingNumber ?? null,
+    delivery_status: 'Shipped',
+    notes: `Shipment for ${orderRef}: ${shippedSummary}${shipDetails?.notes ? ' — ' + shipDetails.notes : ''}`,
+  }).select('id').maybeSingle()
+  if (shipErr) console.error('shipment insert error:', shipErr.message)
+
+  // 2. Increment quantity_shipped + deduct inventory (shipped qty only)
+  const inventoryChanges: { sku: string; qty: number; prevQty: number }[] = []
+  for (const l of toShip) {
+    const newShipped = (l.quantity_shipped ?? 0) + l.qtyToShip
+    await sb.from('sales_order_lines').update({ quantity_shipped: newShipped }).eq('id', l.id)
+    if (l.sku) {
+      const { data: prod } = await sb.from('products').select('on_hand_qty').eq('sku', l.sku).maybeSingle()
+      if (prod) {
+        const prevQty = (prod as any).on_hand_qty ?? 0
+        await sb.from('products').update({ on_hand_qty: Math.max(0, prevQty - l.qtyToShip) }).eq('sku', l.sku)
+        inventoryChanges.push({ sku: l.sku, qty: l.qtyToShip, prevQty })
+      }
+    }
+  }
+
+  // 3. Partial invoice for the shipped value only
+  const shippedValue = toShip.reduce((sum, l) => sum + l.qtyToShip * (l.unit_price ?? 0), 0)
+  const invNum = 'INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5)
+  const { data: invoice, error: invErr } = await sb.from('invoices').insert({
+    invoice_number: invNum, invoice_number_display: invNum, invoice_type: 'invoice',
+    customer_id: (order as any)?.customer_id ?? null, sales_order_id: orderId,
+    invoice_date: today, due_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+    status: 'pending', subtotal: shippedValue, total_amount: shippedValue, balance_due: shippedValue,
+    amount_paid: 0, payment_terms: 'Net 30', po_number: orderRef,
+    notes: `Auto-created for shipment on ${shipDate}: ${shippedSummary}`,
+  }).select('id').maybeSingle()
+  if (invErr) console.error('invoice insert error:', invErr.message)
+  if ((invoice as any)?.id) {
+    const rows = toShip.map(l => ({
+      invoice_id: (invoice as any).id, sku: l.sku ?? null, description: l.description ?? '',
+      quantity: l.qtyToShip, unit_price: l.unit_price ?? 0, uom: l.unit_of_measure ?? null,
+      line_total: l.qtyToShip * (l.unit_price ?? 0),
+    }))
+    if (rows.length) await sb.from('invoice_line_items').insert(rows)
+  }
+
+  // 4. Fully vs partially shipped (re-read all lines)
+  const { data: allLines } = await sb.from('sales_order_lines').select('quantity, quantity_shipped').eq('sales_order_id', orderId)
+  const fullyShipped = (allLines ?? []).length > 0 && (allLines as any[]).every(l => (l.quantity_shipped ?? 0) >= (l.quantity ?? 0))
+  const newStatus = fullyShipped ? 'Shipped' : 'Partially Shipped'
+  await sb.from('sales_orders').update({ status: newStatus, ship_date: shipDate, updated_at: new Date().toISOString() }).eq('id', orderId)
+  if (fullyShipped) {
+    await sb.from('shipping_queue').delete().eq('order_id', orderId)
+  } else {
+    await sb.from('shipping_queue').update({
+      status: 'Partially Shipped',
+      carrier: shipDetails?.carrier ?? null,
+      tracking_number: shipDetails?.trackingNumber ?? null,
+      actual_ship_date: shipDate,
+    }).eq('order_id', orderId)
+  }
+
+  // 5. Log + notify
+  try {
+    await sb.from('comments').insert({ record_type: 'sales_order', record_id: orderId, author_email: 'system', content: `${fullyShipped ? 'Shipped' : 'Partially shipped'}: ${shippedSummary} · Invoice ${invNum}` })
+    for (const r of ['rudyp@beyondgreenbiotech.com', 'accounting@byndgrn.com']) {
+      await sb.from('notifications').insert({ recipient_email: r, sender_email: 'system', message: `Order ${orderRef} ${fullyShipped ? 'shipped' : 'partially shipped'}: ${shippedSummary}`, page: 'Shipping Queue', is_read: false, context_url: `/sales/orders?item=${orderId}` })
+    }
+  } catch { /* best-effort */ }
+
+  return {
+    success: true,
+    message: fullyShipped ? `Shipped ✓  Invoice ${invNum} created` : `Partial shipment ✓  Invoice ${invNum} · order stays in queue`,
+    undoData: { action: 'undo_ship', orderId, prevStatus: ((order as any)?.status ?? 'Ready to Ship'), invoiceId: (invoice as any)?.id, shipmentId: (shipment as any)?.id, inventoryChanges, shippedLines: toShip.map(l => ({ id: l.id, qty: l.qtyToShip })) },
+  }
+}
+
 export async function logActivity(soId: string, userEmail: string, message: string): Promise<void> {
   const sb = createSupabaseBrowserClient()
   await sb.from('comments').insert({
@@ -458,6 +572,13 @@ export async function undoFlow(undoData: any): Promise<FlowResult> {
     for (const change of (undoData.inventoryChanges ?? [])) {
       if (!change.sku) continue
       await sb.from('products').update({ on_hand_qty: change.prevQty }).eq('sku', change.sku)
+    }
+
+    // Reverse per-line shipped quantities (partial shipments)
+    for (const sl of (undoData.shippedLines ?? [])) {
+      if (!sl.id) continue
+      const { data: ln } = await sb.from('sales_order_lines').select('quantity_shipped').eq('id', sl.id).maybeSingle()
+      if (ln) await sb.from('sales_order_lines').update({ quantity_shipped: Math.max(0, ((ln as any).quantity_shipped ?? 0) - (sl.qty ?? 0)) }).eq('id', sl.id)
     }
 
     return { success: true, message: 'Ship undone — inventory restored, invoice voided' }
