@@ -371,7 +371,7 @@ function PriceHint({ sku }: { sku: string }) {
 
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
-  customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads,
+  customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads, userEmail,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -390,6 +390,7 @@ function EditPanel({
   onDuplicate: () => void
   onDownloadSalesOrder: () => void
   onSearchLeads: (q: string) => Promise<{ id: string; company_name: string }[]>
+  userEmail: string
 }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [skuDropdown, setSkuDropdown] = useState<number | null>(null)
@@ -881,6 +882,12 @@ function EditPanel({
               )}
             </div>
           </div>
+
+          {editing && (
+            <div className="pt-4 border-t border-[#E4E6EE]">
+              <Comments recordType="sales_order" recordId={editing.id} currentUserEmail={userEmail} title="Comments & @mentions" />
+            </div>
+          )}
         </div>
 
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
@@ -2032,6 +2039,7 @@ export default function OrdersPage() {
         onDuplicate={() => editingOrder && duplicateOrder(editingOrder)}
         onDownloadSalesOrder={downloadFromForm}
         onSearchLeads={searchLeads}
+        userEmail={userEmail ?? ''}
       />
       {confirmDeleteId && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
