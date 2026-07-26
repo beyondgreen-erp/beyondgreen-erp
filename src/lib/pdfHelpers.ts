@@ -171,6 +171,18 @@ export function generatePackingSlip(order: PDFOrder, lines: PDFLine[], customer:
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
   header(doc, 'PACKING SLIP')
+  // Partial vs Final caption based on shipped vs ordered quantities
+  const anyShipped = lines.some(l => (l.quantity_shipped || 0) > 0)
+  const fullyShipped = lines.length > 0 && lines.every(l => (l.quantity_shipped || 0) >= l.quantity)
+  const cap = fullyShipped ? 'FINAL SHIPMENT' : anyShipped ? 'PARTIAL SHIPMENT' : ''
+  if (cap) {
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...(fullyShipped ? GREEN : ([217, 119, 6] as [number, number, number])))
+    doc.text(cap, W - 36, 40, { align: 'right' })
+    doc.setTextColor(...DARK)
+    doc.setFont('helvetica', 'normal')
+  }
 
   // Left: order info
   let y = 76
