@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
+import { shipOrder, undoFlow, type ShipLineInput } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
@@ -56,6 +56,7 @@ export default function ShippingQueuePage() {
   const [shipModal, setShipModal] = useState<ShipQItem | null>(null)
   const [shipForm, setShipForm] = useState({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '' })
   const [shipping, setShipping] = useState(false)
+  const [shipLines, setShipLines] = useState<(ShipLineInput & { line_number?: number })[]>([])
 
   // Label Wizard
   const [labelOrderId, setLabelOrderId] = useState<string | null>(null)
@@ -123,23 +124,44 @@ export default function ShippingQueuePage() {
   async function openShipModal(item: ShipQItem) {
     setShipModal(item)
     setShipForm({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '' })
+    setShipLines([])
+    if (item.order_id) {
+      const { data } = await sb.from('sales_order_lines')
+        .select('id, sku, description, quantity, quantity_shipped, unit_price, unit_of_measure, line_number')
+        .eq('sales_order_id', item.order_id)
+        .order('line_number', { ascending: true })
+      setShipLines((data ?? []).map((l: any) => {
+        const remaining = Math.max(0, (Number(l.quantity) || 0) - (Number(l.quantity_shipped) || 0))
+        return {
+          id: l.id, sku: l.sku, description: l.description, unit_price: l.unit_price,
+          unit_of_measure: l.unit_of_measure, quantity: Number(l.quantity) || 0,
+          quantity_shipped: Number(l.quantity_shipped) || 0, qtyToShip: remaining, line_number: l.line_number,
+        }
+      }))
+    }
+  }
+  function setLineQty(id: string, val: string) {
+    setShipLines(ls => ls.map(l => {
+      if (l.id !== id) return l
+      const remaining = Math.max(0, l.quantity - l.quantity_shipped)
+      let n = Math.floor(Number(val) || 0)
+      if (n < 0) n = 0
+      if (n > remaining) n = remaining
+      return { ...l, qtyToShip: n }
+    }))
   }
 
   async function confirmShip() {
     if (!shipModal?.order_id) return
-    setShipping(true)
     const orderId = shipModal.order_id
+    const totalToShip = shipLines.reduce((s, l) => s + (l.qtyToShip || 0), 0)
+    if (shipLines.length > 0 && totalToShip <= 0) {
+      setToast({ message: 'Enter a quantity to ship on at least one line.' })
+      return
+    }
+    setShipping(true)
 
-    // Get current order status for undo
-    const { data: order } = await sb.from('sales_orders').select('status').eq('id', orderId).single()
-    const prevStatus = (order?.status ?? 'Ready to Ship') as OrderStatus
-
-    // Update order status to Shipped
-    await sb.from('sales_orders')
-      .update({ status: 'Shipped', updated_at: new Date().toISOString() })
-      .eq('id', orderId)
-
-    // Update shipping queue item
+    // Update shipping queue item metadata
     await sb.from('shipping_queue').update({
       carrier: shipForm.carrier || null,
       tracking_number: shipForm.tracking || null,
@@ -149,11 +171,12 @@ export default function ShippingQueuePage() {
       updated_at: new Date().toISOString(),
     }).eq('id', shipModal.id)
 
-    // Run auto-flow (creates shipment + invoice + deducts inventory)
-    const result = await onStatusChange(orderId, 'Shipped', prevStatus, {
+    // Ship (partial or full) — creates shipment + partial invoice + deducts inventory + sets status
+    const result = await shipOrder(orderId, shipLines, {
       carrier: shipForm.carrier,
       trackingNumber: shipForm.tracking,
       shipDate: shipForm.shipDate,
+      notes: shipForm.notes,
     })
 
     setShipping(false)
@@ -390,7 +413,7 @@ export default function ShippingQueuePage() {
       {/* ── SHIP NOW MODAL ── */}
       {shipModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => !shipping && setShipModal(null)}>
-          <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-lg shadow-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE]">
               <div>
                 <h2 className="text-[#1A1D2E] font-semibold">Confirm Shipment</h2>
@@ -407,14 +430,49 @@ export default function ShippingQueuePage() {
 
             <div className="px-6 py-5 space-y-4">
               <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
-                <p className="text-amber-400 text-xs font-medium">This will automatically:</p>
-                <ul className="text-amber-300/80 text-xs mt-1.5 space-y-0.5 list-disc list-inside">
-                  <li>Mark the order as Shipped</li>
-                  <li>Create a shipment record</li>
-                  <li>Deduct inventory for all line items</li>
-                  <li>Generate an invoice (Net 30)</li>
+                <p className="text-amber-700 text-xs font-medium">This will automatically:</p>
+                <ul className="text-amber-700/80 text-xs mt-1.5 space-y-0.5 list-disc list-inside">
+                  <li>Create a shipment record for the quantities below</li>
+                  <li>Deduct inventory for shipped quantities only</li>
+                  <li>Generate an invoice (Net 30) for the shipped value</li>
+                  <li>Mark the order <b>Shipped</b> if fully shipped, otherwise <b>Partially Shipped</b> (stays in queue)</li>
                 </ul>
               </div>
+
+              {shipLines.length > 0 && (
+                <div className="border border-[#E4E6EE] rounded-xl overflow-hidden">
+                  <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-3 py-2 bg-[#F5F6FA] text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                    <span>Item</span><span className="text-right pr-1">Remaining</span><span className="text-right">Ship Qty</span>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto divide-y divide-[#F0F1F5]">
+                    {shipLines.map(l => {
+                      const remaining = Math.max(0, l.quantity - l.quantity_shipped)
+                      return (
+                        <div key={l.id} className="grid grid-cols-[1fr_auto_auto] gap-2 items-center px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="text-xs text-[#1A1D2E] font-medium truncate">{l.sku || l.description || 'Item'}</div>
+                            {l.sku && l.description && <div className="text-[10px] text-gray-400 truncate">{l.description}</div>}
+                            <div className="text-[10px] text-gray-400">Ordered {l.quantity} · Shipped {l.quantity_shipped}</div>
+                          </div>
+                          <div className="text-right text-xs text-gray-500 pr-1 tabular-nums w-14">{remaining}</div>
+                          <input
+                            type="number" min={0} max={remaining} value={l.qtyToShip}
+                            onChange={e => setLineQty(l.id, e.target.value)}
+                            disabled={remaining === 0}
+                            className="w-20 bg-white border border-[#E4E6EE] focus:border-[#3B6FE0] rounded-lg px-2 py-1.5 text-sm text-right text-[#1A1D2E] focus:outline-none disabled:bg-[#F5F6FA] disabled:text-gray-400 tabular-nums"
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex justify-between px-3 py-2 bg-[#F5F6FA] text-xs">
+                    <span className="text-gray-500">Shipping now</span>
+                    <span className="font-semibold text-[#1A1D2E] tabular-nums">
+                      {shipLines.reduce((s, l) => s + (l.qtyToShip || 0), 0)} units · {fmt$(shipLines.reduce((s, l) => s + (l.qtyToShip || 0) * (l.unit_price || 0), 0))}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5 font-medium">Carrier</label>
