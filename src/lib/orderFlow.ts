@@ -259,6 +259,18 @@ export async function onStatusChange(
 ): Promise<FlowResult> {
   const sb = createSupabaseBrowserClient()
 
+  // ── Notify + log every real status transition so nothing slips silently ──
+  if (newStatus !== prevStatus) {
+    try {
+      const { data: o } = await sb.from('sales_orders').select('order_number').eq('id', orderId).maybeSingle()
+      const ref = (o as any)?.order_number || orderId.slice(0, 8)
+      await sb.from('comments').insert({ record_type: 'sales_order', record_id: orderId, author_email: 'system', content: `Status: ${prevStatus} → ${newStatus}` })
+      for (const r of ['rudyp@beyondgreenbiotech.com', 'accounting@byndgrn.com']) {
+        await sb.from('notifications').insert({ recipient_email: r, sender_email: 'system', message: `Order ${ref}: ${prevStatus} → ${newStatus}`, page: 'Sales Orders', is_read: false, context_url: `/sales/orders?item=${orderId}` })
+      }
+    } catch { /* notifications are best-effort */ }
+  }
+
   // ── READY TO SHIP / WILL CALL → auto-add to shipping queue ──────────────
   if (newStatus === 'Ready to Ship' || newStatus === 'Ready at Will Call') {
     const { data: existing } = await sb
