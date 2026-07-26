@@ -54,7 +54,7 @@ export default function ShippingQueuePage() {
 
   // Ship Now modal
   const [shipModal, setShipModal] = useState<ShipQItem | null>(null)
-  const [shipForm, setShipForm] = useState({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '' })
+  const [shipForm, setShipForm] = useState({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '', reason: '' })
   const [shipping, setShipping] = useState(false)
   const [shipLines, setShipLines] = useState<(ShipLineInput & { line_number?: number })[]>([])
 
@@ -123,7 +123,7 @@ export default function ShippingQueuePage() {
 
   async function openShipModal(item: ShipQItem) {
     setShipModal(item)
-    setShipForm({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '' })
+    setShipForm({ carrier: 'UPS', tracking: '', shipDate: new Date().toISOString().slice(0, 10), notes: '', reason: '' })
     setShipLines([])
     if (item.order_id) {
       const { data } = await sb.from('sales_order_lines')
@@ -176,7 +176,7 @@ export default function ShippingQueuePage() {
       carrier: shipForm.carrier,
       trackingNumber: shipForm.tracking,
       shipDate: shipForm.shipDate,
-      notes: shipForm.notes,
+      notes: [shipForm.reason ? ('Reason: ' + shipForm.reason) : '', shipForm.notes].filter(Boolean).join(' — '),
     })
 
     setShipping(false)
@@ -500,6 +500,20 @@ export default function ShippingQueuePage() {
                   className={inp}
                 />
               </div>
+
+              {shipLines.length > 0 && shipLines.reduce((a, l) => a + (l.qtyToShip || 0), 0) < shipLines.reduce((a, l) => a + Math.max(0, l.quantity - l.quantity_shipped), 0) && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5 font-medium">Reason for partial shipment</label>
+                  <select value={shipForm.reason} onChange={e => setShipForm(p => ({ ...p, reason: e.target.value }))} className={inp + ' cursor-pointer'}>
+                    <option value="">Select a reason…</option>
+                    <option value="Customer emergency">Customer emergency</option>
+                    <option value="Inventory shortage">Inventory shortage</option>
+                    <option value="Production capacity">Production capacity</option>
+                    <option value="Raw material">Raw material</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5 font-medium">Notes</label>
