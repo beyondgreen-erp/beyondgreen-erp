@@ -85,10 +85,10 @@ const SECTIONS = ['Walmart','Chewy','Make To Stock','Private Label','Straw Order
 const SECTION_TABS = ['All', ...SECTIONS]
 const SECTION_COLORS: Record<string,string> = { 'Walmart':'#0071CE','Chewy':'#1C49C2','Make To Stock':'#037f4c','Private Label':'#784bd1','Straw Orders':'#ff6d3b','Customer DropShip':'#216edf','Injection Molding':'#bb3354','Paper Products':'#cab641','Outsourced':'#7e3b8a' }
 const STATUSES = [
-  'Pending','Confirmed','Awaiting BOM Components',
-  'Production Queue','In Production','QC',
+  'Pending','Pending Lead Time','Confirmed','Awaiting BOM Components',
+  'Production Queue','In Production','QC','Ready for Packing Slip',
   'Ready to Ship','Ready at Will Call',
-  'Partially Shipped','Shipped',
+  'Partially Shipped','Ready for Invoice','Shipped','Completed',
   'On Hold','Cancelled','Closed',
 ]
 const STATUS_COLORS: Record<string,string> = {
@@ -101,6 +101,10 @@ const STATUS_COLORS: Record<string,string> = {
   Shipped:             'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   'On Hold':           'bg-red-500/15 text-red-400 border-red-500/20',
   'Partially Shipped': 'bg-violet-500/15 text-violet-400 border-violet-500/20',
+  'Pending Lead Time': 'bg-amber-500/15 text-amber-500 border-amber-500/20',
+  'Ready for Packing Slip': 'bg-cyan-500/15 text-cyan-500 border-cyan-500/20',
+  'Ready for Invoice': 'bg-indigo-500/15 text-indigo-500 border-indigo-500/20',
+  Completed:           'bg-emerald-500/15 text-emerald-500 border-emerald-500/20',
   Closed:              'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]',
 }
 const fmt$ = (n: number | null | undefined) =>
@@ -936,6 +940,12 @@ export default function OrdersPage() {
     try { await sb.from('sales_orders').update({ custom_fields: cf }).eq('id', orderId) } catch { /* */ }
   }
   useItemDeepLink(orders, openEdit)
+  // Deep-link a status from the dashboard workflow tiles (e.g. /sales/orders?status=On%20Hold).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const s = new URLSearchParams(window.location.search).get('status')
+    if (s) { setStatusFilter(s); setView('board') }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [portals, setPortals] = useState<PortalClient[]>([])
@@ -1021,7 +1031,7 @@ export default function OrdersPage() {
     sectionTab === 'All' ? orders : orders.filter(o => (o.order_section ?? '') === sectionTab),
     [orders, sectionTab])
 
-  const COMPLETED_STATUSES = ['Shipped', 'Closed', 'Cancelled']
+  const COMPLETED_STATUSES = ['Shipped', 'Completed', 'Closed', 'Cancelled']
 
   const isCompleted = useCallback((o: SalesOrder) =>
     COMPLETED_STATUSES.includes(o.status) || shippedOrderIds.has(o.id),
