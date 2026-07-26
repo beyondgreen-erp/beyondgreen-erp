@@ -8,7 +8,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import { WorkflowProgressBar } from '@/components/WorkflowMover'
-import { onStatusChange, undoFlow, type OrderStatus } from '@/lib/orderFlow'
+import { onStatusChange, undoFlow, logActivity, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
@@ -408,6 +408,20 @@ function EditPanel({
       return p
     })
   }, [linesTotal, setForm])
+  // Ship-To: saved addresses for the selected customer (email suggestion — multi-location dropdown).
+  const [shipAddrs, setShipAddrs] = useState<{ id: string; label: string | null; address: string }[]>([])
+  useEffect(() => {
+    if (!form.customer_id) { setShipAddrs([]); return }
+    sb.from('customer_ship_addresses').select('id,label,address').eq('customer_id', form.customer_id).order('created_at', { ascending: true })
+      .then(({ data }) => setShipAddrs((data as any[]) || []))
+  }, [form.customer_id])
+  async function saveShipAddr() {
+    const addr = (form.shipping_address || '').trim()
+    if (!addr || !form.customer_id) return
+    if (shipAddrs.some(a => (a.address || '').trim() === addr)) return
+    const { data } = await sb.from('customer_ship_addresses').insert({ customer_id: form.customer_id, address: addr }).select('id,label,address').single()
+    if (data) setShipAddrs(a => [...a, data as any])
+  }
   const dragLineKey = useRef<string | null>(null)
   function reorderLine(toKey: string) {
     const from = dragLineKey.current; dragLineKey.current = null
@@ -684,7 +698,16 @@ function EditPanel({
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Shipping Address</label>
+                  {form.customer_id && shipAddrs.length > 0 && (
+                    <select value="" onChange={e => { if (e.target.value) setForm(p => ({ ...p, shipping_address: e.target.value })) }} className={inp + ' mb-1.5 cursor-pointer'}>
+                      <option value="">📍 Choose a saved ship-to address…</option>
+                      {shipAddrs.map(a => <option key={a.id} value={a.address}>{(a.label ? a.label + ' — ' : '') + (a.address || '').replace(/\n+/g, ', ').slice(0, 70)}</option>)}
+                    </select>
+                  )}
                   <textarea rows={2} value={form.shipping_address} onChange={e => setForm(p => ({ ...p, shipping_address: e.target.value }))} className={inp + ' resize-none'} placeholder="Ship-to address"/>
+                  {form.customer_id && (form.shipping_address || '').trim() && !shipAddrs.some(a => (a.address || '').trim() === (form.shipping_address || '').trim()) && (
+                    <button type="button" onClick={saveShipAddr} className="text-[11px] font-semibold text-[#00863F] hover:underline mt-1">＋ Save this as a ship-to address for this customer</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -916,6 +939,25 @@ export default function OrdersPage() {
       setInlineErr('Could not save the ship date — please try again.')
       setTimeout(() => setInlineErr(''), 5000)
       console.error('inlineField save failed', e)
+    }
+  }
+  // ── Change audit: notify when an order is edited after production has started ──
+  const POST_PROCESSING = ['In Production','QC','Ready for Packing Slip','Ready to Ship','Ready at Will Call','Partially Shipped','Ready for Invoice','Shipped','Completed']
+  async function auditOrderChange(orig: SalesOrder) {
+    if (!POST_PROCESSING.includes(orig.status)) return
+    const changes: string[] = []
+    const cmp = (label: string, oldV: any, newV: any) => { const a = String(oldV ?? '').trim(); const b = String(newV ?? '').trim(); if (a !== b) changes.push(`${label}: "${a || '—'}" → "${b || '—'}"`) }
+    cmp('Status', orig.status, form.status)
+    cmp('PO #', orig.po_number, form.po_number)
+    cmp('Ship date', (orig as any).required_ship_date, form.ship_date)
+    cmp('Total', orderValue(orig), form.total_amount)
+    cmp('Ship-to', orig.shipping_address, form.shipping_address)
+    if (!changes.length) return
+    const who = userEmail || 'someone'
+    try { await logActivity(orig.id, userEmail, `⚠️ Edited after production started by ${who} — ${changes.join('; ')}`) } catch { /* */ }
+    const recips = ['rudyp@beyondgreenbiotech.com', 'accounting@byndgrn.com']
+    for (const r of recips) {
+      try { await sb.from('notifications').insert({ recipient_email: r, sender_email: userEmail || 'system', message: `Order ${orig.order_number || ''} changed after production: ${changes.slice(0, 3).join('; ')}`, page: 'Sales Orders', is_read: false, context_url: `/sales/orders?item=${orig.id}` }) } catch { /* */ }
     }
   }
   // ── Custom columns (fully user-defined) ───────────────────
@@ -1328,6 +1370,8 @@ export default function OrdersPage() {
       } else if (e2) { setErr(e2.message); setSaving(false); return }
       orderId = data?.id
     }
+
+    if (editingOrder) { await auditOrderChange(editingOrder) }
 
     if (!orderId) { setErr('Could not get order ID'); setSaving(false); return }
 
