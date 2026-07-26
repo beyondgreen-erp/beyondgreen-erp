@@ -369,6 +369,42 @@ function PriceHint({ sku }: { sku: string }) {
   )
 }
 
+function VersionHistory({ orderId }: { orderId: string }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [vers, setVers] = useState<{ version_no: number; total: number | null; status: string | null; changed_by: string | null; created_at: string }[]>([])
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!orderId) return
+    sb.from('sales_order_versions').select('version_no,total,status,changed_by,created_at').eq('sales_order_id', orderId).order('version_no', { ascending: false })
+      .then(({ data }) => setVers((data as any[]) || []))
+  }, [orderId, sb, open])
+  if (!vers.length) return null
+  const fmt = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const money = (n: number | null) => n != null ? '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+  return (
+    <div className="pt-4 border-t border-[#E4E6EE]">
+      <button type="button" onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-[#1A1D2E]">
+        <span>Version history</span>
+        <span className="text-[10px] font-normal normal-case text-gray-400">({vers.length} · latest V{vers[0].version_no})</span>
+        <svg className={"w-3 h-3 transition-transform " + (open ? "rotate-90" : "")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {vers.map(v => (
+            <div key={v.version_no} className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-center text-[11px] text-gray-500 border border-[#E4E6EE] rounded-lg px-3 py-1.5">
+              <span className="font-semibold text-[#1A1D2E]">V{v.version_no}</span>
+              <span className="tabular-nums">{money(v.total)}</span>
+              <span className="truncate">{v.status || "—"}</span>
+              <span className="text-gray-400 truncate">{v.changed_by ? v.changed_by.split("@")[0] : "—"}</span>
+              <span className="text-gray-400 whitespace-nowrap">{fmt(v.created_at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
   customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads, userEmail,
@@ -888,6 +924,7 @@ function EditPanel({
               <Comments recordType="sales_order" recordId={editing.id} currentUserEmail={userEmail} title="Comments & @mentions" />
             </div>
           )}
+          {editing && <VersionHistory orderId={editing.id} />}
         </div>
 
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
@@ -1464,6 +1501,9 @@ export default function OrdersPage() {
         await sb.from('sales_order_lines').insert(baseLine)
       }
     }
+
+    // Snapshot a version (V1, V2…) so prior pricing/status is tracked
+    if (orderId) { try { await sb.rpc('snapshot_order_version', { p_order: orderId, p_by: userEmail || 'system', p_note: null }) } catch { /* best-effort */ } }
 
     setSaving(false); setEditOpen(false)
 
