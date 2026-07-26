@@ -602,6 +602,7 @@ export default function QuotationsPage() {
   }
 
   async function doConvertToSO(quote: Quote) {
+    if (quote.status !== 'Accepted') { alert('This quote must be Accepted (customer-approved) before it can be converted to a sales order.'); setConfirmConvert(null); return }
     setSaving(true)
     try {
       const { data: quoteLines } = await supabase
@@ -817,7 +818,7 @@ export default function QuotationsPage() {
                             <td className="px-3 py-2.5 text-right font-semibold text-[#1A1D2E]">{fmt$(quote.total)}</td>
                             <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                               <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {quote.status !== 'Converted' && (
+                                {quote.status === 'Accepted' && (
                                   <button
                                     onClick={() => { openEdit(quote); setConfirmConvert(quote.id) }}
                                     className="px-2 py-1 rounded-md text-[11px] font-semibold border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
