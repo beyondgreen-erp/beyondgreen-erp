@@ -11,7 +11,7 @@ import InventoryLinkGaps from './InventoryLinkGaps'
 
 const sb = createSupabaseBrowserClient()
 
-const OPEN_STATUSES = ['New', 'Confirmed', 'Awaiting BOM Components', 'Awaiting Production', 'Production Queue', 'In Production', 'QC', 'Ready to Ship', 'Partially Shipped', 'On Hold']
+const OPEN_STATUSES = ['New', 'Pending', 'Pending Lead Time', 'Confirmed', 'Awaiting BOM Components', 'Awaiting Production', 'Production Queue', 'In Production', 'QC', 'Ready for Packing Slip', 'Ready to Ship', 'Ready at Will Call', 'Partially Shipped', 'Ready for Invoice', 'On Hold']
 const fmt$ = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const fmtD = (d?: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—')
 
@@ -641,11 +641,44 @@ function RecentDocumentsWidget() {
   )
 }
 
+/* Clickable order-stage tiles (email suggestion #3). */
+function WorkflowCategories() {
+  const [c, setC] = useState<Record<string, number>>({})
+  const cats = [
+    { label: 'Active Orders', color: '#0086C0', href: '/sales/orders', statuses: OPEN_STATUSES },
+    { label: 'In Production', color: '#F59E0B', href: '/sales/orders?status=' + encodeURIComponent('In Production'), statuses: ['In Production'] },
+    { label: 'Ready for Packing Slip', color: '#00C7C7', href: '/sales/orders?status=' + encodeURIComponent('Ready for Packing Slip'), statuses: ['Ready for Packing Slip'] },
+    { label: 'Partially Shipped', color: '#A25DDC', href: '/sales/orders?status=' + encodeURIComponent('Partially Shipped'), statuses: ['Partially Shipped'] },
+    { label: 'On Hold', color: '#E2445C', href: '/sales/orders?status=' + encodeURIComponent('On Hold'), statuses: ['On Hold'] },
+    { label: 'Ready for Invoice', color: '#6366F1', href: '/sales/orders?status=' + encodeURIComponent('Ready for Invoice'), statuses: ['Ready for Invoice'] },
+    { label: 'Completed', color: '#1D9E75', href: '/shipments', statuses: ['Shipped', 'Completed', 'Closed'] },
+  ]
+  useEffect(() => { (async () => {
+    const out: Record<string, number> = {}
+    for (const cat of cats) {
+      const { count } = await sb.from('sales_orders').select('id', { count: 'exact', head: true }).eq('archived', false).in('status', cat.statuses)
+      out[cat.label] = count || 0
+    }
+    setC(out)
+  })() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+      {cats.map(cat => (
+        <Link key={cat.label} href={cat.href} className="rounded-xl border border-[#E4E6EE] bg-white p-3 hover:shadow-md transition-shadow" style={{ borderLeft: '4px solid ' + cat.color }}>
+          <div className="text-2xl font-bold leading-none" style={{ color: cat.color }}>{c[cat.label] ?? '—'}</div>
+          <div className="text-[11px] font-medium text-gray-500 mt-1.5 leading-tight">{cat.label}</div>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
 /* ============================================================
    CATALOG (single source of truth)
    ============================================================ */
 export const CATALOG: Record<string, CatalogEntry> = {
   clock: { label: 'Clock & Date', icon: '🕐', defaultSize: 'sm', category: 'Personal', description: 'Live clock with day/date.', render: () => <ClockWidget /> },
+  workflow_categories: { label: 'Workflow Categories', icon: '🗂️', defaultSize: 'xl', category: 'ERP Boards', description: 'Clickable order-stage tiles: Active, In Production, Ready for Packing Slip, Partially Shipped, On Hold, Ready for Invoice, Completed.', render: () => <WorkflowCategories /> },
   weather: { label: 'Weather', icon: '☁️', defaultSize: 'sm', category: 'Personal', description: '4-day forecast for any city.', configurable: true, render: (w, o) => <WeatherWidget w={w} onCfg={o} /> },
   news: { label: 'Sustainability News Ticker', icon: '📰', defaultSize: 'xl', category: 'Personal', description: 'Scrolling ticker of headlines: plastic bans, sustainability legislation, EPR, compostables. Fully editable topics.', configurable: true, render: (w, o) => <NewsWidget w={w} onCfg={o} /> },
   notes: { label: 'My Notes', icon: '📝', defaultSize: 'md', category: 'Personal', description: 'Private scratchpad, auto-saved.', render: () => <NotesInline /> },
@@ -693,6 +726,7 @@ const DEFAULT_LAYOUT: { type: string; size: WidgetSize; config?: any }[] = [
   { type: 'tasks', size: 'md' },
   { type: 'reminders', size: 'sm' },
   { type: 'weather', size: 'sm', config: { city: 'Los Angeles' } },
+  { type: 'workflow_categories', size: 'xl' },
   { type: 'pipeline', size: 'md' },
   { type: 'recent_orders', size: 'md' },
   { type: 'mentions', size: 'xl' },
