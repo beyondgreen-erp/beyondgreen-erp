@@ -136,6 +136,24 @@ function orderTitle(o: SalesOrder): string {
 function orderValue(o: SalesOrder): number {
   return o.total_amount ?? o.total ?? o.subtotal ?? 0
 }
+// Ship-date urgency: within 7 days -> amber→red gradient; past due -> overdue (blink + critical banner).
+function shipUrgency(o: SalesOrder): { level: 'overdue' | 'soon'; days: number } | null {
+  const d = (o as any).required_ship_date || (o as any).ship_date
+  if (!d) return null
+  const t = new Date(); t.setHours(0, 0, 0, 0)
+  const ship = new Date(String(d) + 'T00:00:00'); if (isNaN(ship.getTime())) return null
+  const days = Math.round((ship.getTime() - t.getTime()) / 86400000)
+  if (days < 0) return { level: 'overdue', days }
+  if (days <= 7) return { level: 'soon', days }
+  return null
+}
+function urgencyStyle(u: { level: string; days: number } | null): React.CSSProperties {
+  if (!u) return {}
+  if (u.level === 'overdue') return { background: 'rgba(226,68,92,0.14)', borderLeft: '4px solid #E2445C' }
+  const frac = Math.max(0, Math.min(1, u.days / 7)) // 1 => 7 days out (amber), 0 => due today (red)
+  const hue = 45 * frac
+  return { background: `hsla(${hue}, 92%, 50%, 0.13)`, borderLeft: `4px solid hsl(${hue}, 90%, 48%)` }
+}
 
 function StatusBadge({ status }: { status: string }) {
   const c = statusColor(status)
@@ -375,6 +393,17 @@ function EditPanel({
   }
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch } : l)) }
+  // Auto-calculate the order total from the line items (qty × unit price).
+  const linesTotal = editLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0)
+  const autoTotalRef = useRef<string>('')
+  useEffect(() => {
+    const v = linesTotal > 0 ? String(Number(linesTotal.toFixed(2))) : ''
+    setForm(p => {
+      // Only auto-fill when the user hasn't manually diverged from the auto value.
+      if (p.total_amount === '' || p.total_amount === autoTotalRef.current) { autoTotalRef.current = v; return { ...p, total_amount: v } }
+      return p
+    })
+  }, [linesTotal, setForm])
   const dragLineKey = useRef<string | null>(null)
   function reorderLine(toKey: string) {
     const from = dragLineKey.current; dragLineKey.current = null
@@ -663,7 +692,11 @@ function EditPanel({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Total Value ($)</label>
-                <input type="number" min="0" step="0.01" value={form.total_amount} onChange={e => setForm(p => ({ ...p, total_amount: e.target.value }))} className={inp}/>
+                <input type="number" min="0" step="0.01" value={form.total_amount} onChange={e => { autoTotalRef.current = '__manual__'; setForm(p => ({ ...p, total_amount: e.target.value })) }} className={inp}/>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[11px] text-gray-400">Line items total: {fmt$(linesTotal)}</span>
+                  <button type="button" onClick={() => { const v = String(Number(linesTotal.toFixed(2))); autoTotalRef.current = v; setForm(p => ({ ...p, total_amount: v })) }} className="text-[11px] font-semibold text-[#00863F] hover:underline">Use line total</button>
+                </div>
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">PO Document URL</label>
@@ -869,11 +902,33 @@ export default function OrdersPage() {
     setOrders(prevOrders => prevOrders.map(x => x.id === id ? { ...x, [field]: value } : x))
     try { await sb.from('sales_orders').update({ [field]: value || null }).eq('id', id) } catch { /* */ }
   }
+  // ── Custom columns (fully user-defined) ───────────────────
+  async function addColumn() {
+    const label = window.prompt('New column name:')
+    if (!label || !label.trim()) return
+    const raw = (window.prompt('Column type — text, number, or date:', 'text') || 'text').trim().toLowerCase()
+    const ftype = ['text', 'number', 'date'].includes(raw) ? raw : 'text'
+    const pos = (columns.length ? Math.max(...columns.map(c => c.position)) : 0) + 1000
+    const { data } = await sb.from('so_columns').insert({ label: label.trim(), ftype, position: pos }).select('*').single()
+    if (data) setColumns(cs => [...cs, data as any])
+  }
+  async function deleteColumn(id: string) {
+    if (!window.confirm('Delete this column? (Order values are kept but hidden.)')) return
+    await sb.from('so_columns').delete().eq('id', id)
+    setColumns(cs => cs.filter(c => c.id !== id))
+  }
+  async function setCell(orderId: string, colId: string, value: string) {
+    const o = orders.find(x => x.id === orderId)
+    const cf = { ...(((o as any)?.custom_fields) || {}), [colId]: value }
+    setOrders(prev => prev.map(x => x.id === orderId ? ({ ...x, custom_fields: cf } as any) : x))
+    try { await sb.from('sales_orders').update({ custom_fields: cf }).eq('id', orderId) } catch { /* */ }
+  }
   useItemDeepLink(orders, openEdit)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [portals, setPortals] = useState<PortalClient[]>([])
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
+  const [columns, setColumns] = useState<{ id: string; label: string; ftype: string; position: number }[]>([])
   const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
   const [userEmail, setUserEmail] = useState('')
   const [loading, setLoading] = useState(true)
@@ -904,7 +959,7 @@ export default function OrdersPage() {
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone)').eq('archived', false).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number').eq('is_active', true).order('sku'),
-      sb.from('sales_order_lines').select('sales_order_id').eq('sku_flagged', true),
+      sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
       sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
       sb.from('portal_clients').select('id, customer_id, company_name, name, email').eq('is_active', true),
@@ -916,7 +971,7 @@ export default function OrdersPage() {
     if (p) setProducts(p as Product[])
     if (fl) {
       const fm: Record<string, number> = {}
-      for (const r of fl as any[]) if (r.sales_order_id) fm[r.sales_order_id] = (fm[r.sales_order_id] ?? 0) + 1
+      for (const r of fl as any[]) { if (r.sales_order_id && !r.product_id && !String(r.sku ?? '').trim()) fm[r.sales_order_id] = (fm[r.sales_order_id] ?? 0) + 1 }
       setFlaggedMap(fm)
     }
     if (wo) {
@@ -944,6 +999,9 @@ export default function OrdersPage() {
       .subscribe()
     return () => { sb.removeChannel(channel) }
   }, [load, sb])
+
+  // Load user-defined custom board columns.
+  useEffect(() => { sb.from('so_columns').select('*').order('position', { ascending: true }).then(({ data }) => setColumns((data as any[]) || [])) }, [sb])
 
   // Pools + stats
   const tabPool = useMemo(() =>
@@ -1184,6 +1242,7 @@ export default function OrdersPage() {
   }
 
   async function save() {
+    if (saving) return
     if (!editingOrder && !form.notes.trim() && !form.order_number.trim()) { setErr('Enter an order name or SO#.'); return }
     setErr(''); setSaving(true)
 
@@ -1249,10 +1308,8 @@ export default function OrdersPage() {
 
     if (!orderId) { setErr('Could not get order ID'); setSaving(false); return }
 
-    // Delete existing lines for this order (will re-insert all)
-    if (editingOrder) {
-      await sb.from('sales_order_lines').delete().eq('sales_order_id', orderId)
-    }
+    // Always clear this order's existing lines before re-inserting, so saving never duplicates them.
+    await sb.from('sales_order_lines').delete().eq('sales_order_id', orderId)
 
     // Insert all lines
     for (let i = 0; i < editLines.length; i++) {
@@ -1391,7 +1448,22 @@ export default function OrdersPage() {
       </div>
 
       {/* Stats bar */}
-      {!loading && view !== 'walmart' && (
+      {!loading && view !== 'walmart' && (<>
+        <style>{`@keyframes soBlink{0%,100%{opacity:1}50%{opacity:.4}} .so-blink{animation:soBlink 1s ease-in-out infinite}`}</style>
+        {(() => {
+          const overdue = orders.filter(o => !isCompleted(o) && orderMatches(o) && shipUrgency(o)?.level === 'overdue')
+          if (!overdue.length) return null
+          const names = overdue.slice(0, 4).map(o => orderTitle(o)).join(', ')
+          return (
+            <div className="so-blink mb-4 rounded-lg border-2 border-[#E2445C] bg-[#E2445C]/12 px-4 py-3 flex items-center gap-3">
+              <span className="text-xl">🚨</span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-[#E2445C]">CRITICAL — {overdue.length} order{overdue.length > 1 ? 's' : ''} past ship date</p>
+                <p className="text-xs text-[#B23048] truncate">{names}{overdue.length > 4 ? ` +${overdue.length - 4} more` : ''} — ship immediately or update the date.</p>
+              </div>
+            </div>
+          )
+        })()}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
           <Stat label="Active Orders" value={String(stats.total)} c="#0086C0"/>
           <Stat label="In Production" value={String(stats.inProd)} c="#FDAB3D"/>
@@ -1400,7 +1472,7 @@ export default function OrdersPage() {
           <Stat label="Total Value" value={fmt$(stats.totalVal) ?? '—'} c="#00A84F"/>
           <Stat label="Flagged Lines" value={String(stats.flaggedTotal)} c={stats.flaggedTotal > 0 ? '#A25DDC' : '#9699A6'} sub="need SKU"/>
         </div>
-      )}
+      </>)}
 
       {/* Search + status filter — applies to both Board and Table */}
       {view !== 'walmart' && (
@@ -1488,17 +1560,38 @@ export default function OrdersPage() {
                   {groupTotal > 0 && <span className="ml-auto text-xs font-semibold text-gray-500 shrink-0">{fmt$(groupTotal)}</span>}
                 </div>
                 {!isColl && (
+                  <div>
+                    <div className="flex items-center gap-2.5 px-3 py-1.5 border-b border-[#EEF0F4] bg-[#FBFCFE] text-[10px] font-semibold uppercase tracking-wide text-gray-400 select-none">
+                      <span className="w-3 shrink-0" />
+                      <span className="flex-1 min-w-0">Order</span>
+                      {columns.map(col => (
+                        <span key={col.id} className="w-[110px] shrink-0 hidden md:flex items-center gap-1 group/col">
+                          <span className="truncate">{col.label}</span>
+                          <button onClick={(e) => { e.stopPropagation(); deleteColumn(col.id) }} className="opacity-0 group-hover/col:opacity-100 text-gray-300 hover:text-red-500" title="Delete column">&times;</button>
+                        </span>
+                      ))}
+                      <span className="w-[110px] shrink-0 hidden sm:block">Status</span>
+                      <span className="w-[120px] shrink-0 hidden sm:block">Ship Date</span>
+                      <span className="w-20 text-right shrink-0">Value</span>
+                      <button onClick={(e) => { e.stopPropagation(); addColumn() }} className="ml-1 text-[#0086C0] hover:underline shrink-0 normal-case" title="Add a custom column">+ Col</button>
+                    </div>
                   <div className="divide-y divide-[#F4F5F8]">
                     {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400 italic">Drop orders here</div>}
                     {items.map((o, idx) => {
                       const sc = statusColor(o.status)
+                      const u = shipUrgency(o)
                       return (
-                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2.5 px-3 py-2.5 mon-row">
+                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} style={urgencyStyle(u)} className={`group flex items-center gap-2.5 px-3 py-2.5 mon-row ${u?.level === 'overdue' ? 'so-blink' : ''}`}>
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
                           <p className="text-xs text-gray-500 truncate">{o.po_number ? 'PO ' + o.po_number : (o.order_number && o.order_number !== orderTitle(o) ? o.order_number : '')}</p>
                         </div>
+                        {columns.map(col => { const cf = ((o as any).custom_fields) || {}; return (
+                          <input key={col.id} type={col.ftype === 'number' ? 'number' : col.ftype === 'date' ? 'date' : 'text'} value={cf[col.id] ?? ''} onClick={e => e.stopPropagation()} onChange={e => setCell(o.id, col.id, e.target.value)} onDragStart={e => e.stopPropagation()} placeholder="—"
+                            className="w-[110px] shrink-0 hidden md:block text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 focus:outline-none focus:border-[#00A84F]" />
+                        ) })}
+                        {u && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${u.level === 'overdue' ? 'bg-[#E2445C] text-white' : 'bg-amber-400/20 text-amber-700'}`} title="Ship-date urgency">{u.level === 'overdue' ? `${Math.abs(u.days)}d late` : `${u.days}d`}</span>}
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
                           className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0">
@@ -1509,6 +1602,7 @@ export default function OrdersPage() {
                         <span className="text-xs font-semibold text-gray-700 w-20 text-right shrink-0">{fmt$(orderValue(o)) ?? ''}</span>
                       </div>
                     )})}
+                  </div>
                   </div>
                 )}
               </div>
