@@ -899,8 +899,20 @@ export default function OrdersPage() {
     } catch { /* keep optimistic state */ }
   }
   async function inlineField(id: string, field: 'required_ship_date', value: string) {
+    const prevVal = (orders.find(o => o.id === id) as any)?.[field] ?? null
     setOrders(prevOrders => prevOrders.map(x => x.id === id ? { ...x, [field]: value } : x))
-    try { await sb.from('sales_orders').update({ [field]: value || null }).eq('id', id) } catch { /* */ }
+    try {
+      const { data, error } = await sb.from('sales_orders')
+        .update({ [field]: value || null, updated_at: new Date().toISOString() })
+        .eq('id', id).select('id')
+      if (error || !data || data.length === 0) throw error || new Error('no rows updated')
+    } catch (e) {
+      // Revert the optimistic change so the board always reflects what actually saved.
+      setOrders(prevOrders => prevOrders.map(x => x.id === id ? ({ ...x, [field]: prevVal } as any) : x))
+      setInlineErr('Could not save the ship date — please try again.')
+      setTimeout(() => setInlineErr(''), 5000)
+      console.error('inlineField save failed', e)
+    }
   }
   // ── Custom columns (fully user-defined) ───────────────────
   async function addColumn() {
@@ -929,6 +941,7 @@ export default function OrdersPage() {
   const [portals, setPortals] = useState<PortalClient[]>([])
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
   const [columns, setColumns] = useState<{ id: string; label: string; ftype: string; position: number }[]>([])
+  const [inlineErr, setInlineErr] = useState('')
   const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
   const [userEmail, setUserEmail] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1448,6 +1461,9 @@ export default function OrdersPage() {
       </div>
 
       {/* Stats bar */}
+      {inlineErr && (
+        <div className="fixed bottom-5 right-5 z-[130] rounded-lg bg-[#E2445C] text-white text-sm font-semibold px-4 py-2.5 shadow-lg">{inlineErr}</div>
+      )}
       {!loading && view !== 'walmart' && (<>
         <style>{`@keyframes soBlink{0%,100%{opacity:1}50%{opacity:.4}} .so-blink{animation:soBlink 1s ease-in-out infinite}`}</style>
         {(() => {
