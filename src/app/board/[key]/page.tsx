@@ -111,7 +111,7 @@ export default function DynamicBoardPage() {
             const c = accentColor(g); const isColl = collapsed[g]
             return (
               <div key={g} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
-                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: c.solid + '14', borderLeft: '5px solid ' + c.solid }} onClick={() => setCollapsed(s => ({ ...s, [g]: !s[g] }))}>
+                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + c.solid }} onClick={() => setCollapsed(s => ({ ...s, [g]: !s[g] }))}>
                   <span className="text-[10px]" style={{ color: c.solid, transform: isColl ? 'none' : 'rotate(90deg)', display: 'inline-block' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: c.solid }}>{g}</span>
                   <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: c.solid + '26', color: c.solid }}>{items.length}</span>

@@ -835,7 +835,7 @@ export default function CustomersPage() {
             const grpSpend = rows.reduce((s,c)=> s + (c.lifetime_spend||0), 0)
             return (
             <div key={g.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
-              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{background:g.color+'14', borderLeft:'5px solid '+g.color}} onClick={()=>setCollapsedGroups(cc=>({...cc,[g.key]:!cc[g.key]}))}>
+              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{background:g.color+'14', borderLeft:'5px solid '+g.color}} onClick={()=>setCollapsedGroups(cc=>({...cc,[g.key]:!cc[g.key]}))}>
                 <span className="text-[10px]" style={{color:g.color, display:'inline-block', transform:isCol?'none':'rotate(90deg)'}}>&#9654;</span>
                 <span className="font-bold text-sm" style={{color:g.color}}>{g.key}</span>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{background:g.color+'26', color:g.color}}>{rows.length}</span>

@@ -230,7 +230,7 @@ export default function DevCenterPage() {
           const fullItems = allGroups.find(g => g.group === section.group)?.items || []
           return (
             <div key={section.group} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
-              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: c + '14', borderLeft: '5px solid ' + c }} onClick={() => setCollapsed(cc => ({ ...cc, [section.group]: !cc[section.group] }))}>
+              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + c }} onClick={() => setCollapsed(cc => ({ ...cc, [section.group]: !cc[section.group] }))}>
                 <span className="text-[10px]" style={{ color: c, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                 <span className="font-bold text-sm" style={{ color: c }}>{section.group}</span>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: c + '26', color: c }}>{section.items.length}</span>

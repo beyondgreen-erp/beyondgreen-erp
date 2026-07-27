@@ -249,7 +249,7 @@ export default function FbaBoard() {
             const totShip = gr.reduce((a, r) => a + (r.quantity_shipped || 0), 0)
             return (
               <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, null)}>
-                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
+                <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                   <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transition: 'transform .15s', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: group.color }}>{group.key}</span>
                   <span className="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: group.color + '26', color: group.color }}>{gr.length}</span>

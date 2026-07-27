@@ -585,7 +585,7 @@ export default function InventoryPage() {
               const gVal = items.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
               return (
                 <div key={cat} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
-                  <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: color + '14', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [cat]: !c[cat] }))}>
+                  <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [cat]: !c[cat] }))}>
                     <span className="text-[10px]" style={{ color, display:'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                     <span className="font-bold text-sm" style={{ color }}>{cat}</span>
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: color + '26', color }}>{items.length}</span>

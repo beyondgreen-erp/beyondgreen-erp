@@ -863,7 +863,7 @@ export default function ShippingQueuePage() {
             const gc = statusColor(g); const isCol = collapsed[g]
             return (
               <div key={g} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
-                <div onClick={() => setCollapsed(c => ({ ...c, [g]: !c[g] }))} className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: gc.bg, borderLeft: '5px solid ' + gc.solid }}>
+                <div onClick={() => setCollapsed(c => ({ ...c, [g]: !c[g] }))} className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: gc.bg, borderLeft: '5px solid ' + gc.solid }}>
                   <span className="text-[10px]" style={{ color: gc.solid, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: gc.fg }}>{g}</span>
                   <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: gc.solid + '26', color: gc.fg }}>{gSales.length + gW.length}</span>
