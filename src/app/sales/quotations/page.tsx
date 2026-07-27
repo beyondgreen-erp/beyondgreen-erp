@@ -607,14 +607,15 @@ export default function QuotationsPage() {
     try {
       const { data: quoteLines } = await supabase
         .from('quotation_lines').select('*').eq('quotation_id', quote.id)
-      const { data: order } = await supabase.from('sales_orders').insert({
+      const { data: order, error: orderErr } = await supabase.from('sales_orders').insert({
         customer_id: quote.customer_id,
         order_number: 'SO-' + Date.now().toString().slice(-6),
         status: 'Confirmed',
-        total_amount: quote.total ?? 0,
+        total: quote.total ?? 0,
         notes: 'Converted from ' + quote.quote_number,
       }).select('id').single()
 
+      if (orderErr) { alert('Conversion error: ' + orderErr.message); return }
       if (order) {
         for (const line of (quoteLines ?? [])) {
           await supabase.from('sales_order_lines').insert({
