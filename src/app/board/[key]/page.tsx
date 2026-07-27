@@ -107,7 +107,8 @@ export default function DynamicBoardPage() {
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-2.5 mb-8">
-          {grouped.map(([g, items]) => {
+              <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>
+                        {grouped.map(([g, items]) => {
             const c = accentColor(g); const isColl = collapsed[g]
             return (
               <div key={g} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">

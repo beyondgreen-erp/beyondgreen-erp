@@ -245,7 +245,7 @@ export default function DailyShipReportPage() {
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-2.5 mb-6">
-          {groups.map(group => {
+          <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>{groups.map(group => {
             const gr = groupRows(group.key); const isCol = collapsed[group.key]
             const wkTotal = gr.reduce((a, r) => a + rowTotal(r), 0)
             return (

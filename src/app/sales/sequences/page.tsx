@@ -278,7 +278,8 @@ export default function SequencesPage() {
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-4">
-          {STATUS_GROUPS.map(group => {
+              <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>
+                        {STATUS_GROUPS.map(group => {
             const list = grouped[group.key] || []
             const isCol = collapsed[group.key]
             return (

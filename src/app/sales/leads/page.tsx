@@ -255,7 +255,8 @@ export default function LeadsPage() {
 
           {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
             <div className="space-y-4">
-              {GROUPS.map(group => {
+              <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>
+                            {GROUPS.map(group => {
                 const rows = grouped[group.key] || []
                 const shown = visN[group.key] ?? 100
                 const view = rows.slice(0, shown)

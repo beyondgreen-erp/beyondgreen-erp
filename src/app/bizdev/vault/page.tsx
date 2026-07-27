@@ -159,7 +159,7 @@ export default function VaultPage() {
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : grouped.length === 0 ? <p className="text-center text-gray-400 py-16 text-sm">No entries match.</p> : (
         <div className="space-y-2.5 mb-8">
-          {grouped.map(([grp, items]) => {
+          <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>{grouped.map(([grp, items]) => {
             const c = accentColor(grp); const isColl = collapsed[grp]
             return (
               <div key={grp} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">

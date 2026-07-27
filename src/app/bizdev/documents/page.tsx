@@ -229,7 +229,7 @@ export default function DocumentsPage() {
       </div>
       {loading?<div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20"><i className="ti ti-loader-2 animate-spin text-gray-400 text-xl"/></div>
       :groups.length===0?<div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived documents.':'No documents yet — drop a file with Quick Upload to get started.'}</p></div>
-      :<div className="space-y-3">{groups.map(g=>{
+      :<div className="space-y-3"><div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>{groups.map(g=>{
         const isCol=collapsed.has(g.cat)
         return <div key={g.cat} className="rounded-xl border border-[#E4E6EE] bg-white">
           <button onClick={()=>toggleCat(g.cat)} className="w-full flex items-center gap-2.5 px-5 py-3 hover:bg-[#F9FAFB] transition-colors text-left">

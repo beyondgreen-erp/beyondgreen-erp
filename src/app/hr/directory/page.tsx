@@ -211,7 +211,8 @@ export default function EmployeeDirectoryPage() {
       </div>
 
       <div className="space-y-4">
-        {(showHidden ? [{ key: '__hidden__', title: 'Hidden Employees', color: '#6B7280' }] : GROUPS).map(group => {
+              <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>
+                      {(showHidden ? [{ key: '__hidden__', title: 'Hidden Employees', color: '#6B7280' }] : GROUPS).map(group => {
           const gr = showHidden ? hiddenRows : groupRows(group.key)
           const isCol = collapsed[group.key]
           return (

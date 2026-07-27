@@ -828,7 +828,8 @@ export default function CustomersPage() {
         loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
         :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':showArchived?'No archived customers.':'No customers yet.'}</p></div>
         :<div className="space-y-2.5 mb-6">
-          {custGroups.map(g=>{
+              <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>
+                        {custGroups.map(g=>{
             const rows = filtered.filter(c => (c.customer_status||'Lead') === g.key)
             if (!rows.length) return null
             const isCol = collapsedGroups[g.key]
