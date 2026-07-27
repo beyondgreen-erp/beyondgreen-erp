@@ -605,34 +605,14 @@ export default function QuotationsPage() {
     if (quote.status !== 'Accepted') { alert('This quote must be Accepted (customer-approved) before it can be converted to a sales order.'); setConfirmConvert(null); return }
     setSaving(true)
     try {
-      const { data: quoteLines } = await supabase
-        .from('quotation_lines').select('*').eq('quotation_id', quote.id)
-      const { data: order, error: orderErr } = await supabase.from('sales_orders').insert({
-        customer_id: quote.customer_id,
-        order_number: 'SO-' + Date.now().toString().slice(-6),
-        status: 'Confirmed',
-        total: quote.total ?? 0,
-        notes: 'Converted from ' + quote.quote_number,
-      }).select('id').single()
-
-      if (orderErr) { alert('Conversion error: ' + orderErr.message); return }
-      if (order) {
-        for (const line of (quoteLines ?? [])) {
-          await supabase.from('sales_order_lines').insert({
-            sales_order_id: (order as any).id,
-            product_id: (line as any).product_id ?? null,
-            sku: (line as any).sku ?? null,
-            description: (line as any).product_name ?? (line as any).description ?? '',
-            quantity: (line as any).quantity ?? 1,
-            unit_price: (line as any).unit_price ?? 0,
-          })
-        }
-        await supabase.from('quotations').update({ status: 'Converted' }).eq('id', quote.id)
-        setConfirmConvert(null)
-        closePanel()
-        fetchQuotes()
-        router.push('/sales/orders')
-      }
+      // Atomic server-side conversion: copies header, line items and comments to a new
+      // sales order and marks the quote Converted. (See DB fn convert_quote_to_order.)
+      const { error } = await supabase.rpc('convert_quote_to_order', { p_quote_id: quote.id })
+      if (error) { alert('Conversion error: ' + error.message); return }
+      setConfirmConvert(null)
+      closePanel()
+      fetchQuotes()
+      router.push('/sales/orders')
     } catch (e: any) {
       alert('Conversion error: ' + e.message)
     } finally {
