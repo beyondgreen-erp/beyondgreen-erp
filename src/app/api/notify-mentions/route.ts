@@ -12,6 +12,55 @@ function getSb() {
   )
 }
 
+const RECORD_TABLES: Record<string, string> = {
+  purchasing_request: 'purchasing_requests',
+  vault_item: 'vault_items',
+  sample_submission: 'sample_submissions', sample_submissions: 'sample_submissions',
+  customer: 'customers', customers: 'customers',
+  sales_order: 'sales_orders', sales_orders: 'sales_orders',
+  quotation: 'quotations', quotations: 'quotations', quotation_art: 'quotations',
+  shipment: 'shipments', shipments: 'shipments',
+  invoice: 'invoices', invoices: 'invoices',
+  fba_shipment: 'fba_shipments', fba_shipments: 'fba_shipments',
+  lead: 'leads', leads: 'leads',
+  walmart_order: 'walmart_board_orders', walmart_board_order: 'walmart_board_orders',
+  task: 'tasks', tasks: 'tasks',
+}
+const NAME_COLS = ['name','task_name','order_number','company_name','quote_number','invoice_number_display','external_invoice_number','customer_name','shipment_number','load_number','po_number','title','contact_name']
+
+function esc(x: string) {
+  return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function lookupRecordName(sb: any, recordType?: string, recordId?: string): Promise<string | null> {
+  if (!recordType || !recordId) return null
+  const isCustom = recordType.startsWith('board:')
+  const table = isCustom ? 'custom_board_items' : RECORD_TABLES[recordType]
+  if (!table) return null
+  try {
+    const { data } = await sb.from(table).select('*').eq('id', recordId).maybeSingle()
+    if (!data) return null
+    if (isCustom && data.data && typeof data.data === 'object') {
+      const v = Object.values(data.data).find((x: any) => typeof x === 'string' && String(x).trim())
+      if (v) return String(v).slice(0, 140)
+    }
+    for (const c of NAME_COLS) {
+      const v = (data as any)[c]
+      if (v !== null && v !== undefined && String(v).trim() && String(v).trim() !== '0') {
+        if (c === 'shipment_number') return 'Shipment #' + v
+        if (c === 'invoice_number_display' || c === 'external_invoice_number') return 'Invoice ' + v
+        if (c === 'quote_number' && /^\d+$/.test(String(v))) return 'Quote #' + v
+        if (c === 'order_number' && /^\d+$/.test(String(v))) return 'Order #' + v
+        return String(v).slice(0, 140)
+      }
+    }
+  } catch (e) {
+    console.error('[notify-mentions] name lookup failed for', table, e)
+  }
+  return null
+}
+
 export async function POST(req: Request) {
   try {
     const { mentions, body, authorName, authorEmail, recordId, recordType, recordUrl } = await req.json()
@@ -70,6 +119,7 @@ export async function POST(req: Request) {
       ? `${SITE_URL}${boardPath}?item=${recordId}`
       : (recordUrl || `${SITE_URL}/${recordType || ''}`)
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
+    const recordName = await lookupRecordName(sb, recordType, recordId)
 
     let notified = 0
     let emailed = 0
@@ -80,8 +130,11 @@ export async function POST(req: Request) {
         await sb.from('notifications').insert({
           recipient_email: recipEmail,
           sender_email: authorEmail,
+          title: recordName ? `${pageLabel}: ${recordName}` : pageLabel,
           message: snippet,
           page: pageLabel,
+          record_type: recordType || null,
+          record_id: recordId || null,
           is_read: false,
           context_url: contextUrl,
         })
@@ -102,9 +155,10 @@ export async function POST(req: Request) {
     <p style="font-size:16px;font-weight:700;color:#0F1C2E;margin:0 0 6px">
       ${authorName || authorEmail.split('@')[0]} mentioned you
     </p>
-    <p style="font-size:13px;color:#5A6E8A;margin:0 0 20px">
-      in <strong style="color:#0F1C2E">${pageLabel}</strong>
+    <p style="font-size:13px;color:#5A6E8A;margin:0 0 ${recordName ? '2px' : '20px'}">
+      in <strong style="color:#0F1C2E">${pageLabel}</strong> board
     </p>
+    ${recordName ? `<p style="font-size:15px;font-weight:700;color:#0F1C2E;margin:0 0 20px">\u{1F4CB} ${esc(recordName)}</p>` : ''}
     ${snippet ? `<div style="background:#F7F8FA;border-left:3px solid #3B6FE0;padding:12px 16px;border-radius:0 8px 8px 0;font-size:13px;color:#0F1C2E;margin-bottom:24px;line-height:1.6">${snippet}</div>` : ''}
     <a href="${contextUrl}" style="display:inline-block;background:#3B6FE0;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700">
       View in ERP
@@ -125,7 +179,7 @@ export async function POST(req: Request) {
               from: `beyondGREEN ERP <${FROM_EMAIL}>`,
               to: [recipEmail],
               reply_to: [authorEmail],
-              subject: `${authorName || authorEmail.split('@')[0]} mentioned you in ${pageLabel}`,
+              subject: `${authorName || authorEmail.split('@')[0]} mentioned you in ${pageLabel}${recordName ? `: ${recordName}` : ''}`,
               html,
             }),
           })
