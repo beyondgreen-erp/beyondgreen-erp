@@ -755,7 +755,7 @@ export default function QuotationsPage() {
             const isCol = collapsed[group.key]
             const groupTotal = gr.reduce((s, q) => s + (q.total ?? 0), 0)
             return (
-              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+              <div key={group.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
                 <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                   <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: group.color }}>{group.title}</span>
@@ -763,9 +763,9 @@ export default function QuotationsPage() {
                   {gr.length > 0 && <span className="ml-auto text-[11px] font-semibold text-gray-500">{fmt$(groupTotal)}</span>}
                 </div>
                 {!isCol && (
-                  <div className="overflow-x-auto">
+                  <div>
                     <table className="w-full text-sm min-w-[900px]">
-                      <thead>
+                      <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                         <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
                           <th className="text-left px-3 py-2 font-semibold w-[36px]">
                             <input

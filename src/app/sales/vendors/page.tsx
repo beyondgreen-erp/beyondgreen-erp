@@ -286,16 +286,16 @@ export default function VendorsPage() {
       </div>
 
       {/* Record board group */}
-      <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+      <div className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
         <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#00C7C714', borderLeft: '5px solid #00C7C7' }} onClick={() => setCollapsed(c => !c)}>
           <span className="text-[10px]" style={{ color: '#017070', display: 'inline-block', transform: collapsed ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
           <span className="font-bold text-sm" style={{ color: '#017070' }}>{showArchived ? 'Archived Vendors' : 'Vendors'}</span>
           <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#00C7C726', color: '#017070' }}>{filtered.length}</span>
         </div>
         {!collapsed && (
-          <div className="overflow-x-auto">
+          <div>
             <table className="w-full text-sm min-w-[900px]">
-              <thead>
+              <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                 <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
                   <th className="text-left px-4 py-2 font-semibold">Vendor</th>
                   <th className="text-left px-3 py-2 font-semibold w-[150px]">Contact</th>

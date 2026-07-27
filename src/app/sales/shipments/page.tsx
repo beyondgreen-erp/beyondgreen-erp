@@ -376,7 +376,7 @@ export default function ShipmentsPage() {
                 const cost = gr.reduce((a, r) => a + (r.ship_cost || 0), 0)
                 const color = '#0086C0'
                 return (
-                  <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                  <div key={group.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
                     <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !(c[group.key] ?? true) }))}>
                       <span className="text-[10px]" style={{ color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                       <span className="font-bold text-sm" style={{ color }}>{group.key}</span>
@@ -384,9 +384,9 @@ export default function ShipmentsPage() {
                       {cost > 0 && <span className="ml-auto text-[11px] text-gray-400">Ship cost ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
                     </div>
                     {!isCol && (
-                      <div className="overflow-x-auto">
+                      <div>
                         <table className="w-full text-xs min-w-[980px]">
-                          <thead>
+                          <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                             <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                               <th className="w-10 px-4 py-2.5"><input type="checkbox" checked={gr.length > 0 && gr.every(r => ms.isSelected(r.id))} onChange={() => ms.toggleAll(gr)} className="accent-emerald-500 w-4 h-4 cursor-pointer" /></th>
                               <th className="text-left font-semibold px-4 py-2.5 min-w-[180px]">Customer</th>

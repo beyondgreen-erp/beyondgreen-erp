@@ -584,7 +584,7 @@ export default function InventoryPage() {
               const items = gmap[cat]; const isCol = collapsed[cat]; const color = COLORS[cat] || '#9699A6'
               const gVal = items.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
               return (
-                <div key={cat} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                <div key={cat} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
                   <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [cat]: !c[cat] }))}>
                     <span className="text-[10px]" style={{ color, display:'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                     <span className="font-bold text-sm" style={{ color }}>{cat}</span>
@@ -592,9 +592,9 @@ export default function InventoryPage() {
                     {gVal > 0 && <span className="ml-auto text-[11px] text-gray-400">{fmtV(gVal)}</span>}
                   </div>
                   {!isCol && (
-                    <div className="overflow-x-auto">
+                    <div>
                       <table className="w-full text-sm min-w-[920px]">
-                        <thead>
+                        <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                           <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                             <th className="w-9 px-3 py-2.5"><input type="checkbox" checked={items.length>0 && items.every(p=>ms.isSelected(p.id))} onChange={()=>ms.toggleAll(items)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[140px]">SKU</th>

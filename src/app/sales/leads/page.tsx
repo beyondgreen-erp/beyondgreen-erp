@@ -263,17 +263,17 @@ export default function LeadsPage() {
                 const isCol = collapsed[group.key]
                 const allSelected = view.length > 0 && view.every(r => sel[r.id])
                 return (
-                  <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+                  <div key={group.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
                     <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                       <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                       <span className="font-bold text-sm" style={{ color: group.color }}>{group.title}</span>
                       <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: group.color + '26', color: group.color }}>{rows.length}</span>
                     </div>
                     {!isCol && (
-                      <div className="overflow-x-auto">
+                      <div>
                         {rows.length === 0 ? <p className="text-center text-xs text-gray-400 py-4">Nothing here.</p> : (
                           <table className="w-full text-xs min-w-[1100px]">
-                            <thead>
+                            <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                               <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
                                 <th className="px-3 py-2 w-8"><input type="checkbox" checked={allSelected} onChange={e => toggleGroupSel(view, e.target.checked)} /></th>
                                 <th className="text-left px-3 py-2 font-semibold">Company</th>

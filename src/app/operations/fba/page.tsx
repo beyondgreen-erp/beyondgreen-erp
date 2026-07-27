@@ -248,7 +248,7 @@ export default function FbaBoard() {
             const totReq = gr.reduce((a, r) => a + (r.quantity_requested || 0), 0)
             const totShip = gr.reduce((a, r) => a + (r.quantity_shipped || 0), 0)
             return (
-              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, null)}>
+              <div key={group.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, null)}>
                 <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                   <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transition: 'transform .15s', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: group.color }}>{group.key}</span>
@@ -256,9 +256,9 @@ export default function FbaBoard() {
                   {(totReq > 0 || totShip > 0) && <span className="ml-auto text-xs font-semibold text-gray-500 shrink-0">Req {totReq.toLocaleString()} · Ship {totShip.toLocaleString()}</span>}
                 </div>
                 {!isCol && (
-                  <div className="overflow-x-auto">
+                  <div>
                     <table className="w-full text-sm">
-                      <thead>
+                      <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                         <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                           <th className="w-6" />
                           {cols.map(c => <th key={c.h} className={`text-left font-semibold px-3 py-2 ${c.w}`}>{c.h}</th>)}
