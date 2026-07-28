@@ -732,17 +732,19 @@ export default function ShippingQueuePage() {
   async function createShipment(extra: Record<string, unknown>) {
     if (!activeItem || !o) return
     const now = new Date()
-    await sb.from('shipments').insert({
+    // NOTE: shipped_at is a generated column (= ship_date) — do NOT insert it (Postgres rejects it).
+    const { error: shipErr } = await sb.from('shipments').insert({
       id: coShipId || undefined, sales_order_id: activeItem.sales_order_id, order_id: activeItem.sales_order_id,
       customer_name: st.name, po_number: o.po_number || null,
       carrier: (shipCarrier || o.carrier) || null, tracking_number: (shipTracking || o.tracking_number) || null,
       ship_cost: shipCost ? parseFloat(shipCost) : null, broker_cost: shipBrokerCost ? parseFloat(shipBrokerCost) : null,
-      ship_date: now.toISOString().slice(0, 10), shipped_at: now.toISOString(), order_date: o.order_date || null,
+      ship_date: now.toISOString().slice(0, 10), order_date: o.order_date || null,
       total_value: o.total_amount ?? o.total ?? o.total_value ?? null, ship_to_address: st.addr || null,
       bol_number: bolForm?.bolNumber || null, packing_slip_url: coSlipUrl || null, pod_file_url: coBolUrl || null,
       month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
       ...extra,
     })
+    if (shipErr) throw new Error(shipErr.message)
     const targetId = coShipId || (extra.id as string)
     if (targetId) {
       // Consolidate the order's comments + attachments onto the shipment (handle both singular/plural record_type conventions)
