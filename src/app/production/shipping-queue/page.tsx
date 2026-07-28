@@ -613,6 +613,19 @@ export default function ShippingQueuePage() {
         bySku.set(l.sku, cur)
       })
     })
+    // Fallback: no pallet configuration yet — build the item list straight from the
+    // order line items so the packing list always lists the products being shipped.
+    if (bySku.size === 0) {
+      plan.forEach(r => {
+        if (!r.sku && !r.description) return
+        const key = r.sku || r.description
+        const cur: PackListCase = bySku.get(key) || { sku: r.sku || '', description: r.description, caseCount: 0, unitsInCase: r.unitsPerCase, weight: 0, units: 0 }
+        cur.caseCount += r.cases
+        cur.units = (cur.units || 0) + (r.units || 0)
+        cur.weight = (cur.weight || 0) + (r.caseWeightLb || 0) * r.cases
+        bySku.set(key, cur)
+      })
+    }
     return [...bySku.values()]
   }
 
@@ -656,8 +669,13 @@ export default function ShippingQueuePage() {
     const cases = buildPackListCases()
     const meta = packMeta()
     const plts = packListPallets()
-    loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, totals, logo, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
-      .catch(() => buildPackingList(meta, cases, totals, null, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
+    const listTotals = plts.length > 0 ? totals : {
+      cases: cases.reduce((a, c) => a + (c.caseCount || 0), 0),
+      pallets: 0,
+      weight: Math.round(cases.reduce((a, c) => a + (c.weight || 0), 0)),
+    }
+    loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, listTotals, logo, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
+      .catch(() => buildPackingList(meta, cases, listTotals, null, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
     markDoc('packingList')
   }
 
