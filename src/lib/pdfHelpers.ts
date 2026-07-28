@@ -462,7 +462,6 @@ export async function generateOrderPDF(
 
   const grand = lines.reduce((sum, l) => sum + lineTotalOf(l), 0) || (order.total ?? 0)
   let afterY = (doc as any).lastAutoTable.finalY + 22
-  if (afterY > H - 120) afterY = H - 120
 
   // Footer notes (left)
   doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
@@ -470,6 +469,11 @@ export async function generateOrderPDF(
     'Payment: Custom projects require a 40% deposit to confirm the order; the balance is due at time of shipment unless approved credit terms apply. First custom-project orders are not eligible for credit terms - to apply, email finance@beyondgreenbiotech.com.',
     'Freight is billed on an actual basis. Report any quality or shortage claims within 7 days of receipt. This sale is subject to the Terms & Conditions of Sale on the following page.',
   ]
+  // Measure the footer height up front so the notes + Total box can never overlap the last table rows.
+  let footerH = 0
+  notes.forEach(n => { footerH += (doc.splitTextToSize(n, 330) as string[]).length * 11 + 3 })
+  footerH = Math.max(footerH, 48)
+  if (afterY + footerH > H - 40) { doc.addPage(); afterY = 54 }
   let ny = afterY
   notes.forEach(n => {
     const wrapped = doc.splitTextToSize(n, 330) as string[]
@@ -765,12 +769,18 @@ async function renderSalesDocumentPDF(
 
   const grand = lines.reduce((sum, l) => sum + lineTotalOf(l), 0) || (order.total ?? 0)
   let afterY = (doc as any).lastAutoTable.finalY + 22
-  if (afterY > H - 120) afterY = H - 120
 
   // Footer notes (left) — user-typed notes render FIRST (bold "Notes:" label), then the boilerplate.
   doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
-  let ny = afterY
   const trimmedNotes = (order.notes || '').trim()
+  // Measure the footer height up front so the notes + Total box can never overlap the last
+  // table rows. If they won't fit under the table on this page, move them to a fresh page.
+  let footerH = 0
+  if (trimmedNotes) footerH += 12 + (doc.splitTextToSize(trimmedNotes, 330) as string[]).length * 11 + 6
+  KIND.footerNotes.forEach(n => { footerH += (doc.splitTextToSize(n, 330) as string[]).length * 11 + 3 })
+  footerH = Math.max(footerH, 48)
+  if (afterY + footerH > H - 40) { doc.addPage(); afterY = 54 }
+  let ny = afterY
   if (trimmedNotes) {
     doc.setFont('times', 'bold')
     doc.text('Notes:', L, ny); ny += 12
