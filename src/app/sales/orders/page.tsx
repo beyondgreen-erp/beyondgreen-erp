@@ -49,6 +49,7 @@ interface SalesOrder {
   total: number | null
   subtotal: number | null
   terms?: string | null
+  payment_terms?: string | null
   fob?: string | null
   sales_rep?: string | null
   client_portal_visible?: boolean | null
@@ -1275,7 +1276,7 @@ export default function OrdersPage() {
       tax_pct: 0,
       total: val,
       notes: order.notes,
-      terms: order.terms ?? 'Net 30',
+      terms: order.terms || order.payment_terms || 'Net 30',
       fob: order.fob ?? 'Santa Ana',
       sales_rep: order.sales_rep ?? 'RP',
     }
@@ -1414,7 +1415,7 @@ export default function OrdersPage() {
       packing_slip_url: order.packing_slip_url ?? '',
       bol: order.bol ?? '',
       additional_comments: order.additional_comments ?? '',
-      terms: order.terms ?? 'Net 30',
+      terms: order.terms ?? order.payment_terms ?? 'Net 30',
       fob: order.fob ?? 'Santa Ana',
       sales_rep: order.sales_rep ?? 'RP',
       client_portal_visible: order.client_portal_visible ?? false,
@@ -1464,6 +1465,7 @@ export default function OrdersPage() {
       bol: form.bol || null,
       monday_item_id: form.monday_item_id || null,
       terms: form.terms || null,
+      payment_terms: form.terms || null,
       fob: form.fob || null,
       sales_rep: form.sales_rep || null,
       client_portal_visible: !!form.client_portal_visible,
