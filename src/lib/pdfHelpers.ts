@@ -139,7 +139,7 @@ function drawAddrBox(doc: jsPDF, x: number, y: number, w: number, h: number, lab
 function billToRows(order: PDFOrder, customer: PDFCustomer | null): string[] {
   const out: string[] = []
   if (customer?.company_name) out.push(customer.company_name)
-  const addr = customer?.billing_address || order.shipping_address || ''
+  const addr = order.billing_address || customer?.billing_address || order.shipping_address || ''
   if (addr) out.push(...addr.split(/\r?\n/).filter(Boolean))
   return out
 }
@@ -210,8 +210,9 @@ export function generatePackingSlip(order: PDFOrder, lines: PDFLine[], customer:
     doc.setFont('helvetica', 'normal')
     let cy = 100
     if (customer.contact_name) { doc.text(customer.contact_name, W / 2, cy); cy += 11 }
-    if (customer.billing_address) {
-      const wrapped = doc.splitTextToSize(customer.billing_address, 220) as string[]
+    const psShipAddr = order.shipping_address || customer.shipping_address || customer.billing_address || ''
+    if (psShipAddr) {
+      const wrapped = doc.splitTextToSize(psShipAddr, 220) as string[]
       doc.text(wrapped, W / 2, cy)
       cy += wrapped.length * 11
     }
@@ -289,8 +290,9 @@ export function generateBOL(order: PDFOrder, lines: PDFLine[], customer: PDFCust
     doc.setFont('helvetica', 'normal')
     let cy = bY + 36
     if (customer.contact_name) { doc.text(customer.contact_name, cx, cy); cy += 11 }
-    if (customer.billing_address) {
-      const wrapped = doc.splitTextToSize(customer.billing_address, bW - 16) as string[]
+    const bolShipAddr = order.shipping_address || customer.shipping_address || customer.billing_address || ''
+    if (bolShipAddr) {
+      const wrapped = doc.splitTextToSize(bolShipAddr, bW - 16) as string[]
       doc.text(wrapped, cx, cy)
       cy += wrapped.length * 11
     }
