@@ -215,8 +215,18 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     if ((!body.trim() && pendingFiles.length === 0) || !recordId || posting) return
     setPosting(true)
     try {
-      const { data: { user } } = await sb.auth.getUser()
-      if (!user) return
+      // Resolve the author email robustly. Prefer the known-good prop (same value the rest of
+      // the app writes with); only fall back to a fresh auth lookup. Never silently drop the
+      // comment when the session read hiccups — that was losing user-typed comments.
+      let authorEmail = (currentUserEmail || '').trim()
+      if (!authorEmail) {
+        const { data: { user } } = await sb.auth.getUser()
+        authorEmail = user?.email || ''
+      }
+      if (!authorEmail) {
+        alert('Could not verify your account. Please refresh the page and try again — your text has been kept.')
+        return
+      }
 
       const uploaded: { name: string; url: string }[] = []
       for (const f of pendingFiles) { const r = await uploadToStorage(f); if (r) uploaded.push(r) }
@@ -224,11 +234,11 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       const { error } = await sb.from('comments').insert({
         record_type: recordType,
         record_id: recordId,
-        author_email: user.email!,
+        author_email: authorEmail,
         content: body.trim(),
         attachments: uploaded,
       })
-      if (error) { alert('Error: ' + error.message); return }
+      if (error) { alert('Could not post comment: ' + error.message + '\n\nYour text has been kept — please try again.'); return }
 
       // If this record is connected to a client portal, email the client about the reply.
       fetch('/api/portal/notify-comment', {
@@ -240,8 +250,8 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       // Send @mention notifications
       const mentions = parseMentions(body)
       if (mentions.length > 0) {
-        const profile = profiles[user.email!]
-        const authorName = profile?.full_name || user.email!.split('@')[0]
+        const profile = profiles[authorEmail]
+        const authorName = profile?.full_name || authorEmail.split('@')[0]
         fetch('/api/notify-mentions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -249,7 +259,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             mentions,
             body: body.trim(),
             authorName,
-            authorEmail: user.email,
+            authorEmail,
             recordId,
             recordType,
             recordUrl: window.location.href,

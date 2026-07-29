@@ -17,6 +17,7 @@ import { statusColor } from '@/lib/statusColors'
 import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
 import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
+import { orderDisplayName } from '@/lib/orderName'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -56,7 +57,7 @@ interface SalesOrder {
   broker_commission_basis?: string | null
   broker_commission_paid?: boolean | null
   broker_commission_status?: string | null
-  customer?: { id: string; company_name: string; email?: string | null; phone?: string | null } | null
+  customer?: { id: string; company_name: string; email?: string | null; phone?: string | null; city?: string | null; state?: string | null } | null
 }
 
 interface OrderLine {
@@ -135,8 +136,8 @@ function orderRef(o: SalesOrder): string | null {
 }
 // Full order name for the board/table title: the whole typed name (kept intact, not split on "|").
 function orderTitle(o: SalesOrder): string {
-  const typed = (o.notes ?? '').trim()
-  return typed || o.customer?.company_name || o.order_number || 'Order'
+  // Composed board/table name: linked customer · PO # · Ship City (fallbacks handled in helper).
+  return orderDisplayName(o)
 }
 function orderValue(o: SalesOrder): number {
   return o.total_amount ?? o.total ?? o.subtotal ?? 0
@@ -1139,7 +1140,7 @@ export default function OrdersPage() {
   const load = useCallback(async () => {
     setLoading(true); setLoadError('')
     const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }, { data: pc }] = await Promise.all([
-      sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone)').eq('archived', false).order('created_at', { ascending: false }),
+      sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone,city,state)').eq('archived', false).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),

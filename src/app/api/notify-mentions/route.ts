@@ -178,6 +178,7 @@ export async function POST(req: Request) {
             body: JSON.stringify({
               from: `beyondGREEN ERP <${FROM_EMAIL}>`,
               to: [recipEmail],
+              cc: ['info@byndgrn.com'],
               reply_to: [authorEmail],
               subject: `${authorName || authorEmail.split('@')[0]} mentioned you in ${pageLabel}${recordName ? `: ${recordName}` : ''}`,
               html,
