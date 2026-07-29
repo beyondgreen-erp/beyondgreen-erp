@@ -249,6 +249,8 @@ export default function SamplesPage() {
       if (batch.length < 1000) break
     }
     setRows(all)
+    setLoading(false)  // show the board immediately; comment badges fill in below
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
     const ids = all.map(r => r.id)
     if (ids.length) {
       const counts: Record<string, number> = {}
@@ -258,8 +260,6 @@ export default function SamplesPage() {
       }
       setCommentCounts(counts)
     }
-    setLoading(false)
-    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, [sb])
   useEffect(() => { load() }, [load])
 
@@ -379,25 +379,44 @@ export default function SamplesPage() {
   }
 
   const q = search.trim().toLowerCase()
-  const match = (r: Sample) => !q || [r.name, r.customer_email, r.product, r.requestor, r.tracking_number].some(v => (v || '').toLowerCase().includes(q))
-  const isShipped = (r: Sample) => (r.group_name || '') === 'Shipped Samples'
-  const shipDate = (r: Sample) => ((r as any).shipped_at as string | null) || r.ship_due_date || r.sample_date || null
-  const monthKey = (r: Sample) => { const d = shipDate(r); if (!d) return 'Shipped — no date'; const dt = new Date(d); return isNaN(dt.getTime()) ? 'Shipped — no date' : dt.toLocaleString('en-US', { month: 'long', year: 'numeric' }) }
-  // Shipped samples are grouped by month shipped (newest first); everything else keeps its group_name.
-  const groupRows = (g: { key: string; shippedMonth?: boolean }) => {
-    const base = g.shippedMonth
-      ? rows.filter(r => isShipped(r) && monthKey(r) === g.key && match(r))
-      : rows.filter(r => (r.group_name || '') === g.key && match(r))
-    return base.sort((a, b) => (a.position || 0) - (b.position || 0))
-  }
-  const pendingGroups = [{ key: 'Pending Sample Shipments', color: '#FDAB3D' }]
-  const extra = Array.from(new Set(rows.map(r => r.group_name || '').filter(k => k && k !== 'Shipped Samples' && k !== 'Pending Sample Shipments')))
-  const shippedMonths = (() => {
-    const m = new Map<string, string>()
-    for (const r of rows) { if (!isShipped(r)) continue; const k = monthKey(r); const d = shipDate(r) || ''; const cur = m.get(k); if (cur === undefined || (d && d > cur)) m.set(k, d) }
-    return [...m.entries()].sort((a, b) => (b[1] || '').localeCompare(a[1] || '')).map(([key]) => ({ key, color: '#00A84F', shippedMonth: true as const }))
-  })()
-  const allGroups: { key: string; color: string; shippedMonth?: boolean }[] = [...pendingGroups, ...extra.map(k => ({ key: k, color: '#9699A6' })), ...shippedMonths]
+
+  // Group + filter in one memoized pass. Previously this filtered the full ~1k-row list once
+  // per group on every render (and every keystroke), which made the page slow and janky.
+  const { allGroups, rowsByGroup, shownCount } = useMemo(() => {
+    const match = (r: Sample) => !q || [r.name, r.customer_email, r.product, r.requestor, r.tracking_number].some(v => (v || '').toLowerCase().includes(q))
+    const isShipped = (r: Sample) => (r.group_name || '') === 'Shipped Samples'
+    const shipDate = (r: Sample) => ((r as any).shipped_at as string | null) || r.ship_due_date || r.sample_date || null
+    const monthKey = (r: Sample) => { const d = shipDate(r); if (!d) return 'Shipped — no date'; const dt = new Date(d); return isNaN(dt.getTime()) ? 'Shipped — no date' : dt.toLocaleString('en-US', { month: 'long', year: 'numeric' }) }
+    const byGroup = new Map<string, Sample[]>()
+    const monthLatest = new Map<string, string>()
+    const extraKeys: string[] = []
+    for (const r of rows) {
+      if (!match(r)) continue
+      let key: string
+      if (isShipped(r)) {
+        key = monthKey(r)
+        const d = shipDate(r) || ''
+        const cur = monthLatest.get(key)
+        if (cur === undefined || (d && d > cur)) monthLatest.set(key, d)
+      } else {
+        key = r.group_name || 'Pending Sample Shipments'
+        if (key !== 'Pending Sample Shipments' && !extraKeys.includes(key)) extraKeys.push(key)
+      }
+      const arr = byGroup.get(key); if (arr) arr.push(r); else byGroup.set(key, [r])
+    }
+    for (const arr of byGroup.values()) arr.sort((a, b) => (a.position || 0) - (b.position || 0))
+    const shippedMonthGroups = [...monthLatest.entries()]
+      .sort((a, b) => (b[1] || '').localeCompare(a[1] || ''))
+      .map(([key]) => ({ key, color: '#00A84F', shippedMonth: true as const }))
+    const groups: { key: string; color: string; shippedMonth?: boolean }[] = [
+      { key: 'Pending Sample Shipments', color: '#FDAB3D' },
+      ...extraKeys.map(k => ({ key: k, color: '#9699A6' })),
+      ...shippedMonthGroups,
+    ]
+    let count = 0; for (const arr of byGroup.values()) count += arr.length
+    return { allGroups: groups, rowsByGroup: byGroup, shownCount: count }
+  }, [rows, q])
+  const groupRows = (g: { key: string; shippedMonth?: boolean }) => rowsByGroup.get(g.key) ?? []
   // Drag a submission into another group. Dropping into "Shipped Samples" also marks it Shipped.
   async function moveToGroup(target: { key: string; shippedMonth?: boolean }) {
     const id = dragId.current; dragId.current = null
@@ -416,7 +435,6 @@ export default function SamplesPage() {
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
     await sb.from('sample_submissions').update(patch).eq('id', id)
   }
-  const shownCount = allGroups.reduce((a, g) => a + groupRows(g).length, 0)
 
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const cellCls = 'w-full bg-white border border-[#E4E6EE] rounded px-1.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
@@ -455,14 +473,14 @@ export default function SamplesPage() {
         <input placeholder="Search name, customer, product, tracking…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1 min-w-[240px] max-w-md bg-white border border-[#E4E6EE] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <div className="flex items-center gap-1.5 ml-auto text-xs">
           <button onClick={() => setCollapsed(Object.fromEntries(allGroups.map(g => [g.key, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
-          <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
+          <button onClick={() => setCollapsed(Object.fromEntries(allGroups.map(g => [g.key, false])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
         </div>
       </div>
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-2.5 mb-6">
           {allGroups.map(group => {
-            const gr = groupRows(group); const isCol = collapsed[group.key]
+            const gr = groupRows(group); const isCol = group.key in collapsed ? collapsed[group.key] : !!group.shippedMonth
             const cost = gr.reduce((a, r) => a + (Number(r.ship_cost) || 0), 0)
             return (
               <div key={group.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]" onDragOver={e => e.preventDefault()} onDrop={() => moveToGroup(group)}>
