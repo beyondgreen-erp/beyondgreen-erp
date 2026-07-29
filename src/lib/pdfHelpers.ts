@@ -63,6 +63,7 @@ export interface PDFOrder {
   status: string
   po_number?: string | null
   shipping_address?: string | null
+  billing_address?: string | null
   carrier?: string | null
   tracking_number?: string | null
   subtotal: number
