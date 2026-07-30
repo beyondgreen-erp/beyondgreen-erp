@@ -16,8 +16,8 @@ const HEADINGS: [string, number, number][] = [
   ['PARKING LOT', 360, 868], ['TENT 1', 600, 886], ['CONTAINERS', 600, 1020], ['TENT 2', 316, 1114],
 ]
 
-export default function ZonePicker({ productId, productName, currentUserEmail, onClose, onChange }: {
-  productId: string; productName?: string; currentUserEmail?: string; onClose: () => void; onChange?: (count: number) => void
+export default function ZonePicker({ productId, productName, currentUserEmail, onClose, onCancel, onChange, stepLabel }: {
+  productId: string; productName?: string; currentUserEmail?: string; onClose: () => void; onCancel?: () => void; onChange?: (count: number) => void; stepLabel?: string
 }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [zones, setZones] = useState<Zone[]>([])
@@ -54,12 +54,17 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-3" style={{ background: 'rgba(15,20,36,0.6)' }} onClick={onClose}>
       <div className="relative w-full max-w-[560px] my-4 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-4 py-3 flex items-center justify-between" style={{ background: '#0F1424', color: '#fff' }}>
+        <div className="px-4 py-3 flex items-center justify-between gap-2 sticky top-0 z-10" style={{ background: '#0F1424', color: '#fff' }}>
           <div className="min-w-0">
             <p className="text-sm font-bold truncate">📍 Storage zone{productName ? ` · ${productName}` : ''}</p>
-            <p className="text-[11px]" style={{ color: '#8A9FC0' }}>Tap zones where this item is stored — pick as many as needed.</p>
+            <p className="text-[11px]" style={{ color: '#8A9FC0' }}>{stepLabel || 'Tap zones where this item is stored — pick as many as needed.'}</p>
           </div>
-          <button onClick={onClose} className="text-sm font-bold px-3 py-1.5 rounded-lg" style={{ background: '#059669', color: '#fff' }}>Done</button>
+          <div className="flex items-center gap-2 shrink-0">
+            {onCancel && (
+              <button onClick={onCancel} className="text-sm font-semibold px-3 py-2 rounded-lg" style={{ background: '#1A2035', color: '#8A9FC0', border: '1px solid #2A3350' }}>Cancel</button>
+            )}
+            <button onClick={onClose} className="text-sm font-bold px-4 py-2 rounded-lg" style={{ background: '#059669', color: '#fff' }}>Done</button>
+          </div>
         </div>
 
         <div className="px-3 py-2 flex flex-wrap gap-2 text-[10px]" style={{ borderBottom: '1px solid #EEF0F4' }}>
