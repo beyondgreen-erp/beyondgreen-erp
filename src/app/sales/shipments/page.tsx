@@ -286,6 +286,7 @@ export default function ShipmentsPage() {
   }, [rows])
 
   const totalCost = rows.reduce((s, r) => s + (r.ship_cost || 0), 0)
+  const totalValue = rows.reduce((s, r) => s + (r.total_value || 0), 0)
   const avgCost = rows.length ? totalCost / rows.length : 0
   const topCustomer = useMemo(() => {
     const agg: Record<string, number> = {}
@@ -374,6 +375,7 @@ export default function ShipmentsPage() {
                 const gr = group.rows
                 const isCol = collapsed[group.key] ?? (gi !== 0)
                 const cost = gr.reduce((a, r) => a + (r.ship_cost || 0), 0)
+                const val = gr.reduce((a, r) => a + (r.total_value || 0), 0)
                 const color = '#0086C0'
                 return (
                   <div key={group.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
@@ -381,7 +383,8 @@ export default function ShipmentsPage() {
                       <span className="text-[10px]" style={{ color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                       <span className="font-bold text-sm" style={{ color }}>{group.key}</span>
                       <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: color + '26', color }}>{gr.length}</span>
-                      {cost > 0 && <span className="ml-auto text-[11px] text-gray-400">Ship cost ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                      {val > 0 && <span className="ml-auto text-[11px] font-semibold text-[#1A1D2E]">Value ${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                      {cost > 0 && <span className={`${val > 0 ? '' : 'ml-auto'} text-[11px] text-gray-400`}>Ship cost ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
                     </div>
                     {!isCol && (
                       <div>
@@ -391,6 +394,7 @@ export default function ShipmentsPage() {
                               <th className="w-10 px-4 py-2.5"><input type="checkbox" checked={gr.length > 0 && gr.every(r => ms.isSelected(r.id))} onChange={() => ms.toggleAll(gr)} className="accent-emerald-500 w-4 h-4 cursor-pointer" /></th>
                               <th className="text-left font-semibold px-4 py-2.5 min-w-[180px]">Customer</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[120px]">Ship Date</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Value</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[90px]">Cost</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[130px]">PO #</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Carrier</th>
@@ -408,6 +412,7 @@ export default function ShipmentsPage() {
                                   <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={() => ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer" /></td>
                                   <td className="px-4 py-2.5 text-[#1A1D2E] font-semibold max-w-[200px] truncate cursor-pointer" onClick={() => openEdit(s)}>{s.customer_name || '—'}</td>
                                   <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtD(s.ship_date)}</td>
+                                  <td className="px-3 py-2.5 text-[#1A1D2E] font-semibold whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{s.total_value != null ? fmtC(s.total_value) : '—'}</td>
                                   <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtC(s.ship_cost)}</td>
                                   <td className="px-3 py-2.5 text-gray-400 cursor-pointer" onClick={() => openEdit(s)}>{s.po_number || '—'}</td>
                                   <td className="px-3 py-2.5 text-gray-400 cursor-pointer" onClick={() => openEdit(s)}>{s.carrier || '—'}</td>
@@ -461,6 +466,7 @@ export default function ShipmentsPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {[
               { label: 'Total Shipments', value: rows.length.toLocaleString() },
+              { label: 'Order Value Shipped', value: `$${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
               { label: 'Total Ship Cost', value: `$${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
               { label: 'Avg Cost / Shipment', value: `$${avgCost.toFixed(2)}` },
               { label: 'Top Customer', value: topCustomer, small: true },
