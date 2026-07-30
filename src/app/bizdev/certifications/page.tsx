@@ -13,8 +13,8 @@ import LinkedTasks from '@/components/LinkedTasks'
 interface Customer { id: string; company_name: string }
 interface Vendor { id: string; company_name: string }
 interface Cert { id: string; cert_name: string; issuing_body: string | null; issue_date: string | null; expiry_date: string | null; status: string; responsible_person: string | null; customer_id: string | null; vendor_id: string | null; notes: string | null; is_active: boolean }
-const STATUSES = ['Active','Expiring Soon','Expired']
-const SC: Record<string,string> = { Active:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'Expiring Soon':'bg-amber-500/15 text-amber-400 border-amber-500/20', Expired:'bg-red-500/15 text-red-400 border-red-500/20' }
+const STATUSES = ['Active','Expiring Soon','Expired','Retest','Testing','Hold','Cancelled']
+const SC: Record<string,string> = { Active:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', 'Expiring Soon':'bg-amber-500/15 text-amber-400 border-amber-500/20', Expired:'bg-red-500/15 text-red-400 border-red-500/20', Retest:'bg-blue-500/15 text-blue-400 border-blue-500/20', Testing:'bg-indigo-500/15 text-indigo-400 border-indigo-500/20', Hold:'bg-gray-500/15 text-gray-400 border-gray-500/20', Cancelled:'bg-slate-500/15 text-slate-400 border-slate-500/20' }
 const empty = { cert_name:'', issuing_body:'', issue_date:'', expiry_date:'', status:'Active', responsible_person:'', customer_id:'', vendor_id:'', notes:'' }
 type F = typeof empty
 const fmtD=(d:string|null)=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
@@ -158,7 +158,7 @@ export default function CertificationsPage() {
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><LinkedTasks recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="certification" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
           </>)}
         </div>
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
