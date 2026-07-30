@@ -957,13 +957,22 @@ export default function ShippingQueuePage() {
                               return (
                                 <span key={i} className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1 ${done ? 'bg-emerald-50 text-emerald-700' : rem > 0 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
                                   <span className="font-mono">{r.sku}</span>
-                                  <span className="font-normal">{r.cases - rem} / {r.cases}{r.upc ? '' : ' ⚠'}</span>
+                                  <span className="font-normal inline-flex items-center gap-1">
+                                    {r.cases - rem} /
+                                    <input type="number" min={1} value={r.cases}
+                                      onChange={e => setCases(i, parseInt(e.target.value) || 1)}
+                                      onClick={e => e.stopPropagation()}
+                                      title="Cases to ship — lower this to ship a partial"
+                                      className="w-12 text-center rounded border border-current/40 bg-white/80 text-[#1A1D2E] px-1 py-0.5 font-semibold" />
+                                    {r.upc ? '' : ' ⚠'}
+                                  </span>
                                   {done ? <span>✓</span> : <span>{rem > 0 ? `${rem} left` : `${-rem} over`}</span>}
                                   <button onClick={() => removeLine(i)} title="Remove this SKU from the shipment" className="text-current/50 hover:text-red-600">✕</button>
                                 </span>
                               )
                             })}
                           </div>
+                          <p className="text-[11px] text-gray-400 -mt-1.5 mb-3">Shipping a <b>partial</b>? Lower a SKU&apos;s case target above (e.g. 62 → 50). Case labels, BOL and packing list all follow the number you set.</p>
 
                           {/* Configuration cards */}
                           <div className="space-y-2 mb-3">
