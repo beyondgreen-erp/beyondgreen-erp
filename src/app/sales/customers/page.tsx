@@ -979,7 +979,7 @@ export default function CustomersPage() {
       )}
 
       {/* ── OVERLAY ── */}
-      <div className={`fixed inset-0 z-40 transition-opacity duration-200 ${panelOpen?'opacity-100':'opacity-0 pointer-events-none'}`} style={{ background:'rgba(26,32,53,0.48)', backdropFilter:'blur(3px)' }} onClick={closePanel}/>
+      <div className={`fixed inset-0 z-40 transition-opacity duration-200 ${panelOpen?'opacity-100':'opacity-0 pointer-events-none'}`} style={{ background:'rgba(26,32,53,0.48)', backdropFilter:'blur(3px)' }} />
 
       {/* ── PANEL (centered pop-up) ── */}
       <div ref={panelRef} onClick={e=>e.stopPropagation()} className={`fixed left-1/2 top-6 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[680px] bg-white rounded-2xl z-50 flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${panelOpen?'opacity-100 scale-100':'opacity-0 scale-95 pointer-events-none'}`} style={{ maxHeight:'calc(100vh - 48px)' }}>

@@ -273,7 +273,7 @@ export default function DocumentsPage() {
         </div>
       })}</div>}
       </>)}
-      {groupOpen&&<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={()=>!groupSaving&&setGroupOpen(false)}>
+      {groupOpen&&<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" >
         <div className="bg-white rounded-2xl border border-[#E4E6EE] shadow-2xl w-full max-w-sm p-6" onClick={e=>e.stopPropagation()}>
           <div className="flex items-center justify-between mb-4"><h3 className="text-[#1A1D2E] font-semibold flex items-center gap-2"><i className="ti ti-folder-plus text-violet-500"/>New Group</h3><button onClick={()=>setGroupOpen(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-[#F5F6FA]"><i className="ti ti-x"/></button></div>
           <label className="block text-xs text-gray-400 mb-1.5">Group Name <span className="text-red-400">*</span></label>
@@ -285,7 +285,7 @@ export default function DocumentsPage() {
           </div>
         </div>
       </div>}
-      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} onClick={close}/>
+      <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open?'opacity-100':'opacity-0 pointer-events-none'}`} />
       <div ref={ref} onClick={(e)=>e.stopPropagation()} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${open?'translate-x-0':'translate-x-full'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0"><h2 className="text-[#1A1D2E] font-semibold">{editing?'Edit Document':'Add Document'}</h2><div className="flex items-center gap-2">{editing && <ShareLink id={editing.id} />}<button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><i className="ti ti-x text-lg"/></button></div></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">

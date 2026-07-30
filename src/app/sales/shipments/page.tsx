@@ -559,7 +559,7 @@ export default function ShipmentsPage() {
 
       {/* ── SLIDE-OUT PANEL ── */}
       {open && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" >
           <div className="fixed inset-0" style={{ background: 'rgba(26,32,53,0.48)', backdropFilter: 'blur(3px)' }} />
           <div className="relative w-full max-w-[640px] my-4 bg-[#F9FAFB] rounded-2xl shadow-2xl overflow-hidden flex flex-col mon-pop"
             style={{ maxHeight: 'calc(100vh - 32px)' }}

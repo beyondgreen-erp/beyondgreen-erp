@@ -356,7 +356,7 @@ export default function SequencesPage() {
         const sends = (sendsBySeq[detail.id] || [])
         const stepsN = (stepsBySeq[detail.id] || []).length
         return (
-          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={() => setDetail(null)}>
+          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} >
             <div className="w-[880px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
               <div className="sticky top-0 bg-white border-b border-[#EEF0F4] px-5 py-3 flex items-center justify-between z-10">
                 <div className="min-w-0">
@@ -507,7 +507,7 @@ export default function SequencesPage() {
 
       {/* Edit / New sequence sidebar */}
       {open && (
-        <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={close}>
+        <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} >
           <div className="w-[640px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-[#EEF0F4] px-5 py-3 flex items-center justify-between z-10">
               <h2 className="font-bold text-[#1A1D2E]">{editing ? 'Edit sequence' : 'New sequence'}</h2>

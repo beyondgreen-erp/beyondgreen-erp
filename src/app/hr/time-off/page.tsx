@@ -103,7 +103,7 @@ function RequestModal({ open, onClose, onCreated, sb, me }: { open: boolean; onC
   if (!open) return null
   const inp = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5559df]/40'
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 text-white rounded-t-2xl" style={{ background: '#5559df' }}>
           <h2 className="font-bold text-lg">Request time off</h2>
@@ -367,7 +367,7 @@ export default function TimeOffPage() {
       </div>
 
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={closeDetail}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
           <div className="relative w-full max-w-[820px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: '#5559df' }}>
               <div className="min-w-0">

@@ -415,7 +415,7 @@ export default function CampaignPage() {
           </table>
         </div>
         {wf && (
-          <div className="fixed inset-0 z-50 flex justify-end" onClick={() => { setWf(null); setWfPreview(null) }}>
+          <div className="fixed inset-0 z-50 flex justify-end" >
             <div className="absolute inset-0 bg-black/30" />
             <div onClick={(e) => e.stopPropagation()} className="relative w-full max-w-md h-full bg-white shadow-xl overflow-y-auto p-5">
               <div className="flex items-center justify-between mb-3">

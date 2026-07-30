@@ -68,7 +68,7 @@ export default function NewCustomersAdmin() {
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => setOpen(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" >
           <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-lg shadow-sm max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE]">
               <h2 className="font-semibold text-[#1A1D2E]">{open.company_name}</h2>

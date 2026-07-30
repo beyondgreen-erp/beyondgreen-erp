@@ -243,7 +243,7 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
 
       {/* ── Global search palette ── */}
       {sprintNotice && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center px-4" style={{ background: 'rgba(20,24,40,0.5)' }} onClick={() => setSprintNotice(false)}>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center px-4" style={{ background: 'rgba(20,24,40,0.5)' }} >
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#E4E6EE] p-6 text-center" onClick={e => e.stopPropagation()}>
             <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[#FDAB3D]/15 flex items-center justify-center"><i className="ti ti-tools text-2xl text-[#E39A2B]" /></div>
             <h2 className="text-lg font-bold text-[#1A1D2E]">Undergoing Sprints</h2>

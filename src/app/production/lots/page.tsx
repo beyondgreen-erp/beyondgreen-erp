@@ -281,7 +281,7 @@ export default function LotsPage() {
       </div>
 
       {/* Backdrop */}
-      <div className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${(selected || adding) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={close} />
+      <div className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${(selected || adding) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
 
       {/* Slide-out panel */}
       <div ref={panelRef} className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:w-[560px] bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${(selected || adding) ? 'translate-x-0' : 'translate-x-full'}`} onClick={e => e.stopPropagation()}>

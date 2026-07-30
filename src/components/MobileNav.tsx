@@ -78,7 +78,7 @@ export default function MobileNav() {
       </button>
 
       {sprintNotice && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4" style={{ background: 'rgba(20,24,40,0.6)' }} onClick={() => setSprintNotice(false)}>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4" style={{ background: 'rgba(20,24,40,0.6)' }} >
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 text-center" onClick={e => e.stopPropagation()}>
             <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[#FDAB3D]/15 flex items-center justify-center text-2xl">🛠️</div>
             <h2 className="text-lg font-bold text-[#1A1D2E]">Undergoing Sprints</h2>

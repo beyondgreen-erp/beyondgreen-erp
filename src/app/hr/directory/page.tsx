@@ -278,7 +278,7 @@ export default function EmployeeDirectoryPage() {
       </div>
 
       {(detail || editing) && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={close}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
           <div className="relative w-full max-w-[820px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 py-5 text-white" style={{ background: avatarColor(form.name || 'New') }}>
               <div className="min-w-0 flex items-start gap-4">

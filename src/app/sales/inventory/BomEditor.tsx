@@ -359,7 +359,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      <div onClick={onClose} className="fixed inset-0 bg-black/60 z-40"/>
+      <div className="fixed inset-0 bg-black/60 z-40"/>
       <div onClick={e => e.stopPropagation()}
         className="fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-screen w-full md:w-[900px] bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl">
 

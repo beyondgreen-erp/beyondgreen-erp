@@ -179,7 +179,7 @@ const DownloadModal = memo(({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" >
       <div
         className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl"
         onClick={e => e.stopPropagation()}

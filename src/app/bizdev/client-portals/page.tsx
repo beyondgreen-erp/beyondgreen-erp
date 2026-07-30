@@ -51,7 +51,7 @@ function ClientModal({ open, onClose, onSaved, sb, me, editing }: { open: boolea
   if (!open) return null
   const inp = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40'
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 text-white rounded-t-2xl" style={{ background: GREEN }}>
           <h2 className="font-bold text-lg">{editing ? 'Edit client account' : 'New client account'}</h2>

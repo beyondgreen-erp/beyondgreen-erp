@@ -317,7 +317,7 @@ export default function SequenceReviewPage() {
         const step = stepBy[templateEdit.stepKey]
         const cnt = (grouped[step?.sequence_id]?.[step?.step_number] || []).length
         return (
-          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={() => setTemplateEdit(null)}>
+          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} >
             <div className="w-[640px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
               <div className="sticky top-0 bg-white border-b border-[#EEF0F4] px-5 py-3 flex items-center justify-between">
                 <div><p className="text-[10px] uppercase font-bold text-gray-400">Template edit</p><h2 className="font-bold text-[#1A1D2E]">Step {step?.step_number} template</h2></div>

@@ -418,7 +418,7 @@ export default function ShippingQueuePage() {
 
       {/* ── SHIP NOW MODAL ── */}
       {shipModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => !shipping && setShipModal(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" >
           <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-lg shadow-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE]">
               <div>
@@ -575,7 +575,7 @@ export default function ShippingQueuePage() {
 
       {/* ── EDIT PANEL ── */}
       {editItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => setEditItem(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" >
           <div className="bg-white border border-[#E4E6EE] rounded-2xl w-full max-w-sm shadow-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE]">
               <h2 className="text-[#1A1D2E] font-semibold">Edit Queue Item</h2>

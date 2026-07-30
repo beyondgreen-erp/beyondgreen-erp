@@ -220,7 +220,7 @@ export default function DailyPlanPage() {
       )}
 
       {newOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={() => setNewOpen(false)}>
+        <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.4)' }} >
           <div className="w-[600px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-[#EEF0F4] px-5 py-3 flex items-center justify-between z-10">
               <h2 className="font-bold text-[#1A1D2E]">New day plan</h2>

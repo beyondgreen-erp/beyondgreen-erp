@@ -74,6 +74,8 @@ export default function PurchasingRequestsPage() {
   const [q, setQ] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [detail, setDetail] = useState<any | null>(null)
+  const [editForm, setEditForm] = useState<any>({})
+  const [savingDetail, setSavingDetail] = useState(false)
   const [userEmail, setUserEmail] = useState('')
 
   // create-modal state
@@ -102,6 +104,19 @@ export default function PurchasingRequestsPage() {
   useEffect(() => { load() }, [load])
 
   const itemsOf = (oid: string) => items.filter(i => i.parent_id === oid).sort((a, b) => (a.position || 0) - (b.position || 0))
+  useEffect(() => { setEditForm(detail ? { ...detail } : {}) }, [detail])
+  const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','supplier','supplier_pn','po_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
+  async function saveDetail() {
+    if (!detail) return
+    setSavingDetail(true)
+    const patch: any = {}
+    for (const k of DETAIL_KEYS) { const v = editForm[k]; patch[k] = (v === '' || v === undefined) ? null : v }
+    const { error } = await sb.from('purchasing_requests').update(patch).eq('id', detail.id)
+    setSavingDetail(false)
+    if (error) { alert('Save failed: ' + error.message); return }
+    setRows((rs: any[]) => rs.map(r => r.id === detail.id ? { ...r, ...patch } : r))
+    setDetail((d: any) => ({ ...d, ...patch }))
+  }
   const updateStatus = async (id: string, status: string) => {
     setRows(rs => rs.map(r => r.id === id ? { ...r, status: status || null } : r))
     setDetail((d: any) => d && d.id === id ? { ...d, status: status || null } : d)
@@ -298,7 +313,7 @@ export default function PurchasingRequestsPage() {
 
       {/* ── Create modal ─────────────────────────────────────── */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => !saving && setShowCreate(false)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
           <div className="relative w-full max-w-[640px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: '#3B6FE0' }}>
               <div>
@@ -380,7 +395,7 @@ export default function PurchasingRequestsPage() {
       )}
 
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setDetail(null)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
           <div className="relative w-full max-w-[860px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: (GROUPS.find(g => g.key === detail.group_key)?.color) || '#5559df' }}>
               <div className="min-w-0">
@@ -398,22 +413,13 @@ export default function PurchasingRequestsPage() {
             </div>
 
             <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                <Field label="Requested By" value={detail.person_requesting} />
-                <Field label="PO Required?" value={detail.po_required} />
-                <Field label="PO Number" value={detail.po_number} />
-                <Field label="Customer / Project" value={detail.customer_project} />
-                <Field label="Supplier" value={detail.supplier} />
-                <Field label="Supplier P/N" value={detail.supplier_pn} />
-                <Field label="PO Date" value={fmtDate(detail.po_date)} />
-                <Field label="Qty Ordered" value={detail.qty_ordered} />
-                <Field label="Date Received" value={fmtDate(detail.date_received)} />
-                <Field label="Qty Received" value={detail.qty_received} />
-                <Field label="Balance" value={detail.balance} />
-                <Field label="# of Pkgs Rec'd" value={detail.pkgs_received} />
-                <Field label="Condition Rec'd" value={detail.condition_received} />
-                <Field label="Received By" value={detail.received_by} />
-                <Field label="Batch / Lot No." value={detail.batch_lot} />
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
+                  <div key={k}>
+                    <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>
+                    <input type={type} value={editForm[k] ?? ''} onChange={e => setEditForm((ff: any) => ({ ...ff, [k]: e.target.value }))} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0]" />
+                  </div>
+                ))}
               </div>
 
               <div>
@@ -465,6 +471,10 @@ export default function PurchasingRequestsPage() {
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="purchasing_request" currentUserEmail={userEmail} title="Notes & Comments" />
               </div>
+            </div>
+            <div className="shrink-0 px-6 py-3 border-t border-[#EEF0F4] flex items-center justify-end gap-3">
+              <button onClick={() => setDetail(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors">Close</button>
+              <button onClick={saveDetail} disabled={savingDetail} className="text-sm font-semibold px-5 py-2 rounded-lg bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white disabled:opacity-60 transition-colors">{savingDetail ? 'Saving…' : 'Save changes'}</button>
             </div>
           </div>
         </div>

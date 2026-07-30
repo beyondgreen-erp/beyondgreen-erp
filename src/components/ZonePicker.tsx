@@ -68,7 +68,7 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
   const doneBlocked = (photoRequired && photos.length === 0)
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-3" style={{ background: 'rgba(15,20,36,0.6)' }} onClick={onCancel || onClose}>
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-3" style={{ background: 'rgba(15,20,36,0.6)' }} >
       <div className="relative w-full max-w-[560px] my-4 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-4 py-3 flex items-center justify-between gap-2 sticky top-0 z-10" style={{ background: '#0F1424', color: '#fff' }}>
           <div className="min-w-0">

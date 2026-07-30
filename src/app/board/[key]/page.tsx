@@ -145,7 +145,7 @@ export default function DynamicBoardPage() {
       )}
 
       {open && (
-        <div className="mon-backdrop" onClick={close}>
+        <div className="mon-backdrop" >
           <div className="mon-modal mon-pop" style={{ maxWidth: 620 }} onClick={e => e.stopPropagation()}>
             <div className="mon-modal-head" style={{ background: accent }}>
               <div className="min-w-0">

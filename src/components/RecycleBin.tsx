@@ -49,7 +49,7 @@ export default function RecycleBin() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,18,38,0.45)' }} onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,18,38,0.45)' }} >
           <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col" style={{ maxHeight: '80vh', border: '1px solid #E4E6EE' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-5 py-4 border-b" style={{ borderColor: '#E4E6EE' }}>
               <div>

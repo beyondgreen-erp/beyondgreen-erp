@@ -430,7 +430,7 @@ export default function LeadProspectorPage() {
 
       {/* ── Detail drawer ── */}
       {detail && (
-        <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.35)' }} onClick={() => setDetail(null)}>
+        <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(20,24,40,0.35)' }} >
           <div className="w-[440px] max-w-full bg-white h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[#EEF0F4] flex items-start gap-3" style={{ background: 'linear-gradient(180deg,#EAF4FB,#fff)' }}>
               <div className="w-11 h-11 rounded-xl bg-[#0086C0] text-white flex items-center justify-center font-bold shrink-0">{detail.company_name[0]}</div>
@@ -490,7 +490,7 @@ export default function LeadProspectorPage() {
 
       {/* new list modal */}
       {showNewList && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={() => setShowNewList(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(20,24,40,0.4)' }} >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-[#1A1D2E] mb-3">New list</h3>
             <input autoFocus value={newListName} onChange={e => setNewListName(e.target.value)} placeholder="List name (e.g. Chicago Steakhouses)" className="w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#0086C0]/30" />
@@ -504,7 +504,7 @@ export default function LeadProspectorPage() {
 
       {/* save search modal */}
       {showSaveSearch && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(20,24,40,0.4)' }} onClick={() => setShowSaveSearch(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(20,24,40,0.4)' }} >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-[#1A1D2E] mb-1">Save this search</h3>
             <p className="text-xs text-gray-500 mb-3">Save your current filters to reuse later.</p>

@@ -293,7 +293,7 @@ export default function FbaBoard() {
       )}
 
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={closeDetail}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
           <div className="relative w-full max-w-[760px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: statusHex(detail.status) === '#c4c4c4' ? '#0086C0' : statusHex(detail.status) }}>
               <div className="min-w-0">

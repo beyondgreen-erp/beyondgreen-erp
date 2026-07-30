@@ -505,7 +505,7 @@ export default function BeyondWorldPage() {
 
       {/* Mystery box result modal */}
       {boxResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(5,7,20,0.75)' }} onClick={() => setBoxResult(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(5,7,20,0.75)' }} >
           <div className="rounded-2xl p-6 max-w-xs w-full text-center" style={{ background: '#161a36', border: `2px solid ${RARITY[boxResult.rarity] || '#fff'}` }} onClick={e => e.stopPropagation()}>
             <p className="text-sm text-white/60 mb-1">🎉 You unboxed</p>
             <div className="h-24 flex items-center justify-center my-3">

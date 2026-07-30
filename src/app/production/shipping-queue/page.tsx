@@ -913,7 +913,7 @@ export default function ShippingQueuePage() {
                 </button>
 
                 {open && (
-                  <div className="mon-backdrop" onClick={() => { saveDraft({ silent: true }); setOpenId(null); resetPackState() }}>
+                  <div className="mon-backdrop" >
                    <div className="mon-modal" style={{ maxWidth: 1000 }} onClick={e => e.stopPropagation()}>
                     <div className="mon-modal-head">
                       <div className="min-w-0">
@@ -1189,7 +1189,7 @@ export default function ShippingQueuePage() {
 
       {/* ── Walmart order (mirrored) drawer ─────────────────────────── */}
       {openW && activeW && (
-        <div className="mon-backdrop" onClick={() => setOpenW(null)}>
+        <div className="mon-backdrop" >
           <div className="mon-modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
             <div className="mon-modal-head">
               <div className="min-w-0">
@@ -1225,7 +1225,7 @@ export default function ShippingQueuePage() {
         const cin = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/40'
         const lbl = 'block text-[11px] font-medium text-gray-500 mb-1'
         return (
-          <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={e => { if (e.target === e.currentTarget) setCfgDraft(null) }}>
+          <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4" >
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-6">
               <div className="flex items-center justify-between px-5 py-4 text-white rounded-t-2xl bg-indigo-600">
                 <h3 className="font-bold text-base">{configs.some(c => c.id === d.id) ? 'Edit pallet configuration' : 'New pallet configuration'}</h3>

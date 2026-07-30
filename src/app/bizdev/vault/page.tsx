@@ -190,7 +190,7 @@ export default function VaultPage() {
 
       {/* ── Edit / Add pop-up ── */}
       {open && (
-        <div className="mon-backdrop" onClick={close}>
+        <div className="mon-backdrop" >
           <div className="mon-modal mon-pop" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
             <div className="mon-modal-head h-purple">
               <div className="min-w-0">

@@ -206,7 +206,7 @@ export default function HaccpPage() {
 
 function Modal({ title, children, onClose }: { title: string; children: any; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" >
       <div className="absolute inset-0 bg-black/30" />
       <div onClick={(e) => e.stopPropagation()} className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-xl p-5">
         <div className="flex items-center justify-between mb-3">

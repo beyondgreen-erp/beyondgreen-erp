@@ -308,7 +308,7 @@ export default function RemindersWidget() {
       </div>
     </div>
     {detail && (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setDetail(null)}>
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
         <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
           <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#E4E6EE]">
             <div className="flex items-start gap-2 min-w-0">

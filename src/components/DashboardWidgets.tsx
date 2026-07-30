@@ -792,7 +792,7 @@ function AddModal({ onClose, onAdd, existing }: { onClose: () => void; onAdd: (t
     return m
   }, [q])
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(15,28,46,0.5)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(15,28,46,0.5)' }} >
       <div className="relative w-full max-w-3xl my-8 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between">
           <div>

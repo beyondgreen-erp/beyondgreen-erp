@@ -34,7 +34,7 @@ export default function RecordModal({ open, onClose, title, subtitle, status, he
   if (!open) return null
 
   return (
-    <div className="mon-backdrop" onClick={onClose}>
+    <div className="mon-backdrop" >
       <div className="mon-modal" style={{ maxWidth }} onClick={e => e.stopPropagation()}>
         <div className="mon-modal-head">
           <div className="min-w-0">

@@ -534,7 +534,7 @@ export default function ClientPortalPage() {
 
       {/* Persistent message thread (1:1 or whole-team group) */}
       {thread && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setThread(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" >
           <div className="fixed inset-0" style={{ background: 'rgba(26,32,53,0.5)' }} />
           <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-3.5 border-b border-[#EEF0F4] flex items-center gap-3">
@@ -567,7 +567,7 @@ export default function ClientPortalPage() {
 
       {/* Per-record comment modal */}
       {cmt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setCmt(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" >
           <div className="fixed inset-0" style={{ background: 'rgba(26,32,53,0.5)' }} />
           <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-3.5 border-b border-[#EEF0F4] flex items-center justify-between gap-3">

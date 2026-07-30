@@ -234,7 +234,7 @@ function ContainerModal({ container, items, products, onClose, onAdd, onUpdate, 
   }
   const total = items.reduce((a: number, i: any) => a + (Number(i.quantity) || 0), 0)
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
       <div className="relative w-full max-w-[720px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between px-6 py-4 bg-[#3B6FE0] text-white">
           <div className="min-w-0">
@@ -304,7 +304,7 @@ function TicketBuilder({ type, container, items, products, onClose, onCreate }: 
     return addLines.map(l => ({ source: l.source, product_id: l.product_id, item_name: l.item_name, sku: l.sku, uom: l.uom, quantity: l.quantity }))
   }
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.55)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.55)' }} >
       <div className="relative w-full max-w-[620px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: isPull ? '#df2f4a' : '#00854a' }}>
           <h2 className="text-lg font-bold">{isPull ? 'Pull' : 'Add'} Ticket · {container?.name}</h2>
@@ -362,7 +362,7 @@ function TicketViewModal({ ticket, container, onClose, onPrint, onComplete, onCa
   const isPull = ticket.type === 'pull'
   const done = (ticket.lines || []).filter((l: any) => l.done).length
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.55)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.55)' }} >
       <div className="relative w-full max-w-[560px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: isPull ? '#df2f4a' : '#00854a' }}>
           <div>
@@ -412,7 +412,7 @@ function TicketsPanel({ tickets, containers, onClose, onOpen }: any) {
   const cname = (id: string) => containers.find((c: any) => c.id === id)?.name || ''
   const hex: Record<string, string> = { open: '#fdab3d', completed: '#00c875', cancelled: '#9699a6' }
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
       <div className="relative w-full max-w-[640px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE]"><h2 className="text-lg font-semibold text-[#1A1D2E]">Pull / Add Tickets</h2><button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button></div>
         <div className="max-h-[70vh] overflow-y-auto divide-y divide-[#EEF0F4]">

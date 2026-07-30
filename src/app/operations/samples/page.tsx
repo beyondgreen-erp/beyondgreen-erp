@@ -172,7 +172,7 @@ function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Samp
   }
   const inp = 'w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-[#1A1D2E]'
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }} >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
           <div><h2 className="font-bold text-lg text-[#1A1D2E]">Confirm Shipped</h2><p className="text-xs text-gray-500 mt-0.5">Review the email, then send it to the recipient and mark this sample shipped.</p></div>
@@ -536,7 +536,7 @@ export default function SamplesPage() {
       )}
 
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={closeDetail}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
           <div className="relative w-full max-w-[860px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: statusHex(detail.status) === '#c4c4c4' ? '#0086C0' : statusHex(detail.status) }}>
               <div className="min-w-0">

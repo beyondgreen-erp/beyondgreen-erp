@@ -375,7 +375,7 @@ export default function UsersPage() {
 
       {/* Delete confirmation */}
       {del && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget && !delBusy) setDel(null) }}>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" >
           <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 w-full max-w-md space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
