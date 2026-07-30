@@ -213,7 +213,8 @@ export function buildMasterBOL(d: BolData, lines: BolLine[], logo: string | null
 
 export interface PackListCase {
   sku: string; description?: string
-  caseCount: number            // total cases of this SKU across the order
+  caseCount: number            // cases of this SKU being shipped (this shipment)
+  casesOrdered?: number        // cases of this SKU on the order
   unitsInCase?: number         // units per case (reference)
   units?: number               // total units of this SKU
   weight?: number              // total line weight (lb)
@@ -270,7 +271,7 @@ export function buildPackingList(
   y = Math.max(y1, y2) + 14
 
   // Per-SKU summary table
-  const cols = [{ t: 'SKU', w: 96 }, { t: 'Description', w: 0 }, { t: 'Cases', w: 50 }, { t: 'Units', w: 56 }, { t: 'Wt (lb)', w: 60 }]
+  const cols = [{ t: 'SKU', w: 92 }, { t: 'Description', w: 0 }, { t: 'Cases Ordered', w: 74 }, { t: 'Cases Shipped', w: 74 }, { t: 'Wt (lb)', w: 56 }]
   const tableW = R - M
   cols[1].w = tableW - cols.reduce((s, c, i) => i === 1 ? s : s + c.w, 0)
   const xOf: number[] = []; { let cx = M; cols.forEach(c => { xOf.push(cx); cx += c.w }) }
@@ -287,9 +288,8 @@ export function buildPackingList(
   ordered.forEach((c, idx) => {
     if (y + 14 > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44) }
     if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, 14, 'F') }
-    const units = c.units ?? ((c.caseCount || 0) * (c.unitsInCase || 0))
     const wt = c.weight || 0
-    const cells = [c.sku, c.description || '', String(c.caseCount), units ? String(units) : '', wt ? String(Math.round(wt)) : '']
+    const cells = [c.sku, c.description || '', String(c.casesOrdered ?? c.caseCount), String(c.caseCount), wt ? String(Math.round(wt)) : '']
     doc.setFontSize(9)
     cols.forEach((col, i) => doc.text(String(cells[i]), xOf[i] + 4, y + 10, { maxWidth: col.w - 6 }))
     y += 14
@@ -297,7 +297,14 @@ export function buildPackingList(
   doc.setDrawColor(210); doc.setLineWidth(0.5); doc.line(M, y, R, y)
   y += 15
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 22, 34)
-  doc.text(`Totals:   ${totals.pallets} pallet${totals.pallets === 1 ? '' : 's'}    ${totals.cases} cases    ${Math.round(totals.weight)} lb`, M, y)
+  const ordTotal = cases.reduce((a, c) => a + (c.casesOrdered ?? c.caseCount), 0)
+  const totalsParts = [
+    totals.pallets > 0 ? `${totals.pallets} pallet${totals.pallets === 1 ? '' : 's'}` : '',
+    `${ordTotal} cases ordered`,
+    `${totals.cases} cases shipped`,
+    totals.weight > 0 ? `${Math.round(totals.weight)} lb` : '',
+  ].filter(Boolean)
+  doc.text(`Totals:   ${totalsParts.join('    ')}`, M, y)
   y += 8
 
   // Per-pallet breakdown

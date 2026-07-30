@@ -606,6 +606,9 @@ export default function ShippingQueuePage() {
   // and the public shipping-docs snapshot.
   function buildPackListCases(): PackListCase[] {
     const bySku = new Map<string, PackListCase>()
+    // ordered cases per SKU (from the full order line, before any partial reduction)
+    const orderedBySku: Record<string, number> = {}
+    plan.forEach(r => { const k = r.sku || r.description; orderedBySku[k] = (orderedBySku[k] || 0) + Math.max(1, Math.ceil((r.units || 0) / (r.unitsPerCase || 1))) })
     expanded.forEach(p => {
       const palletCases = p.lines.reduce((a, l) => a + l.cases, 0)
       p.lines.forEach(l => {
@@ -613,7 +616,7 @@ export default function ShippingQueuePage() {
         const allocWt = perCaseWt > 0
           ? l.cases * perCaseWt
           : (palletCases > 0 ? (p.weightLb || 0) * (l.cases / palletCases) : 0)
-        const cur: PackListCase = bySku.get(l.sku) || { sku: l.sku, description: l.description, caseCount: 0, unitsInCase: l.unitsPerCase, weight: 0 }
+        const cur: PackListCase = bySku.get(l.sku) || { sku: l.sku, description: l.description, caseCount: 0, casesOrdered: orderedBySku[l.sku] || 0, unitsInCase: l.unitsPerCase, weight: 0 }
         cur.caseCount += l.cases
         cur.weight = (cur.weight || 0) + allocWt
         bySku.set(l.sku, cur)
@@ -625,8 +628,9 @@ export default function ShippingQueuePage() {
       plan.forEach(r => {
         if (!r.sku && !r.description) return
         const key = r.sku || r.description
-        const cur: PackListCase = bySku.get(key) || { sku: r.sku || '', description: r.description, caseCount: 0, unitsInCase: r.unitsPerCase, weight: 0, units: 0 }
+        const cur: PackListCase = bySku.get(key) || { sku: r.sku || '', description: r.description, caseCount: 0, casesOrdered: 0, unitsInCase: r.unitsPerCase, weight: 0, units: 0 }
         cur.caseCount += r.cases
+        cur.casesOrdered = (cur.casesOrdered || 0) + Math.max(1, Math.ceil((r.units || 0) / (r.unitsPerCase || 1)))
         cur.units = (cur.units || 0) + (r.units || 0)
         cur.weight = (cur.weight || 0) + (r.caseWeightLb || 0) * r.cases
         bySku.set(key, cur)
