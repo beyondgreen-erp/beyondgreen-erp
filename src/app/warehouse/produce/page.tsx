@@ -1,6 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ZonePicker from '@/components/ZonePicker'
 
@@ -78,6 +79,7 @@ export default function ProductionScanPage() {
   async function sendEmail(subject: string, html: string) {
     try { await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: FINANCE, subject, html }) }) } catch { /* */ }
   }
+  async function signOut() { await sb.auth.signOut(); window.location.href = '/login' }
 
   function beginRun() {
     if (!fg) { flash('err', 'Pick a finished good'); return }
@@ -178,10 +180,16 @@ export default function ProductionScanPage() {
 
   return (
     <div className="text-white flex flex-col" style={{ background: '#0F1424', minHeight: '100dvh' }}>
-      <div className="sticky top-0 z-20 px-4 pt-4 pb-3" style={{ background: '#0F1424', borderBottom: '1px solid #1c2540', paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
-        <div className="max-w-md mx-auto flex items-center justify-between">
-          <h1 className="text-lg font-extrabold">Production Scan</h1>
-          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: '#d9770620', color: '#fbbf24', border: '1px solid #7c5b1f' }}>PRODUCTION</span>
+      <div className="sticky top-0 z-20 px-4 pt-4 pb-2" style={{ background: '#0F1424', borderBottom: '1px solid #1c2540', paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+        <div className="max-w-md mx-auto">
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-lg font-extrabold">Production</h1>
+            <button onClick={signOut} className="text-[11px] font-semibold px-2.5 py-1 rounded-lg" style={{ background: '#1A2035', color: '#8A9FC0', border: '1px solid #2A3350' }}>Sign out</button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <span className="text-center py-2 rounded-lg text-sm font-bold" style={{ background: '#D97706', color: '#fff' }}>Scan</span>
+            <Link href="/warehouse/scans" className="text-center py-2 rounded-lg text-sm font-bold" style={{ background: '#1A2035', color: '#8A9FC0', border: '1px solid #2A3350' }}>History</Link>
+          </div>
         </div>
       </div>
 

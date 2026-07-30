@@ -84,6 +84,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Role gate: users marked Production/Warehouse are locked to the scan tools only.
+  const inScanTools = pathname === '/warehouse/produce' || pathname.startsWith('/warehouse/produce/') ||
+    pathname === '/warehouse/scans' || pathname.startsWith('/warehouse/scans/')
+  if (!inScanTools) {
+    const { data: prof } = await supabase.from('user_profiles').select('role').ilike('email', user.email || '').maybeSingle()
+    const role = String((prof as { role?: string } | null)?.role || '').toLowerCase()
+    if (role === 'production' || role === 'warehouse') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/warehouse/produce'
+      url.search = ''
+      return NextResponse.redirect(url)
+    }
+  }
+
   return response
 }
 

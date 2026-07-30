@@ -27,7 +27,7 @@ interface Presence {
   activity_count: number
 }
 
-const ROLES = ['Admin', 'Manager', 'Member', 'Viewer']
+const ROLES = ['Admin', 'Manager', 'Member', 'Viewer', 'Production']
 const DEPARTMENTS = ['Management', 'Sustainability', 'Marketing', 'Sales', 'R&D', 'Finance', 'Warehouse', 'Other']
 
 const ROLE_COLORS: Record<string, string> = {
@@ -316,6 +316,7 @@ export default function UsersPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Role</label>
+                {editForm.role === 'Production' && <p className="text-[11px] mb-1.5 text-amber-500">Scan-only access: this user can only reach Production Scan + scan history. No other ERP access.</p>}
                 <select value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))} className={inp + ' cursor-pointer'}>
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>

@@ -91,6 +91,8 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
   if (pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/')) return <>{children}</>
   if (pathname === '/login') return <>{children}<AuthWatcher /></>
+  // Scan tools are full-screen standalone apps (also the only surface production-role users can reach)
+  if (pathname.startsWith('/warehouse/produce') || pathname.startsWith('/warehouse/scans')) return <>{children}<AuthWatcher /></>
 
   const pageTitle = getPageTitle(pathname)
 
