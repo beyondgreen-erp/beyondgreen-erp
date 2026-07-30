@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useEffect, useMemo, useState } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Parsed { title: string; notes: string; reminder_type: string; priority: string }
 interface Member { full_name: string; email: string }
@@ -10,6 +10,7 @@ const PRIORITIES = ['urgent','high','medium','low']
 const PRIORITY_TITLE: Record<string,string> = { urgent:'Urgent', high:'High', medium:'Medium', low:'Low' }
 
 export default function QuickReminderModal({ userEmail, onClose, onSaved }: { userEmail: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
   const [step, setStep] = useState<'paste'|'preview'|'saving'|'done'>('paste')
   const [emailThread, setEmailThread] = useState('')
   const [parsing, setParsing] = useState(false)
