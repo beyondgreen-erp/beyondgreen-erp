@@ -4,6 +4,17 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const sb = createSupabaseBrowserClient()
 
+// Where to send the user after login: the ?next= path they were headed to (must be a
+// same-origin relative path, to avoid open redirects), otherwise the dashboard.
+function safeNext(): string {
+  if (typeof window === 'undefined') return '/'
+  try {
+    const n = new URLSearchParams(window.location.search).get('next')
+    if (n && n.startsWith('/') && !n.startsWith('//')) return n
+  } catch { /* */ }
+  return '/'
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -21,7 +32,7 @@ export default function LoginPage() {
     const { error: e } = await sb.auth.signInWithPassword({ email: email.trim().toLowerCase(), password })
     setLoading(false)
     if (e) { setError('Incorrect email or password. Please try again.'); return }
-    window.location.href = '/'
+    window.location.href = safeNext()
   }
 
   async function handleReset() {
