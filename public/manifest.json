@@ -14,6 +14,7 @@
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
   ],
   "shortcuts": [
+    { "name": "Receiving / Scan", "url": "/warehouse/scan", "description": "Scan received inventory" },
     { "name": "Dashboard",    "url": "/",             "description": "Main dashboard" },
     { "name": "Sales Orders", "url": "/sales/orders", "description": "View sales orders" },
     { "name": "Ask BERG",     "url": "/?berg=open",   "description": "Open BERG assistant" }
