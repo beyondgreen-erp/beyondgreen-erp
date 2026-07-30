@@ -39,6 +39,10 @@ export default function ScanStationPage() {
   const pausedRef = useRef(false)
   const lastRef = useRef<{ code: string; t: number }>({ code: '', t: 0 })
   const scannerRef = useRef<any>(null)
+  const [allowedId, setAllowedId] = useState<string | null>(null)   // PO session locks to first item scanned
+  const [mismatch, setMismatch] = useState<{ code: string; productId: string; sku: string; name: string } | null>(null)
+  const pendingCreateRef = useRef<{ name: string; part_number: string; productId: string } | null>(null)
+  const photosRef = useRef<Record<string, string[]>>({})
 
   // end-of-session zone assignment
   const [zoneQueue, setZoneQueue] = useState<Row[]>([])
@@ -86,8 +90,21 @@ export default function ScanStationPage() {
   }
 
   // ---------- PO selection ----------
-  function beginScan(selected: PO | null, admin: boolean) {
+  function beginScan(selected: PO | null, admin: boolean, preAllowed: string | null = null) {
     setPo(selected); setAdminMode(admin); setRows([]); setMode('scan'); setCreating(false)
+    setAllowedId(preAllowed); setMismatch(null); photosRef.current = {}
+  }
+  function openCreatePrefilled() {
+    const pc = pendingCreateRef.current
+    setNewPo({ name: pc?.name || '', po_number: '', supplier: '', qty_ordered: '', part_number: pc?.part_number || '' })
+    setMode('setup'); setCreating(true)
+  }
+  function createFromMismatch() {
+    const m = mismatch; if (!m) return
+    pendingCreateRef.current = { name: m.name, part_number: m.sku, productId: m.productId }
+    setMismatch(null)
+    if (rows.length > 0) { scanComplete() }   // finish current item first; create opens after finalize
+    else { openCreatePrefilled() }
   }
   function onPickPo(id: string) {
     if (!id) return
@@ -116,7 +133,9 @@ export default function ScanStationPage() {
        <li><b>Created by:</b> ${email || 'unknown'}</li></ul>`
     )
     flash('ok', 'Entry created')
-    beginScan(data as PO, false)
+    const pre = pendingCreateRef.current?.productId || null
+    pendingCreateRef.current = null
+    beginScan(data as PO, false, pre)
   }
 
   // ---------- scanning ----------
@@ -138,13 +157,24 @@ export default function ScanStationPage() {
     lastRef.current = { code, t: now }
     busyRef.current = true
     try {
+      // resolve first (no inventory change) so we can enforce the PO lock before committing
+      const { data: pid, error: rerr } = await sb.rpc('find_product_by_code', { p_code: code })
+      if (rerr) { beep(false); flash('err', 'Lookup failed'); return }
+      if (!pid) { beep(false); setUnknown(code); setQ(''); setResults([]); flash('info', 'New barcode — link it to a product'); return }
+      if (!adminMode && allowedId && pid !== allowedId) {
+        beep(false)
+        const { data: p } = await sb.from('products').select('sku,product_name').eq('id', pid).single()
+        setMismatch({ code, productId: pid as string, sku: (p as any)?.sku || '', name: (p as any)?.product_name || (p as any)?.sku || 'this item' })
+        return
+      }
       const { data, error } = await sb.rpc('receive_scan', { p_code: code, p_qty: 1, p_lot: lot || null, p_user: email || null })
       if (error) { beep(false); flash('err', 'Scan failed: ' + error.message); return }
-      if ((data as any)?.ok) recordSuccess(data)
-      else if ((data as any)?.unknown) { beep(false); setUnknown(code); setQ(''); setResults([]); flash('info', 'New barcode — link it to a product') }
-      else { beep(false); flash('err', 'Could not record scan') }
+      if ((data as any)?.ok) {
+        recordSuccess(data)
+        if (!adminMode && !allowedId) setAllowedId((data as any).product_id)   // lock PO to first item
+      } else { beep(false); flash('err', 'Could not record scan') }
     } finally { busyRef.current = false }
-  }, [sb, lot, email, recordSuccess])
+  }, [sb, lot, email, recordSuccess, adminMode, allowedId])
 
   async function startCamera() {
     try {
@@ -174,9 +204,10 @@ export default function ScanStationPage() {
   }
   async function linkTo(p: any) {
     if (!unknown) return
+    if (!adminMode && allowedId && p.id !== allowedId) { flash('err', 'Not on this PO — finish it first'); return }
     const { data, error } = await sb.rpc('link_barcode_and_receive', { p_code: unknown, p_product_id: p.id, p_qty: 1, p_lot: lot || null, p_user: email || null })
     if (error) { flash('err', 'Link failed: ' + error.message); return }
-    if ((data as any)?.ok) { recordSuccess(data); flash('ok', `Linked & counted: ${p.product_name || p.sku}`) }
+    if ((data as any)?.ok) { recordSuccess(data); if (!adminMode && !allowedId) setAllowedId(p.id); flash('ok', `Linked & counted: ${p.product_name || p.sku}`) }
     setUnknown(null); setResults([]); setQ('')
   }
   async function undoRow(r: Row) {
@@ -221,16 +252,26 @@ export default function ScanStationPage() {
       const { data: pz } = await sb.from('product_zones').select('product_id, storage_zones(code)').in('product_id', ids)
       for (const r of (pz as any[]) || []) { const c = r.storage_zones?.code; if (!c) continue; (zoneMap[r.product_id] ||= []).push(c) }
     } catch { zoneMap = {} }
-    const lines = rows.map(r => `<tr><td style="padding:4px 10px">${r.name}</td><td style="padding:4px 10px">${r.sku}</td><td style="padding:4px 10px;text-align:center">${r.qty}</td><td style="padding:4px 10px">${(zoneMap[r.productId] || []).join(', ') || '—'}</td></tr>`).join('')
+    const photosByPid = photosRef.current
+    const lines = rows.map(r => `<tr><td style="padding:4px 10px">${r.name}</td><td style="padding:4px 10px">${r.sku}</td><td style="padding:4px 10px;text-align:center">${r.qty}</td><td style="padding:4px 10px">${(zoneMap[r.productId] || []).join(', ') || '—'}</td><td style="padding:4px 10px">${(photosByPid[r.productId] || []).length}</td></tr>`).join('')
+    const photoHtml = rows.flatMap(r => (photosByPid[r.productId] || []).map(u => `<a href="${u}"><img src="${u}" style="width:120px;height:120px;object-fit:cover;border-radius:8px;margin:4px" /></a>`)).join('')
     await sendEmail(
       `Receiving ${po ? `· PO ${po.po_number || po.name}` : '· Admin / no-PO'} — ${total} unit(s)`,
       `<p>Items received into inventory${po ? ` against <b>${po.name}</b> (PO ${po.po_number || '—'}, ${po.supplier || 'supplier n/a'})` : ' — <b>Admin / no-PO</b>'}.</p>
-       <table style="border-collapse:collapse;font-size:13px"><thead><tr style="background:#f1f5f9"><th style="padding:4px 10px;text-align:left">Item</th><th style="padding:4px 10px;text-align:left">SKU</th><th style="padding:4px 10px">Qty</th><th style="padding:4px 10px;text-align:left">Zone(s)</th></tr></thead><tbody>${lines}</tbody></table>
+       <table style="border-collapse:collapse;font-size:13px"><thead><tr style="background:#f1f5f9"><th style="padding:4px 10px;text-align:left">Item</th><th style="padding:4px 10px;text-align:left">SKU</th><th style="padding:4px 10px">Qty</th><th style="padding:4px 10px;text-align:left">Zone(s)</th><th style="padding:4px 10px">Photos</th></tr></thead><tbody>${lines}</tbody></table>
+       ${photoHtml ? `<p style="margin-top:10px"><b>Photos of items received:</b></p><div>${photoHtml}</div>` : '<p style="color:#b45309">No photos were captured.</p>'}
        <p style="color:#64748b;font-size:12px">Received by ${email || 'unknown'} on ${new Date().toLocaleString()}. Lot: ${lot || '—'}.</p>`
     )
+    // store receiving photos + summary on the PO entry for the record
+    if (po) {
+      const docs = rows.flatMap(r => (photosByPid[r.productId] || []).map(u => ({ sku: r.sku, name: r.name, url: u, at: new Date().toISOString() })))
+      try { await sb.from('purchasing_requests').update({ receiving_docs: docs }).eq('id', po.id) } catch { /* non-blocking */ }
+    }
     setFinishing(false)
     flash('ok', `Received ${total} unit(s)${po ? ' → PO updated' : ''}. Finance notified.`)
-    setRows([]); setPo(null); setAdminMode(false); setLot(''); setMode('setup')
+    setRows([]); setPo(null); setAdminMode(false); setLot(''); setAllowedId(null); setMode('setup')
+    photosRef.current = {}
+    if (pendingCreateRef.current) { setTimeout(() => openCreatePrefilled(), 50) }   // received one item, now create the mismatched one
   }
 
   const inputCls = 'w-full rounded-xl px-4 py-3.5 text-base outline-none'
@@ -264,7 +305,7 @@ export default function ScanStationPage() {
                 </select>
                 <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2" style={{ color: '#8A9FC0' }}>▾</span>
               </div>
-              <button onClick={() => { setCreating(true) }} className="w-full mt-1 py-3 text-sm font-bold rounded-xl" style={{ background: '#1A2035', color: '#93C5FD', border: '1px dashed #3B6FE0' }}>+ Not on the board — create an entry</button>
+              <p className="text-[11px] mb-1" style={{ color: '#5A6E8A' }}>Receiving locks to the first item you scan. If something arrives that isn&apos;t on the PO, you&apos;ll be offered to create a request for it.</p>
               <div className="mt-5 pt-5" style={{ borderTop: '1px solid #1c2540' }}>
                 <button onClick={() => beginScan(null, true)} className="w-full py-3.5 text-base font-bold rounded-xl" style={{ background: '#33261A', color: '#FBBF24', border: '1px solid #7c5b1f' }}>🏢 Admin / no-PO receive</button>
                 <p className="text-[11px] mt-1.5 text-center" style={{ color: '#5A6E8A' }}>Office / admin supplies — no purchase order required.</p>
@@ -332,6 +373,18 @@ export default function ScanStationPage() {
                 </div>
               )}
 
+              {mismatch && (
+                <div className="rounded-2xl p-3.5 mb-4" style={{ background: '#2a1a1a', border: '1px solid #DC2626' }}>
+                  <p className="text-sm font-bold mb-1" style={{ color: '#FCA5A5' }}>⚠ Not on this PO</p>
+                  <p className="text-[12px] mb-1" style={{ color: '#E5B4B4' }}><b>{mismatch.name}</b> <span className="font-mono">{mismatch.sku}</span> isn&apos;t the item this PO is receiving.</p>
+                  <p className="text-[11px] mb-2.5" style={{ color: '#c99' }}>{rows.length > 0 ? 'Tap below to store the current item first, then create a request for this one.' : 'You can create a purchasing request for it now.'}</p>
+                  <div className="flex gap-2">
+                    <button onClick={createFromMismatch} className="flex-1 py-2.5 text-sm font-bold rounded-xl" style={{ background: '#3B6FE0', color: '#fff' }}>+ Create a request for this item</button>
+                    <button onClick={() => setMismatch(null)} className="px-4 py-2.5 text-sm rounded-xl" style={{ background: '#0F1424', color: '#8A9FC0', border: '1px solid #2A3350' }}>Skip</button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#5A6E8A' }}>This session</p>
                 <p className="text-2xl font-extrabold" style={{ color: '#34d399' }}>{total}<span className="text-sm font-bold" style={{ color: '#5A6E8A' }}> scanned</span></p>
@@ -371,7 +424,10 @@ export default function ScanStationPage() {
           productId={zoneQueue[0].productId}
           productName={`${zoneQueue[0].name}  (×${zoneQueue[0].qty})`}
           currentUserEmail={email}
-          stepLabel={`Item ${zoneTotal - zoneQueue.length + 1} of ${zoneTotal} · tap storage zone(s)`}
+          stepLabel={`Item ${zoneTotal - zoneQueue.length + 1} of ${zoneTotal} · tap zone(s) + photo`}
+          capturePhoto
+          photoRequired
+          onPhoto={(url) => { const pid = zoneQueue[0].productId; photosRef.current[pid] = [...(photosRef.current[pid] || []), url] }}
           onCancel={cancelZones}
           onClose={() => {
             setZoneQueue(prev => {
