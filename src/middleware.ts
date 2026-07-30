@@ -73,7 +73,14 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    {
+      // Remember where they were headed so login can send them straight back
+      // (e.g. a saved /warehouse/scan link opens login, then lands on the scan page).
+      const loginUrl = new URL('/login', request.url)
+      const dest = pathname + (request.nextUrl.search || '')
+      if (dest && dest !== '/' && !dest.startsWith('/login')) loginUrl.searchParams.set('next', dest)
+      return NextResponse.redirect(loginUrl)
+    }
   }
 
   const domain = user.email?.split('@')[1]?.toLowerCase() ?? ''
