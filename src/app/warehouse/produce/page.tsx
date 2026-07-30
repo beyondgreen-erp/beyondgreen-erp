@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ZonePicker from '@/components/ZonePicker'
 
-interface FG { id: string; sku: string; product_name: string; case_qty: number | null }
+interface FG { id: string; sku: string; product_name: string; case_qty: number | null; requires_bom?: boolean }
 interface Comp { sku: string; name: string | null; consumed: number; uom: string; on_hand: number | null; short: boolean; missing: boolean }
 const FINANCE = 'finance@beyondgreenbiotech.com'
 
@@ -16,8 +16,10 @@ export default function ProductionScanPage() {
   const [mode, setMode] = useState<'setup' | 'scan'>('setup')
   const [unitMode, setUnitMode] = useState<'unit' | 'case'>('unit')
   const [fg, setFg] = useState<FG | null>(null)
-  const [fgList, setFgList] = useState<FG[]>([])
-  const [fgLoading, setFgLoading] = useState(true)
+  const [fgQuery, setFgQuery] = useState('')
+  const [fgResults, setFgResults] = useState<FG[]>([])
+  const [fgSearching, setFgSearching] = useState(false)
+  const searchTimer = useRef<any>(null)
   const [planLines, setPlanLines] = useState<any[]>([])
   const [planLineId, setPlanLineId] = useState<string>('')
 
@@ -53,15 +55,28 @@ export default function ProductionScanPage() {
   useEffect(() => { sb.auth.getUser().then(({ data }) => { if (data.user?.email) setEmail(data.user.email) }) }, [sb])
 
   useEffect(() => { (async () => {
-    setFgLoading(true)
-    const { data } = await sb.from('products').select('id,sku,product_name,case_qty').eq('is_active', true).eq('requires_bom', true).order('product_name')
-    setFgList((data as FG[]) || [])
-    setFgLoading(false)
     const { data: lines } = await sb.from('production_plan_lines')
       .select('id,plan_id,machine_code,product,operator,production_day_plans!inner(plan_date)')
       .eq('production_day_plans.plan_date', new Date().toISOString().slice(0, 10)).order('sort_order')
     setPlanLines((lines as any[]) || [])
   })() }, [sb])
+
+  // Live product search against the inventory board (ultron)
+  function searchFg(text: string) {
+    setFgQuery(text)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    const q = text.trim()
+    if (q.length < 1) { setFgResults([]); setFgSearching(false); return }
+    setFgSearching(true)
+    searchTimer.current = setTimeout(async () => {
+      const like = `%${q}%`
+      const { data } = await sb.from('products').select('id,sku,product_name,case_qty,requires_bom')
+        .eq('is_active', true)
+        .or(`product_name.ilike.${like},sku.ilike.${like},our_part_number.ilike.${like},supplier_part_number.ilike.${like},customer_part_number.ilike.${like},upc_gtin.ilike.${like}`)
+        .order('product_name').limit(25)
+      setFgResults((data as FG[]) || []); setFgSearching(false)
+    }, 250)
+  }
 
   const unitsPerScan = unitMode === 'case' ? (fg?.case_qty || 1) : 1
 
@@ -207,13 +222,26 @@ export default function ProductionScanPage() {
               </div>
 
               <label className="text-[11px] uppercase tracking-wide" style={{ color: '#5A6E8A' }}>Finished good</label>
-              <div className="relative mt-1 mb-3">
-                <select value={fg?.id || ''} onChange={e => setFg(fgList.find(x => x.id === e.target.value) || null)} className={inputCls + ' pr-10'} style={inputSty}>
-                  <option value="" disabled>{fgLoading ? 'Loading…' : `Select a finished good (${fgList.length})…`}</option>
-                  {fgList.map(p => (<option key={p.id} value={p.id}>{p.product_name} · {p.sku}{p.case_qty ? ` · case ${p.case_qty}` : ''}</option>))}
-                </select>
-                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2" style={{ color: '#8A9FC0' }}>▾</span>
-              </div>
+              {!fg ? (
+                <div className="mt-1 mb-3">
+                  <input value={fgQuery} onChange={e => searchFg(e.target.value)} placeholder="Search products by name, SKU, or part #…" className={inputCls} style={inputSty} autoComplete="off" />
+                  <div className="mt-1.5 space-y-1.5 max-h-[42vh] overflow-y-auto">
+                    {fgSearching && <p className="text-xs italic px-1" style={{ color: '#5A6E8A' }}>Searching inventory…</p>}
+                    {!fgSearching && fgQuery.trim().length >= 1 && fgResults.length === 0 && <p className="text-xs italic px-1" style={{ color: '#5A6E8A' }}>No products match.</p>}
+                    {fgResults.map(p => (
+                      <button key={p.id} onClick={() => { setFg(p); setFgResults([]); setFgQuery('') }} className="w-full text-left px-3.5 py-3 rounded-xl" style={{ background: '#1A2035', border: '1px solid #2A3350' }}>
+                        <p className="text-sm font-semibold truncate">{p.product_name}</p>
+                        <p className="text-[11px] font-mono" style={{ color: '#8A9FC0' }}>{p.sku}{p.case_qty ? ` · case ${p.case_qty}` : ''}{p.requires_bom === false ? ' · no BOM' : ''}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mt-1 mb-3" style={{ background: '#1A2035', border: '1px solid #0e7a46' }}>
+                  <div className="min-w-0"><p className="text-sm font-semibold truncate">{fg.product_name}</p><p className="text-[11px] font-mono" style={{ color: '#8A9FC0' }}>{fg.sku}{fg.case_qty ? ` · case ${fg.case_qty}` : ''}</p></div>
+                  <button onClick={() => setFg(null)} className="text-[11px] font-semibold shrink-0 ml-2" style={{ color: '#93C5FD' }}>change</button>
+                </div>
+              )}
 
               {planLines.length > 0 && (
                 <>
