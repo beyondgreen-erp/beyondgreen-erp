@@ -905,15 +905,15 @@ export default function ShippingQueuePage() {
                     <p className="text-sm font-semibold text-[#1A1D2E] truncate">{io?.order_number || '—'}</p>
                     <p className="text-xs text-gray-500 truncate">{io?.customers?.company_name || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
                   </div>
-                  {(() => { const c = statusColor(item.status); return (
+                  <span className="hidden sm:inline-flex">{(() => { const c = statusColor(item.status); return (
                     <span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{item.status}</span>
-                  ) })()}
+                  ) })()}</span>
                   <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{io?.required_ship_date || ''}</span>
-                  <span className="mon-btn !py-1.5 !px-3 whitespace-nowrap">{open ? 'Close' : '🚚 Pack & Ship'}</span>
+                  <span className="mon-btn !py-1.5 !px-3 whitespace-nowrap shrink-0">{open ? 'Close' : (<><span className="sm:hidden">🚚 Ship</span><span className="hidden sm:inline">🚚 Pack &amp; Ship</span></>)}</span>
                 </button>
 
                 {open && (
-                  <div className="mon-backdrop" >
+                  <div className="mon-backdrop" onClick={() => { saveDraft({ silent: true }); setOpenId(null); resetPackState() }}>
                    <div className="mon-modal" style={{ maxWidth: 1000 }} onClick={e => e.stopPropagation()}>
                     <div className="mon-modal-head">
                       <div className="min-w-0">
@@ -1173,9 +1173,9 @@ export default function ShippingQueuePage() {
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{wi?.name || '—'}</p>
                           <p className="text-xs text-gray-500 truncate">{wi?.ship_to || ''}{wi?.po_number ? ' · PO ' + wi?.po_number : ''}</p>
                         </div>
-                        {(() => { const c = statusColor(w.status); return (<span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{w.status}</span>) })()}
+                        <span className="hidden sm:inline-flex">{(() => { const c = statusColor(w.status); return (<span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{w.status}</span>) })()}</span>
                         <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{wi?.ship_due_date || ''}</span>
-                        <span className="mon-btn !py-1.5 !px-3 whitespace-nowrap">Open</span>
+                        <span className="mon-btn !py-1.5 !px-3 whitespace-nowrap shrink-0">Open</span>
                       </button>
                     </div>
                   ) })}
@@ -1189,7 +1189,7 @@ export default function ShippingQueuePage() {
 
       {/* ── Walmart order (mirrored) drawer ─────────────────────────── */}
       {openW && activeW && (
-        <div className="mon-backdrop" >
+        <div className="mon-backdrop" onClick={() => setOpenW(null)}>
           <div className="mon-modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
             <div className="mon-modal-head">
               <div className="min-w-0">
