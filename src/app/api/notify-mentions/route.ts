@@ -61,6 +61,36 @@ async function lookupRecordName(sb: any, recordType?: string, recordId?: string)
   return null
 }
 
+// Pull extra context fields (customer, PO#, status, ship date) for order-type records
+// so the notification tells you WHICH order without opening the ERP.
+async function lookupRecordContext(sb: any, recordType?: string, recordId?: string): Promise<[string, string][]> {
+  if (!recordType || !recordId) return []
+  const fields: [string, string][] = []
+  try {
+    const isSalesOrder = recordType === 'sales_order' || recordType === 'sales_orders'
+    const isWalmart = recordType === 'walmart_order' || recordType === 'walmart_board_order'
+    if (isSalesOrder || isWalmart) {
+      const table = isWalmart ? 'walmart_board_orders' : 'sales_orders'
+      const { data } = await sb
+        .from(table)
+        .select('po_number, status, required_ship_date, ship_date, customer:customers(company_name)')
+        .eq('id', recordId)
+        .maybeSingle()
+      if (data) {
+        const cust = data.customer?.company_name
+        if (cust) fields.push(['Customer', String(cust)])
+        if (data.po_number && String(data.po_number).trim()) fields.push(['PO #', String(data.po_number)])
+        if (data.status && String(data.status).trim()) fields.push(['Status', String(data.status)])
+        const ship = data.required_ship_date || data.ship_date
+        if (ship) fields.push(['Ship date', String(ship)])
+      }
+    }
+  } catch (e) {
+    console.error('[notify-mentions] context lookup failed', e)
+  }
+  return fields
+}
+
 export async function POST(req: Request) {
   try {
     const { mentions, body, authorName, authorEmail, recordId, recordType, recordUrl } = await req.json()
@@ -120,6 +150,18 @@ export async function POST(req: Request) {
       : (recordUrl || `${SITE_URL}/${recordType || ''}`)
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
     const recordName = await lookupRecordName(sb, recordType, recordId)
+    const contextFields = await lookupRecordContext(sb, recordType, recordId)
+    // Email: a compact "Customer / PO # / Status / Ship date" block under the record title.
+    const contextHtml = contextFields.length
+      ? `<table style="width:100%;border-collapse:collapse;margin:0 0 20px">${contextFields.map(([label, value]) =>
+          `<tr><td style="padding:4px 12px 4px 0;font-size:13px;color:#5A6E8A;white-space:nowrap;vertical-align:top">${esc(label)}</td><td style="padding:4px 0;font-size:13px;color:#0F1C2E;font-weight:600">${esc(value)}</td></tr>`
+        ).join('')}</table>`
+      : ''
+    // Bell/title: append the customer so the notification list is self-explanatory too.
+    const customerName = (contextFields.find(([l]) => l === 'Customer') || [])[1]
+    const notifTitle = recordName
+      ? `${pageLabel}: ${recordName}${customerName ? ` — ${customerName}` : ''}`
+      : pageLabel
 
     let notified = 0
     let emailed = 0
@@ -130,8 +172,8 @@ export async function POST(req: Request) {
         await sb.from('notifications').insert({
           recipient_email: recipEmail,
           sender_email: authorEmail,
-          title: recordName ? `${pageLabel}: ${recordName}` : pageLabel,
-          message: snippet,
+          title: notifTitle,
+          message: customerName ? `${customerName} · ${snippet}` : snippet,
           page: pageLabel,
           record_type: recordType || null,
           record_id: recordId || null,
@@ -158,7 +200,8 @@ export async function POST(req: Request) {
     <p style="font-size:13px;color:#5A6E8A;margin:0 0 ${recordName ? '2px' : '20px'}">
       in <strong style="color:#0F1C2E">${pageLabel}</strong> board
     </p>
-    ${recordName ? `<p style="font-size:15px;font-weight:700;color:#0F1C2E;margin:0 0 20px">\u{1F4CB} ${esc(recordName)}</p>` : ''}
+    ${recordName ? `<p style="font-size:15px;font-weight:700;color:#0F1C2E;margin:0 0 ${contextHtml ? '12px' : '20px'}">\u{1F4CB} ${esc(recordName)}</p>` : ''}
+    ${contextHtml}
     ${snippet ? `<div style="background:#F7F8FA;border-left:3px solid #3B6FE0;padding:12px 16px;border-radius:0 8px 8px 0;font-size:13px;color:#0F1C2E;margin-bottom:24px;line-height:1.6">${snippet}</div>` : ''}
     <a href="${contextUrl}" style="display:inline-block;background:#3B6FE0;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700">
       View in ERP
