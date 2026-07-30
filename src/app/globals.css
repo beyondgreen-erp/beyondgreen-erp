@@ -151,9 +151,13 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 
 .mon-backdrop {
   position:fixed; inset:0; z-index:60;
+  height:100dvh;
   background:rgba(26,32,53,0.48); backdrop-filter:blur(3px);
   display:flex; align-items:flex-start; justify-content:center;
-  overflow-y:auto; padding:40px 16px;
+  overflow-y:auto; -webkit-overflow-scrolling:touch;
+  /* Clear the mobile browser URL bar / notch so the modal header + close button
+     are always reachable. dvh + safe-area insets keep the top on-screen. */
+  padding:calc(16px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
 }
 .mon-modal {
   background:#fff; border-radius:16px; width:100%;
@@ -191,7 +195,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
   font-size:20px; line-height:1; cursor:pointer; transition:background .15s; flex-shrink:0;
 }
 .mon-modal-close:hover { background:rgba(255,255,255,0.28); }
-.mon-modal-body { padding:22px 24px; max-height:calc(100vh - 240px); overflow-y:auto; }
+.mon-modal-body { padding:22px 24px; max-height:calc(100dvh - 200px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
 
 /* Status pills — colorful Monday chips */
 .mon-pill {
