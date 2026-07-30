@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, memo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import BomEditor from './BomEditor'
 import CaseLabel from './CaseLabel'
+import ZonePicker from '@/components/ZonePicker'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import Comments from '@/components/Comments'
@@ -360,6 +361,8 @@ export default function InventoryPage() {
   const [loadError, setLoadError] = useState('')
   const [bomProduct, setBomProduct] = useState<Product | null>(null)
   const [labelProduct, setLabelProduct] = useState<Product | null>(null)
+  const [zoneProduct, setZoneProduct] = useState<Product | null>(null)
+  const [zonedSet, setZonedSet] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const ms = useMultiSelect<Product>()
@@ -367,9 +370,10 @@ export default function InventoryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: p, error: pErr }, { data: b }] = await Promise.all([
+    const [{ data: p, error: pErr }, { data: b }, { data: pz }] = await Promise.all([
       sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('product_bom').select('sku'),
+      sb.from('product_zones').select('product_id'),
     ])
     if (pErr) { setLoadError(`Failed to load: ${pErr.message}`) }
     else if (p) { setRows(p as Product[]) }
@@ -378,7 +382,13 @@ export default function InventoryPage() {
       for (const r of b as any[]) counts[r.sku] = (counts[r.sku] ?? 0) + 1
       setBomMap(counts)
     }
+    setZonedSet(new Set(((pz as any[]) || []).map(r => r.product_id)))
     setLoading(false)
+  }, [sb])
+
+  const loadZoned = useCallback(async () => {
+    const { data } = await sb.from('product_zones').select('product_id')
+    setZonedSet(new Set(((data as any[]) || []).map(r => r.product_id)))
   }, [sb])
 
   useEffect(() => {
@@ -623,7 +633,7 @@ export default function InventoryPage() {
                                 style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }}
                                 className={`transition-colors ${ms.isSelected(p.id) ? 'bg-blue-50' : i % 2 ? 'bg-[#FBFCFE]' : 'bg-white'} hover:bg-[#F2F6FF] ${isDisc ? 'opacity-60' : ''}`}>
                                 <td className="px-3 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
-                                <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="font-mono font-semibold text-[13px] text-[#0F7A4E] truncate block max-w-[130px]">{p.sku}</span></td>
+                                <td className="px-3 py-3"><div className="flex items-center gap-2"><button title={zonedSet.has(p.id)?'Storage zone set — click to edit':'No storage zone — click to set'} onClick={e=>{e.stopPropagation(); setZoneProduct(p)}} className={`shrink-0 rounded-full ${zonedSet.has(p.id)?'':'animate-pulse'}`} style={{width:11,height:11,border:'none',cursor:'pointer',background:zonedSet.has(p.id)?'#10b981':'#3B82F6',boxShadow:zonedSet.has(p.id)?'none':'0 0 0 3px rgba(59,130,246,0.35)'}}/><span className="font-mono font-semibold text-[13px] text-[#0F7A4E] truncate block max-w-[130px] cursor-pointer" onClick={()=>openEdit(p)}>{p.sku}</span></div></td>
                                 <td className={`px-3 py-3 cursor-pointer text-[#1A1D2E] font-medium ${isDisc ? 'line-through text-gray-400' : ''}`} onClick={()=>openEdit(p)}><span className="block truncate max-w-[320px]">{p.product_name}</span></td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{p.category ? <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[#EEF2FB] text-[#3A4A6B] border border-[#DCE3F2] truncate inline-block max-w-[118px] align-middle">{p.category}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 text-gray-500 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{p.unit_of_measure ?? '-'}</td>
@@ -636,6 +646,7 @@ export default function InventoryPage() {
                                   <div className="flex items-center gap-1">
                                     <button onClick={() => openEdit(p)} className="text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
                                     <button onClick={() => setBomProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>
+                                    <button onClick={() => setZoneProduct(p)} className={`text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                                     {isFG && <button onClick={() => setLabelProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
                                     <button onClick={() => handleDelete(p.id, p.sku)} className="text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
                                   </div>
@@ -671,6 +682,9 @@ export default function InventoryPage() {
       )}
       {labelProduct && (
         <CaseLabel product={labelProduct} onClose={() => setLabelProduct(null)}/>
+      )}
+      {zoneProduct && (
+        <ZonePicker productId={zoneProduct.id} productName={zoneProduct.product_name} currentUserEmail={userEmail} onClose={() => { setZoneProduct(null); loadZoned() }} />
       )}
     </div>
   )

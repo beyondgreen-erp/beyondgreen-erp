@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import ZonePicker from '@/components/ZonePicker'
 
 interface Row { key: string; sku: string; name: string; qty: number; onHand: number | null; movements: string[] }
 
@@ -17,6 +18,8 @@ export default function ScanStationPage() {
   const [results, setResults] = useState<any[]>([])
   const [q, setQ] = useState('')
   const busyRef = useRef(false)
+  const pausedRef = useRef(false)
+  const [zoneProduct, setZoneProduct] = useState<{ id: string; name: string } | null>(null)
   const lastRef = useRef<{ code: string; t: number }>({ code: '', t: 0 })
   const scannerRef = useRef<any>(null)
 
@@ -42,11 +45,13 @@ export default function ScanStationPage() {
       return [{ key: d.sku, sku: d.sku, name: d.product_name || d.sku, qty: 1, onHand: d.on_hand ?? null, movements: [d.movement_id] }, ...prev]
     })
     flash('ok', `✓ ${d.product_name || d.sku} +1`)
+    pausedRef.current = true
+    setZoneProduct({ id: d.product_id, name: d.product_name || d.sku })
   }, [])
 
   const handleCode = useCallback(async (raw: string) => {
     const code = (raw || '').trim()
-    if (!code || busyRef.current) return
+    if (!code || busyRef.current || pausedRef.current) return
     const now = Date.now()
     if (lastRef.current.code === code && now - lastRef.current.t < 1200) return // camera dup cooldown
     lastRef.current = { code, t: now }
@@ -169,6 +174,11 @@ export default function ScanStationPage() {
           ))}
         </div>
       </div>
+
+      {zoneProduct && (
+        <ZonePicker productId={zoneProduct.id} productName={zoneProduct.name} currentUserEmail={email}
+          onClose={() => { setZoneProduct(null); pausedRef.current = false }} />
+      )}
 
       {toast && (
         <div className="fixed left-1/2 -translate-x-1/2 bottom-6 px-4 py-2.5 rounded-xl text-sm font-bold shadow-xl"
