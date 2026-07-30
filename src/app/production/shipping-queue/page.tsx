@@ -6,7 +6,6 @@ import { statusColor } from '@/lib/statusColors'
 import { buildCaseLabels, buildPalletLabels, missingUpcSkus, loadBarcodePng, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
 import { generatePickTickets, type PickTicketPallet } from '@/lib/labelGenerator'
 import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase } from '@/lib/shipping/bol'
-import QRCode from 'qrcode'
 
 const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
@@ -78,6 +77,8 @@ export default function ShippingQueuePage() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [shipMode, setShipMode] = useState<'full' | 'partial'>('full')
+  const [priorShipments, setPriorShipments] = useState(0)
   const [draftMsg, setDraftMsg] = useState('')
   const [plan, setPlan] = useState<PlanRow[]>([])
   const [configs, setConfigs] = useState<PalletConfig[]>([])
@@ -162,12 +163,14 @@ export default function ShippingQueuePage() {
     setPreviewUrl('')
     setShipPrep({}); setCloseout(false); setCoShipId(''); setCoSlipUrl(''); setCoBolUrl(''); setCoPhotos([]); setCoSummary(''); setCoBusy('')
     setShipCarrier(''); setShipTracking(''); setShipCost(''); setShipBrokerCost('')
+    setShipMode('full'); setPriorShipments(0)
   }
 
   async function openOrder(item: QueueItem) {
     if (openId === item.id) { setOpenId(null); resetPackState(); return }
     setOpenId(item.id); resetPackState(); setBusy('load')
     setShipPrep(item.sales_orders?.ship_prep || {})
+    void sb.from('shipments').select('id', { count: 'exact', head: true }).eq('sales_order_id', item.sales_order_id).then(({ count }) => setPriorShipments(count || 0))
     const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', item.sales_order_id).order('line_number', { ascending: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ls = (lines as any[]) || []
@@ -229,6 +232,7 @@ export default function ShippingQueuePage() {
       if (draft && (Array.isArray(draft.configs) || Array.isArray(draft.lines))) {
         if (Array.isArray(draft.configs)) setConfigs(draft.configs as PalletConfig[])
         if (typeof draft.parcel === 'boolean') setParcel(draft.parcel)
+        if (draft.shipMode === 'partial' || draft.shipMode === 'full') setShipMode(draft.shipMode)
         if (draft.bol) setBolForm(draft.bol)
         setPlan(rowsOut)
         if (Array.isArray(draft.configs) && draft.configs.length) { setDraftMsg('Draft restored'); setTimeout(() => setDraftMsg(''), 3000) }
@@ -247,6 +251,7 @@ export default function ShippingQueuePage() {
     const draft = {
       savedAt: new Date().toISOString(),
       parcel,
+      shipMode,
       configs,
       lines: plan.map(r => ({ sku: r.sku, cases: r.cases, unitsPerCase: r.unitsPerCase })),
       bol: bolForm,
@@ -272,6 +277,11 @@ export default function ShippingQueuePage() {
   function setCases(i: number, v: number) {
     const cs = Math.max(1, v || 1)
     setPlan(p => p.map((r, idx) => idx === i ? { ...r, cases: cs } : r)); invalidateBol()
+  }
+  const fullCasesFor = (r: PlanRow) => Math.max(1, Math.ceil(Math.max(0, (r.units || 0) - (r.done || 0)) / (r.unitsPerCase || 1)))
+  function chooseShipMode(mode: 'full' | 'partial') {
+    setShipMode(mode)
+    if (mode === 'full') { setPlan(p => p.map(r => ({ ...r, cases: fullCasesFor(r) }))); invalidateBol() }
   }
   function setUnitsPerCase(i: number, v: number) {
     setPlan(p => p.map((r, idx) => {
@@ -532,13 +542,9 @@ export default function ShippingQueuePage() {
   async function genPalletLabels() {
     // Save the shipping-docs snapshot and build a QR the pallet labels can carry,
     // so scanning a pallet in the field opens the packing slip + BOL (not the ERP).
-    const token = await ensureShipDocs()
-    let docsQr: string | null = null
-    if (token) {
-      try { docsQr = await QRCode.toDataURL(`${window.location.origin}/ship-docs/${token}`, { margin: 1, width: 240 }) } catch { docsQr = null }
-    }
+    await ensureShipDocs()   // keep the shipping-docs snapshot for /ship-docs; no QR is printed on the label
     const labels: PalletLabel[] = expanded.map(p => ({ palletNumber: p.number, totalPallets: expanded.length, caseCount: p.lines.reduce((a, l) => a + l.cases, 0), weight: p.weightLb, skus: p.lines.map(l => l.sku), dims: dimsStr(p.lengthIn, p.widthIn, p.heightIn) || undefined }))
-    buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels, docsQr).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
+    buildPalletLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, labels, null).save(`pallet-labels-${o?.order_number || 'order'}.pdf`)
     markDoc('palletLabels')
   }
 
@@ -630,7 +636,7 @@ export default function ShippingQueuePage() {
   }
 
   function packMeta() {
-    return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, date: new Date().toLocaleDateString() }
+    return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, date: new Date().toLocaleDateString(), partialCaption: shipMode === 'partial' ? `PARTIAL SHIPMENT #${priorShipments + 1} of ____` : '' }
   }
   function packListPallets() {
     return expanded.map(p => ({
@@ -939,6 +945,17 @@ export default function ShippingQueuePage() {
 
                     {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? <p className="text-xs text-gray-400">No line items found on this order.</p> : (
                       <>
+                        {/* Ship Full / Ship Partial */}
+                        <div className="rounded-xl border border-gray-200 bg-white p-3 mb-3 shadow-sm flex flex-wrap items-center gap-3">
+                          <span className="text-sm font-semibold text-[#1A1D2E]">Shipment type</span>
+                          <div className="inline-flex rounded-lg overflow-hidden border border-gray-300">
+                            <button onClick={() => chooseShipMode('full')} className={`px-3 py-1.5 text-sm font-semibold ${shipMode === 'full' ? 'bg-[#00863F] text-white' : 'bg-white text-gray-600'}`}>Ship Full</button>
+                            <button onClick={() => chooseShipMode('partial')} className={`px-3 py-1.5 text-sm font-semibold border-l border-gray-300 ${shipMode === 'partial' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600'}`}>Ship Partial</button>
+                          </div>
+                          {shipMode === 'partial'
+                            ? <span className="text-xs text-amber-600">Partial shipment #{priorShipments + 1} — lower each SKU&apos;s case target below; the packing list is marked partial.</span>
+                            : <span className="text-xs text-gray-400">Every SKU is set to its full remaining quantity.</span>}
+                        </div>
                         {/* STEP 1 — Build the pallets (freight configurations) */}
                         <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-2">
