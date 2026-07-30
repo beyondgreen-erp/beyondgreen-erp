@@ -139,7 +139,7 @@ async function sendClientEmail(to: string, subject: string, inner: string): Prom
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [to], cc: [NOTIFY], reply_to: [NOTIFY], subject, html: shell(inner) }),
+      body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [to], cc: [NOTIFY], reply_to: [NOTIFY], bcc: ['info@byndgrn.com'], subject, html: shell(inner) }),
     })
     return res.ok
   } catch { return false }
@@ -418,7 +418,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
         + `<div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap;line-height:1.5">${esc(text)}</div>`
         + `<div style="margin:16px 0"><a href="${SITE}/bizdev/client-portals" style="display:inline-block;background:#037f4c;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:14px;font-weight:600">Open in the ERP</a></div>`
         + `<p style="margin:12px 0 0;font-size:12px;color:#9ca3af">Sent from the beyondGREEN client portal.</p></div>`
-      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, subject: `Client message — ${company || client.name || client.email}`, html }) }).catch(() => {})
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, bcc: ['info@byndgrn.com'], subject: `Client message — ${company || client.name || client.email}`, html }) }).catch(() => {})
     }
     return NextResponse.json({ ok: true })
   }
@@ -458,7 +458,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     await admin.from('notifications').insert({ recipient_email: NOTIFY, sender_email: client.email || 'client-portal', message: `${company || client.name || 'Client'} commented on ${own.label}: ${content.slice(0, 200)}`, page: 'Client Portal', is_read: false, context_url: `${SITE}/bizdev/client-portals` }).then(() => {}, () => {})
     if (RESEND_API_KEY) {
       const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">New client comment</p><p style="margin:0 0 10px;font-size:14px">${esc(company || client.name || 'A client')} commented on <strong>${esc(own.label || 'a record')}</strong>:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/bizdev/client-portals" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open in the ERP</a></div>`)
-      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, subject: `Client comment — ${own.label || company || client.email}`, html }) }).catch(() => {})
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, bcc: ['info@byndgrn.com'], subject: `Client comment — ${own.label || company || client.email}`, html }) }).catch(() => {})
     }
     return NextResponse.json({ ok: true, id: (ins as any)?.id, date: (ins as any)?.created_at })
   }
@@ -492,7 +492,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     await admin.from('notifications').insert({ recipient_email: NOTIFY, sender_email: client.email || 'client-portal', message: `${company || client.name || 'Client'} edited RFQ line items — please review.`, page: 'Client Portal', is_read: false, context_url: `${SITE}/sales/quotations` }).then(() => {}, () => {})
     if (RESEND_API_KEY) {
       const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">Client updated an RFQ</p><p style="margin:0 0 10px;font-size:14px">${esc(company || client.name || 'A client')} made changes to the items on an open RFQ. Review the updated line items in the ERP.</p><div style="margin:16px 0"><a href="${SITE}/sales/quotations" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open RFQs</a></div>`)
-      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, subject: `RFQ edited by ${company || client.name || 'client'}`, html }) }).catch(() => {})
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: [NOTIFY], reply_to: client.email || undefined, bcc: ['info@byndgrn.com'], subject: `RFQ edited by ${company || client.name || 'client'}`, html }) }).catch(() => {})
     }
     return NextResponse.json({ ok: true })
   }
@@ -517,7 +517,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     if (RESEND_API_KEY) {
       const isGroup = kind === 'group'
       const html = shell(`<p style="margin:0 0 6px;font-size:16px;font-weight:700">New message from ${esc(company || 'a client')}</p><p style="margin:0 0 10px;font-size:14px">You received a new ${isGroup ? 'team ' : ''}message from <strong>${esc(company || client.name || 'a client')}</strong> in the client portal:</p><div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;white-space:pre-wrap">${esc(content)}</div><div style="margin:16px 0"><a href="${SITE}/messages" style="display:inline-block;background:#037f4c;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600">Open your messages</a></div>`)
-      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: targets, cc: [NOTIFY], reply_to: client.email || undefined, subject: isGroup ? `New team message from ${company || client.name || 'client'}` : `New message from ${company || client.name || 'client'}`, html }) }).catch(() => {})
+      await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `beyondGREEN <${FROM_EMAIL}>`, to: targets, cc: [NOTIFY], reply_to: client.email || undefined, bcc: ['info@byndgrn.com'], subject: isGroup ? `New team message from ${company || client.name || 'client'}` : `New message from ${company || client.name || 'client'}`, html }) }).catch(() => {})
     }
     return NextResponse.json({ ok: true })
   }
