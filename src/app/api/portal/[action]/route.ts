@@ -431,7 +431,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     const rt = String(body.record_type || ''); const rid = String(body.record_id || '')
     const own = await ownsRecord(client, rt, rid)
     if (!own.ok) return NextResponse.json({ error: 'not found' }, { status: 404 })
-    const { data } = await admin.from('comments').select('id, author_email, content, created_at').eq('record_type', rt).eq('record_id', rid).order('created_at', { ascending: true })
+    const { data } = await admin.from('comments').select('id, author_email, content, created_at').eq('record_type', rt).eq('record_id', rid).eq('client_visible', true).order('created_at', { ascending: true })
     const clientEmail = (client.email || '').toLowerCase()
     const items = ((data || []) as any[]).map(c => {
       const email = String(c.author_email || '').toLowerCase()
@@ -452,7 +452,7 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     if (content.length > 5000) return NextResponse.json({ error: 'Comment is too long.' }, { status: 400 })
     const own = await ownsRecord(client, rt, rid)
     if (!own.ok) return NextResponse.json({ error: 'not found' }, { status: 404 })
-    const { data: ins, error } = await admin.from('comments').insert({ record_type: rt, record_id: rid, author_email: client.email, content }).select('id, created_at').single()
+    const { data: ins, error } = await admin.from('comments').insert({ record_type: rt, record_id: rid, author_email: client.email, content, client_visible: true }).select('id, created_at').single()
     if (error) return NextResponse.json({ error: 'Could not post comment.' }, { status: 500 })
     const company = await companyName(client)
     await admin.from('notifications').insert({ recipient_email: NOTIFY, sender_email: client.email || 'client-portal', message: `${company || client.name || 'Client'} commented on ${own.label}: ${content.slice(0, 200)}`, page: 'Client Portal', is_read: false, context_url: `${SITE}/bizdev/client-portals` }).then(() => {}, () => {})
@@ -554,6 +554,10 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
   if (action === 'notify-comment') {
     const staff = await staffEmail(req)
     if (!staff) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    // Internal ERP comments are private to staff and must never be emailed to the client
+    // portal. Client-facing communication goes through the portal message / DM channels.
+    return NextResponse.json({ ok: true, disabled: true })
+    // eslint-disable-next-line no-unreachable
     const body = await req.json().catch(() => ({})) as any
     const rt = String(body.record_type || ''); const rid = String(body.record_id || '')
     const content = String(body.content || '').trim()
