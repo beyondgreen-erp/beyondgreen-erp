@@ -12,7 +12,7 @@ const OUTLINES: { x: number; y: number; w: number; h: number; dash?: boolean }[]
   { x: 452, y: 878, w: 296, h: 592, dash: true },
 ]
 const HEADINGS: [string, number, number][] = [
-  ['UPSTAIRS', 164, 64], ['STAGING (override)', 389, 70], ['FIRST FLOOR · 1202 E Wakeham Ave', 430, 464],
+  ['UPSTAIRS', 164, 64], ['STAGING (override)', 389, 70], ['ADMIN OFFICE', 625, 108], ['FIRST FLOOR · 1202 E Wakeham Ave', 430, 464],
   ['PARKING LOT', 360, 868], ['TENT 1', 600, 886], ['CONTAINERS', 600, 1020], ['TENT 2', 316, 1114],
 ]
 
