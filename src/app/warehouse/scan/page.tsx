@@ -33,6 +33,7 @@ export default function ScanStationPage() {
   const [camOn, setCamOn] = useState(false)
   const [manual, setManual] = useState('')
   const [unknown, setUnknown] = useState<string | null>(null)
+  const [manualPick, setManualPick] = useState(false)   // "add without scanning" product search
   const [results, setResults] = useState<any[]>([])
   const [q, setQ] = useState('')
   const busyRef = useRef(false)
@@ -210,6 +211,16 @@ export default function ScanStationPage() {
     if ((data as any)?.ok) { recordSuccess(data); if (!adminMode && !allowedId) setAllowedId(p.id); flash('ok', `Linked & counted: ${p.product_name || p.sku}`) }
     setUnknown(null); setResults([]); setQ('')
   }
+  // Receive an item by choosing it from the catalog — no barcode/scan required.
+  async function addProduct(p: any) {
+    if (!adminMode && allowedId && p.id !== allowedId) { flash('err', 'Not on this PO — finish it first'); return }
+    const code = p.sku || p.id
+    const { data, error } = await sb.rpc('receive_scan', { p_code: code, p_qty: 1, p_lot: lot || null, p_user: email || null })
+    if (error) { flash('err', 'Add failed: ' + error.message); return }
+    if ((data as any)?.ok) { recordSuccess(data); if (!adminMode && !allowedId) setAllowedId(p.id); flash('ok', `Added: ${p.product_name || p.sku}`) }
+    else { flash('err', 'Could not add item') }
+    setManualPick(false); setResults([]); setQ('')
+  }
   async function undoRow(r: Row) {
     const mid = r.movements[r.movements.length - 1]; if (!mid) return
     const { error } = await sb.rpc('undo_movement', { p_movement_id: mid })
@@ -351,6 +362,28 @@ export default function ScanStationPage() {
                 <input value={manual} onChange={e => setManual(e.target.value)} inputMode="text" placeholder="…or scan with a handheld / type a code"
                   className={inputCls} style={inputSty} autoComplete="off" />
               </form>
+
+              {/* Add an item without a barcode / scanner — pick it from the catalog */}
+              <button type="button" onClick={() => { setManualPick(v => !v); setUnknown(null); setResults([]); setQ('') }}
+                className="w-full mb-3 py-3 text-sm font-bold rounded-xl"
+                style={{ background: manualPick ? '#0e2a3a' : '#1A2035', color: '#7DD3FC', border: '1px solid #2A3350' }}>
+                ➕ Add an item without scanning
+              </button>
+              {manualPick && (
+                <div className="rounded-2xl p-3.5 mb-4" style={{ background: '#1A2035', border: '1px solid #3B6FE0' }}>
+                  <p className="text-sm font-bold mb-2" style={{ color: '#93C5FD' }}>Pick a product to receive — no barcode needed</p>
+                  <input autoFocus value={q} onChange={e => searchProducts(e.target.value)} placeholder="Search product by name or SKU…" className="w-full rounded-xl px-4 py-3 text-base outline-none mb-2" style={{ background: '#0F1424', color: '#fff', border: '1px solid #2A3350', fontSize: 16 }} />
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                    {results.map(p => (
+                      <button key={p.id} onClick={() => addProduct(p)} className="w-full text-left px-3.5 py-3 rounded-xl text-sm" style={{ background: '#0F1424', color: '#fff', border: '1px solid #2A3350' }}>
+                        <span className="font-semibold">{p.product_name || p.sku}</span> <span className="font-mono text-xs" style={{ color: '#8A9FC0' }}>{p.sku}</span>
+                      </button>
+                    ))}
+                    {q.trim().length >= 2 && results.length === 0 && <p className="text-xs italic px-1" style={{ color: '#5A6E8A' }}>No matching products.</p>}
+                  </div>
+                  <button onClick={() => { setManualPick(false); setResults([]); setQ('') }} className="mt-2 text-xs" style={{ color: '#8A9FC0' }}>Cancel</button>
+                </div>
+              )}
 
               <div className="mb-4">
                 <label className="text-[11px] uppercase tracking-wide" style={{ color: '#5A6E8A' }}>Lot # (optional)</label>
