@@ -213,11 +213,16 @@ export function buildMasterBOL(d: BolData, lines: BolLine[], logo: string | null
 
 export interface PackListCase {
   sku: string; description?: string
-  caseCount: number            // cases of this SKU being shipped (this shipment)
-  casesOrdered?: number        // cases of this SKU on the order
-  unitsInCase?: number         // units per case (reference)
+  caseCount: number            // total cases of this SKU being shipped (this shipment)
+  casesOrdered?: number        // cases of this SKU on the order (legacy/reference)
+  unitsInCase?: number         // units (UOM) per case
   units?: number               // total units of this SKU
   weight?: number              // total line weight (lb)
+  uom?: string                 // unit of measure the qtys are counted in (e.g. Pack, Each, Case)
+  orderedUnits?: number        // quantity ordered, in the UOM
+  shippedUnits?: number        // quantity shipped, in the UOM (= caseCount × unitsInCase)
+  boxDims?: string             // box/case dimensions e.g. 12 × 10 × 8 in
+  boxWeight?: number           // weight of one box/case (lb)
 }
 export interface PackListPallet {
   number: number; dims?: string; weight?: number
@@ -270,46 +275,56 @@ export function buildPackingList(
   const y2 = addrBlock(M + colW + 20, 'Ship To', order.shipToName, order.shipToAddress)
   y = Math.max(y1, y2) + 14
 
-  // Per-SKU summary table
-  const cols = [{ t: 'SKU', w: 92 }, { t: 'Description', w: 0 }, { t: 'Cases Ordered', w: 74 }, { t: 'Cases Shipped', w: 74 }, { t: 'Wt (lb)', w: 56 }]
+  // Per-SKU summary table.
+  // Ordered / Shipped are counted in each line's own UOM (e.g. Packs); "Total Cases"
+  // is the derived number of shipping boxes (shipped ÷ units-per-case).
+  const cols = [
+    { t: 'SKU', w: 68, a: 'l' as const },
+    { t: 'Description', w: 0, a: 'l' as const },
+    { t: 'UOM', w: 44, a: 'l' as const },
+    { t: 'Ordered', w: 48, a: 'r' as const },
+    { t: 'Shipped', w: 48, a: 'r' as const },
+    { t: 'Total Cases', w: 56, a: 'r' as const },
+    { t: 'Box Size', w: 82, a: 'l' as const },
+    { t: 'Box Wt', w: 44, a: 'r' as const },
+  ]
   const tableW = R - M
   cols[1].w = tableW - cols.reduce((s, c, i) => i === 1 ? s : s + c.w, 0)
   const xOf: number[] = []; { let cx = M; cols.forEach(c => { xOf.push(cx); cx += c.w }) }
+  const cellX = (i: number) => cols[i].a === 'r' ? xOf[i] + cols[i].w - 4 : xOf[i] + 4
   const header = () => {
     doc.setFillColor(238, 242, 246); doc.rect(M, y, tableW, 17, 'F')
     doc.setDrawColor(210); doc.setLineWidth(0.5); doc.rect(M, y, tableW, 17)
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(60, 64, 78)
-    cols.forEach((c, i) => doc.text(c.t, xOf[i] + 4, y + 11.5))
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(60, 64, 78)
+    cols.forEach((c, i) => doc.text(c.t, cellX(i), y + 11.5, c.a === 'r' ? { align: 'right' } : undefined))
     y += 17
   }
   need(40); header()
   doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44)
   const ordered = [...cases].sort((a, b) => a.sku.localeCompare(b.sku))
-  const LH = 11 // line height for wrapped description text
   ordered.forEach((c, idx) => {
+    if (y + 14 > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44) }
+    if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, 14, 'F') }
+    const upc = c.unitsInCase || 1
+    const shipped = c.shippedUnits ?? (c.caseCount * upc)
+    const ord = c.orderedUnits ?? c.units ?? shipped
+    const bw = c.boxWeight || 0
+    const cells = [
+      c.sku, c.description || '', c.uom || 'Case',
+      String(Math.round(ord)), String(Math.round(shipped)), String(c.caseCount),
+      c.boxDims || '', bw ? String(+bw.toFixed(1)) : '',
+    ]
     doc.setFontSize(9)
-    // Wrap the description to the column width and grow the row to fit it, so
-    // multi-line descriptions don't overlap the next row or the totals line.
-    const descLines: string[] = doc.splitTextToSize(String(c.description || ''), cols[1].w - 6)
-    const rowH = Math.max(14, descLines.length * LH + 3)
-    if (y + rowH > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44); doc.setFontSize(9) }
-    if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, rowH, 'F') }
-    const wt = c.weight || 0
-    doc.text(String(c.sku), xOf[0] + 4, y + 10)
-    descLines.forEach((ln, li) => doc.text(ln, xOf[1] + 4, y + 10 + li * LH))
-    doc.text(String(c.casesOrdered ?? c.caseCount), xOf[2] + 4, y + 10)
-    doc.text(String(c.caseCount), xOf[3] + 4, y + 10)
-    doc.text(wt ? String(Math.round(wt)) : '', xOf[4] + 4, y + 10)
-    y += rowH
+    cols.forEach((col, i) => doc.text(String(cells[i]), cellX(i), y + 10, { maxWidth: col.w - 6, align: col.a === 'r' ? 'right' : 'left' }))
+    y += 14
   })
   doc.setDrawColor(210); doc.setLineWidth(0.5); doc.line(M, y, R, y)
   y += 15
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 22, 34)
-  const ordTotal = cases.reduce((a, c) => a + (c.casesOrdered ?? c.caseCount), 0)
+  const totalCases = cases.reduce((a, c) => a + (c.caseCount || 0), 0)
   const totalsParts = [
     totals.pallets > 0 ? `${totals.pallets} pallet${totals.pallets === 1 ? '' : 's'}` : '',
-    `${ordTotal} cases ordered`,
-    `${totals.cases} cases shipped`,
+    `${totalCases} total case${totalCases === 1 ? '' : 's'}`,
     totals.weight > 0 ? `${Math.round(totals.weight)} lb` : '',
   ].filter(Boolean)
   doc.text(`Totals:   ${totalsParts.join('    ')}`, M, y)
