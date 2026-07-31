@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
 import { statusColor } from '@/lib/statusColors'
+import { regenBol, regenPackingList, regenPalletLabels, regenCaseLabels, hasBol, hasPacking, hasPallets, type DocPayload } from '@/lib/shipping/regenerate'
 import OrdersMirror from '@/components/OrdersMirror'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
@@ -108,6 +109,8 @@ export default function ShipmentsPage() {
   // Ultron: line items pulled live from the Inventory board via the linked sales order.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [soLines, setSoLines] = useState<any[]>([])
+  const [docsPayload, setDocsPayload] = useState<DocPayload | null>(null)
+  const [movingBack, setMovingBack] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [drillMonth, setDrillMonth] = useState<string | null>(null)
   const [drillWeek, setDrillWeek] = useState<string | null>(null)
@@ -179,7 +182,7 @@ export default function ShipmentsPage() {
 
   // ── Panel open/save ───────────────────────────────────────
   function openEdit(s: Shipment) {
-    setEditing(s); setForm({ ...s }); setOpen(true); setSoLines([])
+    setEditing(s); setForm({ ...s }); setOpen(true); setSoLines([]); setDocsPayload(null)
     if (s.sales_order_id) {
       sb.from('sales_order_lines')
         .select('*, products(sku, product_name, wholesale_price, msrp, unit_cost)')
@@ -187,7 +190,38 @@ export default function ShipmentsPage() {
         .order('line_number', { ascending: true })
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .then(({ data }) => setSoLines((data as any[]) || []))
+      // Packing payload (from the finalized BOL, else the saved pack draft) so
+      // BOL / packing list / labels can be regenerated after the order shipped.
+      sb.from('bols').select('payload').eq('sales_order_id', s.sales_order_id).order('created_at', { ascending: false }).limit(1)
+        .then(({ data }) => {
+          const bp = (data as any[])?.[0]?.payload
+          if (bp) { setDocsPayload(bp as DocPayload); return }
+          sb.from('sales_orders').select('pack_draft').eq('id', s.sales_order_id!).maybeSingle()
+            .then(({ data: od }) => setDocsPayload(((od as any)?.pack_draft as DocPayload) || null))
+        })
     }
+  }
+  const docMeta = () => ({
+    poNumber: editing?.po_number || '', orderNumber: editing?.bol_number || editing?.po_number || 'order',
+    shipToName: editing?.customer_name || '', shipToAddress: editing?.ship_to_address || '',
+    date: editing?.ship_date ? new Date(editing.ship_date + 'T00:00').toLocaleDateString() : new Date().toLocaleDateString(),
+  })
+  const [docBusy, setDocBusy] = useState('')
+  async function dlPacking() { if (!docsPayload) return; setDocBusy('pack'); try { (await regenPackingList(docsPayload, docMeta())).save(`packing-list-${docMeta().orderNumber}.pdf`) } finally { setDocBusy('') } }
+  function dlPallet() { if (!docsPayload) return; regenPalletLabels(docsPayload, docMeta()).save(`pallet-labels-${docMeta().orderNumber}.pdf`) }
+  function dlCase() { if (!docsPayload) return; regenCaseLabels(docsPayload, docMeta()).save(`case-labels-${docMeta().orderNumber}.pdf`) }
+  async function dlBol() { if (!docsPayload) return; setDocBusy('bol'); try { const p = await regenBol(docsPayload); if (p) p.save(`${(docsPayload as any).bol?.bolNumber || 'BOL'}.pdf`) } finally { setDocBusy('') } }
+  async function moveBackToQueue() {
+    if (!editing?.sales_order_id) return
+    if (!confirm('Move this order back to the shipping queue? It will reappear on the shipping queue and the sales order board, and this shipment record will be removed.')) return
+    setMovingBack(true)
+    try {
+      await sb.from('sales_orders').update({ status: 'Ready to Ship' }).eq('id', editing.sales_order_id)
+      await sb.from('shipments').delete().eq('id', editing.id)
+      setRows(prev => prev.filter(r => r.id !== editing.id))
+      setOpen(false)
+    } catch (e) { alert('Could not move back: ' + ((e as Error).message || 'error')) }
+    setMovingBack(false)
   }
   async function save() {
     if (!editing) return
@@ -713,6 +747,24 @@ export default function ShipmentsPage() {
                     <div className="border-t border-[#E4E6EE] pt-4">
                       <p className="text-xs font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">✨ AI Shipment Summary</p>
                       <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap bg-indigo-50/50 border border-indigo-100 rounded-lg p-3">{editing.ai_summary}</p>
+                    </div>
+                  )}
+
+                  {/* Reprint shipping documents (regenerated from the saved packing) */}
+                  {editing.sales_order_id && (
+                    <div className="border-t border-[#E4E6EE] pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2">Shipping Documents</p>
+                      {docsPayload ? (
+                        <div className="flex flex-wrap gap-2">
+                          {hasBol(docsPayload) && <button onClick={dlBol} disabled={docBusy === 'bol'} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50 disabled:opacity-50">📄 {docBusy === 'bol' ? 'BOL…' : 'BOL'}</button>}
+                          {hasPacking(docsPayload) && <button onClick={dlPacking} disabled={docBusy === 'pack'} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50 disabled:opacity-50">📋 {docBusy === 'pack' ? 'Packing List…' : 'Packing List'}</button>}
+                          {hasPallets(docsPayload) && <button onClick={dlPallet} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50">🧱 Pallet Labels</button>}
+                          {hasPacking(docsPayload) && <button onClick={dlCase} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50">🏷️ Case Labels</button>}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">No saved packing data for this order — documents can&apos;t be regenerated.</p>
+                      )}
+                      <button onClick={moveBackToQueue} disabled={movingBack} className="mt-3 text-xs px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50">{movingBack ? 'Moving…' : '↩ Move back to shipping queue'}</button>
                     </div>
                   )}
 
