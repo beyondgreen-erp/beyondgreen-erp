@@ -118,9 +118,20 @@ export default function PurchasingRequestsPage() {
     setDetail((d: any) => ({ ...d, ...patch }))
   }
   const updateStatus = async (id: string, status: string) => {
-    setRows(rs => rs.map(r => r.id === id ? { ...r, status: status || null } : r))
-    setDetail((d: any) => d && d.id === id ? { ...d, status: status || null } : d)
-    await sb.from('purchasing_requests').update({ status: status || null }).eq('id', id)
+    // When an item is marked "Received", auto-file it under the Receiving Log group.
+    const RECEIVING_LOG = GROUPS.find(g => g.title === 'Receiving Log')!
+    const moveToLog = status === 'Received'
+    const patch: any = { status: status || null }
+    if (moveToLog) {
+      const posBase = Math.max(0, ...rows.filter(r => r.group_key === RECEIVING_LOG.key).map(r => Number(r.position) || 0)) + 1
+      patch.group_key = RECEIVING_LOG.key
+      patch.group_title = RECEIVING_LOG.title
+      patch.position = posBase
+    }
+    setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
+    setDetail((d: any) => d && d.id === id ? { ...d, ...patch } : d)
+    await sb.from('purchasing_requests').update(patch).eq('id', id)
+    if (moveToLog) setCollapsed(c => ({ ...c, [RECEIVING_LOG.key]: false }))
   }
   const match = (r: any) => {
     if (!q) return true
