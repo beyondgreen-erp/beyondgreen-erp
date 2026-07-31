@@ -68,7 +68,7 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
   const doneBlocked = (photoRequired && photos.length === 0)
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-3" style={{ background: 'rgba(15,20,36,0.6)' }} >
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto" style={{ background: 'rgba(15,20,36,0.6)', height: '100dvh', WebkitOverflowScrolling: 'touch', padding: 'calc(env(safe-area-inset-top) + 12px) 12px calc(env(safe-area-inset-bottom) + 16px)' }} >
       <div className="relative w-full max-w-[560px] my-4 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-4 py-3 flex items-center justify-between gap-2 sticky top-0 z-10" style={{ background: '#0F1424', color: '#fff' }}>
           <div className="min-w-0">
@@ -138,6 +138,14 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
           ) : (
             <p className="text-xs" style={{ color: '#374151' }}><b>Assigned ({selected.length}):</b> {selected.map(z => z.code).join(', ')}</p>
           )}
+        </div>
+
+        {/* Bottom action bar — always reachable with your thumb (the header one can be hidden by the phone's browser bar) */}
+        <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: '1px solid #EEF0F4', background: '#fff' }}>
+          {onCancel && (
+            <button onClick={onCancel} className="flex-1 text-sm font-semibold px-4 py-3 rounded-xl" style={{ background: '#F1F5F9', color: '#475569', border: '1px solid #E2E8F0' }}>Cancel</button>
+          )}
+          <button onClick={onClose} disabled={doneBlocked} className="flex-[2] text-base font-extrabold px-4 py-3 rounded-xl disabled:opacity-40" style={{ background: '#059669', color: '#fff' }}>{doneBlocked ? '📷 Add a photo first' : '✓ Save & Done'}</button>
         </div>
       </div>
     </div>
