@@ -924,6 +924,18 @@ export default function DashboardShell() {
         </div>
       </div>
 
+      {/* Warehouse quick access — always visible, mobile-friendly */}
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        <Link href="/warehouse/scan" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-white shadow-sm active:scale-[0.99] transition-transform" style={{ background: 'linear-gradient(135deg,#0e7a46,#12a366)' }}>
+          <span className="text-2xl leading-none">📦</span>
+          <span className="min-w-0"><span className="block text-sm font-extrabold leading-tight">Receiving</span><span className="block text-[11px] text-white/85">Scan inventory in</span></span>
+        </Link>
+        <Link href="/production/shipping-queue" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-white shadow-sm active:scale-[0.99] transition-transform" style={{ background: 'linear-gradient(135deg,#c2410c,#ea7317)' }}>
+          <span className="text-2xl leading-none">🚚</span>
+          <span className="min-w-0"><span className="block text-sm font-extrabold leading-tight">Shipping Queue</span><span className="block text-[11px] text-white/85">Pack &amp; ship orders</span></span>
+        </Link>
+      </div>
+
       {widgets == null ? (
         <div className="grid grid-cols-12 gap-3">
           {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="col-span-12 sm:col-span-6 md:col-span-4 lg:col-span-3 h-32 bg-white rounded-xl border border-[#E2E8F0] animate-pulse" />)}

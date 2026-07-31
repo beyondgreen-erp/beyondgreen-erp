@@ -1779,7 +1779,7 @@ export default function OrdersPage() {
                       const sc = statusColor(o.status)
                       const u = shipUrgency(o)
                       return (
-                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} style={urgencyStyle(u)} className={`group flex items-center gap-2.5 px-3 py-2.5 mon-row ${u?.level === 'overdue' ? 'so-blink' : ''}`}>
+                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} style={urgencyStyle(u)} className={`group flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 mon-row ${u?.level === 'overdue' ? 'so-blink' : ''}`}>
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
@@ -1792,12 +1792,12 @@ export default function OrdersPage() {
                         {u && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${u.level === 'overdue' ? 'bg-[#E2445C] text-white' : 'bg-amber-400/20 text-amber-700'}`} title="Ship-date urgency">{u.level === 'overdue' ? `${Math.abs(u.days)}d late` : `${u.days}d`}</span>}
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
-                          className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0">
+                          className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0 max-w-[104px] sm:max-w-[170px] truncate">
                           {(STATUSES.includes(o.status) ? STATUSES : [o.status, ...STATUSES]).map(s => <option key={s} value={s} style={{ color: '#1A1D2E' }}>{s}</option>)}
                         </select>
                         <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
                           className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-[#00A84F]" title="Required ship date"/>
-                        <span className="text-xs font-semibold text-gray-700 w-20 text-right shrink-0">{fmt$(orderValue(o)) ?? ''}</span>
+                        <span className="text-xs font-semibold text-gray-700 w-14 sm:w-20 text-right shrink-0">{fmt$(orderValue(o)) ?? ''}</span>
                       </div>
                     )})}
                   </div>
