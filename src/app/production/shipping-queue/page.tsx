@@ -25,14 +25,37 @@ interface OrderInfo {
 interface QueueItem { id: string; sales_order_id: string; status: string; sales_orders?: OrderInfo }
 interface WInfo { name?: string | null; status?: string | null; po_number?: string | null; ship_to?: string | null; ship_due_date?: string | null; order_date?: string | null; carrier?: string | null; total_value?: number | null }
 interface WQueueItem { id: string; status: string; w?: WInfo }
+// One physical box/case in a shipment. The last box of a SKU is often a partial
+// (fewer units) and can be a different size/weight than the full cases.
+interface BoxSpec { units: number; lengthIn: number; widthIn: number; heightIn: number; weightLb: number }
 interface PlanRow {
   sku: string; description: string; units: number; unitsPerCase: number; cases: number
   caseWeightLb: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
   gtinImageUrl: string | null; uom: string; packaging: string; done: number
   productId: string | null
-  // Session-only box/case dimensions (inches) captured during packing.
-  boxLengthIn: number; boxWidthIn: number; boxHeightIn: number
+  // Actual quantity shipped this shipment (in the UOM) — never more than ordered.
+  shippedUnits: number
+  // Session-only per-case boxes (size in inches, weight in lb). boxes.length === cases.
+  boxes: BoxSpec[]
 }
+// Build the per-case box list from a shipped quantity and units-per-case.
+// Full cases hold `upc`; the last case holds the remainder. Existing box
+// dimensions/weights are preserved by index; new boxes seed their weight from defWt.
+function makeBoxes(shipped: number, upc: number, prev: BoxSpec[] | undefined, defWt = 0): BoxSpec[] {
+  const per = Math.max(1, upc || 1)
+  const s = Math.max(0, Math.round(shipped || 0))
+  const n = Math.max(1, Math.ceil(s / per))
+  const out: BoxSpec[] = []
+  let remaining = s
+  for (let k = 0; k < n; k++) {
+    const u = Math.max(0, Math.min(per, remaining)); remaining -= u
+    const p = prev?.[k]
+    out.push({ units: u, lengthIn: p?.lengthIn || 0, widthIn: p?.widthIn || 0, heightIn: p?.heightIn || 0, weightLb: p?.weightLb ?? defWt })
+  }
+  return out
+}
+const sumBoxUnits = (boxes: BoxSpec[]) => boxes.reduce((a, b) => a + (b.units || 0), 0)
+const avgBoxWeight = (boxes: BoxSpec[]) => { const w = boxes.reduce((a, b) => a + (b.weightLb || 0), 0); return boxes.length ? +(w / boxes.length).toFixed(2) : 0 }
 // A freight-style pallet configuration: N identical pallets, each with the same dimensions,
 // weight, freight attributes, and contents (one or more SKUs — mixed pallets supported).
 interface PalletContent { sku: string; casesPerPallet: number }
@@ -206,15 +229,19 @@ export default function ShippingQueuePage() {
       const upc = l.qty_per_case || 1
       const units = l.quantity ?? l.qty ?? 0
       const gpu = prod?.weight_per_unit_grams || 0
-      const cs = Math.max(1, Math.ceil(units / (upc || 1)))
+      const done = l.quantity_shipped || l.completed_qty || 0
+      const remaining = Math.max(0, units - done)                // ship the remaining qty by default
+      const shipped = remaining > 0 ? remaining : units
+      const perCaseWt = +(((upc || 1) * gpu) / GRAMS_PER_LB).toFixed(2)
+      const boxes = makeBoxes(shipped, upc || 1, undefined, perCaseWt)
       return {
         sku: l.sku || '(no sku)', description: l.description || prod?.product_name || '',
-        units, unitsPerCase: upc || 1, cases: cs,
-        caseWeightLb: +(((upc || 1) * gpu) / GRAMS_PER_LB).toFixed(2), gramsPerUnit: gpu,
+        units, unitsPerCase: upc || 1, cases: boxes.length,
+        caseWeightLb: perCaseWt, gramsPerUnit: gpu,
         upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
-        uom: l.unit_of_measure || 'Case', packaging: l.packaging || '', done: l.quantity_shipped || l.completed_qty || 0,
+        uom: l.unit_of_measure || 'Case', packaging: l.packaging || '', done,
         productId: l.product_id || null,
-        boxLengthIn: 0, boxWidthIn: 0, boxHeightIn: 0,
+        shippedUnits: shipped, boxes,
       }
     })
     // Apply any saved SKU→GTIN overrides (covers SKUs that aren't in the inventory product list).
@@ -276,39 +303,97 @@ export default function ShippingQueuePage() {
     if (sku) setConfigs(cs => cs.map(c => ({ ...c, contents: c.contents.filter(ct => ct.sku !== sku) })).filter(c => c.contents.length > 0))
     invalidateBol()
   }
-  // Set total cases for a line (recomputes from units/case; carriers count each ordered unit as a case unless bundled).
+  // Cap a shipped quantity at what's left to ship (ordered − already shipped).
+  function shipCap(r: PlanRow) { return Math.max(0, (r.units || 0) - (r.done || 0)) || (r.units || 0) }
+  // Setting cases just means "how many boxes" — the shipped qty (never > ordered)
+  // still drives the split, so extra boxes only appear if there are units to fill them.
   function setCases(i: number, v: number) {
-    const cs = Math.max(1, v || 1)
-    setPlan(p => p.map((r, idx) => idx === i ? { ...r, cases: cs } : r)); invalidateBol()
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      const upc = r.unitsPerCase || 1
+      const shipped = Math.min(shipCap(r), Math.max(1, v || 1) * upc)
+      const boxes = makeBoxes(shipped, upc, r.boxes, r.caseWeightLb)
+      return { ...r, shippedUnits: sumBoxUnits(boxes), cases: boxes.length }
+    }))
+    invalidateBol()
   }
-  const fullCasesFor = (r: PlanRow) => Math.max(1, Math.ceil(Math.max(0, (r.units || 0) - (r.done || 0)) / (r.unitsPerCase || 1)))
   function chooseShipMode(mode: 'full' | 'partial') {
     setShipMode(mode)
-    if (mode === 'full') { setPlan(p => p.map(r => ({ ...r, cases: fullCasesFor(r) }))); invalidateBol() }
+    if (mode === 'full') {
+      setPlan(p => p.map(r => {
+        const shipped = shipCap(r)
+        const boxes = makeBoxes(shipped, r.unitsPerCase || 1, r.boxes, r.caseWeightLb)
+        return { ...r, shippedUnits: sumBoxUnits(boxes), cases: boxes.length }
+      }))
+      invalidateBol()
+    }
   }
   function setUnitsPerCase(i: number, v: number) {
     setPlan(p => p.map((r, idx) => {
       if (idx !== i) return r
       const upc = Math.max(1, v || 1)
-      const cs = Math.max(1, Math.ceil(r.units / upc))
-      return { ...r, unitsPerCase: upc, cases: cs, caseWeightLb: r.gramsPerUnit ? +((upc * r.gramsPerUnit) / GRAMS_PER_LB).toFixed(2) : r.caseWeightLb }
+      const perWt = r.gramsPerUnit ? +((upc * r.gramsPerUnit) / GRAMS_PER_LB).toFixed(2) : r.caseWeightLb
+      const boxes = makeBoxes(r.shippedUnits, upc, r.boxes, perWt)
+      return { ...r, unitsPerCase: upc, cases: boxes.length, boxes, caseWeightLb: avgBoxWeight(boxes) || perWt }
     }))
     invalidateBol()
   }
-  // Session-only line-item editors: UOM, ordered qty, box dimensions & box weight.
+  // Session-only line-item editors.
   function setUom(i: number, v: string) {
     setPlan(p => p.map((r, idx) => idx === i ? { ...r, uom: v } : r)); invalidateBol()
   }
   function setOrdered(i: number, v: number) {
-    setPlan(p => p.map((r, idx) => idx === i ? { ...r, units: Math.max(0, v || 0) } : r)); invalidateBol()
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      const units = Math.max(0, v || 0)
+      // Shipped can never exceed ordered — clamp it down and rebuild boxes if needed.
+      if (r.shippedUnits > units) {
+        const boxes = makeBoxes(units, r.unitsPerCase || 1, r.boxes, r.caseWeightLb)
+        return { ...r, units, shippedUnits: sumBoxUnits(boxes), cases: boxes.length, boxes }
+      }
+      return { ...r, units }
+    }))
+    invalidateBol()
   }
-  function setBoxDim(i: number, key: 'boxLengthIn' | 'boxWidthIn' | 'boxHeightIn', v: number) {
-    setPlan(p => p.map((r, idx) => idx === i ? { ...r, [key]: Math.max(0, v || 0) } : r)); invalidateBol()
+  // Set the shipped quantity (in the UOM); it is capped at the remaining/ordered qty.
+  function setShipped(i: number, v: number) {
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      const shipped = Math.min(shipCap(r), Math.max(0, v || 0))
+      const boxes = makeBoxes(shipped, r.unitsPerCase || 1, r.boxes, r.caseWeightLb)
+      return { ...r, shippedUnits: sumBoxUnits(boxes), cases: boxes.length, boxes }
+    }))
+    invalidateBol()
   }
-  function setBoxWeight(i: number, v: number) {
-    setPlan(p => p.map((r, idx) => idx === i ? { ...r, caseWeightLb: Math.max(0, v || 0), gramsPerUnit: 0 } : r)); invalidateBol()
+  // Per-case box editors.
+  function setBoxUnits(i: number, bi: number, v: number) {
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      const boxes = r.boxes.map((b, k) => k === bi ? { ...b, units: Math.max(0, v || 0) } : b)
+      const shipped = Math.min(shipCap(r), sumBoxUnits(boxes))
+      return { ...r, boxes, shippedUnits: shipped }
+    }))
+    invalidateBol()
   }
-  const boxDimsStr = (r: PlanRow) => dimsStr(r.boxLengthIn, r.boxWidthIn, r.boxHeightIn) || ''
+  function setBoxDim(i: number, bi: number, key: 'lengthIn' | 'widthIn' | 'heightIn', v: number) {
+    setPlan(p => p.map((r, idx) => idx === i ? { ...r, boxes: r.boxes.map((b, k) => k === bi ? { ...b, [key]: Math.max(0, v || 0) } : b) } : r)); invalidateBol()
+  }
+  function setBoxWeight(i: number, bi: number, v: number) {
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      const boxes = r.boxes.map((b, k) => k === bi ? { ...b, weightLb: Math.max(0, v || 0) } : b)
+      return { ...r, boxes, caseWeightLb: avgBoxWeight(boxes) }
+    }))
+    invalidateBol()
+  }
+  const boxDimStr = (b: BoxSpec) => dimsStr(b.lengthIn, b.widthIn, b.heightIn) || ''
+  // Uniform box size/weight for a line, or null when the cases differ.
+  function uniformBox(r: PlanRow): { dims: string; wt: number } | null {
+    if (!r.boxes.length) return null
+    const d0 = boxDimStr(r.boxes[0]); const w0 = r.boxes[0].weightLb || 0
+    const same = r.boxes.every(b => boxDimStr(b) === d0 && (b.weightLb || 0) === w0)
+    return same ? { dims: d0, wt: w0 } : null
+  }
 
   const activeItem = items.find(i => i.id === openId)
   const activeW = wItems.find(i => i.id === openW)
@@ -622,19 +707,22 @@ export default function ShippingQueuePage() {
   // when per-unit product weights aren't on file. Shared by the packing-list PDF
   // and the public shipping-docs snapshot.
   function buildPackListCases(): PackListCase[] {
-    const bySku = new Map<string, PackListCase>()
-    // Per-SKU line metadata (UOM, ordered qty in the UOM, box size & weight) from the plan.
-    const meta: Record<string, { uom: string; ordered: number; dims: string; boxWt: number }> = {}
-    const orderedBySku: Record<string, number> = {}
+    // Per-SKU line facts (UOM, ordered/shipped qty, and the actual per-case boxes)
+    // come straight from the plan — this is what the customer ordered vs. what we
+    // boxed, independent of how the cases are laid out on pallets.
+    const meta: Record<string, {
+      uom: string; ordered: number; shipped: number; description: string
+      boxes: { units: number; dims: string; weight: number }[]
+    }> = {}
     plan.forEach(r => {
       const k = r.sku || r.description
-      orderedBySku[k] = (orderedBySku[k] || 0) + Math.max(1, Math.ceil((r.units || 0) / (r.unitsPerCase || 1)))
-      const m = meta[k] || { uom: r.uom || 'Case', ordered: 0, dims: boxDimsStr(r), boxWt: r.caseWeightLb || 0 }
+      const m = meta[k] || { uom: r.uom || 'Case', ordered: 0, shipped: 0, description: r.description, boxes: [] }
       m.ordered += r.units || 0
-      if (!m.dims) m.dims = boxDimsStr(r)
-      if (!m.boxWt) m.boxWt = r.caseWeightLb || 0
+      m.shipped += r.shippedUnits || 0
+      r.boxes.forEach(b => m.boxes.push({ units: b.units || 0, dims: boxDimStr(b), weight: b.weightLb || 0 }))
       meta[k] = m
     })
+    const bySku = new Map<string, PackListCase>()
     expanded.forEach(p => {
       const palletCases = p.lines.reduce((a, l) => a + l.cases, 0)
       p.lines.forEach(l => {
@@ -642,37 +730,37 @@ export default function ShippingQueuePage() {
         const allocWt = perCaseWt > 0
           ? l.cases * perCaseWt
           : (palletCases > 0 ? (p.weightLb || 0) * (l.cases / palletCases) : 0)
-        const cur: PackListCase = bySku.get(l.sku) || { sku: l.sku, description: l.description, caseCount: 0, casesOrdered: orderedBySku[l.sku] || 0, unitsInCase: l.unitsPerCase, weight: 0 }
+        const cur: PackListCase = bySku.get(l.sku) || { sku: l.sku, description: l.description, caseCount: 0, unitsInCase: l.unitsPerCase, weight: 0 }
         cur.caseCount += l.cases
         cur.weight = (cur.weight || 0) + allocWt
         bySku.set(l.sku, cur)
       })
     })
-    // Fallback: no pallet configuration yet — build the item list straight from the
-    // order line items so the packing list always lists the products being shipped.
+    // Fallback: no pallet configuration yet — build the item list straight from the plan.
     if (bySku.size === 0) {
       plan.forEach(r => {
         if (!r.sku && !r.description) return
         const key = r.sku || r.description
-        const cur: PackListCase = bySku.get(key) || { sku: r.sku || '', description: r.description, caseCount: 0, casesOrdered: 0, unitsInCase: r.unitsPerCase, weight: 0, units: 0 }
+        const cur: PackListCase = bySku.get(key) || { sku: r.sku || '', description: r.description, caseCount: 0, unitsInCase: r.unitsPerCase, weight: 0 }
         cur.caseCount += r.cases
-        cur.casesOrdered = (cur.casesOrdered || 0) + Math.max(1, Math.ceil((r.units || 0) / (r.unitsPerCase || 1)))
-        cur.units = (cur.units || 0) + (r.units || 0)
         cur.weight = (cur.weight || 0) + (r.caseWeightLb || 0) * r.cases
         bySku.set(key, cur)
       })
     }
-    // Attach UOM / ordered / shipped (in UOM) / box size & weight to each line.
+    // Attach UOM / ordered / shipped (never > ordered) / per-case boxes to each line.
     return [...bySku.entries()].map(([key, c]) => {
-      const m = meta[key] || meta[c.sku] || { uom: 'Case', ordered: 0, dims: '', boxWt: 0 }
-      const upc = c.unitsInCase || 1
+      const m = meta[key] || meta[c.sku]
+      const boxes = m?.boxes || []
+      const uniform = boxes.length && boxes.every(b => b.dims === boxes[0].dims && b.weight === boxes[0].weight)
       return {
         ...c,
-        uom: m.uom || 'Case',
-        orderedUnits: m.ordered || c.units || (c.caseCount * upc),
-        shippedUnits: c.caseCount * upc,
-        boxDims: m.dims || undefined,
-        boxWeight: m.boxWt || undefined,
+        uom: m?.uom || 'Case',
+        orderedUnits: m?.ordered ?? c.caseCount * (c.unitsInCase || 1),
+        shippedUnits: m?.shipped ?? c.caseCount * (c.unitsInCase || 1),
+        caseCount: boxes.length || c.caseCount,
+        boxes,
+        boxDims: uniform ? (boxes[0].dims || undefined) : undefined,
+        boxWeight: uniform ? (boxes[0].weight || undefined) : undefined,
       }
     })
   }
@@ -998,57 +1086,62 @@ export default function ShippingQueuePage() {
                             ? <span className="text-xs text-amber-600">Partial shipment #{priorShipments + 1} — lower each SKU&apos;s case target below; the packing list is marked partial.</span>
                             : <span className="text-xs text-gray-400">Every SKU is set to its full remaining quantity.</span>}
                         </div>
-                        {/* STEP 0 — Line items: UOM, units per case, ordered, box size & weight (session only) */}
+                        {/* STEP 0 — Line items: UOM, units per case, ordered/shipped, per-case boxes (session only) */}
                         <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">✎</span>
                             <span className="text-sm font-semibold text-[#1A1D2E]">Line items</span>
-                            <span className="ml-auto text-[11px] text-gray-400">Set the UOM, how many go in a case, and each box&apos;s size &amp; weight — the packing list uses these.</span>
+                            <span className="ml-auto text-[11px] text-gray-400">Set UOM, units per case, and the qty shipped — the boxes below fill automatically. Give each case its own size &amp; weight.</span>
                           </div>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-xs min-w-[840px]">
-                              <thead>
-                                <tr className="text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-200">
-                                  <th className="text-left font-semibold px-2 py-1.5">SKU</th>
-                                  <th className="text-left font-semibold px-2 py-1.5">Description</th>
-                                  <th className="text-left font-semibold px-2 py-1.5 w-[84px]">UOM</th>
-                                  <th className="text-right font-semibold px-2 py-1.5 w-[74px]">Units / Case</th>
-                                  <th className="text-right font-semibold px-2 py-1.5 w-[70px]">Ordered</th>
-                                  <th className="text-right font-semibold px-2 py-1.5 w-[62px]">Cases</th>
-                                  <th className="text-right font-semibold px-2 py-1.5 w-[66px]">Shipped</th>
-                                  <th className="text-center font-semibold px-2 py-1.5 w-[160px]">Box L×W×H (in)</th>
-                                  <th className="text-right font-semibold px-2 py-1.5 w-[70px]">Box Wt</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {plan.map((r, i) => (
-                                  <tr key={i} className="border-b border-gray-100">
-                                    <td className="px-2 py-1.5 font-mono text-[#1A1D2E] whitespace-nowrap">{r.sku}{r.upc ? '' : ' ⚠'}</td>
-                                    <td className="px-2 py-1.5 text-gray-500 max-w-[220px] truncate" title={r.description}>{r.description || '—'}</td>
-                                    <td className="px-2 py-1.5"><input list="uom-options" value={r.uom} onChange={e => setUom(i, e.target.value)} className="w-full rounded border border-gray-300 px-1.5 py-1" /></td>
-                                    <td className="px-2 py-1.5"><input type="number" min={1} value={r.unitsPerCase} onChange={e => setUnitsPerCase(i, parseInt(e.target.value) || 1)} className="w-full text-right rounded border border-gray-300 px-1.5 py-1" /></td>
-                                    <td className="px-2 py-1.5"><input type="number" min={0} value={r.units} onChange={e => setOrdered(i, parseInt(e.target.value) || 0)} className="w-full text-right rounded border border-gray-300 px-1.5 py-1" /></td>
-                                    <td className="px-2 py-1.5"><input type="number" min={1} value={r.cases} onChange={e => setCases(i, parseInt(e.target.value) || 1)} className="w-full text-right rounded border border-gray-300 px-1.5 py-1" /></td>
-                                    <td className="px-2 py-1.5 text-right text-gray-600 font-semibold">{r.cases * r.unitsPerCase}</td>
-                                    <td className="px-2 py-1.5">
-                                      <div className="flex items-center gap-1">
-                                        <input type="number" min={0} value={r.boxLengthIn || ''} placeholder="L" onChange={e => setBoxDim(i, 'boxLengthIn', parseFloat(e.target.value) || 0)} className="w-full text-center rounded border border-gray-300 px-1 py-1" />
-                                        <span className="text-gray-300">×</span>
-                                        <input type="number" min={0} value={r.boxWidthIn || ''} placeholder="W" onChange={e => setBoxDim(i, 'boxWidthIn', parseFloat(e.target.value) || 0)} className="w-full text-center rounded border border-gray-300 px-1 py-1" />
-                                        <span className="text-gray-300">×</span>
-                                        <input type="number" min={0} value={r.boxHeightIn || ''} placeholder="H" onChange={e => setBoxDim(i, 'boxHeightIn', parseFloat(e.target.value) || 0)} className="w-full text-center rounded border border-gray-300 px-1 py-1" />
-                                      </div>
-                                    </td>
-                                    <td className="px-2 py-1.5"><input type="number" min={0} step="0.1" value={r.caseWeightLb || ''} placeholder="lb" onChange={e => setBoxWeight(i, parseFloat(e.target.value) || 0)} className="w-full text-right rounded border border-gray-300 px-1.5 py-1" /></td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                            <datalist id="uom-options">
-                              <option value="Case" /><option value="Pack" /><option value="Each" /><option value="Bag" /><option value="Box" /><option value="Roll" /><option value="Set" /><option value="Carton" /><option value="Pallet" />
-                            </datalist>
+                          <div className="space-y-2">
+                            {plan.map((r, i) => {
+                              const over = r.shippedUnits > r.units
+                              const nf = 'w-full text-right rounded border border-gray-300 px-1.5 py-1'
+                              const lbl = 'block text-[9px] uppercase tracking-wide text-gray-400 mb-0.5'
+                              return (
+                                <div key={i} className="rounded-lg border border-gray-200 bg-gray-50/60 p-3">
+                                  <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+                                    <div className="min-w-0 mr-1">
+                                      <div className="font-mono text-[12px] text-[#1A1D2E] whitespace-nowrap">{r.sku}{r.upc ? '' : ' ⚠'}</div>
+                                      <div className="text-[11px] text-gray-500 max-w-[240px] truncate" title={r.description}>{r.description || '—'}</div>
+                                    </div>
+                                    <div className="w-[84px]"><label className={lbl}>UOM</label><input list="uom-options" value={r.uom} onChange={e => setUom(i, e.target.value)} className="w-full rounded border border-gray-300 px-1.5 py-1 text-xs" /></div>
+                                    <div className="w-[70px]"><label className={lbl}>Units / Case</label><input type="number" min={1} value={r.unitsPerCase} onChange={e => setUnitsPerCase(i, parseInt(e.target.value) || 1)} className={nf} /></div>
+                                    <div className="w-[72px]"><label className={lbl}>Ordered ({r.uom || 'ea'})</label><input type="number" min={0} value={r.units} onChange={e => setOrdered(i, parseInt(e.target.value) || 0)} className={nf} /></div>
+                                    <div className="w-[72px]"><label className={lbl}>Shipped ({r.uom || 'ea'})</label><input type="number" min={0} value={r.shippedUnits} onChange={e => setShipped(i, parseInt(e.target.value) || 0)} className={`${nf} ${over ? 'border-red-400 text-red-600' : ''}`} /></div>
+                                    <div className="text-center w-[64px]"><label className={lbl}>Total Cases</label><div className="text-sm font-semibold text-[#1A1D2E] py-1">{r.boxes.length}</div></div>
+                                    <button onClick={() => removeLine(i)} className="ml-auto text-gray-300 hover:text-red-500 text-sm self-start" title="Remove this SKU from the shipment">✕</button>
+                                  </div>
+                                  {over && <div className="text-[11px] text-red-600 mt-1">Shipped can&apos;t exceed ordered — it&apos;s capped automatically.</div>}
+                                  <div className="mt-2 border-t border-gray-200 pt-2">
+                                    <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Boxes ({r.boxes.length}) — units, size &amp; weight per case</div>
+                                    <div className="space-y-1">
+                                      {r.boxes.map((b, bi) => (
+                                        <div key={bi} className="flex items-center gap-1.5 flex-wrap text-xs">
+                                          <span className="w-[52px] text-gray-500 shrink-0 font-semibold">Case {bi + 1}</span>
+                                          <span className="text-gray-400">Units</span>
+                                          <input type="number" min={0} value={b.units} onChange={e => setBoxUnits(i, bi, parseInt(e.target.value) || 0)} className="w-16 text-right rounded border border-gray-300 px-1 py-0.5" />
+                                          <span className="text-gray-400 ml-1.5">Box</span>
+                                          <input type="number" min={0} placeholder="L" value={b.lengthIn || ''} onChange={e => setBoxDim(i, bi, 'lengthIn', parseFloat(e.target.value) || 0)} className="w-12 text-center rounded border border-gray-300 px-1 py-0.5" />
+                                          <span className="text-gray-300">×</span>
+                                          <input type="number" min={0} placeholder="W" value={b.widthIn || ''} onChange={e => setBoxDim(i, bi, 'widthIn', parseFloat(e.target.value) || 0)} className="w-12 text-center rounded border border-gray-300 px-1 py-0.5" />
+                                          <span className="text-gray-300">×</span>
+                                          <input type="number" min={0} placeholder="H" value={b.heightIn || ''} onChange={e => setBoxDim(i, bi, 'heightIn', parseFloat(e.target.value) || 0)} className="w-12 text-center rounded border border-gray-300 px-1 py-0.5" />
+                                          <span className="text-gray-400">in</span>
+                                          <input type="number" min={0} step="0.1" placeholder="wt" value={b.weightLb || ''} onChange={e => setBoxWeight(i, bi, parseFloat(e.target.value) || 0)} className="w-16 text-right rounded border border-gray-300 px-1 py-0.5 ml-1.5" />
+                                          <span className="text-gray-400">lb</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <p className="text-[11px] text-gray-400 mt-1.5">The last case holds the remainder (e.g. 30 at 20/case → a case of 20 + a case of 10). Give the partial case its own size/weight if it differs.</p>
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
-                          <p className="text-[11px] text-gray-400 mt-2">Example: UOM <b>Pack</b>, Units/Case <b>20</b>, Ordered <b>200</b> → 200 packs = <b>10 cases</b>. &ldquo;Shipped&rdquo; = Cases × Units/Case. These apply to this packing list only.</p>
+                          <datalist id="uom-options">
+                            <option value="Case" /><option value="Pack" /><option value="Each" /><option value="Bag" /><option value="Box" /><option value="Roll" /><option value="Set" /><option value="Carton" /><option value="Pallet" />
+                          </datalist>
                         </div>
 
                         {/* STEP 1 — Build the pallets (freight configurations) */}
