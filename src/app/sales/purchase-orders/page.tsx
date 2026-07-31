@@ -139,7 +139,16 @@ export default function PurchasingRequestsPage() {
     return ['name', 'status', 'location', 'po_number', 'supplier', 'supplier_pn', 'person_requesting', 'customer_project', 'batch_lot', 'received_by'].some(k => String(r[k] ?? '').toLowerCase().includes(s))
       || itemsOf(r.id).some(i => [i.part_number, i.description].some(v => String(v ?? '').toLowerCase().includes(s)))
   }
-  const groupRows = (key: string) => rows.filter(r => r.group_key === key && match(r))
+  const groupRows = (key: string) => rows
+    .filter(r => r.group_key === key && match(r))
+    // Newest PO date first; entries without a PO date sink to the bottom.
+    .sort((a, b) => {
+      const da = a.po_date || '', db = b.po_date || ''
+      if (!da && !db) return (Number(a.position) || 0) - (Number(b.position) || 0)
+      if (!da) return 1
+      if (!db) return -1
+      return db.localeCompare(da)
+    })
   const filesOf = (r: any) => [...((r.receiving_docs || []) as any[]).map((f: any) => ({ ...f, tag: 'Receiving Doc' })), ...((r.attachments || []) as any[]).map((f: any) => ({ ...f, tag: 'From Comments' }))]
 
   async function openFile(f: any) {
@@ -149,7 +158,7 @@ export default function PurchasingRequestsPage() {
 
   // ── Create request ─────────────────────────────────────────
   function openCreate() {
-    setForm(emptyCreate)
+    setForm({ ...emptyCreate, po_date: new Date().toISOString().slice(0, 10) })
     setCreateError('')
     setShowCreate(true)
   }
@@ -197,6 +206,8 @@ export default function PurchasingRequestsPage() {
       }
     }
 
+    // Require a PO date; default to the entry date when none was provided.
+    const poDate = form.po_date || new Date().toISOString().slice(0, 10)
     // 3) The purchasing request row itself
     const group = GROUPS.find(g => g.key === form.group_key) || GROUPS[1]
     const posBase = Math.max(0, ...rows.filter(r => r.group_key === group.key).map(r => Number(r.position) || 0)) + 1
@@ -215,7 +226,7 @@ export default function PurchasingRequestsPage() {
       customer_project: form.customer_project.trim() || null,
       supplier: vendorName || null,
       supplier_pn: partNumber || null,
-      po_date: form.po_date || null,
+      po_date: poDate,
       qty_ordered: form.qty_ordered.trim() || null,
     })
     if (reqErr) { setCreateError(supabaseError(reqErr)); setSaving(false); return }
@@ -229,7 +240,7 @@ export default function PurchasingRequestsPage() {
       part_number: partNumber || null,
       description: form.description.trim() || null,
       qty_ordered: form.qty_ordered.trim() || null,
-      date_ordered: form.po_date || null,
+      date_ordered: poDate,
       position: 0,
     })
 
@@ -283,6 +294,7 @@ export default function PurchasingRequestsPage() {
                         <th className="text-left px-3 py-2 font-semibold w-[110px]">PO #</th>
                         <th className="text-left px-3 py-2 font-semibold w-[140px]">Supplier</th>
                         <th className="text-left px-3 py-2 font-semibold w-[100px]">PO Date</th>
+                        <th className="text-left px-3 py-2 font-semibold w-[110px]">Receiving Date</th>
                         <th className="text-left px-3 py-2 font-semibold w-[70px]">Details</th>
                         <th className="text-left px-3 py-2 font-semibold w-[70px]">Files</th>
                         <th className="text-left px-3 py-2 font-semibold w-[80px]">Comments</th>
@@ -307,13 +319,14 @@ export default function PurchasingRequestsPage() {
                             <td className="px-3 py-2.5 text-gray-600">{r.po_number || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{r.supplier || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{fmtDate(r.po_date) || '—'}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{fmtDate(r.date_received) || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{its.length ? `${its.length} item${its.length > 1 ? 's' : ''}` : '—'}</td>
                             <td className="px-3 py-2.5">{nFiles ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nFiles}</span> : <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
                           </tr>
                         )
                       })}
-                      {gr.length === 0 && <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400 text-sm">No requests</td></tr>}
+                      {gr.length === 0 && <tr><td colSpan={11} className="px-4 py-6 text-center text-gray-400 text-sm">No requests</td></tr>}
                     </tbody>
                   </table>
               )}
