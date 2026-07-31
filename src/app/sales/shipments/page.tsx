@@ -110,6 +110,7 @@ export default function ShipmentsPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [soLines, setSoLines] = useState<any[]>([])
   const [docsPayload, setDocsPayload] = useState<DocPayload | null>(null)
+  const [docsSynthetic, setDocsSynthetic] = useState(false)
   const [movingBack, setMovingBack] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [drillMonth, setDrillMonth] = useState<string | null>(null)
@@ -182,22 +183,38 @@ export default function ShipmentsPage() {
 
   // ── Panel open/save ───────────────────────────────────────
   function openEdit(s: Shipment) {
-    setEditing(s); setForm({ ...s }); setOpen(true); setSoLines([]); setDocsPayload(null)
+    setEditing(s); setForm({ ...s }); setOpen(true); setSoLines([]); setDocsPayload(null); setDocsSynthetic(false)
     if (s.sales_order_id) {
+      // Line items: read the denormalized fields on each line (no products embed —
+      // sales_order_lines has no FK to products, so an embed would error the query).
       sb.from('sales_order_lines')
-        .select('*, products(sku, product_name, wholesale_price, msrp, unit_cost)')
+        .select('*')
         .eq('sales_order_id', s.sales_order_id)
         .order('line_number', { ascending: true })
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .then(({ data }) => setSoLines((data as any[]) || []))
-      // Packing payload (from the finalized BOL, else the saved pack draft) so
-      // BOL / packing list / labels can be regenerated after the order shipped.
-      sb.from('bols').select('payload').eq('sales_order_id', s.sales_order_id).order('created_at', { ascending: false }).limit(1)
         .then(({ data }) => {
-          const bp = (data as any[])?.[0]?.payload
-          if (bp) { setDocsPayload(bp as DocPayload); return }
-          sb.from('sales_orders').select('pack_draft').eq('id', s.sales_order_id!).maybeSingle()
-            .then(({ data: od }) => setDocsPayload(((od as any)?.pack_draft as DocPayload) || null))
+          const lines = (data as any[]) || []
+          setSoLines(lines)
+          // Packing payload (finalized BOL, else the saved pack draft) so
+          // BOL / packing list / labels can be regenerated after the order shipped.
+          sb.from('bols').select('payload').eq('sales_order_id', s.sales_order_id!).order('created_at', { ascending: false }).limit(1)
+            .then(({ data: bd }) => {
+              const bp = (bd as any[])?.[0]?.payload
+              if (bp) { setDocsPayload(bp as DocPayload); setDocsSynthetic(false); return }
+              sb.from('sales_orders').select('pack_draft').eq('id', s.sales_order_id!).maybeSingle()
+                .then(({ data: od }) => {
+                  const draft = (od as any)?.pack_draft as DocPayload | null
+                  if (draft) { setDocsPayload(draft); setDocsSynthetic(false); return }
+                  // Fallback: this order shipped without a pack step. Build a basic
+                  // packing slip straight from the order line items so there's still
+                  // a document. No BOL / pallet / case labels (no case data exists).
+                  const plan = lines
+                    .filter(l => l.sku || l.description)
+                    .map(l => ({ sku: l.sku || '', description: l.description || '', cases: Number(l.quantity ?? l.qty ?? 0) || 0, unitsPerCase: Number(l.qty_per_case ?? 1) || 1 }))
+                  if (plan.length) { setDocsPayload({ lines: plan } as DocPayload); setDocsSynthetic(true) }
+                  else { setDocsPayload(null); setDocsSynthetic(false) }
+                })
+            })
         })
     }
   }
@@ -758,12 +775,13 @@ export default function ShipmentsPage() {
                         <div className="flex flex-wrap gap-2">
                           {hasBol(docsPayload) && <button onClick={dlBol} disabled={docBusy === 'bol'} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50 disabled:opacity-50">📄 {docBusy === 'bol' ? 'BOL…' : 'BOL'}</button>}
                           {hasPacking(docsPayload) && <button onClick={dlPacking} disabled={docBusy === 'pack'} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50 disabled:opacity-50">📋 {docBusy === 'pack' ? 'Packing List…' : 'Packing List'}</button>}
-                          {hasPallets(docsPayload) && <button onClick={dlPallet} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50">🧱 Pallet Labels</button>}
-                          {hasPacking(docsPayload) && <button onClick={dlCase} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50">🏷️ Case Labels</button>}
+                          {!docsSynthetic && hasPallets(docsPayload) && <button onClick={dlPallet} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50">🧱 Pallet Labels</button>}
+                          {!docsSynthetic && hasPacking(docsPayload) && <button onClick={dlCase} className="text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white hover:bg-gray-50">🏷️ Case Labels</button>}
                         </div>
                       ) : (
                         <p className="text-xs text-gray-400">No saved packing data for this order — documents can&apos;t be regenerated.</p>
                       )}
+                      {docsSynthetic && <p className="text-[10px] text-amber-600 mt-1.5">Packing slip built from the order — this order shipped without a pack step, so there is no BOL or case/pallet labels on file.</p>}
                       <button onClick={moveBackToQueue} disabled={movingBack} className="mt-3 text-xs px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50">{movingBack ? 'Moving…' : '↩ Move back to shipping queue'}</button>
                     </div>
                   )}
@@ -814,12 +832,12 @@ export default function ShipmentsPage() {
                         <p className="text-xs text-gray-500 italic">No line items on the linked order.</p>
                       ) : (
                         <div className="space-y-1.5">
-                          {soLines.map((l) => { const pr = l.products; return (
+                          {soLines.map((l) => { const linked = !!l.product_id; return (
                             <div key={l.id} className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 text-xs gap-3">
-                              <div className="min-w-0 truncate"><span className="font-mono text-[#1A1D2E]">{l.sku || pr?.sku || '—'}</span> <span className="text-gray-500">{pr?.product_name || l.description || ''}</span></div>
+                              <div className="min-w-0 truncate"><span className="font-mono text-[#1A1D2E]">{l.sku || '—'}</span> <span className="text-gray-500">{l.description || ''}</span></div>
                               <div className="flex items-center gap-3 shrink-0">
                                 <span className="text-gray-400">Qty {l.quantity ?? l.qty ?? '—'}</span>
-                                <span className={pr ? 'text-emerald-600' : 'text-amber-600'} title={pr ? 'Linked to Inventory' : 'Not linked to an Inventory SKU'}>{pr ? '● Inventory' : '○ Unlinked'}</span>
+                                <span className={linked ? 'text-emerald-600' : 'text-amber-600'} title={linked ? 'Linked to Inventory' : 'Not linked to an Inventory SKU'}>{linked ? '● Inventory' : '○ Unlinked'}</span>
                               </div>
                             </div>
                           )})}
