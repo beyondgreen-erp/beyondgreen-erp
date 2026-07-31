@@ -1434,6 +1434,41 @@ export default function OrdersPage() {
     setErr(''); setSaving(true)
 
     const soNum = form.order_number.trim()
+
+    // SO# is unique in the database. If this number is already taken — even by an
+    // order that was deleted/archived and no longer shows on the board — reusing it
+    // would fail. Detect the conflict, name the existing order, and let the user
+    // override: an archived/deleted holder is removed, an active one is renamed so
+    // its data is kept, freeing the number for this order.
+    if (soNum) {
+      const { data: dupes } = await sb.from('sales_orders')
+        .select('id, order_number, notes, archived, status, customer:customers(company_name)')
+        .eq('order_number', soNum)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dup = ((dupes as any[]) || []).find(d => d.id !== editingOrder?.id)
+      if (dup) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const dupName = (dup.notes && String(dup.notes).trim())
+          || (dup as any).customer?.company_name
+          || dup.order_number || '(unnamed order)'
+        const gone = !!dup.archived
+        const ok = window.confirm(
+          `Sales Order ${soNum} was already assigned to "${dupName}"${gone ? ' (deleted/archived)' : ` — status ${dup.status || 'unknown'}`}.\n\nAllow override and reuse this SO # for this order?`
+        )
+        if (!ok) { setSaving(false); return }
+        if (gone) {
+          // Fully remove the archived/deleted holder so the number is free.
+          await sb.from('sales_order_lines').delete().eq('sales_order_id', dup.id)
+          await sb.from('work_orders').delete().eq('sales_order_id', dup.id)
+          await sb.from('shipments').delete().eq('sales_order_id', dup.id)
+          await sb.from('sales_orders').delete().eq('id', dup.id)
+        } else {
+          // Keep the active order's data — just move its number aside.
+          await sb.from('sales_orders').update({ order_number: `${soNum}~replaced-${Date.now().toString(36)}` }).eq('id', dup.id)
+        }
+      }
+    }
+
     const basePayload: Record<string,any> = {
       notes: form.notes.trim() || null,
       status: form.status,
