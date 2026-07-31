@@ -285,14 +285,22 @@ export function buildPackingList(
   need(40); header()
   doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44)
   const ordered = [...cases].sort((a, b) => a.sku.localeCompare(b.sku))
+  const LH = 11 // line height for wrapped description text
   ordered.forEach((c, idx) => {
-    if (y + 14 > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44) }
-    if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, 14, 'F') }
-    const wt = c.weight || 0
-    const cells = [c.sku, c.description || '', String(c.casesOrdered ?? c.caseCount), String(c.caseCount), wt ? String(Math.round(wt)) : '']
     doc.setFontSize(9)
-    cols.forEach((col, i) => doc.text(String(cells[i]), xOf[i] + 4, y + 10, { maxWidth: col.w - 6 }))
-    y += 14
+    // Wrap the description to the column width and grow the row to fit it, so
+    // multi-line descriptions don't overlap the next row or the totals line.
+    const descLines: string[] = doc.splitTextToSize(String(c.description || ''), cols[1].w - 6)
+    const rowH = Math.max(14, descLines.length * LH + 3)
+    if (y + rowH > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44); doc.setFontSize(9) }
+    if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, rowH, 'F') }
+    const wt = c.weight || 0
+    doc.text(String(c.sku), xOf[0] + 4, y + 10)
+    descLines.forEach((ln, li) => doc.text(ln, xOf[1] + 4, y + 10 + li * LH))
+    doc.text(String(c.casesOrdered ?? c.caseCount), xOf[2] + 4, y + 10)
+    doc.text(String(c.caseCount), xOf[3] + 4, y + 10)
+    doc.text(wt ? String(Math.round(wt)) : '', xOf[4] + 4, y + 10)
+    y += rowH
   })
   doc.setDrawColor(210); doc.setLineWidth(0.5); doc.line(M, y, R, y)
   y += 15
