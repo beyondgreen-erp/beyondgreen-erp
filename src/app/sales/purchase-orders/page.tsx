@@ -30,6 +30,23 @@ const PO_REQUIRED_OPTIONS = ['Yes', 'No', 'Unsure']
 const statusColor = (s: string | null) => (s && STATUS_COLORS[s]) || '#c4c4c4'
 const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
 
+type LineItem = {
+  key: string
+  mode: 'search' | 'new'
+  productId: string
+  itemName: string
+  partNumber: string
+  description: string
+  qty: string
+  addToInventory: boolean
+}
+function newKey() {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+function blankItem(): LineItem {
+  return { key: newKey(), mode: 'search', productId: '', itemName: '', partNumber: '', description: '', qty: '', addToInventory: true }
+}
+
 const emptyCreate = {
   group_key: 'group_mkzk3jaa',
   location: 'SAN ANTONIO, TX',
@@ -39,18 +56,12 @@ const emptyCreate = {
   po_number: '',
   customer_project: '',
   po_date: '',
-  qty_ordered: '',
-  // item
-  itemMode: 'search' as 'search' | 'new',
-  productId: '',
-  itemName: '',
-  partNumber: '',
-  description: '',
-  addToInventory: true,
   // vendor
   vendorMode: 'search' as 'search' | 'new',
   vendorId: '',
   vendorName: '',
+  // one or more line items
+  items: [blankItem()] as LineItem[],
 }
 type CreateForm = typeof emptyCreate
 
@@ -158,26 +169,34 @@ export default function PurchasingRequestsPage() {
 
   // ── Create request ─────────────────────────────────────────
   function openCreate() {
-    setForm({ ...emptyCreate, po_date: new Date().toISOString().slice(0, 10) })
+    setForm({ ...emptyCreate, po_date: new Date().toISOString().slice(0, 10), items: [blankItem()] })
     setCreateError('')
     setShowCreate(true)
   }
-  const selectedProduct = useMemo(() => products.find(p => p.id === form.productId) || null, [products, form.productId])
 
-  function pickProduct(p: any) {
-    setForm(f => ({
-      ...f,
-      productId: p.id,
-      itemName: p.product_name || '',
-      partNumber: p.sku || '',
-    }))
+  function updateItem(key: string, patch: Partial<LineItem>) {
+    setForm(f => ({ ...f, items: f.items.map(it => it.key === key ? { ...it, ...patch } : it) }))
+  }
+  function addItem() { setForm(f => ({ ...f, items: [...f.items, blankItem()] })) }
+  function removeItem(key: string) { setForm(f => ({ ...f, items: f.items.length > 1 ? f.items.filter(it => it.key !== key) : f.items })) }
+  function pickProduct(key: string, p: any) {
+    updateItem(key, { productId: p.id, itemName: p.product_name || '', partNumber: p.sku || '' })
   }
 
   async function createRequest() {
-    const itemName = (form.itemMode === 'search' ? (selectedProduct?.product_name || '') : form.itemName).trim()
-    if (!itemName) { setCreateError('Please choose an item from inventory or enter a new item name.'); return }
+    // Resolve every line item from its mode (inventory pick vs. new item)
+    const resolved = form.items.map(it => {
+      const prod = it.mode === 'search' ? products.find(p => p.id === it.productId) : null
+      return {
+        it,
+        name: (it.mode === 'search' ? (prod?.product_name || '') : it.itemName).trim(),
+        partNumber: (it.mode === 'search' ? (prod?.sku || '') : it.partNumber).trim(),
+        description: it.description.trim(),
+        qty: it.qty.trim(),
+      }
+    }).filter(r => r.name)
+    if (resolved.length === 0) { setCreateError('Add at least one item — choose from inventory or enter a new item name.'); return }
 
-    const partNumber = (form.itemMode === 'search' ? (selectedProduct?.sku || '') : form.partNumber).trim()
     const vendorName = form.vendorName.trim()
     if (form.vendorMode === 'new' && !vendorName) { setCreateError('Enter the new vendor / supplier name, or switch to "Existing vendor".'); return }
 
@@ -194,11 +213,11 @@ export default function PurchasingRequestsPage() {
       vendorId = data?.id || null
     }
 
-    // 2) New item → optionally add to Inventory board (needs a part number for the SKU)
-    if (form.itemMode === 'new' && form.addToInventory) {
-      if (partNumber) {
+    // 2) New items → optionally add each to the Inventory board (needs a part number for the SKU)
+    for (const r of resolved) {
+      if (r.it.mode === 'new' && r.it.addToInventory && r.partNumber) {
         const { error } = await sb.from('products').insert({
-          sku: partNumber, product_name: itemName, vendor_id: vendorId, is_active: true, category: 'Uncategorized',
+          sku: r.partNumber, product_name: r.name, vendor_id: vendorId, is_active: true, category: 'Uncategorized',
         })
         if (error && error.code !== '23505') { // ignore duplicate-SKU conflicts, otherwise surface
           setCreateError('Inventory item: ' + supabaseError(error)); setSaving(false); return
@@ -208,13 +227,15 @@ export default function PurchasingRequestsPage() {
 
     // Require a PO date; default to the entry date when none was provided.
     const poDate = form.po_date || new Date().toISOString().slice(0, 10)
-    // 3) The purchasing request row itself
+    // 3) The purchasing request (header) row — one per request
     const group = GROUPS.find(g => g.key === form.group_key) || GROUPS[1]
     const posBase = Math.max(0, ...rows.filter(r => r.group_key === group.key).map(r => Number(r.position) || 0)) + 1
-    const reqId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const reqId = newKey()
+    const first = resolved[0]
+    const headerName = resolved.length === 1 ? first.name : `${first.name} + ${resolved.length - 1} more item${resolved.length - 1 === 1 ? '' : 's'}`
     const { error: reqErr } = await sb.from('purchasing_requests').insert({
       id: reqId,
-      name: itemName,
+      name: headerName,
       group_key: group.key,
       group_title: group.title,
       position: posBase,
@@ -225,24 +246,25 @@ export default function PurchasingRequestsPage() {
       po_number: form.po_number.trim() || null,
       customer_project: form.customer_project.trim() || null,
       supplier: vendorName || null,
-      supplier_pn: partNumber || null,
+      supplier_pn: resolved.length === 1 ? (first.partNumber || null) : null,
       po_date: poDate,
-      qty_ordered: form.qty_ordered.trim() || null,
+      qty_ordered: resolved.length === 1 ? (first.qty || null) : null,
     })
     if (reqErr) { setCreateError(supabaseError(reqErr)); setSaving(false); return }
 
-    // 4) A matching line item so the Details view is populated
-    const lineId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-    await sb.from('purchasing_request_items').insert({
-      id: lineId,
+    // 4) One line item per resolved item
+    const lineRows = resolved.map((r, i) => ({
+      id: newKey(),
       parent_id: reqId,
-      name: itemName,
-      part_number: partNumber || null,
-      description: form.description.trim() || null,
-      qty_ordered: form.qty_ordered.trim() || null,
+      name: r.name,
+      part_number: r.partNumber || null,
+      description: r.description || null,
+      qty_ordered: r.qty || null,
       date_ordered: poDate,
-      position: 0,
-    })
+      position: i,
+    }))
+    const { error: itemsErr } = await sb.from('purchasing_request_items').insert(lineRows)
+    if (itemsErr) { setCreateError('Items: ' + supabaseError(itemsErr)); setSaving(false); return }
 
     setSaving(false)
     setShowCreate(false)
@@ -348,27 +370,44 @@ export default function PurchasingRequestsPage() {
             </div>
 
             <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
-              {/* Item */}
+              {/* Items */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Item</p>
-                  <ModeToggle value={form.itemMode} onChange={(m) => setForm(f => ({ ...f, itemMode: m, productId: '', itemName: '', partNumber: '' }))} a="search" aLabel="From inventory" b="new" bLabel="New item" />
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Items <span className="text-gray-300 normal-case font-normal">({form.items.length})</span></p>
+                  <button type="button" onClick={addItem} className="text-xs font-semibold text-[#3B6FE0] hover:text-[#2f5bc0]">+ Add item</button>
                 </div>
-                {form.itemMode === 'search' ? (
-                  <ProductPicker products={products} selectedId={form.productId} onPick={pickProduct} onClear={() => setForm(f => ({ ...f, productId: '', itemName: '', partNumber: '' }))} />
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <TextField label="Item name" required value={form.itemName} onChange={v => setForm(f => ({ ...f, itemName: v }))} placeholder="e.g. 18x12x12 Kraft Box" />
-                    <TextField label="Part # / SKU" value={form.partNumber} onChange={v => setForm(f => ({ ...f, partNumber: v }))} placeholder="e.g. 99181212" />
-                    <div className="sm:col-span-2">
-                      <TextField label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Optional" />
+                <div className="space-y-3">
+                  {form.items.map((it, idx) => (
+                    <div key={it.key} className="rounded-xl border border-[#E4E6EE] p-3 bg-[#FAFBFC]">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold text-gray-400">Item {idx + 1}</span>
+                        <div className="flex items-center gap-2">
+                          <ModeToggle value={it.mode} onChange={(m) => updateItem(it.key, { mode: m, productId: '', itemName: '', partNumber: '' })} a="search" aLabel="From inventory" b="new" bLabel="New item" />
+                          {form.items.length > 1 && <button type="button" onClick={() => removeItem(it.key)} title="Remove item" className="text-gray-400 hover:text-red-500 text-xl leading-none px-1">&times;</button>}
+                        </div>
+                      </div>
+                      {it.mode === 'search' ? (
+                        <ProductPicker products={products} selectedId={it.productId} onPick={(p) => pickProduct(it.key, p)} onClear={() => updateItem(it.key, { productId: '', itemName: '', partNumber: '' })} />
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <TextField label="Item name" required value={it.itemName} onChange={v => updateItem(it.key, { itemName: v })} placeholder="e.g. 18x12x12 Kraft Box" />
+                          <TextField label="Part # / SKU" value={it.partNumber} onChange={v => updateItem(it.key, { partNumber: v })} placeholder="e.g. 99181212" />
+                          <div className="sm:col-span-2">
+                            <TextField label="Description" value={it.description} onChange={v => updateItem(it.key, { description: v })} placeholder="Optional" />
+                          </div>
+                          <label className="sm:col-span-2 flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={it.addToInventory} onChange={e => updateItem(it.key, { addToInventory: e.target.checked })} className="w-4 h-4 accent-[#3B6FE0]" />
+                            Also add this item to the Inventory board {it.addToInventory && !it.partNumber.trim() && <span className="text-amber-500 text-xs">(needs a Part # / SKU)</span>}
+                          </label>
+                        </div>
+                      )}
+                      <div className="mt-3 max-w-[220px]">
+                        <TextField label="Qty Ordered" value={it.qty} onChange={v => updateItem(it.key, { qty: v })} />
+                      </div>
                     </div>
-                    <label className="sm:col-span-2 flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-                      <input type="checkbox" checked={form.addToInventory} onChange={e => setForm(f => ({ ...f, addToInventory: e.target.checked }))} className="w-4 h-4 accent-[#3B6FE0]" />
-                      Also add this item to the Inventory board {form.addToInventory && !form.partNumber.trim() && <span className="text-amber-500 text-xs">(needs a Part # / SKU)</span>}
-                    </label>
-                  </div>
-                )}
+                  ))}
+                </div>
+                <button type="button" onClick={addItem} className="mt-3 w-full text-sm font-semibold text-[#3B6FE0] border border-dashed border-[#3B6FE0]/40 rounded-lg py-2 hover:bg-[#3B6FE0]/5 transition-colors">+ Add another item</button>
               </div>
 
               {/* Vendor */}
@@ -395,7 +434,6 @@ export default function PurchasingRequestsPage() {
                   <SelectField label="PO Required?" value={form.po_required} onChange={v => setForm(f => ({ ...f, po_required: v }))} options={PO_REQUIRED_OPTIONS.map(o => ({ value: o, label: o }))} />
                   <TextField label="PO Number" value={form.po_number} onChange={v => setForm(f => ({ ...f, po_number: v }))} />
                   <TextField label="Customer / Project" value={form.customer_project} onChange={v => setForm(f => ({ ...f, customer_project: v }))} />
-                  <TextField label="Qty Ordered" value={form.qty_ordered} onChange={v => setForm(f => ({ ...f, qty_ordered: v }))} />
                   <TextField label="PO Date" type="date" value={form.po_date} onChange={v => setForm(f => ({ ...f, po_date: v }))} />
                 </div>
               </div>
