@@ -220,9 +220,10 @@ export interface PackListCase {
   weight?: number              // total line weight (lb)
   uom?: string                 // unit of measure the qtys are counted in (e.g. Pack, Each, Case)
   orderedUnits?: number        // quantity ordered, in the UOM
-  shippedUnits?: number        // quantity shipped, in the UOM (= caseCount × unitsInCase)
-  boxDims?: string             // box/case dimensions e.g. 12 × 10 × 8 in
-  boxWeight?: number           // weight of one box/case (lb)
+  shippedUnits?: number        // quantity actually shipped, in the UOM (never > ordered)
+  boxDims?: string             // shared box dimensions when every case is the same, else undefined
+  boxWeight?: number           // shared box weight when every case is the same, else undefined
+  boxes?: { units: number; dims: string; weight: number }[]   // per-case boxes (last is often partial)
 }
 export interface PackListPallet {
   number: number; dims?: string; weight?: number
@@ -302,21 +303,29 @@ export function buildPackingList(
   need(40); header()
   doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44)
   const ordered = [...cases].sort((a, b) => a.sku.localeCompare(b.sku))
+  const hasMixed = ordered.some(c => (c.boxes && c.boxes.length > 1) && !c.boxDims)
   ordered.forEach((c, idx) => {
-    if (y + 14 > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44) }
-    if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, 14, 'F') }
     const upc = c.unitsInCase || 1
     const shipped = c.shippedUnits ?? (c.caseCount * upc)
     const ord = c.orderedUnits ?? c.units ?? shipped
+    const mixed = (c.boxes && c.boxes.length > 1) && !c.boxDims
     const bw = c.boxWeight || 0
     const cells = [
       c.sku, c.description || '', c.uom || 'Case',
       String(Math.round(ord)), String(Math.round(shipped)), String(c.caseCount),
-      c.boxDims || '', bw ? String(+bw.toFixed(1)) : '',
+      mixed ? 'mixed' : (c.boxDims || ''), mixed ? 'mixed' : (bw ? String(+bw.toFixed(1)) : ''),
     ]
     doc.setFontSize(9)
-    cols.forEach((col, i) => doc.text(String(cells[i]), cellX(i), y + 10, { maxWidth: col.w - 6, align: col.a === 'r' ? 'right' : 'left' }))
-    y += 14
+    // Row height grows with the wrapped description so nothing ever overlaps.
+    const descLines = doc.splitTextToSize(String(cells[1] || ''), cols[1].w - 6) as string[]
+    const rowH = Math.max(14, descLines.length * 11 + 3)
+    if (y + rowH > bottom) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 32, 44) }
+    if (idx % 2 === 1) { doc.setFillColor(248, 249, 251); doc.rect(M, y, tableW, rowH, 'F') }
+    cols.forEach((col, i) => {
+      if (i === 1) { doc.text(descLines, xOf[i] + 4, y + 10); return }
+      doc.text(String(cells[i]), cellX(i), y + 10, { maxWidth: col.w - 6, align: col.a === 'r' ? 'right' : 'left' })
+    })
+    y += rowH
   })
   doc.setDrawColor(210); doc.setLineWidth(0.5); doc.line(M, y, R, y)
   y += 15
@@ -329,6 +338,30 @@ export function buildPackingList(
   ].filter(Boolean)
   doc.text(`Totals:   ${totalsParts.join('    ')}`, M, y)
   y += 8
+
+  // Per-case box detail — only for SKUs whose cases differ (the columns above already
+  // cover SKUs where every case is the same box).
+  if (hasMixed) {
+    y += 18; need(30)
+    doc.setDrawColor(225); doc.line(M, y, R, y); y += 14
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 22, 34)
+    doc.text('Box detail (cases that differ)', M, y); y += 4
+    ordered.forEach(c => {
+      const mixed = (c.boxes && c.boxes.length > 1) && !c.boxDims
+      if (!mixed || !c.boxes) return
+      need(16)
+      y += 12
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 32, 44)
+      doc.text(`${c.sku}${c.description ? ' — ' + c.description : ''}`, M + 4, y, { maxWidth: tableW - 8 }); y += 12
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 64, 78)
+      c.boxes.forEach((b, bi) => {
+        need(12)
+        const parts = [`${b.units} ${c.uom || 'ea'}`, b.dims || 'no size', b.weight ? `${+b.weight.toFixed(1)} lb` : ''].filter(Boolean)
+        doc.text(`Case ${bi + 1}:  ${parts.join('  ·  ')}`, M + 14, y, { maxWidth: tableW - 20 }); y += 11
+      })
+    })
+    y += 4
+  }
 
   // Per-pallet breakdown
   if (pallets && pallets.length) {
