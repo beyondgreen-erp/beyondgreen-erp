@@ -68,9 +68,9 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
   const doneBlocked = (photoRequired && photos.length === 0)
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto" style={{ background: 'rgba(15,20,36,0.6)', height: '100dvh', WebkitOverflowScrolling: 'touch', padding: 'calc(env(safe-area-inset-top) + 12px) 12px calc(env(safe-area-inset-bottom) + 16px)' }} >
-      <div className="relative w-full max-w-[560px] my-4 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-4 py-3 flex items-center justify-between gap-2 sticky top-0 z-10" style={{ background: '#0F1424', color: '#fff' }}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden" style={{ background: 'rgba(15,20,36,0.6)', height: '100dvh', padding: 'calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px)' }} >
+      <div className="relative w-full max-w-[560px] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '100%' }} onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 flex items-center justify-between gap-2 shrink-0" style={{ background: '#0F1424', color: '#fff' }}>
           <div className="min-w-0">
             <p className="text-sm font-bold truncate">📍 Storage zone{productName ? ` · ${productName}` : ''}</p>
             <p className="text-[11px]" style={{ color: '#8A9FC0' }}>{stepLabel || 'Tap zones where this item is stored — pick as many as needed.'}</p>
@@ -83,6 +83,7 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
           </div>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
         <div className="px-3 py-2 flex flex-wrap gap-2 text-[10px]" style={{ borderBottom: '1px solid #EEF0F4' }}>
           {areas.map(([k, a]) => (
             <span key={k} className="inline-flex items-center gap-1"><span style={{ width: 10, height: 10, borderRadius: 2, background: a.color, display: 'inline-block' }} />{a.label}</span>
@@ -92,7 +93,7 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
         {loading ? (
           <div className="py-16 text-center text-sm text-gray-400">Loading map…</div>
         ) : (
-          <div style={{ maxHeight: '48vh', overflowY: 'auto', background: '#F7F8FA' }}>
+          <div style={{ background: '#F7F8FA' }}>
             <svg viewBox="0 0 820 1500" preserveAspectRatio="xMidYMin meet" style={{ width: '100%', height: 'auto', display: 'block' }}>
               {OUTLINES.map((o, i) => (
                 <rect key={i} x={o.x} y={o.y} width={o.w} height={o.h} rx={6} fill="none" stroke={o.dash ? '#E4E6EE' : '#2A3350'} strokeWidth={o.dash ? 1 : 1.5} strokeDasharray={o.dash ? '5 5' : undefined} />
@@ -139,9 +140,10 @@ export default function ZonePicker({ productId, productName, currentUserEmail, o
             <p className="text-xs" style={{ color: '#374151' }}><b>Assigned ({selected.length}):</b> {selected.map(z => z.code).join(', ')}</p>
           )}
         </div>
+        </div>{/* /scrollable middle */}
 
-        {/* Bottom action bar — always reachable with your thumb (the header one can be hidden by the phone's browser bar) */}
-        <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: '1px solid #EEF0F4', background: '#fff' }}>
+        {/* Bottom action bar — pinned; always reachable with your thumb */}
+        <div className="px-4 py-3 flex items-center gap-2 shrink-0" style={{ borderTop: '1px solid #EEF0F4', background: '#fff' }}>
           {onCancel && (
             <button onClick={onCancel} className="flex-1 text-sm font-semibold px-4 py-3 rounded-xl" style={{ background: '#F1F5F9', color: '#475569', border: '1px solid #E2E8F0' }}>Cancel</button>
           )}
