@@ -295,7 +295,10 @@ export default function ScanStationPage() {
       <div className="sticky top-0 z-20 px-4 pt-4 pb-3" style={{ background: '#0F1424', borderBottom: '1px solid #1c2540', paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
         <div className="max-w-md mx-auto flex items-center justify-between">
           <h1 className="text-lg font-extrabold">Scan Station</h1>
-          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: adminMode ? '#33261A' : '#0e7a4620', color: adminMode ? '#FBBF24' : '#34d399', border: `1px solid ${adminMode ? '#7c5b1f' : '#0e7a46'}` }}>{adminMode ? 'ADMIN' : 'RECEIVING'}</span>
+          <div className="flex items-center gap-2">
+            <a href="/warehouse/receiving-log" className="text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: '#1A2035', color: '#8A9FC0', border: '1px solid #2A3350' }}>📒 Log</a>
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: adminMode ? '#33261A' : '#0e7a4620', color: adminMode ? '#FBBF24' : '#34d399', border: `1px solid ${adminMode ? '#7c5b1f' : '#0e7a46'}` }}>{adminMode ? 'ADMIN' : 'RECEIVING'}</span>
+          </div>
         </div>
       </div>
 
