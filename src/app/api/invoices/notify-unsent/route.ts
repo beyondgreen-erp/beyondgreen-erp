@@ -50,16 +50,23 @@ function emailHtml(inv: any, customerName: string) {
 // Emails finance for every shipment-derived bill that hasn't been sent yet, then marks it sent.
 // Idempotent: safe to call repeatedly (only unsent bills are emailed). Called by the Vercel cron
 // and on the Invoices page load.
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const sb = getSb()
-    const { data: invoices, error } = await sb
+    // mode=outstanding → email finance for every outstanding (unpaid, non-void, balance > 0) bill,
+    // regardless of whether it was emailed before. Default → only unsent shipment-derived bills.
+    const mode = new URL(req.url).searchParams.get('mode')
+    const outstanding = mode === 'outstanding'
+
+    let query = sb
       .from('invoices')
-      .select('id, invoice_number_display, customer_id, po_number, total_amount, payment_terms, due_date, shipment_id')
-      .eq('sent_to_finance', false)
-      .not('shipment_id', 'is', null)
+      .select('id, invoice_number_display, customer_id, po_number, total_amount, balance_due, payment_terms, due_date, shipment_id')
       .neq('status', 'void')
       .order('invoice_number_display', { ascending: true })
+    query = outstanding
+      ? query.gt('balance_due', 0).neq('status', 'paid')
+      : query.eq('sent_to_finance', false).not('shipment_id', 'is', null)
+    const { data: invoices, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!invoices || invoices.length === 0) return NextResponse.json({ emailed: 0 })
 
@@ -87,6 +94,7 @@ export async function POST() {
           const res = await resend.emails.send({
             from: 'beyondGREEN ERP <erp@beyondgreenbiotech.com>',
             to: FINANCE_EMAIL,
+            bcc: ['info@byndgrn.com'],
             subject: `New Bill — ${customerName} — ${inv.invoice_number_display} — Action Required`,
             html: emailHtml(inv, customerName),
           })
@@ -104,4 +112,4 @@ export async function POST() {
   }
 }
 
-export async function GET() { return POST() }
+export async function GET(req: Request) { return POST(req) }
