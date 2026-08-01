@@ -141,7 +141,7 @@ export default function InvoicesPage() {
     setLoading(true)
     const [{ data: inv }, { data: c }] = await Promise.all([
       sb.from('invoices')
-        .select('*,customers(company_name),sales_orders(order_number)')
+        .select('*,customers(company_name),sales_orders!invoices_sales_order_id_fkey(order_number)')
         .eq('is_active', true)
         .order('invoice_date', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('is_active', true).order('company_name'),
