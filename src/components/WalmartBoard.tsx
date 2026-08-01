@@ -23,7 +23,7 @@ interface WOrder {
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
 }
-interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null; unit_price: number | null; case_price: number | null }
+interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null; unit_price: number | null; case_price: number | null; distribution_price: number | null; wholesale_price: number | null }
 interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
 interface Pallet { id: string; order_id: string; pallet_number: number; total_pallets: number; token: string; status: string; completed_by: string | null; completed_at: string | null }
 interface PalletItem { id: string; pallet_id: string; order_id: string; sku: string; qty: number }
@@ -159,7 +159,7 @@ export default function WalmartBoard() {
     const lm: Record<string, WLine[]> = {}
     ;((l as any[]) || []).forEach(r => { (lm[r.order_id] ||= []).push(r) })
     setLines(lm)
-    const { data: pr } = await sb.from('products').select('id, sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams, unit_cost, unit_price, case_price').order('sku', { ascending: true })
+    const { data: pr } = await sb.from('products').select('id, sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams, unit_cost, unit_price, case_price, distribution_price, wholesale_price').order('sku', { ascending: true })
     setProducts((pr as Product[]) || [])
     const { data: bm } = await sb.from('product_bom').select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level')
     setBom((bm as BomRow[]) || [])
@@ -561,15 +561,26 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
   const extra = Array.from(new Set(rows.map(r => r.group_name || 'Walmart Orders').filter(k => k && !GROUPS.some(g => g.key === k))))
   const allGroups = [...GROUPS, ...extra.map(k => ({ key: k, color: '#9699A6' }))]
   const shown = allGroups.reduce((a, g) => a + groupRows(g.key).length, 0)
-  const totalVal = rows.reduce((a, r) => a + (Number(r.total_value) || 0), 0)
 
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const cellCls = 'w-full bg-white border border-[#E4E6EE] rounded px-1.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const fcls = (k: string) => inputCls + (flagged.has(k) ? ' ring-2 ring-red-400 border-red-400' : '')
-  const sellPriceOf = (sku?: string | null) => { const p = skuInfo(sku); const u = Number(p?.unit_price); if (Number.isFinite(u) && u > 0) return u; const c = Number(p?.case_price); return Number.isFinite(c) && c > 0 ? c : null }
+  // Walmart sell price per SRP: prefer an explicit line price, else the product's
+  // unit → case → distribution → wholesale price (distribution_price is the Walmart contract price).
+  const sellPriceOf = (sku?: string | null) => {
+    const p = skuInfo(sku)
+    for (const v of [p?.unit_price, p?.case_price, p?.distribution_price, p?.wholesale_price]) {
+      const n = Number(v); if (Number.isFinite(n) && n > 0) return n
+    }
+    return null
+  }
   const lineUnitPrice = (l: WLine) => { const v = Number(l.unit_price); if (Number.isFinite(v) && v > 0) return v; return sellPriceOf(l.part_number) }
   const lineTotalOf = (l: WLine) => { const u = lineUnitPrice(l); return u == null ? null : u * (Number(l.qty) || 0) }
   const linesTotalOf = (ls: WLine[]) => ls.reduce((a, l) => a + (lineUnitPrice(l) ?? 0) * (Number(l.qty) || 0), 0)
+  // Order total: prefer the sum of priced lines (consistent with the line items);
+  // fall back to any stored value only when no line prices resolve.
+  const orderTotal = (r: WOrder): number | null => { const c = linesTotalOf(lines[r.id] || []); if (c > 0) return c; return r.total_value != null ? Number(r.total_value) : null }
+  const totalVal = rows.reduce((a, r) => a + (orderTotal(r) || 0), 0)
   const completedForOrderSku = (orderId: string, sku?: string | null) => {
     const pls = pallets[orderId] || []
     const key = (sku || '').trim().toUpperCase()
@@ -692,7 +703,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
         <div className="space-y-2.5 mb-6">
           {allGroups.map(group => {
             const gr = groupRows(group.key); const isCol = collapsed[group.key]
-            const val = gr.reduce((a, r) => a + (Number(r.total_value) || 0), 0)
+            const val = gr.reduce((a, r) => a + (orderTotal(r) || 0), 0)
             const isDropTarget = dragOver === group.key
             return (
               <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border" style={{ borderColor: isDropTarget ? group.color : '#ECEEF3', boxShadow: isDropTarget ? `0 0 0 2px ${group.color}55` : undefined }}
@@ -737,7 +748,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                               <td className="px-3 py-2.5 text-[12px] text-gray-500 truncate max-w-[260px]">{r.ship_to || '—'}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600">{r.carrier || '—'}</td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-700 text-right font-semibold">{r.total_value != null ? fmt$(Number(r.total_value)) : '—'}</td>
+                              <td className="px-3 py-2.5 text-[13px] text-gray-700 text-right font-semibold">{(() => { const t = orderTotal(r); return t != null ? fmt$(t) : '—' })()}</td>
                               <td className="px-3 py-2.5">{nf2 ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nf2}</span> : <span className="text-gray-300">—</span>}</td>
                               <td className="px-3 py-2.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
                             </tr>
