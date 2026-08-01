@@ -367,25 +367,31 @@ export default function WalmartBoard() {
     if (!pls.length) { alert('Generate pallet QR codes first.'); return }
     const origin = window.location.origin
     const qr: any = await import('qrcode')
-    const cards = await Promise.all(pls.map(async p => {
+    const labels = await Promise.all(pls.map(async p => {
       const url = `${origin}/p/${p.token}`
       let img = ''
-      try { img = await qr.toDataURL(url, { width: 360, margin: 1 }) } catch { /* */ }
-      return `<div class="card"><div class="hd">Pallet #${p.pallet_number} <span class="of">of ${p.total_pallets}</span></div><div class="nm">${esc(order.name)}</div>${order.po_number ? `<div class="po">PO ${esc(order.po_number)}${order.load_number ? ' · Load ' + esc(order.load_number) : ''}</div>` : ''}<img src="${img}"/><div class="url">Scan to report pallet contents</div></div>`
+      try { img = await qr.toDataURL(url, { width: 600, margin: 1 }) } catch { /* */ }
+      return `<div class="label"><div class="hd">Pallet #${p.pallet_number} <span class="of">of ${p.total_pallets}</span></div><div class="nm">${esc(order.name)}</div>${order.po_number ? `<div class="po">PO ${esc(order.po_number)}${order.load_number ? ' · Load ' + esc(order.load_number) : ''}</div>` : ''}<img src="${img}"/><div class="url">Scan to report pallet contents</div></div>`
     }))
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(order.name)} — Pallet QR Codes</title>
-<style>body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:18px;background:#fff;color:#111}
-h1{font-size:18px;margin:0 0 12px}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
-.card{border:2px solid #111;border-radius:12px;padding:14px;text-align:center;page-break-inside:avoid}
-.hd{font-size:22px;font-weight:800}.hd .of{font-weight:500;color:#666;font-size:15px}
-.nm{font-size:13px;color:#333;margin:2px 0}.po{font-size:12px;color:#666;margin-bottom:6px}
-.card img{width:230px;height:230px}.url{font-size:12px;color:#555;margin-top:4px}
-@media print{.noprint{display:none}}</style></head>
-<body><h1>Pallet QR Codes — ${esc(order.name)}</h1><div class="grid">${cards.join('')}</div>
-<div class="noprint" style="margin-top:16px"><button onclick="window.print()" style="padding:8px 16px;font-size:14px">Print</button></div>
-</body></html>`
-    const w = window.open('', '_blank', 'width=820,height=900'); if (!w) { alert('Allow pop-ups to print the QR sheet.'); return }
+    // One QR per 4in x 6in thermal label (portrait), each on its own page.
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(order.name)} — Pallet QR Labels</title>
+<style>
+@page { size: 4in 6in; margin: 0; }
+* { box-sizing: border-box; }
+html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif}
+.label{width:4in;height:6in;padding:0.22in 0.18in;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;page-break-after:always;break-after:page;overflow:hidden}
+.label:last-child{page-break-after:auto;break-after:auto}
+.hd{font-size:30px;font-weight:800;line-height:1.05}
+.hd .of{font-weight:500;color:#555;font-size:18px}
+.nm{font-size:15px;color:#222;margin:4px 6px 0;word-break:break-word}
+.po{font-size:13px;color:#555;margin-top:2px}
+.label img{width:3.1in;height:3.1in;margin:0.12in 0}
+.url{font-size:13px;color:#444}
+.toolbar{padding:12px;text-align:center}
+@media print{.toolbar{display:none}}
+</style></head>
+<body><div class="toolbar noprint"><button onclick="window.print()" style="padding:8px 16px;font-size:14px">Print labels (4\u00d76)</button></div>${labels.join('')}</body></html>`
+    const w = window.open('', '_blank', 'width=520,height=820'); if (!w) { alert('Allow pop-ups to print the QR labels.'); return }
     w.document.write(html); w.document.close()
   }
 
@@ -823,7 +829,7 @@ h1{font-size:18px;margin:0 0 12px}
                     <p className="text-xs font-semibold uppercase tracking-wide text-[#9A5B00]">🏗 Pallet Build &amp; QR Codes</p>
                     <div className="flex items-center gap-2">
                       <button onClick={() => generatePallets(detail)} disabled={genBusy} className="text-xs px-2.5 py-1 rounded-lg bg-[#FDAB3D] text-white font-semibold hover:bg-[#E89B2E] disabled:opacity-50">{genBusy ? 'Working…' : '＋ Generate pallet QR codes'}</button>
-                      {detailPallets.length > 0 && <button onClick={() => printPalletQRs(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#E4C48A] text-[#9A5B00] font-semibold hover:bg-[#FFF3E0]">🖨 Print QR sheet</button>}
+                      {detailPallets.length > 0 && <button onClick={() => printPalletQRs(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#E4C48A] text-[#9A5B00] font-semibold hover:bg-[#FFF3E0]">🖨 Print QR labels (4×6)</button>}
                     </div>
                   </div>
                   {detailPallets.length === 0 ? (
