@@ -887,6 +887,34 @@ export default function ShippingQueuePage() {
       await sb.from('comments').update({ record_type: 'shipment', record_id: targetId }).in('record_type', ['sales_order', 'sales_orders']).eq('record_id', activeItem.sales_order_id)
       await sb.from('file_attachments').update({ record_type: 'shipment', record_id: targetId }).in('record_type', ['sales_order', 'sales_orders']).eq('record_id', activeItem.sales_order_id)
     }
+
+    // Post outbound entries to the inventory ledger + deduct on-hand stock for a real
+    // (Shipped) shipment. Best-effort: a ledger/stock hiccup must never block the shipment.
+    const isShipped = extra.delivery_status === 'Shipped' || extra.status === 'Shipped'
+    if (isShipped && targetId) {
+      for (const r of plan) {
+        const qty = Number(r.shippedUnits || 0)
+        if (!r.sku || qty <= 0) continue
+        try {
+          let pid = r.productId
+          if (!pid) {
+            const { data: pf } = await sb.from('products').select('id').ilike('sku', r.sku).limit(1)
+            pid = (pf?.[0] as any)?.id ?? null
+          }
+          await sb.from('inventory_movements').insert({
+            product_id: pid, sku: r.sku, movement_type: 'ship', qty, uom: r.uom || null,
+            ref_table: 'shipments', ref_id: targetId,
+            note: `Shipped on ${o.order_number || 'order'}${o.po_number ? ' / PO ' + o.po_number : ''} → ${st.name || 'customer'}`,
+            created_by: userEmail || 'system',
+          })
+          if (pid) {
+            const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle()
+            const cur = Number((pr as any)?.on_hand_qty || 0)
+            await sb.from('products').update({ on_hand_qty: cur - qty }).eq('id', pid)
+          }
+        } catch { /* ledger posting is best-effort */ }
+      }
+    }
   }
   async function confirmMove() {
     if (!canConfirm || !activeItem) return
