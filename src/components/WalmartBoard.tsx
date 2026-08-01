@@ -471,6 +471,13 @@ h1{font-size:18px;margin:0 0 12px}
   const unitCostOf = (sku?: string | null) => { const c = Number(skuInfo(sku)?.unit_cost); return Number.isFinite(c) ? c : null }
   const lineTotalOf = (l: WLine) => { const c = unitCostOf(l.part_number); return c == null ? null : c * (Number(l.qty) || 0) }
   const linesTotalOf = (ls: WLine[]) => ls.reduce((a, l) => a + (unitCostOf(l.part_number) ?? 0) * (Number(l.qty) || 0), 0)
+  const completedForOrderSku = (orderId: string, sku?: string | null) => {
+    const pls = pallets[orderId] || []
+    const key = (sku || '').trim().toUpperCase()
+    let t = 0
+    for (const p of pls) for (const it of (palletItems[p.id] || [])) if ((it.sku || '').trim().toUpperCase() === key) t += Number(it.qty) || 0
+    return t
+  }
 
   function lineWarn(l: WLine) {
     const sku = (l.part_number || '').trim()
@@ -798,12 +805,12 @@ h1{font-size:18px;margin:0 0 12px}
                   </div>
                 ) : detailLines.length === 0 ? <p className="text-sm text-gray-400">No order detail lines.</p> : (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm min-w-[560px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Qty</th><th className="text-left px-3 py-2">UOM</th><th className="text-right px-3 py-2">Unit Cost</th><th className="text-right px-3 py-2">Line Total</th><th className="text-right px-3 py-2">On Hand</th></tr></thead>
+                    <table className="w-full text-sm min-w-[720px]">
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Ordered</th><th className="text-right px-3 py-2">Completed</th><th className="text-right px-3 py-2">Remaining</th><th className="text-left px-3 py-2">UOM</th><th className="text-right px-3 py-2">Unit Cost</th><th className="text-right px-3 py-2">Line Total</th><th className="text-right px-3 py-2">On Hand</th></tr></thead>
                       <tbody>
-                        {detailLines.map(l => { const p = skuInfo(l.part_number); return (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 font-mono text-emerald-600">{l.part_number || '—'}</td><td className="px-3 py-2 text-right text-gray-700">{l.qty ?? '—'}</td><td className="px-3 py-2 text-gray-600">{l.uom || '—'}</td><td className="px-3 py-2 text-right text-gray-600">{fmt$(unitCostOf(l.part_number))}</td><td className="px-3 py-2 text-right font-semibold text-gray-700">{fmt$(lineTotalOf(l))}</td><td className="px-3 py-2 text-right text-gray-500">{p ? fmtN(p.on_hand_qty) : <span className="text-red-400">not in inv</span>}</td></tr>) })}
+                        {detailLines.map(l => { const p = skuInfo(l.part_number); const done = completedForOrderSku(detail.id, l.part_number); const ordered = Number(l.qty) || 0; const remaining = Math.max(0, ordered - done); return (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 font-mono text-emerald-600">{l.part_number || '—'}</td><td className="px-3 py-2 text-right text-gray-700">{l.qty ?? '—'}</td><td className="px-3 py-2 text-right font-semibold text-emerald-600">{fmtN(done)}</td><td className={`px-3 py-2 text-right font-semibold ${remaining > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{remaining > 0 ? fmtN(remaining) : '✓ 0'}</td><td className="px-3 py-2 text-gray-600">{l.uom || '—'}</td><td className="px-3 py-2 text-right text-gray-600">{fmt$(unitCostOf(l.part_number))}</td><td className="px-3 py-2 text-right font-semibold text-gray-700">{fmt$(lineTotalOf(l))}</td><td className="px-3 py-2 text-right text-gray-500">{p ? fmtN(p.on_hand_qty) : <span className="text-red-400">not in inv</span>}</td></tr>) })}
                       </tbody>
-                      <tfoot><tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-semibold"><td className="px-3 py-2 text-right text-gray-500" colSpan={4}>Order Total</td><td className="px-3 py-2 text-right text-emerald-700">{fmt$(linesTotalOf(detailLines))}</td><td></td></tr></tfoot>
+                      <tfoot><tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-semibold"><td className="px-3 py-2 text-right text-gray-500" colSpan={6}>Order Total</td><td className="px-3 py-2 text-right text-emerald-700">{fmt$(linesTotalOf(detailLines))}</td><td></td></tr></tfoot>
                     </table>
                   </div>
                 )}
