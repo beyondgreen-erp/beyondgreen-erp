@@ -22,8 +22,8 @@ interface WOrder {
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null
 }
-interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null }
-interface BomRow { finished_sku: string; component_sku: string; component_name: string | null; quantity_per_srp: number | null }
+interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null }
+interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
 interface Pallet { id: string; order_id: string; pallet_number: number; total_pallets: number; token: string; status: string; completed_by: string | null; completed_at: string | null }
 interface PalletItem { id: string; pallet_id: string; order_id: string; sku: string; qty: number }
 
@@ -146,9 +146,9 @@ export default function WalmartBoard() {
     const lm: Record<string, WLine[]> = {}
     ;((l as any[]) || []).forEach(r => { (lm[r.order_id] ||= []).push(r) })
     setLines(lm)
-    const { data: pr } = await sb.from('products').select('id, sku, product_name, on_hand_qty').order('sku', { ascending: true })
+    const { data: pr } = await sb.from('products').select('id, sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams').order('sku', { ascending: true })
     setProducts((pr as Product[]) || [])
-    const { data: bm } = await sb.from('walmart_bom').select('finished_sku, component_sku, component_name, quantity_per_srp')
+    const { data: bm } = await sb.from('product_bom').select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level')
     setBom((bm as BomRow[]) || [])
     const { data: pl } = await sb.from('walmart_pallets').select('*').order('pallet_number', { ascending: true })
     const pm: Record<string, Pallet[]> = {}
@@ -382,20 +382,27 @@ h1{font-size:18px;margin:0 0 12px}
     const skus = Array.from(new Set([...Object.keys(required), ...Object.keys(completed)])).sort()
     const fg = skus.map(sku => ({ sku, required: required[sku] || 0, completed: completed[sku] || 0, delta: (required[sku] || 0) - (completed[sku] || 0), byLoad: byLoad[sku] || {} }))
     // components requirement (packaging / BOM) from walmart_bom
-    const compReq: Record<string, { name: string | null; req: number }> = {}
+    const compReq: Record<string, number> = {}
     for (const [sku, qty] of Object.entries(required)) {
+      const fp = productBySku[sku]
       for (const b of bom) {
-        if ((b.finished_sku || '').trim().toUpperCase() !== sku) continue
+        if ((b.finished_good_sku || '').trim().toUpperCase() !== sku) continue
         const cs = (b.component_sku || '').trim().toUpperCase()
         if (!cs) continue
-        const need = (Number(b.quantity_per_srp) || 0) * qty
-        if (!compReq[cs]) compReq[cs] = { name: b.component_name, req: 0 }
-        compReq[cs].req += need
+        let perUnit = 0
+        if (b.uom_type === 'percentage') perUnit = ((Number(b.qty_value ?? b.percentage) || 0) / 100) * (Number(fp?.weight_per_unit_grams) || 0) / 453.592
+        else if (b.is_case_level) { const cq = Number(fp?.case_qty) || 0; perUnit = cq > 0 ? (Number(b.qty_value) || 0) / cq : 0 }
+        else perUnit = Number(b.qty_value) || 0
+        const need = perUnit * qty
+        if (need <= 0) continue
+        compReq[cs] = (compReq[cs] || 0) + need
       }
     }
-    const comps = Object.entries(compReq).map(([sku, v]) => {
-      const avail = Number(skuInfo(sku)?.on_hand_qty ?? NaN)
-      return { sku, name: v.name, req: v.req, avail, short: isNaN(avail) ? null : avail - v.req }
+    const comps = Object.entries(compReq).map(([sku, reqv]) => {
+      const p = productBySku[sku]
+      const avail = Number(p?.on_hand_qty ?? NaN)
+      const rr = Math.round(reqv * 100) / 100
+      return { sku, name: p?.product_name ?? null, req: rr, avail, short: isNaN(avail) ? null : Math.round((avail - rr) * 100) / 100 }
     }).sort((a, b) => a.sku.localeCompare(b.sku))
     return { fg, comps }
     // eslint-disable-next-line react-hooks/exhaustive-deps
