@@ -128,6 +128,14 @@ export default function InvoicesPage() {
   const [showVoidConfirm, setShowVoidConfirm] = useState(false)
 
   const panelRef = useRef<HTMLDivElement>(null)
+  // Documents connected to the source order / shipment (shown on the bill)
+  const [connectedDocs, setConnectedDocs] = useState<any[]>([])
+  const [shipDocs, setShipDocs] = useState<{ packing_slip_url: string | null; pod_file_url: string | null; bol_number: string | null } | null>(null)
+
+  async function openDoc(storage_path: string) {
+    const { data } = await sb.storage.from('erp-files').createSignedUrl(storage_path, 120)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  }
 
   async function load() {
     setLoading(true)
@@ -146,6 +154,8 @@ export default function InvoicesPage() {
   useEffect(() => {
     load()
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
+    // Fire any pending finance emails for shipment-derived bills (idempotent).
+    fetch('/api/invoices/notify-unsent', { method: 'POST' }).catch(() => {})
   }, []) // eslint-disable-line
 
   async function bulkDelete() {
@@ -178,6 +188,19 @@ export default function InvoicesPage() {
     setOpen(true)
     const { data } = await sb.from('invoice_line_items').select('*').eq('invoice_id', inv.id).order('id')
     setLineItems((data ?? []) as LineItem[])
+    // Load documents connected to the source order + shipment
+    setConnectedDocs([]); setShipDocs(null)
+    const linkedIds = [inv.sales_order_id, inv.shipment_id].filter(Boolean) as string[]
+    if (linkedIds.length) {
+      const { data: fa } = await sb.from('file_attachments')
+        .select('id,file_name,file_type,storage_path,record_type,created_at')
+        .in('record_id', linkedIds).order('created_at', { ascending: true })
+      setConnectedDocs((fa ?? []) as any[])
+    }
+    if (inv.shipment_id) {
+      const { data: sh } = await sb.from('shipments').select('packing_slip_url,pod_file_url,bol_number').eq('id', inv.shipment_id).maybeSingle()
+      setShipDocs((sh as any) ?? null)
+    }
   }
 
   function close() {
@@ -739,6 +762,30 @@ export default function InvoicesPage() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Connected documents — from the source order & shipment */}
+                {(connectedDocs.length > 0 || shipDocs?.packing_slip_url || shipDocs?.pod_file_url || shipDocs?.bol_number) && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-3">Connected Documents <span className="text-gray-300 normal-case font-normal">(from order &amp; shipment)</span></p>
+                    <div className="rounded-xl border border-[#E4E6EE] divide-y divide-[#E4E6EE]/60">
+                      {shipDocs?.packing_slip_url && (
+                        <a href={shipDocs.packing_slip_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF]">📄 Packing Slip</a>
+                      )}
+                      {shipDocs?.pod_file_url && (
+                        <a href={shipDocs.pod_file_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF]">📄 Proof of Delivery</a>
+                      )}
+                      {shipDocs?.bol_number && (
+                        <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-500">🚚 BOL #: <span className="font-mono text-[#1A1D2E]">{shipDocs.bol_number}</span></div>
+                      )}
+                      {connectedDocs.map(d => (
+                        <button key={d.id} onClick={() => openDoc(d.storage_path)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF] text-left">
+                          📎 {d.file_name}
+                          <span className="ml-auto text-[10px] uppercase tracking-wide text-gray-400">{String(d.record_type || '').replace(/_/g, ' ')}</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
