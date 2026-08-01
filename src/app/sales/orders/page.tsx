@@ -425,88 +425,6 @@ function LastInvoice({ customerId }: { customerId: string }) {
   )
 }
 
-// Per-order inventory / BOM impact: explodes this order's finished lines into components
-// and shows what each needs vs. current on-hand and available (on-hand − total allocated).
-function BomImpact({ orderId }: { orderId: string }) {
-  const sb = useMemo(() => createSupabaseBrowserClient(), [])
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(true)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [rows, setRows] = useState<any[]>([])
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [prods, setProds] = useState<Record<string, any>>({})
-  const [totals, setTotals] = useState<Record<string, number>>({})
-
-  useEffect(() => {
-    if (!open) return
-    ;(async () => {
-      setLoading(true)
-      const { data } = await sb.from('v_bom_allocations').select('component_sku, finished_sku, need_per_unit, line_qty, allocated_qty').eq('sales_order_id', orderId)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rs = ((data as any[]) || []).sort((a, b) => String(a.finished_sku).localeCompare(String(b.finished_sku)) || String(a.component_sku).localeCompare(String(b.component_sku)))
-      setRows(rs)
-      const skus = Array.from(new Set(rs.map(r => r.component_sku)))
-      if (skus.length) {
-        const { data: ps } = await sb.from('products').select('sku, product_name, on_hand_qty, unit_of_measure').in('sku', skus)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pm: Record<string, any> = {}; for (const p of ((ps as any[]) || [])) pm[p.sku] = p; setProds(pm)
-        const { data: al } = await sb.from('v_component_allocation_totals').select('component_sku, allocated_qty').in('component_sku', skus)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tm: Record<string, number> = {}; for (const a of ((al as any[]) || [])) tm[a.component_sku] = Number(a.allocated_qty) || 0; setTotals(tm)
-      }
-      setLoading(false)
-    })()
-  }, [open, orderId, sb])
-
-  const n = (v: number) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
-
-  return (
-    <div className="pt-4 border-t border-[#E4E6EE]">
-      <button onClick={() => setOpen(o => !o)} className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-[#1A1D2E]">
-        <span className="text-[10px]">{open ? '▼' : '▶'}</span> Inventory / BOM impact
-      </button>
-      {open && (
-        <div className="mt-2">
-          {loading ? <p className="text-xs text-gray-400 italic">Loading…</p>
-            : rows.length === 0 ? <p className="text-xs text-gray-400 italic">No BOM components — none of this order&apos;s items have a Bill of Materials, or the order is closed.</p>
-            : (
-              <div className="border border-[#ECEEF3] rounded-xl overflow-x-auto">
-                <table className="w-full text-xs min-w-[520px]">
-                  <thead>
-                    <tr className="bg-[#FBFCFE] border-b border-[#EEF0F4] text-[10px] uppercase tracking-wide text-gray-400">
-                      <th className="text-left font-semibold px-3 py-2">Component</th>
-                      <th className="text-left font-semibold px-2 py-2">For</th>
-                      <th className="text-right font-semibold px-2 py-2">Needed</th>
-                      <th className="text-right font-semibold px-2 py-2">On hand</th>
-                      <th className="text-right font-semibold px-3 py-2">Available</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F3F4F8]">
-                    {rows.map((r, i) => {
-                      const p = prods[r.component_sku]
-                      const onHand = Number(p?.on_hand_qty ?? 0)
-                      const avail = onHand - (totals[r.component_sku] ?? 0)
-                      return (
-                        <tr key={i} className="hover:bg-[#FBFCFE]">
-                          <td className="px-3 py-2"><span className="font-mono font-semibold text-[#0F7A4E]">{r.component_sku}</span>{p?.product_name ? <span className="text-gray-400"> · {p.product_name}</span> : <span className="text-amber-600"> · not in inventory</span>}</td>
-                          <td className="px-2 py-2 text-gray-500 font-mono">{r.finished_sku}</td>
-                          <td className="px-2 py-2 text-right font-semibold text-[#1A1D2E]">{n(r.allocated_qty)}</td>
-                          <td className="px-2 py-2 text-right text-gray-600">{n(onHand)} <span className="text-gray-300">{p?.unit_of_measure || ''}</span></td>
-                          <td className={`px-3 py-2 text-right font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{n(avail)}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          <p className="text-[11px] text-gray-400 mt-1.5">&ldquo;Needed&rdquo; is this order&apos;s BOM demand (reserved). &ldquo;Available&rdquo; is on-hand minus everything reserved across all open orders.</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
   customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads, userEmail,
@@ -1021,7 +939,6 @@ function EditPanel({
             </div>
           </div>
 
-          {editing && <BomImpact orderId={editing.id} />}
           {editing && (
             <div className="pt-4 border-t border-[#E4E6EE]">
               <Comments recordType="sales_order" recordId={editing.id} currentUserEmail={userEmail} title="Comments & @mentions" />
@@ -1086,6 +1003,15 @@ function EditPanel({
 export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
+  const [walmartTotal, setWalmartTotal] = useState(0)
+  useEffect(() => {
+    // Include open Walmart order value in the board's Total Value stat.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sb.from('walmart_board_orders').select('total_value, group_name, archived').eq('archived', false).then(({ data }: any) => {
+      const t = ((data as any[]) || []).filter(r => (r.group_name || '') !== 'Cancelled').reduce((s: number, r: any) => s + (Number(r.total_value) || 0), 0)
+      setWalmartTotal(t)
+    })
+  }, [sb])
 
   // Deep-link: open the item referenced by ?item=<id> in the URL (used by @mention notifications).
   const deepLinkOpenedRef = useRef<string | null>(null)
@@ -1785,7 +1711,7 @@ export default function OrdersPage() {
           <Stat label="In Production" value={String(stats.inProd)} c="#FDAB3D"/>
           <Stat label="Ready to Ship" value={String(stats.ready)} c="#00C7C7"/>
           <Stat label="On Hold" value={String(stats.onHold)} c={stats.onHold > 0 ? '#E2445C' : '#9699A6'}/>
-          <Stat label="Total Value" value={fmt$(stats.totalVal) ?? '—'} c="#00A84F"/>
+          <Stat label="Total Value" value={fmt$((stats.totalVal || 0) + walmartTotal) ?? '—'} c="#00A84F"/>
           <Stat label="Flagged Lines" value={String(stats.flaggedTotal)} c={stats.flaggedTotal > 0 ? '#A25DDC' : '#9699A6'} sub="need SKU"/>
         </div>
       </>)}
