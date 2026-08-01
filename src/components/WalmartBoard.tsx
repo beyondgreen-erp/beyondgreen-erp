@@ -12,7 +12,7 @@ import { buildBOL, buildPackingList, type BolLine, type PackListCase } from '@/l
 interface WLine {
   id?: string; _new?: boolean; part_number: string | null; qty: number | null; qty_per_case: number | null
   completed_qty: number | null; uom: string | null; packaging: string | null; production_status: string | null
-  cost_each: string | null; total_cost: string | null; added_details: string | null; line_number?: number | null
+  cost_each: string | null; total_cost: string | null; added_details: string | null; line_number?: number | null; unit_price?: number | null
 }
 interface WOrder {
   id: string; monday_item_id: string | null; name: string; group_name: string | null; status: string | null
@@ -23,7 +23,7 @@ interface WOrder {
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
 }
-interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null }
+interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null; unit_price: number | null; case_price: number | null }
 interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
 interface Pallet { id: string; order_id: string; pallet_number: number; total_pallets: number; token: string; status: string; completed_by: string | null; completed_at: string | null }
 interface PalletItem { id: string; pallet_id: string; order_id: string; sku: string; qty: number }
@@ -146,6 +146,9 @@ export default function WalmartBoard() {
     return m
   }, [products])
   const skuInfo = (sku: string | null | undefined) => sku ? productBySku[String(sku).trim().toUpperCase()] : undefined
+  const WALMART_SKU_RE = /^22GV/i
+  const walmartProducts = useMemo(() => products.filter(p => WALMART_SKU_RE.test(p.sku || '')), [products])
+  const isWalmartSku = (sku?: string | null) => WALMART_SKU_RE.test(String(sku || '').trim())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -156,7 +159,7 @@ export default function WalmartBoard() {
     const lm: Record<string, WLine[]> = {}
     ;((l as any[]) || []).forEach(r => { (lm[r.order_id] ||= []).push(r) })
     setLines(lm)
-    const { data: pr } = await sb.from('products').select('id, sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams, unit_cost').order('sku', { ascending: true })
+    const { data: pr } = await sb.from('products').select('id, sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams, unit_cost, unit_price, case_price').order('sku', { ascending: true })
     setProducts((pr as Product[]) || [])
     const { data: bm } = await sb.from('product_bom').select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level')
     setBom((bm as BomRow[]) || [])
@@ -230,7 +233,7 @@ export default function WalmartBoard() {
       for (let i = 0; i < lineForms.length; i++) {
         const l = lineForms[i]
         const num = (v: any) => { const n = Number(v); return v === '' || v == null || isNaN(n) ? null : n }
-        const row: any = { order_id: detail.id, part_number: (String(l.part_number ?? '').trim() || null), qty: num(l.qty), qty_per_case: num(l.qty_per_case), completed_qty: num(l.completed_qty), uom: (String(l.uom ?? '').trim() || null), packaging: (String(l.packaging ?? '').trim() || null), production_status: (String(l.production_status ?? '').trim() || null), cost_each: (String(l.cost_each ?? '').trim() || null), total_cost: (String(l.total_cost ?? '').trim() || null), added_details: (String(l.added_details ?? '').trim() || null), line_number: i + 1 }
+        const row: any = { order_id: detail.id, part_number: (String(l.part_number ?? '').trim() || null), qty: num(l.qty), qty_per_case: num(l.qty_per_case), completed_qty: num(l.completed_qty), uom: (String(l.uom ?? '').trim() || null), packaging: (String(l.packaging ?? '').trim() || null), production_status: (String(l.production_status ?? '').trim() || null), cost_each: (String(l.cost_each ?? '').trim() || null), total_cost: (String(l.total_cost ?? '').trim() || null), added_details: (String(l.added_details ?? '').trim() || null), unit_price: num(l.unit_price), line_number: i + 1 }
         if (l._new || !l.id) await sb.from('walmart_board_lines').insert(row)
         else await sb.from('walmart_board_lines').update(row).eq('id', l.id)
       }
@@ -292,7 +295,7 @@ export default function WalmartBoard() {
         load_number: o.load_number || 'Pending Load Assignment',
       }))
       const pls: any[] = Array.isArray(j.lines) ? j.lines : []
-      setNLines(pls.map((l: any) => ({ _new: true, part_number: l.sku || l.supplier_item || l.upc || '', qty: l.qty ?? null, qty_per_case: null, completed_qty: null, uom: 'SRPs', packaging: 'Packed', production_status: null, cost_each: '', total_cost: '', added_details: l.description || '' })))
+      setNLines(pls.map((l: any) => ({ _new: true, part_number: l.sku || l.supplier_item || l.upc || '', qty: l.qty ?? null, unit_price: l.unit_price ?? null, qty_per_case: null, completed_qty: null, uom: 'SRPs', packaging: 'Packed', production_status: null, cost_each: '', total_cost: '', added_details: l.description || '' })))
       const flags = new Set<string>()
       if (!o.po_number) flags.add('po_number')
       if (!o.order_date) flags.add('order_date')
@@ -334,7 +337,7 @@ export default function WalmartBoard() {
       const oid = (data as WOrder).id
       const toInsert = nLines.filter(l => (l.part_number || '').trim() || Number(l.qty)).map((l, i) => ({
         order_id: oid, part_number: (l.part_number || '').trim() || null, qty: Number(l.qty) || null,
-        uom: (l.uom || 'SRPs'), packaging: (l.packaging || 'Packed'), line_number: i + 1,
+        uom: (l.uom || 'SRPs'), packaging: (l.packaging || 'Packed'), line_number: i + 1, unit_price: (Number(l.unit_price) || null),
       }))
       if (toInsert.length) await sb.from('walmart_board_lines').insert(toInsert)
       setShowNew(false)
@@ -563,9 +566,10 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const cellCls = 'w-full bg-white border border-[#E4E6EE] rounded px-1.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const fcls = (k: string) => inputCls + (flagged.has(k) ? ' ring-2 ring-red-400 border-red-400' : '')
-  const unitCostOf = (sku?: string | null) => { const c = Number(skuInfo(sku)?.unit_cost); return Number.isFinite(c) ? c : null }
-  const lineTotalOf = (l: WLine) => { const c = unitCostOf(l.part_number); return c == null ? null : c * (Number(l.qty) || 0) }
-  const linesTotalOf = (ls: WLine[]) => ls.reduce((a, l) => a + (unitCostOf(l.part_number) ?? 0) * (Number(l.qty) || 0), 0)
+  const sellPriceOf = (sku?: string | null) => { const p = skuInfo(sku); const u = Number(p?.unit_price); if (Number.isFinite(u) && u > 0) return u; const c = Number(p?.case_price); return Number.isFinite(c) && c > 0 ? c : null }
+  const lineUnitPrice = (l: WLine) => { const v = Number(l.unit_price); if (Number.isFinite(v) && v > 0) return v; return sellPriceOf(l.part_number) }
+  const lineTotalOf = (l: WLine) => { const u = lineUnitPrice(l); return u == null ? null : u * (Number(l.qty) || 0) }
+  const linesTotalOf = (ls: WLine[]) => ls.reduce((a, l) => a + (lineUnitPrice(l) ?? 0) * (Number(l.qty) || 0), 0)
   const completedForOrderSku = (orderId: string, sku?: string | null) => {
     const pls = pallets[orderId] || []
     const key = (sku || '').trim().toUpperCase()
@@ -577,6 +581,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
   function lineWarn(l: WLine) {
     const sku = (l.part_number || '').trim()
     if (!sku) return null
+    if (!isWalmartSku(sku)) return <span className="text-[11px] text-red-500">not a Walmart SKU</span>
     const p = skuInfo(sku)
     if (!p) return <span className="text-[11px] text-red-500">not in inventory</span>
     const oh = Number(p.on_hand_qty || 0)
@@ -803,13 +808,13 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                 </div>
                 <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                   <table className="w-full text-sm min-w-[520px]">
-                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[100px]">Qty (SRPs)</th><th className="text-right px-2 py-2 w-[90px]">Unit Cost</th><th className="text-right px-2 py-2 w-[100px]">Line Total</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
+                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[100px]">Qty (SRPs)</th><th className="text-right px-2 py-2 w-[100px]">Unit Price</th><th className="text-right px-2 py-2 w-[100px]">Line Total</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
                     <tbody>
                       {nLines.map((l, i) => (
                         <tr key={'n' + i} className="border-t border-[#F0F2F6]">
                           <td className="px-2 py-1.5"><input list="wm-skus" className={cellCls + ' font-mono'} value={l.part_number ?? ''} onChange={e => setNLine(i, { part_number: e.target.value })} placeholder="Pick SKU" /></td>
                           <td className="px-2 py-1.5"><input type="number" className={cellCls} value={l.qty ?? ''} onChange={e => setNLine(i, { qty: e.target.value === '' ? null : Number(e.target.value) })} /></td>
-                          <td className="px-2 py-1.5 text-right text-gray-600">{fmt$(unitCostOf(l.part_number))}</td>
+                          <td className="px-2 py-1.5"><input type="number" step="any" className={cellCls + ' text-right'} value={l.unit_price ?? (sellPriceOf(l.part_number) ?? '')} onChange={e => setNLine(i, { unit_price: e.target.value === '' ? null : Number(e.target.value) })} placeholder="0.00" /></td>
                           <td className="px-2 py-1.5 text-right font-semibold text-gray-700">{fmt$(lineTotalOf(l))}</td>
                           <td className="px-2 py-1.5">{lineWarn(l) || <span className="text-gray-300 text-[11px]">—</span>}</td>
                           <td className="px-1 py-1.5 text-center"><button onClick={() => removeNLine(i)} className="text-gray-300 hover:text-red-500 text-base leading-none">×</button></td>
@@ -820,7 +825,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                     {nLines.length > 0 && <tfoot><tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-semibold"><td className="px-2 py-2 text-right text-gray-500" colSpan={3}>Order Total</td><td className="px-2 py-2 text-right text-emerald-700">{fmt$(linesTotalOf(nLines))}</td><td colSpan={2}></td></tr></tfoot>}
                   </table>
                 </div>
-                <datalist id="wm-skus">{products.map(p => <option key={p.id} value={p.sku}>{p.product_name || ''}</option>)}</datalist>
+                <datalist id="wm-skus">{walmartProducts.map(p => <option key={p.id} value={p.sku}>{p.product_name || ''}</option>)}</datalist>
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[#EEF0F4]">
@@ -878,7 +883,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                 {editing ? (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[680px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[70px]">Qty</th><th className="text-left px-2 py-2 w-[70px]">UOM</th><th className="text-left px-2 py-2 w-[80px]">Packaging</th><th className="text-right px-2 py-2 w-[80px]">Unit Cost</th><th className="text-right px-2 py-2 w-[90px]">Line Total</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[70px]">Qty</th><th className="text-left px-2 py-2 w-[70px]">UOM</th><th className="text-left px-2 py-2 w-[80px]">Packaging</th><th className="text-right px-2 py-2 w-[90px]">Unit Price</th><th className="text-right px-2 py-2 w-[90px]">Line Total</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
                       <tbody>
                         {lineForms.map((l, i) => (
                           <tr key={l.id || 'n' + i} className="border-t border-[#F0F2F6]">
@@ -886,7 +891,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                             <td className="px-2 py-1.5"><input type="number" className={cellCls} value={l.qty ?? ''} onChange={e => setLine(i, { qty: e.target.value === '' ? null : Number(e.target.value) })} /></td>
                             <td className="px-2 py-1.5"><input className={cellCls} value={l.uom ?? ''} onChange={e => setLine(i, { uom: e.target.value })} /></td>
                             <td className="px-2 py-1.5"><input className={cellCls} value={l.packaging ?? ''} onChange={e => setLine(i, { packaging: e.target.value })} /></td>
-                            <td className="px-2 py-1.5 text-right text-gray-600">{fmt$(unitCostOf(l.part_number))}</td>
+                            <td className="px-2 py-1.5"><input type="number" step="any" className={cellCls + ' text-right'} value={l.unit_price ?? (sellPriceOf(l.part_number) ?? '')} onChange={e => setLine(i, { unit_price: e.target.value === '' ? null : Number(e.target.value) })} placeholder="0.00" /></td>
                             <td className="px-2 py-1.5 text-right font-semibold text-gray-700">{fmt$(lineTotalOf(l))}</td>
                             <td className="px-2 py-1.5">{lineWarn(l) || <span className="text-gray-300 text-[11px]">—</span>}</td>
                             <td className="px-1 py-1.5 text-center"><button onClick={() => removeLine(i)} className="text-gray-300 hover:text-red-500 text-base leading-none" title="Remove">×</button></td>
@@ -896,14 +901,14 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                       </tbody>
                       {lineForms.length > 0 && <tfoot><tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-semibold"><td className="px-2 py-2 text-right text-gray-500" colSpan={5}>Order Total</td><td className="px-2 py-2 text-right text-emerald-700">{fmt$(linesTotalOf(lineForms))}</td><td colSpan={2}></td></tr></tfoot>}
                     </table>
-                    <datalist id="wm-skus">{products.map(p => <option key={p.id} value={p.sku}>{p.product_name || ''}</option>)}</datalist>
+                    <datalist id="wm-skus">{walmartProducts.map(p => <option key={p.id} value={p.sku}>{p.product_name || ''}</option>)}</datalist>
                   </div>
                 ) : detailLines.length === 0 ? <p className="text-sm text-gray-400">No order detail lines.</p> : (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[720px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Ordered</th><th className="text-right px-3 py-2">Completed</th><th className="text-right px-3 py-2">Remaining</th><th className="text-left px-3 py-2">UOM</th><th className="text-right px-3 py-2">Unit Cost</th><th className="text-right px-3 py-2">Line Total</th><th className="text-right px-3 py-2">On Hand</th></tr></thead>
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Ordered</th><th className="text-right px-3 py-2">Completed</th><th className="text-right px-3 py-2">Remaining</th><th className="text-left px-3 py-2">UOM</th><th className="text-right px-3 py-2">Unit Price</th><th className="text-right px-3 py-2">Line Total</th><th className="text-right px-3 py-2">On Hand</th></tr></thead>
                       <tbody>
-                        {detailLines.map(l => { const p = skuInfo(l.part_number); const done = completedForOrderSku(detail.id, l.part_number); const ordered = Number(l.qty) || 0; const remaining = Math.max(0, ordered - done); return (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 font-mono text-emerald-600">{l.part_number || '—'}</td><td className="px-3 py-2 text-right text-gray-700">{l.qty ?? '—'}</td><td className="px-3 py-2 text-right font-semibold text-emerald-600">{fmtN(done)}</td><td className={`px-3 py-2 text-right font-semibold ${remaining > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{remaining > 0 ? fmtN(remaining) : '✓ 0'}</td><td className="px-3 py-2 text-gray-600">{l.uom || '—'}</td><td className="px-3 py-2 text-right text-gray-600">{fmt$(unitCostOf(l.part_number))}</td><td className="px-3 py-2 text-right font-semibold text-gray-700">{fmt$(lineTotalOf(l))}</td><td className="px-3 py-2 text-right text-gray-500">{p ? fmtN(p.on_hand_qty) : <span className="text-red-400">not in inv</span>}</td></tr>) })}
+                        {detailLines.map(l => { const p = skuInfo(l.part_number); const done = completedForOrderSku(detail.id, l.part_number); const ordered = Number(l.qty) || 0; const remaining = Math.max(0, ordered - done); return (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 font-mono text-emerald-600">{l.part_number || '—'}</td><td className="px-3 py-2 text-right text-gray-700">{l.qty ?? '—'}</td><td className="px-3 py-2 text-right font-semibold text-emerald-600">{fmtN(done)}</td><td className={`px-3 py-2 text-right font-semibold ${remaining > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{remaining > 0 ? fmtN(remaining) : '✓ 0'}</td><td className="px-3 py-2 text-gray-600">{l.uom || '—'}</td><td className="px-3 py-2 text-right text-gray-600">{fmt$(lineUnitPrice(l))}</td><td className="px-3 py-2 text-right font-semibold text-gray-700">{fmt$(lineTotalOf(l))}</td><td className="px-3 py-2 text-right text-gray-500">{p ? fmtN(p.on_hand_qty) : <span className="text-red-400">not in inv</span>}</td></tr>) })}
                       </tbody>
                       <tfoot><tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-semibold"><td className="px-3 py-2 text-right text-gray-500" colSpan={6}>Order Total</td><td className="px-3 py-2 text-right text-emerald-700">{fmt$(linesTotalOf(detailLines))}</td><td></td></tr></tfoot>
                     </table>
