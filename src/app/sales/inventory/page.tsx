@@ -37,6 +37,7 @@ interface Product {
   imap: number | null
   map_price: number | null
   requires_bom: boolean | null
+  is_import: boolean | null
   is_active: boolean
   is_discontinued: boolean | null
   notes: string | null
@@ -45,6 +46,31 @@ interface Product {
 const PRODUCT_TABS = ['All','BAGS','CUTLERY','STRAW-CUPS','RAW MATERIAL','ADDITIVES','WIP','PACKAGING','PRINT PLATE','MOLDING','COMPOSTER']
 const PRODUCT_TAB_OPTIONS = PRODUCT_TABS.slice(1)
 const CATEGORY_OPTIONS = ['Finished Goods','Raw Material','Component','Packaging','Mold','WIP','Additives','Print Plates','Composter Components']
+
+// ── Product class (top-level grouping) ────────────────────────────────────────
+// The board is grouped by class: Finished Products, WIP, Packaging, etc.
+// Only Finished Products need a BOM (unless flagged Import — No BOM).
+const CLASS_FINISHED = 'Finished Products'
+const CLASS_ORDER = [CLASS_FINISHED, 'WIP', 'Packaging', 'Raw Material', 'Additives', 'Composter Components', 'Print Plates', 'Mold', 'Component', 'Unclassified']
+const CLASS_COLORS: Record<string, string> = {
+  'Finished Products': '#00A84F', 'WIP': '#00C7C7', 'Packaging': '#579BFC', 'Raw Material': '#E2445C',
+  'Additives': '#FDAB3D', 'Composter Components': '#037F4C', 'Print Plates': '#9699A6', 'Mold': '#FF6D3B',
+  'Component': '#A25DDC', 'Unclassified': '#9699A6',
+}
+// Fold the messy free-text `category` values into clean class buckets.
+const CLASS_MAP: Record<string, string> = {
+  'finished goods': CLASS_FINISHED, 'finished products': CLASS_FINISHED, 'bags': CLASS_FINISHED,
+  'wraps': CLASS_FINISHED, 'molded fiber': CLASS_FINISHED,
+  'component': 'Packaging',
+  '': 'Unclassified', 'uncategorized': 'Unclassified',
+}
+function classOf(p: { category: string | null }): string {
+  const raw = (p.category || '').trim()
+  return CLASS_MAP[raw.toLowerCase()] ?? (raw || 'Unclassified')
+}
+const isFinished = (p: { category: string | null }) => classOf(p) === CLASS_FINISHED
+// Which class values (as stored in `category`) count as finished, for the editor toggle.
+const FINISHED_CATEGORY_VALUES = ['Finished Goods', 'Finished Products', 'Bags', 'Wraps', 'Molded Fiber']
 const UOM_OPTIONS = ['EA','PKS','LBS','ROLLS','CASE','M','FT','OZ','GAL','KG','SET','Other']
 
 const fmt$ = (n: number | null | undefined) =>
@@ -78,6 +104,7 @@ const emptyForm = {
   notes: '',
   is_active: true,
   is_discontinued: false,
+  is_import: false,
 }
 type F = typeof emptyForm
 
@@ -181,13 +208,23 @@ const EditPanel = memo(function EditPanel({
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Type</label>
+              <label className="block text-xs text-gray-400 mb-1.5">Class (group)</label>
               <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} className={inp + ' cursor-pointer'}>
                 <option value="">— None —</option>
                 {CATEGORY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </div>
+
+          {FINISHED_CATEGORY_VALUES.includes(form.category) && (
+            <label className="flex items-start gap-2.5 rounded-lg border border-[#E4E6EE] bg-[#FBFCFE] px-3 py-2.5 cursor-pointer select-none">
+              <input type="checkbox" checked={!!form.is_import} onChange={e => setForm(p => ({ ...p, is_import: e.target.checked }))} className="accent-amber-500 w-4 h-4 mt-0.5" />
+              <span className="text-xs text-[#1A1D2E]">
+                <span className="font-semibold">Import Product — No BOM</span>
+                <span className="block text-gray-400 mt-0.5">Finished products need a BOM. Tick this if it&apos;s imported (bought finished) so it&apos;s exempt from the BOM requirement.</span>
+              </span>
+            </label>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -415,7 +452,7 @@ export default function InventoryPage() {
   // Stats (based on tab pool, not search-filtered)
   const stats = useMemo(() => {
     const totalValue = tabPool.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
-    const finishedGoods = tabPool.filter(p => p.category === 'Finished Goods').length
+    const finishedGoods = tabPool.filter(p => isFinished(p)).length
     const outOfStock = tabPool.filter(p => !p.on_hand_qty || p.on_hand_qty === 0).length
     return { totalValue, finishedGoods, outOfStock }
   }, [tabPool])
@@ -454,6 +491,7 @@ export default function InventoryPage() {
       notes: r.notes ?? '',
       is_active: r.is_active !== false,
       is_discontinued: r.is_discontinued === true,
+      is_import: r.is_import === true,
     })
     setErr('')
     setOpen(true)
@@ -491,6 +529,8 @@ export default function InventoryPage() {
       notes: form.notes.trim() || null,
       is_active: form.is_active,
       is_discontinued: form.is_discontinued,
+      // Import flag only meaningful on finished products; store false otherwise.
+      is_import: FINISHED_CATEGORY_VALUES.includes(form.category) ? !!form.is_import : false,
     }
     const { error } = editing
       ? await sb.from('products').update(payload).eq('id', editing.id)
@@ -556,7 +596,7 @@ export default function InventoryPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <StatCard label="Total SKUs" value={String(rows.length)} sub="all categories"/>
           <StatCard label="Inventory Value" value={fmtV(stats.totalValue)} accent="text-emerald-600" sub="on-hand x unit cost"/>
-          <StatCard label="Finished Goods" value={String(stats.finishedGoods)} sub="category = Finished Goods"/>
+          <StatCard label="Finished Products" value={String(stats.finishedGoods)} sub="finished-goods class"/>
           <StatCard label="Out of Stock" value={String(stats.outOfStock)} accent={stats.outOfStock > 0 ? 'text-red-600' : 'text-[#1A1D2E]'} sub="qty = 0"/>
         </div>
       )}
@@ -583,11 +623,11 @@ export default function InventoryPage() {
       ) : filtered.length === 0 ? (
         <div className="bg-white border border-[#E4E6EE] rounded-xl px-4 py-16 text-center text-gray-500 text-sm">No products found.</div>
       ) : (() => {
-        const COLORS: Record<string, string> = { 'BAGS':'#0086C0','CUTLERY':'#00A84F','STRAW-CUPS':'#A25DDC','RAW MATERIAL':'#E2445C','ADDITIVES':'#FDAB3D','WIP':'#00C7C7','PACKAGING':'#579BFC','PRINT PLATE':'#9699A6','MOLDING':'#FF6D3B','COMPOSTER':'#037F4C','Uncategorized':'#9699A6' }
+        const COLORS = CLASS_COLORS
         const gmap: Record<string, Product[]> = {}
-        for (const p of filtered) { const k = p.product_category || 'Uncategorized'; (gmap[k] ||= []).push(p) }
-        const extra = Object.keys(gmap).filter(k => !PRODUCT_TAB_OPTIONS.includes(k) && k !== 'Uncategorized').sort()
-        const keys = [...PRODUCT_TAB_OPTIONS.filter(k => gmap[k]), ...extra, ...(gmap['Uncategorized'] ? ['Uncategorized'] : [])]
+        for (const p of filtered) { const k = classOf(p); (gmap[k] ||= []).push(p) }
+        const extra = Object.keys(gmap).filter(k => !CLASS_ORDER.includes(k)).sort()
+        const keys = [...CLASS_ORDER.filter(k => gmap[k]), ...extra]
         return (
           <div className="space-y-2.5 mb-6">
             {keys.map(cat => {
@@ -626,8 +666,10 @@ export default function InventoryPage() {
                             const isLow = !isOut && (p.on_hand_qty ?? 0) <= 10
                             const isDisc = p.is_discontinued === true
                             const bomCount = bomMap[p.sku] ?? 0
-                            const needsBom = p.requires_bom === true
-                            const isFG = p.category === 'Finished Goods'
+                            const isFG = isFinished(p)
+                            const isImport = p.is_import === true
+                            // Only finished products (that aren't imported) need a BOM.
+                            const needsBom = isFG && !isImport && bomCount === 0
                             return (
                               <tr key={p.id} id={'item-'+p.id}
                                 style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }}
@@ -641,11 +683,11 @@ export default function InventoryPage() {
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="text-gray-500 text-xs font-mono truncate block max-w-[140px]">{p.upc_gtin ?? '-'}</span></td>
-                                <td className="px-2 py-3 text-center">{bomCount > 0 ? <svg className="w-4 h-4 text-emerald-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg> : needsBom ? <svg className="w-4 h-4 text-amber-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg> : <span className="text-gray-300 text-xs">-</span>}</td>
+                                <td className="px-2 py-3 text-center">{bomCount > 0 ? <svg className="w-4 h-4 text-emerald-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg> : (isFG && isImport) ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FBF0DD] text-[#8A5A0B] whitespace-nowrap" title="Import Product — No BOM required">Import</span> : needsBom ? <span title="Finished product — BOM required"><svg className="w-4 h-4 text-amber-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></span> : <span className="text-gray-300 text-xs">-</span>}</td>
                                 <td className="px-3 py-3" onClick={e=>e.stopPropagation()}>
                                   <div className="flex items-center gap-1">
                                     <button onClick={() => openEdit(p)} className="text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
-                                    <button onClick={() => setBomProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>
+                                    {isFG && !isImport && <button onClick={() => setBomProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>}
                                     <button onClick={() => setZoneProduct(p)} className={`text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                                     {isFG && <button onClick={() => setLabelProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
                                     <button onClick={() => handleDelete(p.id, p.sku)} className="text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
