@@ -149,12 +149,9 @@ export default function ShippingQueuePage() {
     const rows = (data as any[]) || []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setItems(rows.map((o: any) => ({ id: o.id, sales_order_id: o.id, status: o.status, sales_orders: o })))
-    // Mirror Walmart board orders that are in a shippable status (same status vocabulary, non-archived).
-    const { data: wdata } = await sb.from('walmart_board_orders')
-      .select('id, name, status, po_number, ship_to, ship_due_date, order_date, carrier, total_value')
-      .in('status', SHIPPABLE).eq('archived', false).order('ship_due_date', { ascending: true, nullsFirst: false })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setWItems(((wdata as any[]) || []).map((w: any) => ({ id: w.id, status: w.status, w })))
+    // Walmart orders are handled entirely on the Walmart board (BOL/packing slip generated there,
+    // and marking Shipped creates the shipment directly), so they no longer appear on this queue.
+    setWItems([])
     setLoading(false)
   }, [])
 
