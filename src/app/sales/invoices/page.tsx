@@ -39,6 +39,9 @@ interface Invoice {
   shipping_blocked: boolean
   po_number: string | null
   status: string
+  commission_status: string | null
+  ship_to_address: string | null
+  bill_to_address: string | null
   reminder_count: number
   notes: string | null
   is_active: boolean
@@ -49,12 +52,17 @@ interface Customer { id: string; company_name: string }
 
 const STATUS_CFG: Record<string,{label:string;cls:string;pulse?:boolean}> = {
   proforma: { label:'PROFORMA', cls:'bg-[#F5F6FA]/50 text-gray-500 border-gray-600' },
-  pending:  { label:'UNPAID',   cls:'bg-red-500/20 text-red-400 border-red-500/30' },
-  partial:  { label:'PARTIAL',  cls:'bg-blue-500/15 text-blue-400 border-blue-500/20' },
-  overdue:  { label:'OVERDUE',  cls:'bg-red-600/20 text-red-500 border-red-600/30', pulse: true },
-  paid:     { label:'PAID',     cls:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
+  pending:  { label:'UNPAID',   cls:'bg-red-500/20 text-red-500 border-red-500/30' },
+  unpaid:   { label:'UNPAID',   cls:'bg-red-500/20 text-red-500 border-red-500/30' },
+  'invoice sent to customer': { label:'SENT TO CUSTOMER', cls:'bg-blue-500/15 text-blue-600 border-blue-500/20' },
+  partial:  { label:'PARTIAL',  cls:'bg-blue-500/15 text-blue-500 border-blue-500/20' },
+  overdue:  { label:'OVERDUE',  cls:'bg-red-600/20 text-red-600 border-red-600/30', pulse: true },
+  paid:     { label:'PAYMENT RECEIVED', cls:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' },
+  'payment received': { label:'PAYMENT RECEIVED', cls:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' },
   void:     { label:'VOID',     cls:'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]' },
 }
+const INVOICE_STATUS_OPTIONS = ['Unpaid', 'Invoice Sent to Customer', 'Payment Received']
+const COMMISSION_STATUS_OPTIONS = ['Pending Customer Payment', 'Commission Paid']
 
 type Tab = 'all' | 'unpaid' | 'overdue' | 'paid' | 'proforma'
 const TABS: Tab[] = ['all','unpaid','overdue','paid','proforma']
@@ -127,6 +135,32 @@ export default function InvoicesPage() {
   // Void confirm
   const [showVoidConfirm, setShowVoidConfirm] = useState(false)
 
+  // Editable billing details (invoice #, status, commission, addresses)
+  const [editInvNum, setEditInvNum] = useState('')
+  const [editStatus, setEditStatus] = useState('Unpaid')
+  const [editCommission, setEditCommission] = useState('Pending Customer Payment')
+  const [editShipTo, setEditShipTo] = useState('')
+  const [editBillTo, setEditBillTo] = useState('')
+  const [savingBilling, setSavingBilling] = useState(false)
+  const [billingSaved, setBillingSaved] = useState(false)
+
+  async function saveBilling() {
+    if (!sel) return
+    setSavingBilling(true)
+    const patch = {
+      invoice_number_display: editInvNum.trim() || 'Invoice Number Pending',
+      status: editStatus,
+      commission_status: editCommission,
+      ship_to_address: editShipTo.trim() || null,
+      bill_to_address: editBillTo.trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+    await sb.from('invoices').update(patch).eq('id', sel.id)
+    setSel(s => s ? { ...s, ...patch } as Invoice : s)
+    setSavingBilling(false); setBillingSaved(true); setTimeout(() => setBillingSaved(false), 2500)
+    load()
+  }
+
   const panelRef = useRef<HTMLDivElement>(null)
   // Documents connected to the source order / shipment (shown on the bill)
   const [connectedDocs, setConnectedDocs] = useState<any[]>([])
@@ -185,6 +219,12 @@ export default function InvoicesPage() {
     setPartialMethod('Check')
     setPartialRef('')
     setUpdateAmt(String(inv.total_amount ?? inv.amount ?? 0))
+    setEditInvNum(inv.invoice_number_display && inv.invoice_number_display !== 'Invoice Number Pending' ? inv.invoice_number_display : '')
+    setEditStatus(INVOICE_STATUS_OPTIONS.includes(inv.status) ? inv.status : (inv.status?.toLowerCase() === 'paid' ? 'Payment Received' : 'Unpaid'))
+    setEditCommission(inv.commission_status ?? 'Pending Customer Payment')
+    setEditShipTo(inv.ship_to_address ?? '')
+    setEditBillTo(inv.bill_to_address ?? '')
+    setBillingSaved(false)
     setOpen(true)
     const { data } = await sb.from('invoice_line_items').select('*').eq('invoice_id', inv.id).order('id')
     setLineItems((data ?? []) as LineItem[])
@@ -566,6 +606,38 @@ export default function InvoicesPage() {
                   </div>
                 </div>
 
+                {/* Billing details — editable */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider">Billing Details</p>
+                    <button onClick={saveBilling} disabled={savingBilling} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white disabled:opacity-50 transition-colors">{savingBilling ? 'Saving…' : billingSaved ? 'Saved ✓' : 'Save'}</button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Invoice # <span className="text-gray-400">(accounting)</span></label>
+                      <input value={editInvNum} onChange={e => setEditInvNum(e.target.value)} placeholder="Invoice Number Pending" className={inp}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Status</label>
+                      <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className={inp}>{INVOICE_STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Commission Status</label>
+                      <select value={editCommission} onChange={e => setEditCommission(e.target.value)} className={inp}>{COMMISSION_STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Bill To</label>
+                      <textarea rows={3} value={editBillTo} onChange={e => setEditBillTo(e.target.value)} placeholder="Billing name & address" className={inp + ' resize-none'}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Ship To</label>
+                      <textarea rows={3} value={editShipTo} onChange={e => setEditShipTo(e.target.value)} placeholder="Shipping address" className={inp + ' resize-none'}/>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Financials */}
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider mb-3">Financials</p>
@@ -589,20 +661,20 @@ export default function InvoicesPage() {
                   <div className="flex flex-wrap gap-2">
                     {sel.status !== 'paid' && sel.status !== 'void' && (
                       <button onClick={() => { setShowPayFull(v => !v); setShowPartial(false); setShowUpdateAmt(false) }}
-                        className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
                         Mark as Fully Paid
                       </button>
                     )}
                     {sel.status !== 'paid' && sel.status !== 'void' && (
                       <button onClick={() => { setShowPartial(v => !v); setShowPayFull(false); setShowUpdateAmt(false) }}
-                        className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
                         Record Partial Payment
                       </button>
                     )}
                     {sel.status !== 'paid' && sel.status !== 'void' && (
                       <button onClick={() => { setShowUpdateAmt(v => !v); setShowPayFull(false); setShowPartial(false) }}
-                        className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
                         Update Amount
                       </button>
                     )}
@@ -655,7 +727,7 @@ export default function InvoicesPage() {
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => setShowPayFull(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-                        <button onClick={markPaid} disabled={busy} className="flex-1 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">
+                        <button onClick={markPaid} disabled={busy} className="flex-1 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold transition-colors">
                           {busy ? 'Saving…' : `Confirm — ${fmt$(sel.total_amount ?? sel.amount ?? 0)} Paid`}
                         </button>
                       </div>
@@ -693,7 +765,7 @@ export default function InvoicesPage() {
                       )}
                       <div className="flex gap-2">
                         <button onClick={() => setShowPartial(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-                        <button onClick={recordPartial} disabled={busy || !partialAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">
+                        <button onClick={recordPartial} disabled={busy || !partialAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold transition-colors">
                           {busy ? 'Saving…' : 'Record Payment'}
                         </button>
                       </div>
@@ -711,7 +783,7 @@ export default function InvoicesPage() {
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => setShowUpdateAmt(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-                        <button onClick={updateAmount} disabled={updatingAmt || !updateAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-[#1A1D2E] font-medium transition-colors">
+                        <button onClick={updateAmount} disabled={updatingAmt || !updateAmt} className="flex-1 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-semibold transition-colors">
                           {updatingAmt ? 'Saving…' : 'Update Amount'}
                         </button>
                       </div>
@@ -723,7 +795,7 @@ export default function InvoicesPage() {
                     <div className="mt-3 bg-red-950/30 border border-red-800/40 rounded-xl p-3 flex gap-3 items-center">
                       <p className="text-red-300 text-sm flex-1">Void this invoice? This cannot be undone.</p>
                       <button onClick={() => setShowVoidConfirm(false)} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
-                      <button onClick={voidInvoice} disabled={busy} className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                      <button onClick={voidInvoice} disabled={busy} className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
                         {busy ? 'Voiding…' : 'Confirm Void'}
                       </button>
                     </div>
