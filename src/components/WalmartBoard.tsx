@@ -125,6 +125,10 @@ export default function WalmartBoard() {
   const [nf, setNf] = useState<any>({})
   const [nfTouched, setNfTouched] = useState<{ name?: boolean; srp?: boolean; units?: boolean }>({})
   const [nLines, setNLines] = useState<WLine[]>([])
+  const [poParsing, setPoParsing] = useState(false)
+  const [poError, setPoError] = useState('')
+  const [poFileName, setPoFileName] = useState('')
+  const [flagged, setFlagged] = useState<Set<string>>(new Set())
 
   // drag & drop
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -245,7 +249,45 @@ export default function WalmartBoard() {
   const nUnitsAuto = useMemo(() => nLines.reduce((a, l) => a + (Number(l.qty) || 0) * UNITS_PER_SRP, 0), [nLines])
   function openNew() {
     setNf({ name: '', po_number: '', carrier: '', commodity_description: DEFAULT_COMMODITY, facility: 'bG - SACA', order_date: new Date().toISOString().slice(0, 10), ship_due_date: '', load_number: '', ship_to: '', pallets: '', srp: '', units: '' })
-    setNfTouched({}); setNLines([]); setShowNew(true)
+    setNfTouched({}); setNLines([]); setPoError(''); setPoFileName(''); setFlagged(new Set()); setShowNew(true)
+  }
+
+  async function uploadPO(file: File) {
+    if (!file) return
+    setPoError(''); setPoParsing(true); setPoFileName(file.name)
+    try {
+      const path = `walmart-po/${Date.now()}_${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`
+      const { error: upErr } = await sb.storage.from('erp-files').upload(path, file, { upsert: true })
+      if (upErr) { setPoError('Upload failed: ' + upErr.message); return }
+      const r = await fetch('/api/walmart/parse-po', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storagePath: path, fileName: file.name }) })
+      const j = await r.json()
+      if (!r.ok) { setPoError(j.error || 'Could not read the PO'); return }
+      const o = j.order || {}
+      const shipTo = o.ship_to || (o.dc_number ? ('Walmart DC ' + o.dc_number) : '')
+      setNf((f: any) => ({
+        ...f,
+        po_number: o.po_number || f.po_number,
+        name: nfTouched.name ? f.name : (o.po_number ? `WALMART|${o.po_number}` : f.name),
+        order_date: o.order_date || f.order_date,
+        ship_due_date: o.ship_due_date || f.ship_due_date,
+        carrier: o.carrier || f.carrier,
+        commodity_description: o.commodity_description || f.commodity_description || DEFAULT_COMMODITY,
+        ship_to: shipTo || f.ship_to,
+        load_number: o.load_number || 'Pending Load Assignment',
+      }))
+      const pls: any[] = Array.isArray(j.lines) ? j.lines : []
+      setNLines(pls.map((l: any) => ({ _new: true, part_number: l.sku || l.supplier_item || l.upc || '', qty: l.qty ?? null, qty_per_case: null, completed_qty: null, uom: 'SRPs', packaging: 'Packed', production_status: null, cost_each: '', total_cost: '', added_details: l.description || '' })))
+      const flags = new Set<string>()
+      if (!o.po_number) flags.add('po_number')
+      if (!o.order_date) flags.add('order_date')
+      if (!o.ship_due_date) flags.add('ship_due_date')
+      if (!o.carrier) flags.add('carrier')
+      if (!shipTo) flags.add('ship_to')
+      if (pls.length === 0) flags.add('lines')
+      else if (pls.some((l: any) => !l.matched)) flags.add('lines_unmatched')
+      setFlagged(flags)
+    } catch (e) { setPoError('Error reading PO: ' + String(e)) }
+    finally { setPoParsing(false) }
   }
   const setNLine = (i: number, patch: Partial<WLine>) => setNLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l))
   const addNLine = () => setNLines(ls => [...ls, { _new: true, part_number: '', qty: null, qty_per_case: null, completed_qty: null, uom: 'SRPs', packaging: 'Packed', production_status: null, cost_each: '', total_cost: '', added_details: '' }])
@@ -266,7 +308,7 @@ export default function WalmartBoard() {
         commodity_description: (nf.commodity_description || '').trim() || DEFAULT_COMMODITY,
         facility: (nf.facility || '').trim() || 'bG - SACA',
         order_date: nf.order_date || null, ship_due_date: nf.ship_due_date || null,
-        load_number: (nf.load_number || '').trim() || null, ship_to: (nf.ship_to || '').trim() || null,
+        load_number: (nf.load_number || '').trim() || 'Pending Load Assignment', ship_to: (nf.ship_to || '').trim() || null,
         pallets: (nf.pallets || '').toString().trim() || null,
         srp: isNaN(srp) ? null : srp, units: isNaN(units) ? null : units,
       }
@@ -418,6 +460,7 @@ h1{font-size:18px;margin:0 0 12px}
 
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const cellCls = 'w-full bg-white border border-[#E4E6EE] rounded px-1.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
+  const fcls = (k: string) => inputCls + (flagged.has(k) ? ' ring-2 ring-red-400 border-red-400' : '')
 
   function lineWarn(l: WLine) {
     const sku = (l.part_number || '').trim()
@@ -603,16 +646,39 @@ h1{font-size:18px;margin:0 0 12px}
               <button onClick={() => !creating && setShowNew(false)} className="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
             </div>
             <div className="px-6 py-4 max-h-[76vh] overflow-y-auto space-y-4">
+              <div className="rounded-lg border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] p-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className={`text-sm font-semibold px-3 py-1.5 rounded-lg ${poParsing ? 'bg-gray-100 text-gray-400 cursor-wait' : 'bg-[#EAF0FC] text-[#0086C0] hover:bg-[#DCE7FB] cursor-pointer'}`}>
+                    {poParsing ? 'Reading PO…' : '📄 Upload Walmart PO'}
+                    <input type="file" accept=".pdf,image/*" className="hidden" disabled={poParsing} onChange={e => { const fl = e.target.files?.[0]; if (fl) uploadPO(fl); e.currentTarget.value = '' }} />
+                  </label>
+                  <span className="text-xs text-gray-500">{poFileName || 'PDF or image — auto-fills the fields below'}</span>
+                </div>
+                {poError && <p className="text-xs text-red-500 mt-2">{poError}</p>}
+              </div>
+              {flagged.size > 0 && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
+                  Couldn&apos;t read everything from the PO — please review the fields highlighted in red: {[
+                    flagged.has('po_number') && 'PO #',
+                    flagged.has('order_date') && 'Order Date',
+                    flagged.has('ship_due_date') && 'Ship Due',
+                    flagged.has('carrier') && 'Carrier',
+                    flagged.has('ship_to') && 'Ship To',
+                    flagged.has('lines') && 'Line items (none found)',
+                    flagged.has('lines_unmatched') && 'some SKUs not matched to inventory',
+                  ].filter(Boolean).join(', ')}.
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">PO #</span><input className={inputCls} value={nf.po_number} onChange={e => onPoChange(e.target.value)} placeholder="e.g. 1234567890" /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">PO #</span><input className={fcls('po_number')} value={nf.po_number} onChange={e => onPoChange(e.target.value)} placeholder="e.g. 1234567890" /></label>
                 <label className="col-span-1 sm:col-span-2"><span className="text-[11px] uppercase tracking-wide text-gray-400">Order Name <span className="text-gray-300 normal-case">(auto from PO#)</span></span><input className={inputCls} value={nf.name} onChange={e => { setNfTouched(t => ({ ...t, name: true })); setNf((f: any) => ({ ...f, name: e.target.value })) }} placeholder="WALMART|…" /></label>
-                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Carrier</span><input list="wm-carriers" className={inputCls} value={nf.carrier} onChange={e => setNf((f: any) => ({ ...f, carrier: e.target.value }))} placeholder="Pick or type" /><datalist id="wm-carriers">{pastCarriers.map(c => <option key={c} value={c} />)}</datalist></label>
-                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Order Date</span><input type="date" className={inputCls} value={nf.order_date} onChange={e => setNf((f: any) => ({ ...f, order_date: e.target.value }))} /></label>
-                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Ship Due</span><input type="date" className={inputCls} value={nf.ship_due_date} onChange={e => setNf((f: any) => ({ ...f, ship_due_date: e.target.value }))} /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Carrier</span><input list="wm-carriers" className={fcls('carrier')} value={nf.carrier} onChange={e => setNf((f: any) => ({ ...f, carrier: e.target.value }))} placeholder="Pick or type" /><datalist id="wm-carriers">{pastCarriers.map(c => <option key={c} value={c} />)}</datalist></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Order Date</span><input type="date" className={fcls('order_date')} value={nf.order_date} onChange={e => setNf((f: any) => ({ ...f, order_date: e.target.value }))} /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Ship Due</span><input type="date" className={fcls('ship_due_date')} value={nf.ship_due_date} onChange={e => setNf((f: any) => ({ ...f, ship_due_date: e.target.value }))} /></label>
                 <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Load #</span><input className={inputCls} value={nf.load_number} onChange={e => setNf((f: any) => ({ ...f, load_number: e.target.value }))} /></label>
                 <label><span className="text-[11px] uppercase tracking-wide text-gray-400"># Pallets</span><input className={inputCls} value={nf.pallets} onChange={e => setNf((f: any) => ({ ...f, pallets: e.target.value }))} placeholder="e.g. 3" /></label>
                 <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Facility</span><input className={inputCls} value={nf.facility} onChange={e => setNf((f: any) => ({ ...f, facility: e.target.value }))} /></label>
-                <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Ship To</span><input className={inputCls} value={nf.ship_to} onChange={e => setNf((f: any) => ({ ...f, ship_to: e.target.value }))} /></label>
+                <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Ship To</span><input className={fcls('ship_to')} value={nf.ship_to} onChange={e => setNf((f: any) => ({ ...f, ship_to: e.target.value }))} /></label>
                 <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Commodity Description</span><input className={inputCls} value={nf.commodity_description} onChange={e => setNf((f: any) => ({ ...f, commodity_description: e.target.value }))} /></label>
                 <label><span className="text-[11px] uppercase tracking-wide text-gray-400">SRP <span className="text-gray-300 normal-case">(auto)</span></span><input type="number" className={inputCls} value={nfTouched.srp ? nf.srp : nSrpAuto} onChange={e => { setNfTouched(t => ({ ...t, srp: true })); setNf((f: any) => ({ ...f, srp: e.target.value })) }} /></label>
                 <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Units <span className="text-gray-300 normal-case">(SRP×{UNITS_PER_SRP})</span></span><input type="number" className={inputCls} value={nfTouched.units ? nf.units : nUnitsAuto} onChange={e => { setNfTouched(t => ({ ...t, units: true })); setNf((f: any) => ({ ...f, units: e.target.value })) }} /></label>
