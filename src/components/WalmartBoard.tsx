@@ -22,19 +22,48 @@ interface WOrder {
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null
 }
+interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null }
+interface BomRow { finished_sku: string; component_sku: string; component_name: string | null; quantity_per_srp: number | null }
+interface Pallet { id: string; order_id: string; pallet_number: number; total_pallets: number; token: string; status: string; completed_by: string | null; completed_at: string | null }
+interface PalletItem { id: string; pallet_id: string; order_id: string; sku: string; qty: number }
+
+const UNITS_PER_SRP = 6
+const DEFAULT_COMMODITY = 'Disposable Cutlery'
 
 const GROUPS = [
   { key: 'Walmart Orders', color: '#0086C0' },
+  { key: 'Building Order', color: '#FDAB3D' },
   { key: 'Ready for Shipment', color: '#00A84F' },
   { key: 'Prepped & Ready for Dispatch', color: '#A25DDC' },
   { key: 'Cancelled', color: '#E2445C' },
 ]
-// Unified with the Sales Order board so both boards share one status vocabulary (no operational-flow mismatch).
-const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Awaiting BOM Components', 'Production Queue', 'In Production', 'QC', 'Ready to Ship', 'Ready at Will Call', 'Partially Shipped', 'Shipped', 'On Hold', 'Cancelled', 'Closed']
+// One shared status vocabulary with the Sales Order board.
+const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Awaiting BOM Components', 'Production Queue', 'Building Order', 'In Production', 'QC', 'Ready to Ship', 'Prepped & Ready for Dispatch', 'Ready at Will Call', 'Partially Shipped', 'Shipped', 'On Hold', 'Cancelled', 'Closed']
+
+// Status ⇄ Group are kept in lock-step so the board never drifts from the workflow.
+function groupForStatus(status: string | null): string {
+  const s = (status || '').toLowerCase()
+  if (s === 'building order') return 'Building Order'
+  if (s === 'ready to ship') return 'Ready for Shipment'
+  if (s === 'prepped & ready for dispatch') return 'Prepped & Ready for Dispatch'
+  if (s === 'cancel' || s === 'cancelled' || s === 'canceled') return 'Cancelled'
+  return 'Walmart Orders'
+}
+function statusForGroup(group: string): string | null {
+  switch (group) {
+    case 'Building Order': return 'Building Order'
+    case 'Ready for Shipment': return 'Ready to Ship'
+    case 'Prepped & Ready for Dispatch': return 'Prepped & Ready for Dispatch'
+    case 'Cancelled': return 'Cancelled'
+    case 'Walmart Orders': return 'Confirmed'
+    default: return null
+  }
+}
 
 const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 const fmt$ = (n: number | null) => (n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 const fmtN = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString())
+const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c])
 
 type FKind = 'text' | 'date' | 'num' | 'money' | 'status' | 'longtext'
 const FIELDS: { key: keyof WOrder; label: string; kind: FKind; wide?: boolean }[] = [
@@ -68,12 +97,18 @@ export default function WalmartBoard() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<WOrder[]>([])
   const [lines, setLines] = useState<Record<string, WLine[]>>({})
+  const [products, setProducts] = useState<Product[]>([])
+  const [bom, setBom] = useState<BomRow[]>([])
+  const [pallets, setPallets] = useState<Record<string, Pallet[]>>({})
+  const [palletItems, setPalletItems] = useState<Record<string, PalletItem[]>>({})
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [fileCounts, setFileCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [userEmail, setUserEmail] = useState('')
+  const [showReq, setShowReq] = useState(true)
+  const [reqExpand, setReqExpand] = useState<Record<string, boolean>>({})
 
   const [detail, setDetail] = useState<WOrder | null>(null)
   const [editing, setEditing] = useState(false)
@@ -81,8 +116,26 @@ export default function WalmartBoard() {
   const [lineForms, setLineForms] = useState<WLine[]>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [adding, setAdding] = useState(false)
+  const [genBusy, setGenBusy] = useState(false)
   const navRef = useRef<HTMLDivElement>(null)
+
+  // New-order modal
+  const [showNew, setShowNew] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [nf, setNf] = useState<any>({})
+  const [nfTouched, setNfTouched] = useState<{ name?: boolean; srp?: boolean; units?: boolean }>({})
+  const [nLines, setNLines] = useState<WLine[]>([])
+
+  // drag & drop
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState<string | null>(null)
+
+  const productBySku = useMemo(() => {
+    const m: Record<string, Product> = {}
+    for (const p of products) m[p.sku.toUpperCase()] = p
+    return m
+  }, [products])
+  const skuInfo = (sku: string | null | undefined) => sku ? productBySku[String(sku).trim().toUpperCase()] : undefined
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -93,6 +146,18 @@ export default function WalmartBoard() {
     const lm: Record<string, WLine[]> = {}
     ;((l as any[]) || []).forEach(r => { (lm[r.order_id] ||= []).push(r) })
     setLines(lm)
+    const { data: pr } = await sb.from('products').select('id, sku, product_name, on_hand_qty').order('sku', { ascending: true })
+    setProducts((pr as Product[]) || [])
+    const { data: bm } = await sb.from('walmart_bom').select('finished_sku, component_sku, component_name, quantity_per_srp')
+    setBom((bm as BomRow[]) || [])
+    const { data: pl } = await sb.from('walmart_pallets').select('*').order('pallet_number', { ascending: true })
+    const pm: Record<string, Pallet[]> = {}
+    ;((pl as Pallet[]) || []).forEach(p => { (pm[p.order_id] ||= []).push(p) })
+    setPallets(pm)
+    const { data: pi } = await sb.from('walmart_pallet_items').select('*')
+    const pim: Record<string, PalletItem[]> = {}
+    ;((pi as PalletItem[]) || []).forEach(p => { (pim[p.pallet_id] ||= []).push(p) })
+    setPalletItems(pim)
     const ids = orders.map(r => r.id)
     if (ids.length) {
       const cc: Record<string, number> = {}; const fc: Record<string, number> = {}
@@ -114,6 +179,7 @@ export default function WalmartBoard() {
   useItemDeepLink(rows, (r) => openDetail(r as WOrder))
   function closeDetail() { setDetail(null); setEditing(false) }
   const detailLines = detail ? (lines[detail.id] || []) : []
+  const detailPallets = detail ? (pallets[detail.id] || []) : []
 
   function startEdit() {
     if (!detail) return
@@ -138,6 +204,8 @@ export default function WalmartBoard() {
         else if (fld.kind === 'num' || fld.kind === 'money') { const n = Number(form[fld.key]); patch[fld.key] = form[fld.key] === '' || form[fld.key] == null || isNaN(n) ? null : n }
         else patch[fld.key] = clean(form[fld.key])
       }
+      // keep the group in lock-step with the chosen status
+      patch.group_name = groupForStatus(patch.status)
       const { error } = await sb.from('walmart_board_orders').update(patch).eq('id', detail.id)
       if (error) { alert('Save failed: ' + error.message); return }
       const keptIds = lineForms.filter(l => l.id && !l._new).map(l => l.id)
@@ -159,9 +227,10 @@ export default function WalmartBoard() {
 
   async function deleteRecord() {
     if (!detail) return
-    if (!confirm(`Delete "${detail.name}"?\n\nThis permanently removes the order, its line items and all of its comments. This cannot be undone.`)) return
+    if (!confirm(`Delete "${detail.name}"?\n\nThis permanently removes the order, its line items, pallets and all of its comments. This cannot be undone.`)) return
     setDeleting(true)
     try {
+      await sb.from('walmart_pallets').delete().eq('order_id', detail.id)
       await sb.from('walmart_board_lines').delete().eq('order_id', detail.id)
       try { await sb.rpc('delete_record_comments', { p_record_type: 'walmart_order', p_record_id: detail.id }) } catch { /* */ }
       const { error } = await sb.from('walmart_board_orders').delete().eq('id', detail.id)
@@ -170,17 +239,167 @@ export default function WalmartBoard() {
     } finally { setDeleting(false) }
   }
 
-  async function addOrder() {
-    const name = prompt('New Walmart order name (e.g. WALMART|1234567890):')
-    if (!name || !name.trim()) return
-    setAdding(true)
+  // ── New order (smart defaults) ─────────────────────────────────────────────
+  const pastCarriers = useMemo(() => Array.from(new Set(rows.map(r => (r.carrier || '').trim()).filter(Boolean))).sort(), [rows])
+  const nSrpAuto = useMemo(() => nLines.reduce((a, l) => a + (Number(l.qty) || 0), 0), [nLines])
+  const nUnitsAuto = useMemo(() => nLines.reduce((a, l) => a + (Number(l.qty) || 0) * UNITS_PER_SRP, 0), [nLines])
+  function openNew() {
+    setNf({ name: '', po_number: '', carrier: '', commodity_description: DEFAULT_COMMODITY, facility: 'bG - SACA', order_date: new Date().toISOString().slice(0, 10), ship_due_date: '', load_number: '', ship_to: '', pallets: '', srp: '', units: '' })
+    setNfTouched({}); setNLines([]); setShowNew(true)
+  }
+  const setNLine = (i: number, patch: Partial<WLine>) => setNLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l))
+  const addNLine = () => setNLines(ls => [...ls, { _new: true, part_number: '', qty: null, qty_per_case: null, completed_qty: null, uom: 'SRPs', packaging: 'Packed', production_status: null, cost_each: '', total_cost: '', added_details: '' }])
+  const removeNLine = (i: number) => setNLines(ls => ls.filter((_, idx) => idx !== i))
+  function onPoChange(v: string) {
+    setNf((f: any) => ({ ...f, po_number: v, name: nfTouched.name ? f.name : (v.trim() ? `WALMART|${v.trim()}` : '') }))
+  }
+  async function createOrder() {
+    const name = (nf.name || '').trim() || (nf.po_number ? `WALMART|${String(nf.po_number).trim()}` : '')
+    if (!name) { alert('Enter a PO # or an order name.'); return }
+    setCreating(true)
     try {
-      const { data, error } = await sb.from('walmart_board_orders').insert({ name: name.trim(), group_name: 'Walmart Orders', facility: 'bG - SACA' }).select('*').single()
+      const srp = nfTouched.srp ? Number(nf.srp) : nSrpAuto
+      const units = nfTouched.units ? Number(nf.units) : nUnitsAuto
+      const ins: any = {
+        name, group_name: 'Walmart Orders', status: 'Pending',
+        po_number: (nf.po_number || '').trim() || null, carrier: (nf.carrier || '').trim() || null,
+        commodity_description: (nf.commodity_description || '').trim() || DEFAULT_COMMODITY,
+        facility: (nf.facility || '').trim() || 'bG - SACA',
+        order_date: nf.order_date || null, ship_due_date: nf.ship_due_date || null,
+        load_number: (nf.load_number || '').trim() || null, ship_to: (nf.ship_to || '').trim() || null,
+        pallets: (nf.pallets || '').toString().trim() || null,
+        srp: isNaN(srp) ? null : srp, units: isNaN(units) ? null : units,
+      }
+      const { data, error } = await sb.from('walmart_board_orders').insert(ins).select('*').single()
       if (error) { alert('Create failed: ' + error.message); return }
+      const oid = (data as WOrder).id
+      const toInsert = nLines.filter(l => (l.part_number || '').trim() || Number(l.qty)).map((l, i) => ({
+        order_id: oid, part_number: (l.part_number || '').trim() || null, qty: Number(l.qty) || null,
+        uom: (l.uom || 'SRPs'), packaging: (l.packaging || 'Packed'), line_number: i + 1,
+      }))
+      if (toInsert.length) await sb.from('walmart_board_lines').insert(toInsert)
+      setShowNew(false)
       await load()
       if (data) openDetail(data as WOrder)
-    } finally { setAdding(false) }
+    } finally { setCreating(false) }
   }
+
+  // ── Pallet QR generation ───────────────────────────────────────────────────
+  async function generatePallets(order: WOrder) {
+    const parsed = parseInt(String(order.pallets || '').match(/\d+/)?.[0] || '0', 10)
+    let count = parsed
+    const existing = pallets[order.id] || []
+    if (!count) {
+      const v = prompt('How many pallets to generate QR codes for?', '1')
+      count = parseInt(v || '0', 10)
+    } else if (existing.length) {
+      const v = prompt(`This order already has ${existing.length} pallet(s). How many MORE to add? (leave blank to cancel)`, '')
+      count = parseInt(v || '0', 10)
+    }
+    if (!count || count < 1) return
+    setGenBusy(true)
+    try {
+      const base = existing.length
+      const totalAfter = base + count
+      const toIns = Array.from({ length: count }, (_, i) => ({ order_id: order.id, pallet_number: base + i + 1, total_pallets: totalAfter }))
+      const { error } = await sb.from('walmart_pallets').insert(toIns)
+      if (error) { alert('Could not generate pallets: ' + error.message); return }
+      if (base) await sb.from('walmart_pallets').update({ total_pallets: totalAfter }).eq('order_id', order.id)
+      await load()
+    } finally { setGenBusy(false) }
+  }
+  async function deletePallet(p: Pallet) {
+    if (!confirm(`Remove Pallet #${p.pallet_number}? ${p.status === 'complete' ? 'This pallet is already complete; inventory already deducted will NOT be restored.' : ''}`)) return
+    await sb.from('walmart_pallets').delete().eq('id', p.id)
+    await load()
+  }
+  async function printPalletQRs(order: WOrder) {
+    const pls = pallets[order.id] || []
+    if (!pls.length) { alert('Generate pallet QR codes first.'); return }
+    const origin = window.location.origin
+    const qr: any = await import('qrcode')
+    const cards = await Promise.all(pls.map(async p => {
+      const url = `${origin}/p/${p.token}`
+      let img = ''
+      try { img = await qr.toDataURL(url, { width: 360, margin: 1 }) } catch { /* */ }
+      return `<div class="card"><div class="hd">Pallet #${p.pallet_number} <span class="of">of ${p.total_pallets}</span></div><div class="nm">${esc(order.name)}</div>${order.po_number ? `<div class="po">PO ${esc(order.po_number)}${order.load_number ? ' · Load ' + esc(order.load_number) : ''}</div>` : ''}<img src="${img}"/><div class="url">Scan to report pallet contents</div></div>`
+    }))
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(order.name)} — Pallet QR Codes</title>
+<style>body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:18px;background:#fff;color:#111}
+h1{font-size:18px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.card{border:2px solid #111;border-radius:12px;padding:14px;text-align:center;page-break-inside:avoid}
+.hd{font-size:22px;font-weight:800}.hd .of{font-weight:500;color:#666;font-size:15px}
+.nm{font-size:13px;color:#333;margin:2px 0}.po{font-size:12px;color:#666;margin-bottom:6px}
+.card img{width:230px;height:230px}.url{font-size:12px;color:#555;margin-top:4px}
+@media print{.noprint{display:none}}</style></head>
+<body><h1>Pallet QR Codes — ${esc(order.name)}</h1><div class="grid">${cards.join('')}</div>
+<div class="noprint" style="margin-top:16px"><button onclick="window.print()" style="padding:8px 16px;font-size:14px">Print</button></div>
+</body></html>`
+    const w = window.open('', '_blank', 'width=820,height=900'); if (!w) { alert('Allow pop-ups to print the QR sheet.'); return }
+    w.document.write(html); w.document.close()
+  }
+
+  // ── Drag & drop between groups ─────────────────────────────────────────────
+  async function moveToGroup(id: string, targetGroup: string) {
+    const r = rows.find(x => x.id === id); if (!r) return
+    if ((r.group_name || 'Walmart Orders') === targetGroup) return
+    let newStatus = r.status
+    if (groupForStatus(r.status) !== targetGroup) newStatus = statusForGroup(targetGroup) || r.status
+    const patch: any = { group_name: targetGroup, status: newStatus, updated_at: new Date().toISOString() }
+    setRows(rs => rs.map(x => x.id === id ? { ...x, ...patch } : x))
+    const { error } = await sb.from('walmart_board_orders').update(patch).eq('id', id)
+    if (error) { alert('Move failed: ' + error.message); await load() }
+  }
+
+  // ── Requirements roll-up ───────────────────────────────────────────────────
+  const req = useMemo(() => {
+    const included = rows.filter(r => (r.group_name || 'Walmart Orders') !== 'Cancelled')
+    const orderById: Record<string, WOrder> = {}
+    included.forEach(o => { orderById[o.id] = o })
+    // required + by-load, per finished sku
+    const required: Record<string, number> = {}
+    const byLoad: Record<string, Record<string, number>> = {}
+    for (const o of included) {
+      const load = (o.load_number || '').trim() || '—'
+      for (const l of (lines[o.id] || [])) {
+        const sku = (l.part_number || '').trim().toUpperCase()
+        const q = Number(l.qty) || 0
+        if (!sku || !q) continue
+        required[sku] = (required[sku] || 0) + q
+        ;(byLoad[sku] ||= {})[load] = (byLoad[sku][load] || 0) + q
+      }
+    }
+    // completed, per finished sku (from pallet items on included orders)
+    const completed: Record<string, number> = {}
+    for (const [, items] of Object.entries(palletItems)) {
+      for (const it of items) {
+        if (!orderById[it.order_id]) continue
+        const sku = (it.sku || '').trim().toUpperCase()
+        completed[sku] = (completed[sku] || 0) + (Number(it.qty) || 0)
+      }
+    }
+    const skus = Array.from(new Set([...Object.keys(required), ...Object.keys(completed)])).sort()
+    const fg = skus.map(sku => ({ sku, required: required[sku] || 0, completed: completed[sku] || 0, delta: (required[sku] || 0) - (completed[sku] || 0), byLoad: byLoad[sku] || {} }))
+    // components requirement (packaging / BOM) from walmart_bom
+    const compReq: Record<string, { name: string | null; req: number }> = {}
+    for (const [sku, qty] of Object.entries(required)) {
+      for (const b of bom) {
+        if ((b.finished_sku || '').trim().toUpperCase() !== sku) continue
+        const cs = (b.component_sku || '').trim().toUpperCase()
+        if (!cs) continue
+        const need = (Number(b.quantity_per_srp) || 0) * qty
+        if (!compReq[cs]) compReq[cs] = { name: b.component_name, req: 0 }
+        compReq[cs].req += need
+      }
+    }
+    const comps = Object.entries(compReq).map(([sku, v]) => {
+      const avail = Number(skuInfo(sku)?.on_hand_qty ?? NaN)
+      return { sku, name: v.name, req: v.req, avail, short: isNaN(avail) ? null : avail - v.req }
+    }).sort((a, b) => a.sku.localeCompare(b.sku))
+    return { fg, comps }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, lines, palletItems, bom, products])
 
   const q = search.trim().toLowerCase()
   const match = (r: WOrder) => !q || [r.name, r.po_number, r.ship_to, r.status, r.load_number, r.bol2].some(v => (v || '').toLowerCase().includes(q))
@@ -192,6 +411,17 @@ export default function WalmartBoard() {
 
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
   const cellCls = 'w-full bg-white border border-[#E4E6EE] rounded px-1.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
+
+  function lineWarn(l: WLine) {
+    const sku = (l.part_number || '').trim()
+    if (!sku) return null
+    const p = skuInfo(sku)
+    if (!p) return <span className="text-[11px] text-red-500">not in inventory</span>
+    const oh = Number(p.on_hand_qty || 0)
+    const need = Number(l.qty) || 0
+    if (need > oh) return <span className="text-[11px] text-amber-600">on hand {fmtN(oh)} · short {fmtN(need - oh)}</span>
+    return <span className="text-[11px] text-emerald-600">on hand {fmtN(oh)}</span>
+  }
 
   function editControl(fld: typeof FIELDS[number]) {
     if (fld.kind === 'status') return <select className={inputCls} value={form.status || ''} onChange={e => setForm((f: any) => ({ ...f, status: e.target.value }))}><option value="">—</option>{STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}</select>
@@ -208,6 +438,8 @@ export default function WalmartBoard() {
     return v || <span className="text-gray-300">—</span>
   }
 
+  const detailIsBuilding = detail ? ((detail.group_name === 'Building Order') || ((detail.status || '').toLowerCase() === 'building order')) : false
+
   return (
     <div ref={navRef}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
@@ -215,12 +447,75 @@ export default function WalmartBoard() {
           <span className="mon-tag">🛒 Walmart Orders</span>
           <p className="text-gray-500 text-sm mt-1">{loading ? 'Loading…' : `${shown} of ${rows.length} orders · ${fmt$(totalVal)} total value`}</p>
         </div>
-        <button onClick={addOrder} disabled={adding} className="mon-btn">{adding ? 'Adding…' : '+ New Walmart order'}</button>
+        <button onClick={openNew} className="mon-btn">+ New Walmart order</button>
       </div>
+
+      {/* Requirements roll-up */}
+      {!loading && (req.fg.length > 0 || req.comps.length > 0) && (
+        <div className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm mb-4 overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none bg-[#0F172A]" onClick={() => setShowReq(s => !s)}>
+            <span className="text-[10px] text-white" style={{ display: 'inline-block', transform: showReq ? 'rotate(90deg)' : 'none' }}>&#9654;</span>
+            <span className="font-bold text-sm text-white">📊 Production Requirements</span>
+            <span className="text-[11px] text-white/60 ml-auto">across all active orders · required vs. reported by production</span>
+          </div>
+          {showReq && (
+            <div className="p-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5 px-1">Finished Goods (SRPs)</p>
+                <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm min-w-[420px]">
+                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Required</th><th className="text-right px-3 py-2">Completed</th><th className="text-right px-3 py-2">Delta</th></tr></thead>
+                    <tbody>
+                      {req.fg.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400 text-xs">No line items yet.</td></tr>}
+                      {req.fg.map(r => {
+                        const loads = Object.entries(r.byLoad)
+                        const open = reqExpand[r.sku]
+                        return (
+                          <FragmentRow key={r.sku}>
+                            <tr className="border-t border-[#F0F2F6] hover:bg-[#F8FAFC] cursor-pointer" onClick={() => setReqExpand(x => ({ ...x, [r.sku]: !x[r.sku] }))}>
+                              <td className="px-3 py-2 font-mono font-semibold text-[#0F7A4E]"><span className="text-gray-400 mr-1 text-[10px]" style={{ display: 'inline-block', transform: open ? 'rotate(90deg)' : 'none' }}>&#9654;</span>{r.sku}</td>
+                              <td className="px-3 py-2 text-right text-gray-700">{fmtN(r.required)}</td>
+                              <td className="px-3 py-2 text-right text-emerald-600 font-semibold">{fmtN(r.completed)}</td>
+                              <td className={`px-3 py-2 text-right font-semibold ${r.delta > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{r.delta > 0 ? fmtN(r.delta) : '✓ 0'}</td>
+                            </tr>
+                            {open && loads.map(([load, qv]) => (
+                              <tr key={r.sku + load} className="bg-[#FBFCFE] text-[12px]"><td className="px-3 py-1.5 pl-9 text-gray-500">Load {load}</td><td className="px-3 py-1.5 text-right text-gray-500">{fmtN(qv)}</td><td colSpan={2}></td></tr>
+                            ))}
+                          </FragmentRow>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5 px-1">Packaging / BOM Components</p>
+                <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm min-w-[420px]">
+                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">Component</th><th className="text-right px-3 py-2">Required</th><th className="text-right px-3 py-2">On Hand</th><th className="text-right px-3 py-2">Status</th></tr></thead>
+                    <tbody>
+                      {req.comps.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400 text-xs">No BOM components mapped.</td></tr>}
+                      {req.comps.map(c => (
+                        <tr key={c.sku} className="border-t border-[#F0F2F6]">
+                          <td className="px-3 py-2 font-mono text-gray-700" title={c.name || ''}>{c.sku}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{fmtN(c.req)}</td>
+                          <td className="px-3 py-2 text-right text-gray-600">{c.avail == null || isNaN(c.avail) ? '—' : fmtN(c.avail)}</td>
+                          <td className="px-3 py-2 text-right">{c.short == null ? <span className="text-gray-300">n/a</span> : c.short >= 0 ? <span className="text-[11px] font-semibold text-emerald-600">OK</span> : <span className="text-[11px] font-semibold text-red-500">short {fmtN(Math.abs(c.short))}</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <input placeholder="Search name, PO#, ship-to, status, load#…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1 min-w-[240px] max-w-md bg-white border border-[#E4E6EE] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <div className="flex items-center gap-1.5 ml-auto text-xs">
+          <span className="text-gray-400 mr-1 hidden sm:inline">Drag an order onto a group to change its status</span>
           <button onClick={() => setCollapsed(Object.fromEntries(allGroups.map(g => [g.key, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
           <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
         </div>
@@ -231,8 +526,12 @@ export default function WalmartBoard() {
           {allGroups.map(group => {
             const gr = groupRows(group.key); const isCol = collapsed[group.key]
             const val = gr.reduce((a, r) => a + (Number(r.total_value) || 0), 0)
+            const isDropTarget = dragOver === group.key
             return (
-              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]">
+              <div key={group.key} className="bg-white rounded-xl overflow-hidden shadow-sm border" style={{ borderColor: isDropTarget ? group.color : '#ECEEF3', boxShadow: isDropTarget ? `0 0 0 2px ${group.color}55` : undefined }}
+                onDragOver={e => { if (draggedId) { e.preventDefault(); setDragOver(group.key) } }}
+                onDragLeave={() => setDragOver(d => d === group.key ? null : d)}
+                onDrop={e => { e.preventDefault(); if (draggedId) moveToGroup(draggedId, group.key); setDraggedId(null); setDragOver(null) }}>
                 <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none" style={{ background: group.color + '14', borderLeft: '5px solid ' + group.color }} onClick={() => setCollapsed(c => ({ ...c, [group.key]: !c[group.key] }))}>
                   <span className="text-[10px]" style={{ color: group.color, display: 'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                   <span className="font-bold text-sm" style={{ color: group.color }}>{group.key}</span>
@@ -258,22 +557,26 @@ export default function WalmartBoard() {
                       <tbody className="divide-y divide-[#EAECF2]">
                         {gr.map((r, i) => {
                           const sc = statusColor(r.status)
-                          const nf = fileCounts[r.id] || 0; const nc = commentCounts[r.id] || 0
+                          const nf2 = fileCounts[r.id] || 0; const nc = commentCounts[r.id] || 0
+                          const dragging = draggedId === r.id
                           return (
-                            <tr key={r.id} id={'item-' + r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openDetail(r)}>
-                              <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E]">{r.name}</td>
+                            <tr key={r.id} id={'item-' + r.id} draggable
+                              onDragStart={e => { setDraggedId(r.id); e.dataTransfer.effectAllowed = 'move' }}
+                              onDragEnd={() => { setDraggedId(null); setDragOver(null) }}
+                              className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'} ${dragging ? 'opacity-40' : ''}`} onClick={() => openDetail(r)}>
+                              <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E]"><span className="text-gray-300 mr-1.5 cursor-grab" title="Drag to another group">⠿</span>{r.name}</td>
                               <td className="px-3 py-2.5"><span className="text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: sc.bg, color: sc.fg }}>{r.status || '—'}</span></td>
                               <td className="px-3 py-2.5 text-[13px] font-mono text-gray-600">{r.po_number || '—'}</td>
                               <td className="px-3 py-2.5 text-[12px] text-gray-500 truncate max-w-[260px]">{r.ship_to || '—'}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600">{r.carrier || '—'}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-700 text-right font-semibold">{r.total_value != null ? fmt$(Number(r.total_value)) : '—'}</td>
-                              <td className="px-3 py-2.5">{nf ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nf}</span> : <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-2.5">{nf2 ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nf2}</span> : <span className="text-gray-300">—</span>}</td>
                               <td className="px-3 py-2.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
                             </tr>
                           )
                         })}
-                        {gr.length === 0 && <tr><td colSpan={9} className="px-4 py-4 text-center text-gray-400 text-xs italic">No orders</td></tr>}
+                        {gr.length === 0 && <tr><td colSpan={9} className="px-4 py-4 text-center text-gray-400 text-xs italic">{draggedId ? 'Drop here to move the order into this group' : 'No orders'}</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -281,6 +584,62 @@ export default function WalmartBoard() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* New order modal */}
+      {showNew && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => !creating && setShowNew(false)}>
+          <div className="relative w-full max-w-[720px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: '#0086C0' }}>
+              <h2 className="text-lg font-bold">New Walmart Order</h2>
+              <button onClick={() => !creating && setShowNew(false)} className="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
+            </div>
+            <div className="px-6 py-4 max-h-[76vh] overflow-y-auto space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">PO #</span><input className={inputCls} value={nf.po_number} onChange={e => onPoChange(e.target.value)} placeholder="e.g. 1234567890" /></label>
+                <label className="col-span-1 sm:col-span-2"><span className="text-[11px] uppercase tracking-wide text-gray-400">Order Name <span className="text-gray-300 normal-case">(auto from PO#)</span></span><input className={inputCls} value={nf.name} onChange={e => { setNfTouched(t => ({ ...t, name: true })); setNf((f: any) => ({ ...f, name: e.target.value })) }} placeholder="WALMART|…" /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Carrier</span><input list="wm-carriers" className={inputCls} value={nf.carrier} onChange={e => setNf((f: any) => ({ ...f, carrier: e.target.value }))} placeholder="Pick or type" /><datalist id="wm-carriers">{pastCarriers.map(c => <option key={c} value={c} />)}</datalist></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Order Date</span><input type="date" className={inputCls} value={nf.order_date} onChange={e => setNf((f: any) => ({ ...f, order_date: e.target.value }))} /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Ship Due</span><input type="date" className={inputCls} value={nf.ship_due_date} onChange={e => setNf((f: any) => ({ ...f, ship_due_date: e.target.value }))} /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Load #</span><input className={inputCls} value={nf.load_number} onChange={e => setNf((f: any) => ({ ...f, load_number: e.target.value }))} /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400"># Pallets</span><input className={inputCls} value={nf.pallets} onChange={e => setNf((f: any) => ({ ...f, pallets: e.target.value }))} placeholder="e.g. 3" /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Facility</span><input className={inputCls} value={nf.facility} onChange={e => setNf((f: any) => ({ ...f, facility: e.target.value }))} /></label>
+                <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Ship To</span><input className={inputCls} value={nf.ship_to} onChange={e => setNf((f: any) => ({ ...f, ship_to: e.target.value }))} /></label>
+                <label className="col-span-2 sm:col-span-3"><span className="text-[11px] uppercase tracking-wide text-gray-400">Commodity Description</span><input className={inputCls} value={nf.commodity_description} onChange={e => setNf((f: any) => ({ ...f, commodity_description: e.target.value }))} /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">SRP <span className="text-gray-300 normal-case">(auto)</span></span><input type="number" className={inputCls} value={nfTouched.srp ? nf.srp : nSrpAuto} onChange={e => { setNfTouched(t => ({ ...t, srp: true })); setNf((f: any) => ({ ...f, srp: e.target.value })) }} /></label>
+                <label><span className="text-[11px] uppercase tracking-wide text-gray-400">Units <span className="text-gray-300 normal-case">(SRP×{UNITS_PER_SRP})</span></span><input type="number" className={inputCls} value={nfTouched.units ? nf.units : nUnitsAuto} onChange={e => { setNfTouched(t => ({ ...t, units: true })); setNf((f: any) => ({ ...f, units: e.target.value })) }} /></label>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Line Items (SKUs)</p>
+                  <button onClick={addNLine} className="text-xs px-2.5 py-1 rounded-lg bg-[#EAF0FC] text-[#3B6FE0] font-semibold hover:bg-[#DCE7FB]">＋ Add line</button>
+                </div>
+                <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm min-w-[520px]">
+                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[110px]">Qty (SRPs)</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
+                    <tbody>
+                      {nLines.map((l, i) => (
+                        <tr key={'n' + i} className="border-t border-[#F0F2F6]">
+                          <td className="px-2 py-1.5"><input list="wm-skus" className={cellCls + ' font-mono'} value={l.part_number ?? ''} onChange={e => setNLine(i, { part_number: e.target.value })} placeholder="Pick SKU" /></td>
+                          <td className="px-2 py-1.5"><input type="number" className={cellCls} value={l.qty ?? ''} onChange={e => setNLine(i, { qty: e.target.value === '' ? null : Number(e.target.value) })} /></td>
+                          <td className="px-2 py-1.5">{lineWarn(l) || <span className="text-gray-300 text-[11px]">—</span>}</td>
+                          <td className="px-1 py-1.5 text-center"><button onClick={() => removeNLine(i)} className="text-gray-300 hover:text-red-500 text-base leading-none">×</button></td>
+                        </tr>
+                      ))}
+                      {nLines.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400 text-sm">Add SKUs — SRP &amp; Units auto-calculate.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+                <datalist id="wm-skus">{products.map(p => <option key={p.id} value={p.sku}>{p.product_name || ''}</option>)}</datalist>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[#EEF0F4]">
+              <button onClick={() => setShowNew(false)} disabled={creating} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button onClick={createOrder} disabled={creating} className="text-sm px-4 py-2 rounded-lg text-white font-semibold disabled:opacity-50" style={{ background: '#0086C0' }}>{creating ? 'Creating…' : 'Create order'}</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -325,39 +684,81 @@ export default function WalmartBoard() {
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Order Details (Pallets / SKUs)</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Order Details (SKUs)</p>
                   {editing && <button onClick={addLine} className="text-xs px-2.5 py-1 rounded-lg bg-[#EAF0FC] text-[#3B6FE0] font-semibold hover:bg-[#DCE7FB]">＋ Add line</button>}
                 </div>
                 {editing ? (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm min-w-[640px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">P/N</th><th className="text-left px-2 py-2 w-[80px]">Qty</th><th className="text-left px-2 py-2 w-[90px]">UOM</th><th className="text-left px-2 py-2 w-[90px]">Packaging</th><th className="text-left px-2 py-2 w-[90px]">Cost Each</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
+                    <table className="w-full text-sm min-w-[680px]">
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[80px]">Qty</th><th className="text-left px-2 py-2 w-[80px]">UOM</th><th className="text-left px-2 py-2 w-[90px]">Packaging</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
                       <tbody>
                         {lineForms.map((l, i) => (
                           <tr key={l.id || 'n' + i} className="border-t border-[#F0F2F6]">
-                            <td className="px-2 py-1.5"><input className={cellCls + ' font-mono'} value={l.part_number ?? ''} onChange={e => setLine(i, { part_number: e.target.value })} /></td>
+                            <td className="px-2 py-1.5"><input list="wm-skus" className={cellCls + ' font-mono'} value={l.part_number ?? ''} onChange={e => setLine(i, { part_number: e.target.value })} /></td>
                             <td className="px-2 py-1.5"><input type="number" className={cellCls} value={l.qty ?? ''} onChange={e => setLine(i, { qty: e.target.value === '' ? null : Number(e.target.value) })} /></td>
                             <td className="px-2 py-1.5"><input className={cellCls} value={l.uom ?? ''} onChange={e => setLine(i, { uom: e.target.value })} /></td>
                             <td className="px-2 py-1.5"><input className={cellCls} value={l.packaging ?? ''} onChange={e => setLine(i, { packaging: e.target.value })} /></td>
-                            <td className="px-2 py-1.5"><input className={cellCls} value={l.cost_each ?? ''} onChange={e => setLine(i, { cost_each: e.target.value })} /></td>
+                            <td className="px-2 py-1.5">{lineWarn(l) || <span className="text-gray-300 text-[11px]">—</span>}</td>
                             <td className="px-1 py-1.5 text-center"><button onClick={() => removeLine(i)} className="text-gray-300 hover:text-red-500 text-base leading-none" title="Remove">×</button></td>
                           </tr>
                         ))}
                         {lineForms.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-gray-400 text-sm">No lines. Click “＋ Add line”.</td></tr>}
                       </tbody>
                     </table>
+                    <datalist id="wm-skus">{products.map(p => <option key={p.id} value={p.sku}>{p.product_name || ''}</option>)}</datalist>
                   </div>
                 ) : detailLines.length === 0 ? <p className="text-sm text-gray-400">No order detail lines.</p> : (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[560px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">P/N</th><th className="text-right px-3 py-2">Qty</th><th className="text-left px-3 py-2">UOM</th><th className="text-left px-3 py-2">Packaging</th><th className="text-right px-3 py-2">Cost Each</th></tr></thead>
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Qty</th><th className="text-left px-3 py-2">UOM</th><th className="text-left px-3 py-2">Packaging</th><th className="text-right px-3 py-2">On Hand</th></tr></thead>
                       <tbody>
-                        {detailLines.map(l => (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 font-mono text-emerald-600">{l.part_number || '—'}</td><td className="px-3 py-2 text-right text-gray-700">{l.qty ?? '—'}</td><td className="px-3 py-2 text-gray-600">{l.uom || '—'}</td><td className="px-3 py-2 text-gray-600">{l.packaging || '—'}</td><td className="px-3 py-2 text-right text-gray-600">{l.cost_each ? '$' + l.cost_each : '—'}</td></tr>))}
+                        {detailLines.map(l => { const p = skuInfo(l.part_number); return (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 font-mono text-emerald-600">{l.part_number || '—'}</td><td className="px-3 py-2 text-right text-gray-700">{l.qty ?? '—'}</td><td className="px-3 py-2 text-gray-600">{l.uom || '—'}</td><td className="px-3 py-2 text-gray-600">{l.packaging || '—'}</td><td className="px-3 py-2 text-right text-gray-500">{p ? fmtN(p.on_hand_qty) : <span className="text-red-400">not in inv</span>}</td></tr>) })}
                       </tbody>
                     </table>
                   </div>
                 )}
               </div>
+
+              {/* Pallet build — only in Building Order */}
+              {detailIsBuilding && (
+                <div className="border border-[#FDE9CC] bg-[#FFFBF3] rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#9A5B00]">🏗 Pallet Build &amp; QR Codes</p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => generatePallets(detail)} disabled={genBusy} className="text-xs px-2.5 py-1 rounded-lg bg-[#FDAB3D] text-white font-semibold hover:bg-[#E89B2E] disabled:opacity-50">{genBusy ? 'Working…' : '＋ Generate pallet QR codes'}</button>
+                      {detailPallets.length > 0 && <button onClick={() => printPalletQRs(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#E4C48A] text-[#9A5B00] font-semibold hover:bg-[#FFF3E0]">🖨 Print QR sheet</button>}
+                    </div>
+                  </div>
+                  {detailPallets.length === 0 ? (
+                    <p className="text-sm text-gray-500">No pallets yet. Enter the pallet count in the “Pallets” field, then generate QR codes for the production team to scan.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {detailPallets.map(p => {
+                        const its = palletItems[p.id] || []
+                        const tot = its.reduce((a, it) => a + Number(it.qty || 0), 0)
+                        return (
+                          <div key={p.id} className="bg-white border border-[#EFE3CC] rounded-lg px-3 py-2 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-[#1A1D2E]">Pallet #{p.pallet_number} <span className="text-gray-400 font-normal">of {p.total_pallets}</span></span>
+                              {p.status === 'complete'
+                                ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">COMPLETE{p.completed_by ? ' · ' + p.completed_by : ''}</span>
+                                : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">PENDING</span>}
+                              <a href={`/p/${p.token}`} target="_blank" rel="noreferrer" className="text-[11px] text-[#3B6FE0] hover:underline ml-1">open scan page ↗</a>
+                              <button onClick={() => deletePallet(p)} className="ml-auto text-gray-300 hover:text-red-500 text-base leading-none" title="Remove pallet">×</button>
+                            </div>
+                            {its.length > 0 && (
+                              <div className="mt-1 text-[12px] text-gray-600">
+                                {its.map(it => <span key={it.id} className="inline-block mr-3"><span className="font-mono text-[#0F7A4E]">{it.sku}</span> ×{fmtN(it.qty)}</span>)}
+                                <span className="text-gray-400">· {fmtN(tot)} SRPs</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {editing && (
                 <div className="flex items-center justify-between gap-3 border-t border-[#EEF0F4] pt-4">
@@ -382,3 +783,5 @@ export default function WalmartBoard() {
     </div>
   )
 }
+
+function FragmentRow({ children }: { children: React.ReactNode }) { return <>{children}</> }
