@@ -385,6 +385,7 @@ export default function InventoryPage() {
   const [rows, setRows] = useState<Product[]>([])
   useItemDeepLink(rows, openEdit)
   const [bomMap, setBomMap] = useState<Record<string, number>>({})
+  const [allocMap, setAllocMap] = useState<Record<string, { qty: number; orders: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [tabFilter, setTabFilter] = useState('All')
@@ -407,18 +408,22 @@ export default function InventoryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: p, error: pErr }, { data: b }, { data: pz }] = await Promise.all([
+    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }] = await Promise.all([
       sb.from('products').select('*').order('sku', { ascending: true }),
-      sb.from('product_bom').select('sku'),
+      sb.from('product_bom').select('finished_good_sku'),
       sb.from('product_zones').select('product_id'),
+      sb.from('v_component_allocation_totals').select('component_sku, allocated_qty, open_orders'),
     ])
     if (pErr) { setLoadError(`Failed to load: ${pErr.message}`) }
     else if (p) { setRows(p as Product[]) }
     if (b) {
       const counts: Record<string, number> = {}
-      for (const r of b as any[]) counts[r.sku] = (counts[r.sku] ?? 0) + 1
+      for (const r of b as any[]) { const k = r.finished_good_sku; if (k) counts[k] = (counts[k] ?? 0) + 1 }
       setBomMap(counts)
     }
+    const am: Record<string, { qty: number; orders: number }> = {}
+    for (const r of (alloc as any[]) || []) am[r.component_sku] = { qty: Number(r.allocated_qty) || 0, orders: Number(r.open_orders) || 0 }
+    setAllocMap(am)
     setZonedSet(new Set(((pz as any[]) || []).map(r => r.product_id)))
     setLoading(false)
   }, [sb])
@@ -652,6 +657,7 @@ export default function InventoryPage() {
                             <th className="text-left font-semibold px-3 py-2.5 w-[130px]">Type</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[64px]">UOM</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[84px]">On Hand</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[104px]">Alloc / Avail</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[92px]">Unit Cost</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[110px]">Inv. Value</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[150px]">UPC</th>
@@ -680,6 +686,12 @@ export default function InventoryPage() {
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{p.category ? <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[#EEF2FB] text-[#3A4A6B] border border-[#DCE3F2] truncate inline-block max-w-[118px] align-middle">{p.category}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 text-gray-500 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{p.unit_of_measure ?? '-'}</td>
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
+                                <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{(() => {
+                                  const a = allocMap[p.sku]?.qty || 0
+                                  if (a <= 0) return <span className="text-gray-300 text-xs">—</span>
+                                  const avail = (p.on_hand_qty ?? 0) - a
+                                  return <div className="leading-tight" title={`${allocMap[p.sku]?.orders || 0} open order(s) reserve ${a.toLocaleString()}`}><div className="text-[11px] text-violet-600 font-semibold">{a.toLocaleString()} alloc</div><div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
+                                })()}</td>
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="text-gray-500 text-xs font-mono truncate block max-w-[140px]">{p.upc_gtin ?? '-'}</span></td>
