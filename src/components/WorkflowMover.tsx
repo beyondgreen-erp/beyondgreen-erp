@@ -276,6 +276,8 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
               if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
                 const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
                 if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
+                // Consume the BOM components for what was produced (deduct on-hand + ledger).
+                try { await sb.rpc('consume_bom_for_production', { p_product_id: (wo as any).product_id, p_qty: (wo as any).qty_produced, p_by: email }) } catch { /* best-effort */ }
               }
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
               if (soId) {
@@ -296,6 +298,8 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
               if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
                 const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
                 if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
+                // Consume the BOM components for what was produced (deduct on-hand + ledger).
+                try { await sb.rpc('consume_bom_for_production', { p_product_id: (wo as any).product_id, p_qty: (wo as any).qty_produced, p_by: email }) } catch { /* best-effort */ }
               }
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
               if (soId) {
