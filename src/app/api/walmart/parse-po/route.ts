@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
       "walmart_item": "Walmart Item Number (WIN) for this line, else ''",
       "description": "the item description printed on the PO, else ''",
       "qty": number (quantity ordered for this line in CASES / SRP shippers; if only eaches are given, still return the case quantity when derivable, else the number shown),
+      "unit_price": number or null (the price Walmart PAYS US per case/SRP for this line — the PO unit cost/price; our selling price),
       "uom": "the order UOM shown (e.g. CA, EA), else ''",
       "units_per_srp": number or null (eaches per case/SRP if derivable)
     }
@@ -106,6 +107,7 @@ Read ALL line items. Capture UPC/GTIN carefully (they are the most reliable way 
         supplier_item: s(l.supplier_item),
         walmart_item: s(l.walmart_item),
         description: s(l.description),
+        unit_price: num(l.unit_price),
       }
     })
 
