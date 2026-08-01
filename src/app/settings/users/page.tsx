@@ -65,6 +65,11 @@ export default function UsersPage() {
   const [pw, setPw] = useState('')
   const [pwShow, setPwShow] = useState(false)
   const [pwBusy, setPwBusy] = useState(false)
+  // Invite teammate
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [inviteForm, setInviteForm] = useState({ full_name: '', email: '', role: 'Member', department: '' })
+  const [inviteBusy, setInviteBusy] = useState(false)
+  const [inviteErr, setInviteErr] = useState('')
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setMeId(data.user?.id ?? null)) }, [sb])
 
@@ -86,6 +91,28 @@ export default function UsersPage() {
       setNotice({ ok: false, msg: (e as Error).message })
     }
     setPwBusy(false)
+  }
+
+  async function sendInvite() {
+    setInviteErr('')
+    const name = inviteForm.full_name.trim()
+    const email = inviteForm.email.trim().toLowerCase()
+    if (!name || !email) { setInviteErr('Full name and email are required.'); return }
+    setInviteBusy(true)
+    try {
+      const res = await fetch('/api/users/invite', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...inviteForm, full_name: name, email, requesterId: meId }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Invite failed')
+      setNotice({ ok: true, msg: `Invite sent to ${email}. They'll set their own password from the email link.` })
+      setInviteOpen(false); setInviteForm({ full_name: '', email: '', role: 'Member', department: '' })
+      load()
+    } catch (e) {
+      setInviteErr((e as Error).message)
+    }
+    setInviteBusy(false)
   }
 
   async function confirmDelete() {
@@ -171,10 +198,18 @@ export default function UsersPage() {
 
   return (
     <div className="p-4 md:p-8 min-h-screen">
-      <div className="mb-8">
-        <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">SETTINGS</span>
-        <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">User Management</h1>
-        <p className="text-gray-500 text-sm mt-0.5">{profiles.length} registered user{profiles.length !== 1 ? 's' : ''}</p>
+      <div className="mb-8 flex items-start justify-between gap-3">
+        <div>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-500/20 text-violet-300 border-violet-500/30">SETTINGS</span>
+          <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">User Management</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{profiles.length} registered user{profiles.length !== 1 ? 's' : ''}</p>
+        </div>
+        {iAmAdmin && (
+          <button onClick={() => { setInviteErr(''); setInviteOpen(true) }}
+            className="shrink-0 inline-flex items-center gap-1.5 bg-[#00863F] hover:bg-[#0b7a3d] text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
+            + Invite teammate
+          </button>
+        )}
       </div>
 
       {notice && (
@@ -405,6 +440,48 @@ export default function UsersPage() {
               >
                 {delBusy ? 'Deleting…' : 'Delete user'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {inviteOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 sm:p-6" onClick={() => !inviteBusy && setInviteOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-[440px] shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E6EE]">
+              <h2 className="text-base font-semibold text-[#1A1D2E]">Invite teammate</h2>
+              <button onClick={() => !inviteBusy && setInviteOpen(false)} className="text-gray-400 hover:text-gray-700"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-gray-500">They&apos;ll get an email invite and set their own password. Email must be @beyondgreenbiotech.com or @byndgrn.com.</p>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Full name</label>
+                <input value={inviteForm.full_name} onChange={e => setInviteForm(f => ({ ...f, full_name: e.target.value }))} placeholder="e.g. Yahir Leon" className={inp} />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Email</label>
+                <input type="email" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} placeholder="name@beyondgreenbiotech.com" className={inp} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Role</label>
+                  <select value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))} className={inp + ' cursor-pointer'}>
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Department</label>
+                  <select value={inviteForm.department} onChange={e => setInviteForm(f => ({ ...f, department: e.target.value }))} className={inp + ' cursor-pointer'}>
+                    <option value="">—</option>
+                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </div>
+              {inviteErr && <div className="text-xs px-3 py-2 rounded-lg border bg-red-500/10 text-red-500 border-red-500/20">{inviteErr}</div>}
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setInviteOpen(false)} disabled={inviteBusy} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+                <button onClick={sendInvite} disabled={inviteBusy || !inviteForm.full_name.trim() || !inviteForm.email.trim()} className="flex-1 bg-[#00863F] hover:bg-[#0b7a3d] disabled:opacity-40 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">{inviteBusy ? 'Sending…' : 'Send invite'}</button>
+              </div>
             </div>
           </div>
         </div>
