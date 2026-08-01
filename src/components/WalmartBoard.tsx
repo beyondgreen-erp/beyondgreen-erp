@@ -7,6 +7,7 @@ import { useItemDeepLink } from '@/components/useItemDeepLink'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { statusColor } from '@/lib/statusColors'
+import { buildBOL, buildPackingList, type BolLine, type PackListCase } from '@/lib/shipping/bol'
 
 interface WLine {
   id?: string; _new?: boolean; part_number: string | null; qty: number | null; qty_per_case: number | null
@@ -20,7 +21,7 @@ interface WOrder {
   po_number: string | null; ship_to: string | null; ship_from: string | null; bol_date: string | null; bol2: string | null
   carrier: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
-  commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null
+  commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
 }
 interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null }
 interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
@@ -29,12 +30,15 @@ interface PalletItem { id: string; pallet_id: string; order_id: string; sku: str
 
 const UNITS_PER_SRP = 6
 const DEFAULT_COMMODITY = 'Disposable Cutlery'
+const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
+const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
 
 const GROUPS = [
   { key: 'Walmart Orders', color: '#0086C0' },
   { key: 'Building Order', color: '#FDAB3D' },
   { key: 'Ready for Shipment', color: '#00A84F' },
   { key: 'Prepped & Ready for Dispatch', color: '#A25DDC' },
+  { key: 'Shipped', color: '#037F4C' },
   { key: 'Cancelled', color: '#E2445C' },
 ]
 // One shared status vocabulary with the Sales Order board.
@@ -46,6 +50,7 @@ function groupForStatus(status: string | null): string {
   if (s === 'building order') return 'Building Order'
   if (s === 'ready to ship') return 'Ready for Shipment'
   if (s === 'prepped & ready for dispatch') return 'Prepped & Ready for Dispatch'
+  if (s === 'shipped') return 'Shipped'
   if (s === 'cancel' || s === 'cancelled' || s === 'canceled') return 'Cancelled'
   return 'Walmart Orders'
 }
@@ -54,6 +59,7 @@ function statusForGroup(group: string): string | null {
     case 'Building Order': return 'Building Order'
     case 'Ready for Shipment': return 'Ready to Ship'
     case 'Prepped & Ready for Dispatch': return 'Prepped & Ready for Dispatch'
+    case 'Shipped': return 'Shipped'
     case 'Cancelled': return 'Cancelled'
     case 'Walmart Orders': return 'Confirmed'
     default: return null
@@ -228,6 +234,10 @@ export default function WalmartBoard() {
         if (l._new || !l.id) await sb.from('walmart_board_lines').insert(row)
         else await sb.from('walmart_board_lines').update(row).eq('id', l.id)
       }
+      if (groupForStatus(patch.status) === 'Shipped' && !detail.shipment_id) {
+        const sid = await shipWalmartOrder({ ...detail, ...patch } as WOrder)
+        if (sid) patch.shipment_id = sid
+      }
       const updated = { ...detail, ...patch }
       setRows(rs => rs.map(r => r.id === detail.id ? updated : r))
       setDetail(updated); setEditing(false)
@@ -362,6 +372,84 @@ export default function WalmartBoard() {
     await sb.from('walmart_pallets').delete().eq('id', p.id)
     await load()
   }
+  async function shipWalmartOrder(order: WOrder): Promise<string | null> {
+    if (order.shipment_id) return order.shipment_id
+    const shipTo = (order.ship_to || '').trim()
+    const custName = (shipTo.split(/[,\n]/)[0] || '').trim() || 'Walmart'
+    const now = new Date()
+    const ins: any = {
+      customer_name: custName, po_number: order.po_number || null, carrier: order.carrier || null,
+      ship_date: now.toISOString().slice(0, 10), order_date: order.order_date || null,
+      total_value: order.total_value ?? (linesTotalOf(lines[order.id] || []) || null),
+      ship_to_address: order.ship_to || null, bol_number: order.bol2 || null,
+      delivery_status: 'Shipped', status: 'Shipped',
+      month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    }
+    const { data, error } = await sb.from('shipments').insert(ins).select('id').single()
+    if (error) { alert('Could not create shipment: ' + error.message); return null }
+    const sid = (data as any).id as string
+    await sb.from('walmart_board_orders').update({ shipment_id: sid }).eq('id', order.id)
+    return sid
+  }
+
+  async function markShipped(order: WOrder) {
+    if (order.shipment_id) { alert('This order is already on the Shipments board.'); return }
+    if (!confirm(`Mark "${order.name}" as Shipped?\n\nThis moves it to the Shipments board and auto-creates its bill for finance. Inventory was already deducted as pallets were built.`)) return
+    await sb.from('walmart_board_orders').update({ status: 'Shipped', group_name: 'Shipped', updated_at: new Date().toISOString() }).eq('id', order.id)
+    const sid = await shipWalmartOrder(order)
+    if (sid && detail && detail.id === order.id) setDetail(d => d ? { ...d, status: 'Shipped', group_name: 'Shipped', shipment_id: sid } : d)
+    await load()
+  }
+
+  function palletCountFor(order: WOrder) {
+    return parseInt(String(order.pallets || '').match(/\d+/)?.[0] || '0', 10) || (pallets[order.id]?.length || 0)
+  }
+
+  function genBOL(order: WOrder) {
+    const ls = lines[order.id] || []
+    const totalCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
+    const totalPallets = palletCountFor(order)
+    const commodity = order.commodity_description || DEFAULT_COMMODITY
+    const bolLines: BolLine[] = [{
+      handlingQty: totalPallets || undefined, handlingType: 'Pallet',
+      packageQty: totalCases || undefined, packageType: 'Case',
+      weight: Number(order.weight) || undefined, commodityDescription: commodity, kind: 'line',
+    }]
+    const doc = buildBOL({
+      bolNumber: order.bol2 || ('BOL-' + (order.po_number || new Date().toISOString().slice(0, 10))),
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      shipFromName: SHIP_FROM_NAME, shipFromAddress: order.ship_from || SHIP_FROM_ADDR,
+      shipToName: ((order.ship_to || 'Walmart').split(/[,\n]/)[0] || 'Walmart').trim(),
+      shipToAddress: order.ship_to || '',
+      carrierName: order.carrier || undefined, trailerNo: order.trailer_no || undefined, sealNumber: order.seal_number || undefined,
+      freightTerms: 'Prepaid', totalPallets, totalCases, totalWeight: Number(order.weight) || 0,
+      declaredValue: Number(order.total_value) || undefined,
+      poNote: order.po_number ? ('PO ' + order.po_number) : undefined,
+      specialInstructions: order.special_instructions ? [order.special_instructions] : undefined,
+    }, bolLines, null)
+    doc.save(`BOL - ${order.name}.pdf`)
+  }
+
+  function genPackingSlip(order: WOrder) {
+    const ls = lines[order.id] || []
+    const cases: PackListCase[] = ls.map(l => {
+      const q = Number(l.qty) || 0
+      const per = Number(l.qty_per_case) || UNITS_PER_SRP
+      return { sku: l.part_number || '', description: skuInfo(l.part_number)?.product_name || undefined, caseCount: q, unitsInCase: per, units: q * per, uom: l.uom || 'SRP', orderedUnits: q, shippedUnits: q }
+    })
+    const totalCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
+    const totalPallets = palletCountFor(order)
+    const pls = (pallets[order.id] || []).map(p => ({
+      number: p.pallet_number,
+      lines: (palletItems[p.id] || []).map(it => ({ sku: it.sku, cases: Number(it.qty) || 0, units: (Number(it.qty) || 0) * UNITS_PER_SRP })),
+    })).filter(p => p.lines.length)
+    const doc = buildPackingList(
+      { poNumber: order.po_number || '', orderNumber: order.name, shipToName: ((order.ship_to || 'Walmart').split(/[,\n]/)[0] || 'Walmart').trim(), shipToAddress: order.ship_to || '', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR },
+      cases, { pallets: totalPallets, cases: totalCases, weight: Number(order.weight) || 0 }, null, pls.length ? pls : undefined,
+    )
+    doc.save(`Packing Slip - ${order.name}.pdf`)
+  }
+
   async function printPalletQRs(order: WOrder) {
     const pls = pallets[order.id] || []
     if (!pls.length) { alert('Generate pallet QR codes first.'); return }
@@ -405,6 +493,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
     setRows(rs => rs.map(x => x.id === id ? { ...x, ...patch } : x))
     const { error } = await sb.from('walmart_board_orders').update(patch).eq('id', id)
     if (error) { alert('Move failed: ' + error.message); await load() }
+    else if (targetGroup === 'Shipped' && !r.shipment_id) { await shipWalmartOrder({ ...r, ...patch } as WOrder); await load() }
   }
 
   // ── Requirements roll-up ───────────────────────────────────────────────────
@@ -820,6 +909,16 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                     </table>
                   </div>
                 )}
+              </div>
+
+              {/* Shipping documents + mark shipped */}
+              <div className="flex flex-wrap items-center gap-2 border border-[#E6EFF7] bg-[#F5FAFF] rounded-lg p-3">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[#03567A] mr-1">🚚 Shipping</span>
+                <button onClick={() => genBOL(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#BBD8EC] text-[#03567A] font-semibold hover:bg-[#E4F2FA]">📄 Generate BOL</button>
+                <button onClick={() => genPackingSlip(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#BBD8EC] text-[#03567A] font-semibold hover:bg-[#E4F2FA]">📦 Generate Packing Slip</button>
+                {detail.shipment_id
+                  ? <a href="/sales/shipments" target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-semibold hover:bg-emerald-200 ml-auto">✓ On Shipments board ↗</a>
+                  : <button onClick={() => markShipped(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-[#037F4C] text-white font-semibold hover:bg-[#026a40] ml-auto">🚚 Mark as Shipped</button>}
               </div>
 
               {/* Pallet build — only in Building Order */}
