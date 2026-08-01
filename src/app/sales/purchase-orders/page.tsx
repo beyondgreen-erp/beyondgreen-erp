@@ -129,9 +129,9 @@ export default function PurchasingRequestsPage() {
     setDetail((d: any) => ({ ...d, ...patch }))
   }
   const updateStatus = async (id: string, status: string) => {
-    // When an item is marked "Received", auto-file it under the Receiving Log group.
+    // When an item is marked "Received" or "PO Canceled", auto-file it under the Receiving Log group.
     const RECEIVING_LOG = GROUPS.find(g => g.title === 'Receiving Log')!
-    const moveToLog = status === 'Received'
+    const moveToLog = status === 'Received' || status === 'PO Canceled' || status === 'PO Cancelled'
     const patch: any = { status: status || null }
     if (moveToLog) {
       const posBase = Math.max(0, ...rows.filter(r => r.group_key === RECEIVING_LOG.key).map(r => Number(r.position) || 0)) + 1
