@@ -371,13 +371,6 @@ export default function InvoicesPage() {
 
   return (
     <div className="min-h-screen mon-page">
-      {/* Amber warning banner */}
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-6">
-        <p className="text-amber-400 font-medium text-sm">
-          ⚠ These invoices were imported from shipment records. All are defaulted to UNPAID. Please review each invoice and update the payment status accordingly.
-        </p>
-      </div>
-
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
