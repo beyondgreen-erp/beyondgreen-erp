@@ -52,8 +52,9 @@ interface Customer { id: string; company_name: string }
 
 const STATUS_CFG: Record<string,{label:string;cls:string;pulse?:boolean}> = {
   proforma: { label:'PROFORMA', cls:'bg-[#F5F6FA]/50 text-gray-500 border-gray-600' },
-  pending:  { label:'UNPAID',   cls:'bg-red-500/20 text-red-500 border-red-500/30' },
-  unpaid:   { label:'UNPAID',   cls:'bg-red-500/20 text-red-500 border-red-500/30' },
+  pending:  { label:'PENDING INVOICE SUBMISSION', cls:'bg-amber-500/15 text-amber-600 border-amber-500/25' },
+  unpaid:   { label:'PENDING INVOICE SUBMISSION', cls:'bg-amber-500/15 text-amber-600 border-amber-500/25' },
+  'pending invoice submission': { label:'PENDING INVOICE SUBMISSION', cls:'bg-amber-500/15 text-amber-600 border-amber-500/25' },
   'invoice sent to customer': { label:'SENT TO CUSTOMER', cls:'bg-blue-500/15 text-blue-600 border-blue-500/20' },
   partial:  { label:'PARTIAL',  cls:'bg-blue-500/15 text-blue-500 border-blue-500/20' },
   overdue:  { label:'OVERDUE',  cls:'bg-red-600/20 text-red-600 border-red-600/30', pulse: true },
@@ -61,8 +62,12 @@ const STATUS_CFG: Record<string,{label:string;cls:string;pulse?:boolean}> = {
   'payment received': { label:'PAYMENT RECEIVED', cls:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' },
   void:     { label:'VOID',     cls:'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]' },
 }
-const INVOICE_STATUS_OPTIONS = ['Unpaid', 'Invoice Sent to Customer', 'Payment Received']
+const INVOICE_STATUS_OPTIONS = ['Pending Invoice Submission', 'Invoice Sent to Customer', 'Payment Received']
 const COMMISSION_STATUS_OPTIONS = ['Pending Customer Payment', 'Commission Paid']
+const PAID_STATUSES = ['paid', 'payment received']
+const isPaidStatus = (s?: string | null) => PAID_STATUSES.includes((s || '').toLowerCase())
+// "Open" = not paid, not void, not proforma (i.e. still owed / in progress)
+const isOpenStatus = (s?: string | null) => { const x = (s || '').toLowerCase(); return x !== 'void' && x !== 'proforma' && !isPaidStatus(x) }
 
 type Tab = 'all' | 'unpaid' | 'overdue' | 'paid' | 'proforma'
 const TABS: Tab[] = ['all','unpaid','overdue','paid','proforma']
@@ -137,7 +142,7 @@ export default function InvoicesPage() {
 
   // Editable billing details (invoice #, status, commission, addresses)
   const [editInvNum, setEditInvNum] = useState('')
-  const [editStatus, setEditStatus] = useState('Unpaid')
+  const [editStatus, setEditStatus] = useState('Pending Invoice Submission')
   const [editCommission, setEditCommission] = useState('Pending Customer Payment')
   const [editShipTo, setEditShipTo] = useState('')
   const [editBillTo, setEditBillTo] = useState('')
@@ -220,7 +225,7 @@ export default function InvoicesPage() {
     setPartialRef('')
     setUpdateAmt(String(inv.total_amount ?? inv.amount ?? 0))
     setEditInvNum(inv.invoice_number_display && inv.invoice_number_display !== 'Invoice Number Pending' ? inv.invoice_number_display : '')
-    setEditStatus(INVOICE_STATUS_OPTIONS.includes(inv.status) ? inv.status : (inv.status?.toLowerCase() === 'paid' ? 'Payment Received' : 'Unpaid'))
+    setEditStatus(INVOICE_STATUS_OPTIONS.includes(inv.status) ? inv.status : (inv.status?.toLowerCase() === 'paid' ? 'Payment Received' : 'Pending Invoice Submission'))
     setEditCommission(inv.commission_status ?? 'Pending Customer Payment')
     setEditShipTo(inv.ship_to_address ?? '')
     setEditBillTo(inv.bill_to_address ?? '')
@@ -267,8 +272,11 @@ export default function InvoicesPage() {
 
   const filtered = rows.filter(r => {
     const status = r.status.toLowerCase()
-    if (tab === 'unpaid' && !['pending','partial'].includes(status)) return false
-    if (tab !== 'all' && tab !== 'unpaid' && status !== tab) return false
+    const overdue = !isPaidStatus(status) && status !== 'void' && !!r.due_date && r.due_date < todayStr()
+    if (tab === 'unpaid' && !isOpenStatus(r.status)) return false
+    if (tab === 'paid' && !isPaidStatus(r.status)) return false
+    if (tab === 'overdue' && !overdue) return false
+    if (tab === 'proforma' && !(status === 'proforma' || r.invoice_type === 'proforma')) return false
     if (!search) return true
     const q = search.toLowerCase()
     return displayNum(r).toLowerCase().includes(q) ||
@@ -280,19 +288,19 @@ export default function InvoicesPage() {
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10)
 
-  const outstanding = rows.filter(r => ['pending','partial','overdue'].includes(r.status))
+  const outstanding = rows.filter(r => isOpenStatus(r.status))
   const outstandingAmt = outstanding.reduce((s, r) => s + (r.balance_due ?? 0), 0)
-  const overdueRows = rows.filter(r => r.status === 'overdue' || (r.status !== 'paid' && r.status !== 'void' && r.due_date && r.due_date < todayStr()))
+  const overdueRows = rows.filter(r => !isPaidStatus(r.status) && r.status.toLowerCase() !== 'void' && r.due_date && r.due_date < todayStr())
   const overdueAmt = overdueRows.reduce((s, r) => s + (r.balance_due ?? 0), 0)
-  const paidMonth = rows.filter(r => r.status === 'paid' && (r.invoice_date ?? '') >= monthStart)
+  const paidMonth = rows.filter(r => isPaidStatus(r.status) && (r.invoice_date ?? '') >= monthStart)
   const paidMonthAmt = paidMonth.reduce((s, r) => s + (r.total_amount ?? r.amount ?? 0), 0)
   const totalInvoiced = rows.reduce((s, r) => s + (r.total_amount ?? r.amount ?? 0), 0)
 
   const tabCounts: Record<Tab, number> = {
     all: rows.length,
-    unpaid: rows.filter(r => ['pending','partial'].includes(r.status.toLowerCase())).length,
+    unpaid: rows.filter(r => isOpenStatus(r.status)).length,
     overdue: overdueRows.length,
-    paid: rows.filter(r => r.status === 'paid').length,
+    paid: rows.filter(r => isPaidStatus(r.status)).length,
     proforma: rows.filter(r => r.status === 'proforma' || r.invoice_type === 'proforma').length,
   }
 
@@ -302,7 +310,7 @@ export default function InvoicesPage() {
     setBusy(true)
     const total = sel.total_amount ?? sel.amount ?? 0
     await sb.from('invoices').update({
-      status: 'paid', amount_paid: total, balance_due: 0,
+      status: 'Payment Received', amount_paid: total, balance_due: 0,
       updated_at: new Date().toISOString(),
       notes: payNotes.trim() ? payNotes.trim() : sel.notes,
     }).eq('id', sel.id)
@@ -317,7 +325,7 @@ export default function InvoicesPage() {
     const total = sel.total_amount ?? sel.amount ?? 0
     const newPaid = (sel.amount_paid ?? 0) + amt
     const newBalance = Math.max(0, total - newPaid)
-    const newStatus = newBalance <= 0 ? 'paid' : 'partial'
+    const newStatus = newBalance <= 0 ? 'Payment Received' : 'partial'
     await sb.from('invoices').update({ amount_paid: newPaid, balance_due: newBalance, status: newStatus, updated_at: new Date().toISOString() }).eq('id', sel.id)
     setBusy(false); close(); load()
   }
@@ -329,7 +337,7 @@ export default function InvoicesPage() {
     setUpdatingAmt(true)
     const paid = sel.amount_paid ?? 0
     const newBalance = Math.max(0, amt - paid)
-    const newStatus = newBalance <= 0 ? 'paid' : sel.status === 'paid' ? 'pending' : sel.status
+    const newStatus = newBalance <= 0 ? 'Payment Received' : (isPaidStatus(sel.status) ? 'Pending Invoice Submission' : sel.status)
     await sb.from('invoices').update({
       total_amount: amt, amount: amt, subtotal: amt, balance_due: newBalance,
       status: newBalance <= 0 ? 'paid' : newStatus,
@@ -462,7 +470,7 @@ export default function InvoicesPage() {
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${tab === t ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-700'}`}>
-              {t === 'unpaid' ? 'Unpaid' : t.charAt(0).toUpperCase() + t.slice(1)}{tabCounts[t] > 0 ? ` (${tabCounts[t]})` : ''}
+              {t === 'unpaid' ? 'Pending' : t.charAt(0).toUpperCase() + t.slice(1)}{tabCounts[t] > 0 ? ` (${tabCounts[t]})` : ''}
             </button>
           ))}
         </div>
@@ -495,12 +503,12 @@ export default function InvoicesPage() {
             <tbody>
               {filtered.map((r, i) => {
                 const status = r.status.toLowerCase()
-                const isOverdue = status === 'overdue' || (status !== 'paid' && status !== 'void' && r.due_date && r.due_date < todayStr())
+                const isOverdue = !isPaidStatus(status) && status !== 'void' && !!r.due_date && r.due_date < todayStr()
                 const cfg = STATUS_CFG[status] ?? STATUS_CFG.pending
                 const days = isOverdue ? daysOverdue(r.due_date) : 0
                 return (
                   <tr key={r.id}
-                    className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id) ? 'bg-blue-500/5' : isOverdue ? 'bg-red-950/10' : status === 'pending' ? 'bg-red-950/5' : i % 2 === 1 ? 'bg-[#FAFAFA]' : ''}`}>
+                    className={`border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors ${ms.isSelected(r.id) ? 'bg-blue-500/5' : isOverdue ? 'bg-red-950/10' : isOpenStatus(r.status) ? 'bg-amber-500/5' : i % 2 === 1 ? 'bg-[#FAFAFA]' : ''}`}>
                     <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(r.id)} onChange={()=>ms.toggle(r.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
                     <td className="px-4 py-3.5 text-[#1A1D2E] font-mono text-xs font-medium cursor-pointer" onClick={() => openPanel(r)}>{displayNum(r)}</td>
                     <td className="px-4 py-3.5 text-gray-500" onClick={() => openPanel(r)}>{getCustomerName(r)}</td>
@@ -521,7 +529,7 @@ export default function InvoicesPage() {
                     </td>
                     <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
-                        {status !== 'paid' && status !== 'void' && (
+                        {!isPaidStatus(status) && status !== 'void' && (
                           <button onClick={e => { e.stopPropagation(); openPanel(r); setTimeout(() => setShowPayFull(true), 200) }}
                             className="text-xs px-2 py-1 rounded bg-emerald-700/50 hover:bg-emerald-700 text-emerald-300 transition-colors whitespace-nowrap">
                             Mark Paid
@@ -659,20 +667,20 @@ export default function InvoicesPage() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider mb-3">Actions</p>
                   <div className="flex flex-wrap gap-2">
-                    {sel.status !== 'paid' && sel.status !== 'void' && (
+                    {!isPaidStatus(sel.status) && sel.status.toLowerCase() !== 'void' && (
                       <button onClick={() => { setShowPayFull(v => !v); setShowPartial(false); setShowUpdateAmt(false) }}
                         className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
                         Mark as Fully Paid
                       </button>
                     )}
-                    {sel.status !== 'paid' && sel.status !== 'void' && (
+                    {!isPaidStatus(sel.status) && sel.status.toLowerCase() !== 'void' && (
                       <button onClick={() => { setShowPartial(v => !v); setShowPayFull(false); setShowUpdateAmt(false) }}
                         className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
                         Record Partial Payment
                       </button>
                     )}
-                    {sel.status !== 'paid' && sel.status !== 'void' && (
+                    {!isPaidStatus(sel.status) && sel.status.toLowerCase() !== 'void' && (
                       <button onClick={() => { setShowUpdateAmt(v => !v); setShowPayFull(false); setShowPartial(false) }}
                         className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
                         Update Amount
@@ -684,7 +692,7 @@ export default function InvoicesPage() {
                         Convert to Invoice
                       </button>
                     )}
-                    {['pending','partial','overdue'].includes(sel.status) && (
+                    {isOpenStatus(sel.status) && (
                       <button onClick={sendReminder} disabled={busy}
                         className="flex items-center gap-1.5 bg-[#F5F6FA] hover:bg-gray-600 disabled:opacity-50 text-[#1A1D2E] text-xs font-medium px-3 py-2 rounded-lg transition-colors">
                         Send Reminder
@@ -694,7 +702,7 @@ export default function InvoicesPage() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                       Download PDF
                     </button>
-                    {sel.status !== 'void' && sel.status !== 'paid' && (
+                    {!isPaidStatus(sel.status) && sel.status.toLowerCase() !== 'void' && (
                       <button onClick={() => setShowVoidConfirm(v => !v)} className="flex items-center gap-1.5 bg-red-900/40 hover:bg-red-800/50 text-red-400 text-xs font-medium px-3 py-2 rounded-lg transition-colors border border-red-800/50">
                         Void Invoice
                       </button>
