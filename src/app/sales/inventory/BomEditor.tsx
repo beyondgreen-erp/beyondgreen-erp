@@ -30,6 +30,7 @@ interface BomRow {
   unit_cost: number
   basis: Basis
   qty_value: number  // percentage (0-100) or pcs count
+  linked: boolean    // component_sku resolves to a live Inventory product (Ultron)
 }
 
 interface SearchResult {
@@ -129,18 +130,20 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     for (const p of (prods ?? []) as any[]) pm[p.sku] = p
 
     const rows: BomRow[] = bomRows.map((r: any) => {
-      const comp = pm[r.component_sku] ?? {}
-      const cat = comp.category ?? null
+      const comp = pm[r.component_sku]
+      const linked = !!comp
+      const cat = comp?.category ?? null
       const uom = r.uom_type === 'pcs' ? 'pcs' : r.uom_type === 'percentage' ? 'percentage' : (defaultBasis(cat) === 'percentage' ? 'percentage' : 'pcs')
       const basis: Basis = uom === 'percentage' ? 'percentage' : (r.is_case_level ? 'pcs_case' : 'pcs_unit')
       return {
         id: r.id,
         component_sku: r.component_sku,
-        product_name: comp.product_name ?? '— (not in inventory)',
+        product_name: comp?.product_name ?? '— (not in inventory)',
         category: cat,
-        unit_cost: Number(comp.unit_cost ?? 0),
+        unit_cost: Number(comp?.unit_cost ?? 0),
         basis,
         qty_value: r.qty_value != null ? Number(r.qty_value) : Number(r.percentage ?? 0),
+        linked,
       }
     })
     setComponents(rows)
@@ -279,9 +282,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
-        className="fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-screen w-full md:w-[940px] bg-[#F7F8FB] z-50 flex flex-col shadow-2xl">
+        className="bg-[#F7F8FB] rounded-2xl w-full max-w-[1000px] max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E4E6EE] bg-white shrink-0">
@@ -341,8 +344,11 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                       {!loading && computedRows.map(c => (
                         <tr key={c.id} className="hover:bg-[#FBFCFE]">
                           <td className="px-2.5 py-2">
-                            <div className="font-mono font-semibold text-[#0F7A4E] text-[12px]">{c.component_sku}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span title={c.linked ? 'Connected to Inventory item' : 'Not found in Inventory — link it'} className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: c.linked ? '#10B981' : '#F59E0B', boxShadow: c.linked ? '0 0 0 2px rgba(16,185,129,0.2)' : 'none' }} />
+                              <span className="font-mono font-semibold text-[#0F7A4E] text-[12px]">{c.component_sku}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 pl-3.5">
                               <span className="text-gray-500 truncate max-w-[150px] inline-block align-middle">{c.product_name}</span>
                               <CatBadge c={c.category} />
                             </div>
@@ -481,6 +487,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
             {msg && <p className={`text-xs text-center py-2 rounded-lg ${msg.startsWith('Error') ? 'text-red-600 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>{msg}</p>}
           </div>
         </div>
+      </div>
       </div>
     </>
   )
