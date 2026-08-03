@@ -24,7 +24,9 @@ export async function POST(req: NextRequest) {
     if (tErr) return NextResponse.json({ error: tErr.message }, { status: 500 })
     if (!target?.user_id) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-    const { error } = await admin.auth.admin.updateUserById(target.user_id, { password: String(password) })
+    // Set the password AND mark the email confirmed — this activates invited users who
+    // never completed the invite link, so an admin reset gets them logged in immediately.
+    const { error } = await admin.auth.admin.updateUserById(target.user_id, { password: String(password), email_confirm: true })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     return NextResponse.json({ success: true, email: target.email })
