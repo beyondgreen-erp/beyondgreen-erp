@@ -152,9 +152,9 @@ export default function PurchasingRequestsPage() {
   }
   const groupRows = (key: string) => rows
     .filter(r => r.group_key === key && match(r))
-    // Newest PO date first; entries without a PO date sink to the bottom.
+    // Most recently received first; entries without a received date sink to the bottom.
     .sort((a, b) => {
-      const da = a.po_date || '', db = b.po_date || ''
+      const da = a.date_received || '', db = b.date_received || ''
       if (!da && !db) return (Number(a.position) || 0) - (Number(b.position) || 0)
       if (!da) return 1
       if (!db) return -1
