@@ -126,7 +126,9 @@ export default function NotificationBell() {
     setOpen(false)
     setActionNotifId(null)
     const url = n.context_url || PAGE_ROUTES[n.page]
-    if (url) router.push(url)
+    // Hard-navigate so the target board mounts fresh and its ?item deep-link opens the tagged
+    // record (router.push won't re-run the one-shot deep-link hook if already on that page).
+    if (url) { const rel = url.replace(/^https?:\/\/[^/]+/, '') || url; window.location.assign(rel) }
   }
 
   if (!email) return null

@@ -69,10 +69,8 @@ export default function MentionsWidget() {
     await sb.from('notifications').update({ is_read: true }).eq('id', n.id)
     setNotifs(ns => ns.map(x => x.id === n.id ? { ...x, is_read: true } : x))
     const url = n.context_url || PAGE_ROUTES[n.page]
-    if (url) {
-      if (/^https?:\/\//.test(url)) { try { const u = new URL(url); router.push(u.pathname + u.search) } catch { router.push(url) } }
-      else router.push(url)
-    }
+    // Hard-navigate so the target board mounts fresh and its ?item deep-link opens the tagged record.
+    if (url) { const rel = url.replace(/^https?:\/\/[^/]+/, '') || url; window.location.assign(rel) }
   }
 
   return (

@@ -85,6 +85,9 @@ function PipelineBoard({ cfg }: { cfg: PipelineCfg }) {
   const [statusOpen, setStatusOpen] = useState<{ id: string; field: string } | null>(null)
   const dragId = useRef<string | null>(null)
   const inited = useRef(false)
+  const [detail, setDetail] = useState<any | null>(null)
+  const [counts, setCounts] = useState<Record<string, number>>({})
+  const [userEmail, setUserEmail] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -95,6 +98,16 @@ function PipelineBoard({ cfg }: { cfg: PipelineCfg }) {
       if (batch.length < 1000) break
     }
     setRows(all); setLoading(false)
+    const ids = all.map(r => r.id)
+    if (ids.length) {
+      const cc: Record<string, number> = {}
+      for (let i = 0; i < ids.length; i += 300) {
+        const { data: cm } = await sb.from('comments').select('record_id').eq('record_type', 'pipeline_order').in('record_id', ids.slice(i, i + 300))
+        ;((cm as any[]) || []).forEach(c => { cc[c.record_id] = (cc[c.record_id] || 0) + 1 })
+      }
+      setCounts(cc)
+    }
+    sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, [sb, cfg.boardKey])
   useEffect(() => { load() }, [load])
 
@@ -236,7 +249,7 @@ function PipelineBoard({ cfg }: { cfg: PipelineCfg }) {
                           <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
                             <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={() => { dragId.current = r.id }}>&#8942;&#8942;</td>
                             {cfg.columns.map(c => <td key={c.key} className="px-3 py-2.5 text-[13px] text-gray-700 align-top">{c.key === 'name' ? <span className="font-medium text-gray-800"><Cell r={r} col={c} /></span> : <Cell r={r} col={c} />}</td>)}
-                            <td className="text-center"><button onClick={() => del(r.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="ti ti-trash" /></button></td>
+                            <td className="text-center whitespace-nowrap"><button onClick={() => setDetail(r)} title="Details & comments" className="text-gray-400 hover:text-[#0086C0] mr-1.5 align-middle"><i className="ti ti-message-circle" />{counts[r.id] ? <span className="text-[10px] ml-0.5">{counts[r.id]}</span> : ''}</button><button onClick={() => del(r.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 align-middle"><i className="ti ti-trash" /></button></td>
                           </tr>
                         ))}
                         {gr.length === 0 && <tr><td colSpan={NC + 1} className="px-4 py-3 text-center text-gray-400 text-xs italic">Drop orders here or add one below</td></tr>}
@@ -248,6 +261,32 @@ function PipelineBoard({ cfg }: { cfg: PipelineCfg }) {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setDetail(null)}>
+          <div className="relative w-full max-w-[680px] my-6 bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between px-6 py-4 border-b border-[#E4E6EE]">
+              <div>
+                <p className="text-xs text-gray-400">{cfg.title} · Order</p>
+                <h2 className="text-lg font-semibold text-[#1A1D2E]">{detail.name || 'Order'}</h2>
+              </div>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
+            </div>
+            <div className="px-6 py-4 space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                {cfg.columns.map(c => {
+                  const v = (detail as any)[c.key]
+                  const show = c.type === 'date' ? (fmtD(v) || '—') : c.type === 'money' ? money(Number(v) || 0) : (v || '—')
+                  return <div key={c.key}><p className="text-xs text-gray-400">{c.label}</p><p className="text-[13px] text-[#1A1D2E] break-words">{show}</p></div>
+                })}
+              </div>
+              <div className="pt-3 border-t border-[#EEF0F4]">
+                <Comments recordId={detail.id} recordType="pipeline_order" currentUserEmail={userEmail} title="Notes & Comments" />
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
