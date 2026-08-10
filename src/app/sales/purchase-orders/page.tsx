@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
 import Comments from '@/components/Comments'
+import FileUpload from '@/components/FileUpload'
 
 const GROUPS = [
   { key: 'group_mkr363e4', title: 'Imports', color: '#007eb5' },
@@ -529,6 +530,11 @@ export default function PurchasingRequestsPage() {
                   </div>
                 </div>
               )}
+
+              <div className="border-t border-[#EEF0F4] pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Attach PO &amp; Receiving Documents</p>
+                <FileUpload supabase={sb} recordType="purchasing_request" recordId={detail.id} currentUserEmail={userEmail} />
+              </div>
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="purchasing_request" currentUserEmail={userEmail} title="Notes & Comments" />
