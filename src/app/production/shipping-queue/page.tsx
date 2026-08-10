@@ -917,8 +917,27 @@ export default function ShippingQueuePage() {
     if (!canConfirm || !activeItem) return
     setCoBusy('move')
     try {
-      await createShipment({ id: coShipId, delivery_status: 'Shipped', status: 'Shipped', ai_summary: coSummary || null })
-      await sb.from('sales_orders').update({ status: 'Shipped', carrier: (shipCarrier || o?.carrier) || null, tracking_number: (shipTracking || o?.tracking_number) || null }).eq('id', activeItem.sales_order_id)
+      // How much of each SKU is shipping in THIS shipment.
+      const shipNow: Record<string, number> = {}
+      for (const r of plan) shipNow[r.sku] = (shipNow[r.sku] || 0) + (Number(r.shippedUnits) || 0)
+      // Roll the shipped qty into each order line's completed_qty and decide full vs partial.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped').eq('sales_order_id', activeItem.sales_order_id)
+      let fully = true
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const l of ((curLines as any[]) || [])) {
+        const ordered = Number(l.quantity ?? l.qty) || 0
+        const prior = Number(l.completed_qty ?? l.quantity_shipped) || 0
+        const add = shipNow[l.sku] || 0
+        const newDone = ordered > 0 ? Math.min(prior + add, ordered) : prior + add
+        if (ordered > 0 && newDone < ordered) fully = false
+        if (add > 0) await sb.from('sales_order_lines').update({ completed_qty: newDone }).eq('id', l.id)
+      }
+      const newStatus = fully ? 'Shipped' : 'Partially Shipped'
+      // Shipment record carries the same status so the auto-bill trigger only bills the
+      // completing (full) shipment — partials are recorded + inventory-deducted but not billed.
+      await createShipment({ id: coShipId, delivery_status: 'Shipped', status: newStatus, ai_summary: coSummary || null })
+      await sb.from('sales_orders').update({ status: newStatus, carrier: (shipCarrier || o?.carrier) || null, tracking_number: (shipTracking || o?.tracking_number) || null }).eq('id', activeItem.sales_order_id)
     } catch (e) { alert('Move failed: ' + (e as Error).message); setCoBusy(''); return }
     setOpenId(null); resetPackState(); load()
   }
