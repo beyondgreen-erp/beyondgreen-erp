@@ -537,10 +537,24 @@ export default function InventoryPage() {
       // Import flag only meaningful on finished products; store false otherwise.
       is_import: FINISHED_CATEGORY_VALUES.includes(form.category) ? !!form.is_import : false,
     }
+    // Adding a brand-new item with a SKU that already exists would throw a raw
+    // "duplicate key ... products_sku_unique" error. Catch it early with a clear message.
+    if (!editing) {
+      const { data: existing } = await sb.from('products').select('id, sku').ilike('sku', payload.sku).limit(1)
+      if (existing && existing.length) {
+        setErr(`A product with SKU "${payload.sku}" already exists — edit that item instead of adding a new one.`)
+        setSaving(false); return
+      }
+    }
     const { error } = editing
       ? await sb.from('products').update(payload).eq('id', editing.id)
       : await sb.from('products').insert(payload)
-    if (error) { setErr(error.message); setSaving(false); return }
+    if (error) {
+      const msg = /duplicate key|products_sku_unique/i.test(error.message)
+        ? `A product with SKU "${payload.sku}" already exists — edit that item instead of adding a new one.`
+        : error.message
+      setErr(msg); setSaving(false); return
+    }
     setSaving(false); closeEdit(); load()
   }
 
