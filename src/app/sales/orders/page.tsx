@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { buildCaseLabels, loadBarcodePng, type CaseLabel } from '@/lib/shipping/labels'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import { WorkflowProgressBar } from '@/components/WorkflowMover'
@@ -1306,6 +1307,54 @@ export default function OrdersPage() {
     await generateOrderPDF(buildPdfOrder(order), lines, customer)
   }
 
+  // Print case labels straight from the order lines: one label per case
+  // (qty ÷ case pack), barcode generated from the product UPC/GTIN.
+  async function handleCaseLabels(order: SalesOrder) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', order.id).order('line_number', { ascending: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ls = ((lines as any[]) || []).filter(l => (l.sku || '').trim())
+    if (!ls.length) { alert('This order has no line items with a SKU.'); return }
+    const skus = Array.from(new Set(ls.map(l => String(l.sku).trim().toUpperCase())))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prodMap: Record<string, any> = {}
+    for (let i = 0; i < skus.length; i += 200) {
+      const { data: prods } = await sb.from('products').select('sku, product_name, upc_gtin, case_qty, gtin_image_url').in('sku', skus.slice(i, i + 200))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const p of ((prods as any[]) || [])) prodMap[String(p.sku).toUpperCase()] = p
+    }
+    const cases: CaseLabel[] = []
+    for (const l of ls) {
+      const sku = String(l.sku).trim()
+      const p = prodMap[sku.toUpperCase()]
+      const per = Number(p?.case_qty) || Number(l.qty_per_case) || 0
+      const qty = Number(l.quantity ?? l.qty) || 0
+      const totalCases = per > 0 ? Math.max(1, Math.ceil(qty / per)) : 1
+      let gtinImg: string | null = null
+      if (p?.gtin_image_url) { try { gtinImg = await loadBarcodePng(p.gtin_image_url) } catch { gtinImg = null } }
+      for (let c = 1; c <= totalCases; c++) {
+        cases.push({ sku, description: p?.product_name || l.description || sku, upcGtin: p?.upc_gtin || null, customerPartNumber: l.our_part_number || null, caseNumber: c, totalCases, unitsInCase: per || undefined, gtinImageDataUrl: gtinImg })
+      }
+    }
+    const doc = buildCaseLabels({ poNumber: order.po_number || order.order_number || '', shipToName: order.customer?.company_name || '', shipToAddress: order.shipping_address || '' }, cases)
+    doc.save(`case-labels-${order.order_number || 'order'}.pdf`)
+  }
+
+  const [sendingConf, setSendingConf] = useState<string | null>(null)
+  async function handleSendOrderConfirmation(order: SalesOrder) {
+    const to = order.customer_email || order.customer?.email || ''
+    if (!to) { alert('This order has no customer email. Add one first.'); return }
+    if (!confirm(`Send an order confirmation for ${order.order_number || 'this order'} to ${to}?`)) return
+    setSendingConf(order.id)
+    try {
+      const res = await fetch('/api/orders/send-confirmation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: order.id }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) { alert('Could not send: ' + (j.error || res.statusText)); return }
+      alert(`Order confirmation sent to ${to}.`)
+    } catch (e) { alert('Send failed: ' + String(e)) }
+    finally { setSendingConf(null) }
+  }
+
   async function searchLeads(q: string): Promise<{ id: string; company_name: string }[]> {
     const term = q.trim()
     if (term.length < 2) return []
@@ -2005,6 +2054,23 @@ export default function OrdersPage() {
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
                                 Packing List PDF
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); handleCaseLabels(order) }}
+                                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
+                                style={{ borderColor: '#8A5A0B', color: '#8A5A0B' }}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5a1.99 1.99 0 011.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.99 1.99 0 013 12V7a4 4 0 014-4z" /></svg>
+                                Case Labels
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); handleSendOrderConfirmation(order) }}
+                                disabled={sendingConf === order.id}
+                                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50 disabled:opacity-50"
+                                style={{ borderColor: '#00A84F', color: '#00863F' }}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                {sendingConf === order.id ? 'Sending…' : 'Send Order Confirmation'}
                               </button>
                             </div>
                             <div className="ml-8 mr-2 mb-4 mt-2 border-t border-[#E4E6EE] pt-4">
