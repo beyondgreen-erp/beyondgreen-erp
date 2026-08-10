@@ -1028,6 +1028,7 @@ export default function OrdersPage() {
   const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
   const dragId = useRef<string | null>(null)
+  const autoSORef = useRef<string>('')
   const moveOrder = async (id: string, targetSection: string, targetIndex: number) => {
     const moving = orders.find(o => o.id === id); if (!moving) return
     const rest = orders.filter(o => o.id !== id)
@@ -1376,6 +1377,7 @@ export default function OrdersPage() {
         .filter((n: number) => n >= 31487 && n <= 999999)
       next = Math.max(31486, ...nums) + 1
     } catch { /* fall back to 31487 */ }
+    autoSORef.current = String(next)
     setForm({ ...emptyForm, order_number: String(next) })
     setEditOpen(true)
   }
@@ -1442,7 +1444,12 @@ export default function OrdersPage() {
     if (!editingOrder && !form.notes.trim() && !form.order_number.trim()) { setErr('Enter an order name or SO#.'); return }
     setErr(''); setSaving(true)
 
-    const soNum = form.order_number.trim()
+    let soNum = form.order_number.trim()
+    // Prevent duplicate SO# from concurrent entry: if the number is the one we auto-suggested
+    // (user didn't type a custom one), reserve a guaranteed-unique number atomically in the DB.
+    if (!editingOrder && soNum && soNum === autoSORef.current) {
+      try { const { data: fresh } = await sb.rpc('next_so_number'); if (fresh) { soNum = String(fresh); setForm(p => ({ ...p, order_number: soNum })) } } catch { /* keep suggested */ }
+    }
 
     // SO# is unique in the database. If this number is already taken — even by an
     // order that was deleted/archived and no longer shows on the board — reusing it
