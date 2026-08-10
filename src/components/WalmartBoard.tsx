@@ -723,7 +723,9 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                         <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                           <th className="text-left font-semibold px-4 py-2 min-w-[180px]">Order</th>
                           <th className="text-left font-semibold px-3 py-2 w-[190px]">Status</th>
+                          <th className="text-left font-semibold px-3 py-2 w-[110px]">Order Date</th>
                           <th className="text-left font-semibold px-3 py-2 w-[110px]">PO #</th>
+                          <th className="text-left font-semibold px-3 py-2 w-[100px]">Load #</th>
                           <th className="text-left font-semibold px-3 py-2 min-w-[220px]">Ship To</th>
                           <th className="text-left font-semibold px-3 py-2 w-[110px]">Ship Due</th>
                           <th className="text-left font-semibold px-3 py-2 w-[100px]">Carrier</th>
@@ -744,7 +746,9 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                               className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'} ${dragging ? 'opacity-40' : ''}`} onClick={() => openDetail(r)}>
                               <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E]"><span className="text-gray-300 mr-1.5 cursor-grab" title="Drag to another group">⠿</span>{r.name}</td>
                               <td className="px-3 py-2.5"><span className="text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: sc.bg, color: sc.fg }}>{r.status || '—'}</span></td>
+                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.order_date)}</td>
                               <td className="px-3 py-2.5 text-[13px] font-mono text-gray-600">{r.po_number || '—'}</td>
+                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{r.load_number || '—'}</td>
                               <td className="px-3 py-2.5 text-[12px] text-gray-500 truncate max-w-[260px]">{r.ship_to || '—'}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600">{r.carrier || '—'}</td>
@@ -754,7 +758,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                             </tr>
                           )
                         })}
-                        {gr.length === 0 && <tr><td colSpan={9} className="px-4 py-4 text-center text-gray-400 text-xs italic">{draggedId ? 'Drop here to move the order into this group' : 'No orders'}</td></tr>}
+                        {gr.length === 0 && <tr><td colSpan={11} className="px-4 py-4 text-center text-gray-400 text-xs italic">{draggedId ? 'Drop here to move the order into this group' : 'No orders'}</td></tr>}
                       </tbody>
                     </table>
                   </div>
