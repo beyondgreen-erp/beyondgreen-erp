@@ -3,7 +3,7 @@ import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useEffect, useMemo, useState, memo } from 'react'
+import { useCallback, useEffect, useMemo, useState, memo, Fragment } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import BomEditor from './BomEditor'
 import CaseLabel from './CaseLabel'
@@ -403,17 +403,22 @@ export default function InventoryPage() {
   const [zonedSet, setZonedSet] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const [lastRecv, setLastRecv] = useState<Record<string, string>>({})
+  const [activityOpen, setActivityOpen] = useState<Record<string, boolean>>({})
+  const [activityData, setActivityData] = useState<Record<string, any[]>>({})
   const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }] = await Promise.all([
+    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }] = await Promise.all([
       sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('product_bom').select('finished_good_sku'),
       sb.from('product_zones').select('product_id'),
       sb.from('v_component_allocation_totals').select('component_sku, allocated_qty, open_orders'),
+      sb.rpc('inventory_last_received'),
     ])
+    { const m: Record<string, string> = {}; for (const r of (lr as any[]) || []) { if (r.sku) m[r.sku] = r.last_received } setLastRecv(m) }
     if (pErr) { setLoadError(`Failed to load: ${pErr.message}`) }
     else if (p) { setRows(p as Product[]) }
     if (b) {
@@ -432,6 +437,15 @@ export default function InventoryPage() {
     const { data } = await sb.from('product_zones').select('product_id')
     setZonedSet(new Set(((data as any[]) || []).map(r => r.product_id)))
   }, [sb])
+
+  async function toggleActivity(p: Product) {
+    setActivityOpen(o => ({ ...o, [p.id]: !o[p.id] }))
+    if (!activityData[p.id]) {
+      const { data } = await sb.rpc('sku_activity', { p_sku: p.sku, p_limit: 25 })
+      setActivityData(d => ({ ...d, [p.id]: (data as any[]) || [] }))
+    }
+  }
+  const fmtDT = (v: any) => { if (!v) return '—'; const d = new Date(v); return isNaN(+d) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }) }
 
   useEffect(() => {
     load()
@@ -469,6 +483,39 @@ export default function InventoryPage() {
   }, [rows])
 
   function openAdd() { setEditing(null); setForm(emptyForm); setErr(''); setOpen(true) }
+  // Print blank write-in inventory labels (SKU / Lot / Qty / Date) for bins & incoming stock
+  function printBlankLabels() {
+    const n = parseInt(window.prompt('How many blank inventory labels?', '12') || '0', 10)
+    if (!n || n < 1) return
+    const count = Math.min(n, 200)
+    const one = `
+      <div class="lbl">
+        <div class="hd">beyondGREEN · Inventory Label</div>
+        <div class="row"><span>SKU</span><i></i></div>
+        <div class="row"><span>Product</span><i></i></div>
+        <div class="two"><div class="row"><span>Lot #</span><i></i></div><div class="row"><span>Qty</span><i></i></div></div>
+        <div class="two"><div class="row"><span>Date</span><i></i></div><div class="row"><span>By</span><i></i></div></div>
+      </div>`
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Blank Inventory Labels (${count})</title>
+<style>
+  @page{size:letter;margin:0.35in}
+  body{font-family:Arial,Helvetica,sans-serif;margin:0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0.18in}
+  .lbl{border:1.5px solid #111;border-radius:8px;padding:10px 12px;height:1.55in;box-sizing:border-box;break-inside:avoid}
+  .hd{font-size:10px;font-weight:bold;color:#00854a;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+  .row{display:flex;align-items:flex-end;gap:6px;margin:7px 0}
+  .row span{font-size:11px;color:#333;width:52px;font-weight:bold}
+  .row i{flex:1;border-bottom:1.5px solid #333;height:16px;display:block}
+  .two{display:flex;gap:14px}.two .row{flex:1}
+  .noprint{margin:12px}
+</style></head><body>
+<div class="noprint"><button onclick="window.print()" style="padding:8px 16px;font-size:14px">Print ${count} labels</button></div>
+<div class="grid">${Array.from({ length: count }).map(() => one).join('')}</div>
+</body></html>`
+    const w = window.open('', '_blank', 'width=780,height=900')
+    if (!w) { alert('Allow pop-ups to print labels.'); return }
+    w.document.write(html); w.document.close()
+  }
 
   function openEdit(r: Product) {
     setEditing(r)
@@ -602,6 +649,10 @@ export default function InventoryPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
             Monthly Report &amp; Low-Stock
           </a>
+          <button onClick={printBlankLabels}
+            className="flex items-center gap-2 border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white text-[#8A5A0B] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+            <span>🏷️</span> Blank Labels
+          </button>
           <button onClick={openAdd}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
@@ -690,13 +741,15 @@ export default function InventoryPage() {
                             const isImport = p.is_import === true
                             // Only finished products (that aren't imported) need a BOM.
                             const needsBom = isFG && !isImport && bomCount === 0
+                            const acts = activityData[p.id] || []
                             return (
-                              <tr key={p.id} id={'item-'+p.id}
+                              <Fragment key={p.id}>
+                              <tr id={'item-'+p.id}
                                 style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }}
                                 className={`transition-colors ${ms.isSelected(p.id) ? 'bg-blue-50' : i % 2 ? 'bg-[#FBFCFE]' : 'bg-white'} hover:bg-[#F2F6FF] ${isDisc ? 'opacity-60' : ''}`}>
                                 <td className="px-3 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
                                 <td className="px-3 py-3"><div className="flex items-center gap-2"><button title={zonedSet.has(p.id)?'Storage zone set — click to edit':'No storage zone — click to set'} onClick={e=>{e.stopPropagation(); setZoneProduct(p)}} className={`shrink-0 rounded-full ${zonedSet.has(p.id)?'':'animate-pulse'}`} style={{width:11,height:11,border:'none',cursor:'pointer',background:zonedSet.has(p.id)?'#10b981':'#3B82F6',boxShadow:zonedSet.has(p.id)?'none':'0 0 0 3px rgba(59,130,246,0.35)'}}/><span className="font-mono font-semibold text-[13px] text-[#0F7A4E] truncate block max-w-[130px] cursor-pointer" onClick={()=>openEdit(p)}>{p.sku}</span></div></td>
-                                <td className={`px-3 py-3 cursor-pointer text-[#1A1D2E] font-medium ${isDisc ? 'line-through text-gray-400' : ''}`} onClick={()=>openEdit(p)}><span className="block truncate max-w-[320px]">{p.product_name}</span></td>
+                                <td className={`px-3 py-3 cursor-pointer text-[#1A1D2E] font-medium ${isDisc ? 'line-through text-gray-400' : ''}`} onClick={()=>openEdit(p)}><span className="block truncate max-w-[320px]">{p.product_name}</span>{lastRecv[p.sku] && <span className="block text-[10px] text-gray-400 font-normal mt-0.5">Rcvd {fmtDT(lastRecv[p.sku])}</span>}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{p.category ? <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[#EEF2FB] text-[#3A4A6B] border border-[#DCE3F2] truncate inline-block max-w-[118px] align-middle">{p.category}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 text-gray-500 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{p.unit_of_measure ?? '-'}</td>
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
@@ -716,10 +769,38 @@ export default function InventoryPage() {
                                     {isFG && !isImport && <button onClick={() => setBomProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>}
                                     <button onClick={() => setZoneProduct(p)} className={`text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                                     {isFG && <button onClick={() => setLabelProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
+                                    <button onClick={() => toggleActivity(p)} title="Receiving & movement history" className={`text-[11px] px-2 py-1 rounded transition-colors ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E] hover:bg-[#DDF3E8]'}`}>Activity {activityOpen[p.id] ? '▾' : '▸'}</button>
                                     <button onClick={() => handleDelete(p.id, p.sku)} className="text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
                                   </div>
                                 </td>
                               </tr>
+                              {activityOpen[p.id] && (
+                                <tr className="bg-[#F7FBF9]">
+                                  <td colSpan={12} className="px-6 py-3">
+                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-2">Activity · {p.sku}</p>
+                                    {acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
+                                      <table className="w-full text-xs">
+                                        <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400 text-left"><th className="py-1 pr-4">Date</th><th className="py-1 pr-4">Type</th><th className="py-1 pr-4 text-right">Qty</th><th className="py-1 pr-4">UOM</th><th className="py-1 pr-4">Bags</th><th className="py-1 pr-4">Lot</th><th className="py-1 pr-4">Source</th><th className="py-1 pr-4">By</th></tr></thead>
+                                        <tbody>
+                                          {acts.map((a: any) => (
+                                            <tr key={a.id} className="border-t border-[#E4EFEA]">
+                                              <td className="py-1.5 pr-4 text-gray-600 whitespace-nowrap">{fmtDT(a.created_at)}</td>
+                                              <td className="py-1.5 pr-4"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${a.movement_type==='receive'?'bg-[#DDF3E8] text-[#0F7A4E]':a.movement_type==='ship'?'bg-[#FBE9E9] text-[#B3261E]':'bg-[#EEF2FB] text-[#3A4A6B]'}`}>{a.movement_type}</span></td>
+                                              <td className={`py-1.5 pr-4 text-right font-semibold ${Number(a.qty)<0?'text-red-600':'text-[#0F7A4E]'}`}>{Number(a.qty)>0?'+':''}{a.qty}</td>
+                                              <td className="py-1.5 pr-4 text-gray-500">{a.uom || '—'}</td>
+                                              <td className="py-1.5 pr-4 text-gray-500">{a.pack_qty ?? '—'}</td>
+                                              <td className="py-1.5 pr-4 text-gray-500 font-mono">{a.lot_number || '—'}</td>
+                                              <td className="py-1.5 pr-4 text-gray-500">{a.ref_table || '—'}</td>
+                                              <td className="py-1.5 pr-4 text-gray-500 truncate max-w-[160px]">{a.created_by || '—'}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                              </Fragment>
                             )
                           })}
                         </tbody>
