@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
 import { generateInvoicePDF } from '@/lib/generateInvoice'
+import { downloadFile, getFileUrl } from '@/lib/fileHelpers'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import WorkflowMover from '@/components/WorkflowMover'
@@ -45,6 +46,7 @@ interface Invoice {
   reminder_count: number
   notes: string | null
   is_active: boolean
+  customer_name?: string | null
   customers?: { company_name: string } | null
   sales_orders?: { order_number: string } | null
 }
@@ -172,8 +174,12 @@ export default function InvoicesPage() {
   const [shipDocs, setShipDocs] = useState<{ packing_slip_url: string | null; pod_file_url: string | null; bol_number: string | null } | null>(null)
 
   async function openDoc(storage_path: string) {
-    const { data } = await sb.storage.from('erp-files').createSignedUrl(storage_path, 120)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    const url = await getFileUrl(sb, storage_path)
+    if (url) window.open(url, '_blank')
+    else alert('Could not open document — file not found in storage.')
+  }
+  async function downloadDoc(storage_path: string, file_name: string) {
+    await downloadFile(sb, storage_path, file_name)
   }
 
   async function load() {
@@ -256,7 +262,7 @@ export default function InvoicesPage() {
   const cmap = Object.fromEntries(customers.map(c => [c.id, c.company_name]))
 
   function getCustomerName(inv: Invoice) {
-    return (inv.customers as any)?.company_name ?? (inv.customer_id ? cmap[inv.customer_id] : null) ?? '—'
+    return (inv.customers as any)?.company_name ?? (inv.customer_id ? cmap[inv.customer_id] : null) ?? (inv.customer_name || null) ?? '—'
   }
   function getOrderNumber(inv: Invoice) {
     return (inv.sales_orders as any)?.order_number ?? '—'
@@ -854,10 +860,13 @@ export default function InvoicesPage() {
                         <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-500">🚚 BOL #: <span className="font-mono text-[#1A1D2E]">{shipDocs.bol_number}</span></div>
                       )}
                       {connectedDocs.map(d => (
-                        <button key={d.id} onClick={() => openDoc(d.storage_path)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF] text-left">
-                          📎 {d.file_name}
-                          <span className="ml-auto text-[10px] uppercase tracking-wide text-gray-400">{String(d.record_type || '').replace(/_/g, ' ')}</span>
-                        </button>
+                        <div key={d.id} className="flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-[#F8FAFF]">
+                          <span className="text-[#3B6FE0]">📎</span>
+                          <button onClick={() => openDoc(d.storage_path)} className="text-[#3B6FE0] text-left truncate" title="View">{d.file_name}</button>
+                          <span className="ml-auto text-[10px] uppercase tracking-wide text-gray-400 shrink-0">{String(d.record_type || '').replace(/_/g, ' ')}</span>
+                          <button onClick={() => openDoc(d.storage_path)} className="shrink-0 text-xs text-gray-500 hover:text-[#3B6FE0] px-1.5 py-0.5" title="View">View</button>
+                          <button onClick={() => downloadDoc(d.storage_path, d.file_name)} className="shrink-0 text-xs text-gray-500 hover:text-[#3B6FE0] px-1.5 py-0.5" title="Download">Download</button>
+                        </div>
                       ))}
                     </div>
                   </div>
