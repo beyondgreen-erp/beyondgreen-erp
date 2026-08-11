@@ -166,6 +166,12 @@ export default function Sidebar() {
               <i className="ti ti-device-tablet text-lg shrink-0" style={{ width: 22, textAlign: 'center' }} />
               {!collapsed && <span className="flex-1 text-sm font-semibold truncate">Scan Devices</span>}
             </Link>
+            <Link href="/warehouse/scan-activity" title="Scan Activity"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all mt-2"
+              style={{ background: isActive('/warehouse/scan-activity') ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.10)', color: '#34d399', border: '1px solid rgba(16,185,129,0.35)' }}>
+              <i className="ti ti-activity text-lg shrink-0" style={{ width: 22, textAlign: 'center' }} />
+              {!collapsed && <span className="flex-1 text-sm font-semibold truncate">Scan Activity</span>}
+            </Link>
           </div>
           <div className="mt-4 px-0"><ChatTrigger /></div>
         </nav>
