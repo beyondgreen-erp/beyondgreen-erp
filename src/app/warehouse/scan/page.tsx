@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ZonePicker from '@/components/ZonePicker'
 
-interface Row { key: string; productId: string; sku: string; name: string; qty: number; onHand: number | null; movements: string[] }
+interface Row { key: string; productId: string; sku: string; name: string; qty: number; onHand: number | null; movements: string[]; caseQty: number }
 interface PO { id: string; name: string; po_number: string | null; supplier: string | null; qty_ordered: string | null; qty_received: string | null; balance: string | null; status: string | null }
 
 const CLOSED = new Set(['Received', 'PO Canceled'])
@@ -144,8 +144,8 @@ export default function ScanStationPage() {
     beep(true)
     setRows(prev => {
       const i = prev.findIndex(r => r.key === d.sku)
-      if (i >= 0) { const c = [...prev]; c[i] = { ...c[i], qty: c[i].qty + 1, onHand: d.on_hand ?? c[i].onHand, movements: [...c[i].movements, d.movement_id] }; const [row] = c.splice(i, 1); return [row, ...c] }
-      return [{ key: d.sku, productId: d.product_id, sku: d.sku, name: d.product_name || d.sku, qty: 1, onHand: d.on_hand ?? null, movements: [d.movement_id] }, ...prev]
+      if (i >= 0) { const c = [...prev]; c[i] = { ...c[i], qty: c[i].qty + 1, onHand: d.on_hand ?? c[i].onHand, movements: [...c[i].movements, d.movement_id], caseQty: Number(d.case_qty) || c[i].caseQty }; const [row] = c.splice(i, 1); return [row, ...c] }
+      return [{ key: d.sku, productId: d.product_id, sku: d.sku, name: d.product_name || d.sku, qty: 1, onHand: d.on_hand ?? null, movements: [d.movement_id], caseQty: Number(d.case_qty) || 1 }, ...prev]
     })
     flash('ok', `✓ ${d.product_name || d.sku} +1`)
   }, [])
@@ -231,6 +231,19 @@ export default function ScanStationPage() {
       return qty > 0 ? [{ ...x, qty, movements }] : []
     }))
     flash('info', `Undid 1 × ${r.name}`)
+  }
+
+  // Edit a session line to an exact quantity; reflect the delta to inventory (Ultron)
+  async function editRowQty(r: Row, target: number) {
+    const t = Math.max(0, Math.floor(Number.isFinite(target) ? target : r.qty))
+    const delta = t - r.qty
+    if (delta === 0) return
+    const { data, error } = await sb.rpc('adjust_receive_qty', { p_product_id: r.productId, p_delta: delta, p_lot: lot || null, p_user: email || null })
+    if (error) { flash('err', 'Could not update quantity'); return }
+    const onHand = (data as any)?.on_hand ?? r.onHand
+    beep(true)
+    setRows(prev => prev.flatMap(x => x.key !== r.key ? [x] : (t > 0 ? [{ ...x, qty: t, onHand }] : [])))
+    flash('ok', `Set ${r.name} → ${t}`)
   }
 
   // ---------- finish / zone assignment ----------
@@ -427,16 +440,31 @@ export default function ScanStationPage() {
               </div>
               <div className="space-y-2 pb-4">
                 {rows.length === 0 && <p className="text-sm italic" style={{ color: '#5A6E8A' }}>No scans yet.</p>}
-                {rows.map(r => (
-                  <div key={r.key} className="flex items-center gap-3 rounded-xl px-3.5 py-3" style={{ background: '#1A2035', border: '1px solid #2A3350' }}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{r.name}</p>
-                      <p className="text-[11px] font-mono" style={{ color: '#8A9FC0' }}>{r.sku}{r.onHand != null ? ` · on hand ${r.onHand}` : ''}</p>
+                {rows.map(r => {
+                  const cq = r.caseQty > 1 ? r.caseQty : 0
+                  const cases = cq ? Math.floor(r.qty / cq) : 0
+                  const rem = cq ? r.qty % cq : 0
+                  return (
+                  <div key={r.key} className="rounded-xl px-3.5 py-3" style={{ background: '#1A2035', border: '1px solid #2A3350' }}>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{r.name}</p>
+                        <p className="text-[11px] font-mono" style={{ color: '#8A9FC0' }}>{r.sku}{r.onHand != null ? ` · on hand ${r.onHand}` : ''}</p>
+                      </div>
+                      <button onClick={() => editRowQty(r, r.qty - 1)} title="Minus one" className="text-lg w-9 h-9 rounded-lg shrink-0" style={{ background: '#0F1424', color: '#8A9FC0', border: '1px solid #2A3350' }}>−</button>
+                      <input key={r.key + '-' + r.qty} type="number" inputMode="numeric" defaultValue={r.qty}
+                        onBlur={e => editRowQty(r, parseInt(e.target.value || '0', 10))}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        className="w-14 text-center text-lg font-extrabold rounded-lg py-1 shrink-0" style={{ background: '#0F1424', color: '#34d399', border: '1px solid #2A3350', fontSize: 16 }} />
+                      <button onClick={() => editRowQty(r, r.qty + 1)} title="Plus one" className="text-lg w-9 h-9 rounded-lg shrink-0" style={{ background: '#0F1424', color: '#34d399', border: '1px solid #2A3350' }}>+</button>
+                      <button onClick={() => undoRow(r)} title="Undo last scan" className="text-base px-3 py-2 rounded-lg shrink-0" style={{ background: '#0F1424', color: '#F87171', border: '1px solid #3a2530' }}>↩</button>
                     </div>
-                    <span className="text-xl font-extrabold" style={{ color: '#34d399' }}>×{r.qty}</span>
-                    <button onClick={() => undoRow(r)} title="Undo one" className="text-base px-3 py-2 rounded-lg" style={{ background: '#0F1424', color: '#F87171', border: '1px solid #3a2530' }}>↩</button>
+                    {cq > 0 && (
+                      <p className="text-[11px] mt-1.5 font-semibold" style={{ color: '#FBBF24' }}>{r.qty} packs = {cases} case{cases === 1 ? '' : 's'}{rem > 0 ? ` + ${rem} pack${rem === 1 ? '' : 's'}` : ''} <span style={{ color: '#5A6E8A' }}>· {cq}/case</span></p>
+                    )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </>
           )}
