@@ -20,6 +20,11 @@ export default function ScanStationPage() {
   const [po, setPo] = useState<PO | null>(null)
   const [adminMode, setAdminMode] = useState(false)
   const [lot, setLot] = useState('')
+  // by-weight receiving (bulk raw materials sold by weight)
+  const [byWeight, setByWeight] = useState(false)
+  const [bags, setBags] = useState('')
+  const [wpb, setWpb] = useState('')
+  const [wuom, setWuom] = useState('kg')
 
   // PO dropdown
   const [openPOs, setOpenPOs] = useState<PO[]>([])
@@ -142,12 +147,13 @@ export default function ScanStationPage() {
   // ---------- scanning ----------
   const recordSuccess = useCallback((d: any) => {
     beep(true)
+    const addQty = Number(d.qty) || 1
     setRows(prev => {
       const i = prev.findIndex(r => r.key === d.sku)
-      if (i >= 0) { const c = [...prev]; c[i] = { ...c[i], qty: c[i].qty + 1, onHand: d.on_hand ?? c[i].onHand, movements: [...c[i].movements, d.movement_id], caseQty: Number(d.case_qty) || c[i].caseQty }; const [row] = c.splice(i, 1); return [row, ...c] }
-      return [{ key: d.sku, productId: d.product_id, sku: d.sku, name: d.product_name || d.sku, qty: 1, onHand: d.on_hand ?? null, movements: [d.movement_id], caseQty: Number(d.case_qty) || 1 }, ...prev]
+      if (i >= 0) { const c = [...prev]; c[i] = { ...c[i], qty: c[i].qty + addQty, onHand: d.on_hand ?? c[i].onHand, movements: [...c[i].movements, d.movement_id], caseQty: Number(d.case_qty) || c[i].caseQty }; const [row] = c.splice(i, 1); return [row, ...c] }
+      return [{ key: d.sku, productId: d.product_id, sku: d.sku, name: d.product_name || d.sku, qty: addQty, onHand: d.on_hand ?? null, movements: [d.movement_id], caseQty: Number(d.case_qty) || 1 }, ...prev]
     })
-    flash('ok', `✓ ${d.product_name || d.sku} +1`)
+    flash('ok', `✓ ${d.product_name || d.sku} +${addQty}`)
   }, [])
 
   const handleCode = useCallback(async (raw: string) => {
@@ -215,11 +221,20 @@ export default function ScanStationPage() {
   async function addProduct(p: any) {
     if (!adminMode && allowedId && p.id !== allowedId) { flash('err', 'Not on this PO — finish it first'); return }
     const code = p.sku || p.id
-    const { data, error } = await sb.rpc('receive_scan', { p_code: code, p_qty: 1, p_lot: lot || null, p_user: email || null })
+    const nBags = parseFloat(bags), perBag = parseFloat(wpb)
+    const useWeight = byWeight && nBags > 0 && perBag > 0
+    const qty = useWeight ? +(nBags * perBag).toFixed(4) : 1
+    const { data, error } = await sb.rpc('receive_scan', {
+      p_code: code, p_qty: qty, p_lot: lot || null, p_user: email || null,
+      p_pack_qty: useWeight ? nBags : null, p_uom: useWeight ? wuom : null,
+    })
     if (error) { flash('err', 'Add failed: ' + error.message); return }
-    if ((data as any)?.ok) { recordSuccess(data); if (!adminMode && !allowedId) setAllowedId(p.id); flash('ok', `Added: ${p.product_name || p.sku}`) }
-    else { flash('err', 'Could not add item') }
+    if ((data as any)?.ok) {
+      recordSuccess(data); if (!adminMode && !allowedId) setAllowedId(p.id)
+      flash('ok', useWeight ? `Added ${qty} ${wuom} (${nBags} bags): ${p.product_name || p.sku}` : `Added: ${p.product_name || p.sku}`)
+    } else { flash('err', 'Could not add item') }
     setManualPick(false); setResults([]); setQ('')
+    if (useWeight) { setBags(''); setWpb('') }
   }
   async function undoRow(r: Row) {
     const mid = r.movements[r.movements.length - 1]; if (!mid) return
@@ -378,6 +393,38 @@ export default function ScanStationPage() {
                 <input value={manual} onChange={e => setManual(e.target.value)} inputMode="text" placeholder="…or scan with a handheld / type a code"
                   className={inputCls} style={inputSty} autoComplete="off" />
               </form>
+
+              {/* By-weight receiving: bags × weight-per-bag with a UOM control */}
+              <button type="button" onClick={() => setByWeight(v => !v)}
+                className="w-full mb-2 py-3 text-sm font-bold rounded-xl"
+                style={{ background: byWeight ? '#33261A' : '#1A2035', color: '#FBBF24', border: '1px solid #2A3350' }}>
+                ⚖️ Receive by weight (bags){byWeight ? ' — on' : ''}
+              </button>
+              {byWeight && (
+                <div className="rounded-2xl p-3.5 mb-3" style={{ background: '#1A2035', border: '1px solid #7c5b1f' }}>
+                  <p className="text-[12px] mb-2" style={{ color: '#FBBF24' }}>Enter bags &amp; weight per bag, choose the unit, then pick the product below. Qty received = bags × weight/bag.</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wide" style={{ color: '#8A9FC0' }}>Bags</label>
+                      <input value={bags} onChange={e => setBags(e.target.value)} inputMode="decimal" placeholder="0" className="w-full rounded-lg px-2.5 py-2.5 text-base outline-none" style={{ background: '#0F1424', color: '#fff', border: '1px solid #2A3350', fontSize: 16 }} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wide" style={{ color: '#8A9FC0' }}>Wt / bag</label>
+                      <input value={wpb} onChange={e => setWpb(e.target.value)} inputMode="decimal" placeholder="0" className="w-full rounded-lg px-2.5 py-2.5 text-base outline-none" style={{ background: '#0F1424', color: '#fff', border: '1px solid #2A3350', fontSize: 16 }} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wide" style={{ color: '#8A9FC0' }}>UOM</label>
+                      <select value={wuom} onChange={e => setWuom(e.target.value)} className="w-full rounded-lg px-2 py-2.5 text-base outline-none appearance-none" style={{ background: '#0F1424', color: '#fff', border: '1px solid #2A3350', fontSize: 16 }}>
+                        {['kg','lb','g','oz','Packs','Cases','Ea.','Rolls'].map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {parseFloat(bags) > 0 && parseFloat(wpb) > 0 && (
+                    <p className="text-[13px] font-bold mt-2.5" style={{ color: '#34d399' }}>= {(parseFloat(bags) * parseFloat(wpb)).toLocaleString()} {wuom} <span style={{ color: '#5A6E8A' }}>({bags} bags × {wpb})</span></p>
+                  )}
+                  <button type="button" onClick={() => { setManualPick(true); setUnknown(null); setResults([]); setQ('') }} className="w-full mt-2.5 py-2.5 text-sm font-bold rounded-xl" style={{ background: '#3B6FE0', color: '#fff' }}>Pick product to receive →</button>
+                </div>
+              )}
 
               {/* Add an item without a barcode / scanner — pick it from the catalog */}
               <button type="button" onClick={() => { setManualPick(v => !v); setUnknown(null); setResults([]); setQ('') }}
