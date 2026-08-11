@@ -168,6 +168,59 @@ export default function PurchasingRequestsPage() {
     if (url) window.open(url, '_blank'); else alert('Could not open the file.')
   }
 
+  // ── Pick ticket: printable sheet with a scannable barcode per line so production
+  //    can scan it at the Scan Station to receive the SKU into inventory (Ultron). ──
+  async function printPickTicket(po: any) {
+    const items = itemsOf(po.id)
+    const esc = (v: any) => String(v ?? '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c])
+    let JsBarcode: any, QR: any
+    try { JsBarcode = (await import('jsbarcode')).default } catch { /* */ }
+    try { QR = await import('qrcode') } catch { /* */ }
+    function barcode(code: string): string {
+      if (!JsBarcode || !code) return ''
+      try { const c = document.createElement('canvas'); JsBarcode(c, code, { format: 'CODE128', width: 2, height: 54, displayValue: true, fontSize: 13, margin: 6 }); return c.toDataURL('image/png') } catch { return '' }
+    }
+    const lineRows = (items.length ? items : [{ part_number: po.supplier_pn || po.name, description: po.name, qty_ordered: po.qty_ordered }])
+      .map((it: any) => {
+        const code = String(it.part_number || it.name || '').trim()
+        const img = barcode(code)
+        return `<tr>
+          <td class="cb"></td>
+          <td><b>${esc(it.description || it.name || 'Item')}</b>${code ? `<div class="mono">${esc(code)}</div>` : ''}</td>
+          <td class="r">${esc(it.qty_ordered || '—')}</td>
+          <td class="bc">${img ? `<img src="${img}" alt="${esc(code)}" />` : '<span class="muted">no code</span>'}</td>
+        </tr>`
+      }).join('')
+    let headerQr = ''
+    try { if (QR) headerQr = await QR.toDataURL(String(po.po_number || po.name || ''), { width: 150, margin: 1 }) } catch { /* */ }
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Pick Ticket ${esc(po.po_number || po.name)}</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:26px}
+h1{font-size:22px;margin:0;color:#00854a}
+.sub{color:#555;margin:4px 0 16px;font-size:13px}
+.meta{display:flex;justify-content:space-between;align-items:flex-start}
+.badge{display:inline-block;padding:3px 12px;border-radius:999px;color:#fff;font-weight:bold;font-size:12px;background:#00854a}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{border:1px solid #bbb;padding:8px;text-align:left;vertical-align:middle}
+th{background:#eef5f0}
+.cb{width:30px;height:44px}.r{text-align:right;width:80px}.bc{width:250px;text-align:center}.bc img{max-width:240px}
+.mono{font-family:monospace;color:#888;font-size:11px;margin-top:2px}.muted{color:#aaa}
+.note{margin-top:16px;font-size:12px;color:#00854a;background:#eef5f0;border:1px solid #cfe6d9;border-radius:8px;padding:10px 12px}
+@media print{.noprint{display:none}}
+</style></head><body>
+<div class="meta">
+  <div><h1>PICK TICKET</h1><div class="sub"><span class="badge">${esc(po.po_number || po.name)}</span> &nbsp; ${po.supplier ? `Supplier <b>${esc(po.supplier)}</b> · ` : ''}${new Date().toLocaleDateString()}</div></div>
+  <div style="text-align:right">${headerQr ? `<img src="${headerQr}" width="90" height="90" alt="QR"/>` : ''}<div style="font-size:11px;color:#666">beyondGREEN biotech, Inc.</div></div>
+</div>
+<table><thead><tr><th class="cb">✓</th><th>Item</th><th class="r">Qty</th><th class="bc">Scan to receive</th></tr></thead><tbody>${lineRows}</tbody></table>
+<div class="note"><b>Production:</b> once produced, scan a line&#39;s barcode at the <b>Scan Station</b> to receive that SKU into inventory. Each scan = 1 pack; the station rolls packs into cases automatically.</div>
+<div class="noprint" style="margin-top:18px"><button onclick="window.print()" style="padding:8px 16px;font-size:14px">Print / Save as PDF</button></div>
+</body></html>`
+    const w = window.open('', '_blank', 'width=680,height=860')
+    if (!w) { alert('Allow pop-ups to open the pick ticket.'); return }
+    w.document.write(html); w.document.close()
+  }
+
   // ── Create request ─────────────────────────────────────────
   function openCreate() {
     setForm({ ...emptyCreate, po_date: new Date().toISOString().slice(0, 10), items: [blankItem()] })
@@ -541,6 +594,7 @@ export default function PurchasingRequestsPage() {
               </div>
             </div>
             <div className="shrink-0 px-6 py-3 border-t border-[#EEF0F4] flex items-center justify-end gap-3">
+              <button onClick={() => printPickTicket(detail)} className="text-sm font-semibold px-4 py-2 rounded-lg border border-[#00854a]/30 text-[#00854a] hover:bg-[#00854a]/5 transition-colors mr-auto">🎫 Print Pick Ticket</button>
               <button onClick={() => setDetail(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors">Close</button>
               <button onClick={saveDetail} disabled={savingDetail} className="text-sm font-semibold px-5 py-2 rounded-lg bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white disabled:opacity-60 transition-colors">{savingDetail ? 'Saving…' : 'Save changes'}</button>
             </div>
