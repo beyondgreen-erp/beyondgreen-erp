@@ -88,6 +88,8 @@ export default function PurchasingRequestsPage() {
   const [detail, setDetail] = useState<any | null>(null)
   const [editForm, setEditForm] = useState<any>({})
   const [savingDetail, setSavingDetail] = useState(false)
+  const [editItems, setEditItems] = useState<any[]>([])
+  const [deletedItemIds, setDeletedItemIds] = useState<string[]>([])
   const [userEmail, setUserEmail] = useState('')
 
   // create-modal state
@@ -116,18 +118,36 @@ export default function PurchasingRequestsPage() {
   useEffect(() => { load() }, [load])
 
   const itemsOf = (oid: string) => items.filter(i => i.parent_id === oid).sort((a, b) => (a.position || 0) - (b.position || 0))
-  useEffect(() => { setEditForm(detail ? { ...detail } : {}) }, [detail])
+  useEffect(() => {
+    setEditForm(detail ? { ...detail } : {})
+    setEditItems(detail ? items.filter(i => i.parent_id === detail.id).sort((a, b) => (a.position || 0) - (b.position || 0)).map(x => ({ ...x })) : [])
+    setDeletedItemIds([])
+  }, [detail?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','supplier','supplier_pn','po_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
+  const ITEM_KEYS = ['part_number','description','qty_ordered','date_ordered','total_received','date_received','balance'] as const
+  function updateDetailItem(idx: number, key: string, val: string) { setEditItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: val } : x)) }
+  function addDetailLine() { setEditItems(arr => [...arr, { _new: true, part_number: '', description: '', qty_ordered: '', date_ordered: null, total_received: '', date_received: null, balance: '' }]) }
+  function removeDetailItem(idx: number) { setEditItems(arr => { const it = arr[idx]; if (it?.id && !it._new) setDeletedItemIds(d => [...d, it.id]); return arr.filter((_, i) => i !== idx) }) }
   async function saveDetail() {
     if (!detail) return
     setSavingDetail(true)
     const patch: any = {}
     for (const k of DETAIL_KEYS) { const v = editForm[k]; patch[k] = (v === '' || v === undefined) ? null : v }
     const { error } = await sb.from('purchasing_requests').update(patch).eq('id', detail.id)
-    setSavingDetail(false)
-    if (error) { alert('Save failed: ' + error.message); return }
+    if (error) { setSavingDetail(false); alert('Save failed: ' + error.message); return }
+    if (deletedItemIds.length) await sb.from('purchasing_request_items').delete().in('id', deletedItemIds)
+    for (let idx = 0; idx < editItems.length; idx++) {
+      const it = editItems[idx]; const rowp: any = { position: idx }
+      for (const k of ITEM_KEYS) { const v = it[k]; rowp[k] = (v === '' || v === undefined) ? null : v }
+      if (it.id && !it._new) { await sb.from('purchasing_request_items').update(rowp).eq('id', it.id) }
+      else { rowp.parent_id = detail.id; await sb.from('purchasing_request_items').insert(rowp) }
+    }
+    const { data: fresh } = await sb.from('purchasing_request_items').select('*').eq('parent_id', detail.id).order('position', { nullsFirst: false })
+    setEditItems((fresh || []).map((x: any) => ({ ...x }))); setDeletedItemIds([])
+    setItems((all: any[]) => [...all.filter(i => i.parent_id !== detail.id), ...((fresh as any[]) || [])])
     setRows((rs: any[]) => rs.map(r => r.id === detail.id ? { ...r, ...patch } : r))
     setDetail((d: any) => ({ ...d, ...patch }))
+    setSavingDetail(false)
   }
   const updateStatus = async (id: string, status: string) => {
     // When an item is marked "Received" or "PO Canceled", auto-file it under the Receiving Log group.
@@ -530,6 +550,13 @@ th{background:#eef5f0}
 
             <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Location</p>
+                  <select value={editForm.location ?? ''} onChange={e => setEditForm((ff: any) => ({ ...ff, location: e.target.value }))} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#3B6FE0]">
+                    <option value="">—</option>
+                    {LOCATION_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
                 {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
                   <div key={k}>
                     <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>
@@ -539,35 +566,43 @@ th{background:#eef5f0}
               </div>
 
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Order Details</p>
-                {detailItems.length === 0 ? <p className="text-sm text-gray-400">No line items.</p> : (
-                  <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm min-w-[640px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
-                        <th className="text-left px-3 py-2">P/N</th>
-                        <th className="text-left px-3 py-2">Description</th>
-                        <th className="text-right px-3 py-2">Qty Ordered</th>
-                        <th className="text-left px-3 py-2">Date Ordered</th>
-                        <th className="text-right px-3 py-2">Total Received</th>
-                        <th className="text-left px-3 py-2">Date Received</th>
-                        <th className="text-right px-3 py-2">Balance</th>
-                      </tr></thead>
-                      <tbody>
-                        {detailItems.map(it => (
-                          <tr key={it.id} className="border-t border-[#F0F2F6]">
-                            <td className="px-3 py-2 font-mono text-emerald-700">{it.part_number || it.name || '—'}</td>
-                            <td className="px-3 py-2 text-gray-600">{it.description || '—'}</td>
-                            <td className="px-3 py-2 text-right">{it.qty_ordered || '—'}</td>
-                            <td className="px-3 py-2">{fmtDate(it.date_ordered) || '—'}</td>
-                            <td className="px-3 py-2 text-right">{it.total_received || '—'}</td>
-                            <td className="px-3 py-2">{fmtDate(it.date_received) || '—'}</td>
-                            <td className="px-3 py-2 text-right">{it.balance || '—'}</td>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Order Details</p>
+                  <button onClick={addDetailLine} className="text-xs font-semibold text-[#3B6FE0] hover:text-[#2f5bc0]">+ Add line</button>
+                </div>
+                <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm min-w-[720px]">
+                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
+                      <th className="text-left px-2 py-2">P/N</th>
+                      <th className="text-left px-2 py-2">Description</th>
+                      <th className="text-right px-2 py-2">Qty Ordered</th>
+                      <th className="text-left px-2 py-2">Date Ordered</th>
+                      <th className="text-right px-2 py-2">Total Received</th>
+                      <th className="text-left px-2 py-2">Date Received</th>
+                      <th className="text-right px-2 py-2">Balance</th>
+                      <th className="px-2 py-2 w-8"></th>
+                    </tr></thead>
+                    <tbody>
+                      {editItems.length === 0 && <tr><td colSpan={8} className="px-3 py-3 text-sm text-gray-400">No line items yet. Click &ldquo;+ Add line&rdquo;.</td></tr>}
+                      {editItems.map((it, idx) => {
+                        const inp = 'w-full text-sm border border-[#E4E6EE] rounded px-2 py-1 focus:outline-none focus:border-[#3B6FE0]'
+                        return (
+                          <tr key={it.id || 'new' + idx} className="border-t border-[#F0F2F6]">
+                            <td className="px-1.5 py-1"><input value={it.part_number ?? ''} onChange={e => updateDetailItem(idx, 'part_number', e.target.value)} className={inp + ' font-mono text-emerald-700'} /></td>
+                            <td className="px-1.5 py-1"><input value={it.description ?? ''} onChange={e => updateDetailItem(idx, 'description', e.target.value)} className={inp} /></td>
+                            <td className="px-1.5 py-1"><input value={it.qty_ordered ?? ''} onChange={e => updateDetailItem(idx, 'qty_ordered', e.target.value)} className={inp + ' text-right'} /></td>
+                            <td className="px-1.5 py-1"><input type="date" value={it.date_ordered ?? ''} onChange={e => updateDetailItem(idx, 'date_ordered', e.target.value)} className={inp} /></td>
+                            <td className="px-1.5 py-1"><input value={it.total_received ?? ''} onChange={e => updateDetailItem(idx, 'total_received', e.target.value)} className={inp + ' text-right'} /></td>
+                            <td className="px-1.5 py-1"><input type="date" value={it.date_received ?? ''} onChange={e => updateDetailItem(idx, 'date_received', e.target.value)} className={inp} /></td>
+                            <td className="px-1.5 py-1"><input value={it.balance ?? ''} onChange={e => updateDetailItem(idx, 'balance', e.target.value)} className={inp + ' text-right'} /></td>
+                            <td className="px-1.5 py-1 text-center"><button onClick={() => removeDetailItem(idx)} title="Remove line" className="text-gray-300 hover:text-red-500 text-lg leading-none">&times;</button></td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">Edit any quantity or field, add or remove lines, then click <b>Save changes</b> below.</p>
               </div>
 
               {detailFiles.length > 0 && (
