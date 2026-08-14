@@ -22,6 +22,7 @@ interface WOrder {
   carrier: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
+  updated_at: string | null; created_at: string | null
 }
 interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null; unit_price: number | null; case_price: number | null; distribution_price: number | null; wholesale_price: number | null }
 interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
@@ -557,7 +558,17 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
 
   const q = search.trim().toLowerCase()
   const match = (r: WOrder) => !q || [r.name, r.po_number, r.ship_to, r.status, r.load_number, r.bol2].some(v => (v || '').toLowerCase().includes(q))
-  const groupRows = (key: string) => rows.filter(r => (r.group_name || 'Walmart Orders') === key && match(r))
+  // Sort each group with the most recently shipped/updated at the top, oldest at the bottom.
+  // Shipped orders carry a bol_date (= their ship date); everything else falls back to
+  // when the record was last touched, then the order date.
+  const shipSortKey = (r: WOrder) => {
+    const d = r.bol_date || r.updated_at || r.order_date || r.created_at
+    const ms = d ? Date.parse(d) : 0
+    return isNaN(ms) ? 0 : ms
+  }
+  const groupRows = (key: string) => rows
+    .filter(r => (r.group_name || 'Walmart Orders') === key && match(r))
+    .sort((a, b) => shipSortKey(b) - shipSortKey(a))
   const extra = Array.from(new Set(rows.map(r => r.group_name || 'Walmart Orders').filter(k => k && !GROUPS.some(g => g.key === k))))
   const allGroups = [...GROUPS, ...extra.map(k => ({ key: k, color: '#9699A6' }))]
   const shown = allGroups.reduce((a, g) => a + groupRows(g.key).length, 0)
