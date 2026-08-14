@@ -125,14 +125,20 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   const descX = xOf[6]
 
   const headerH = 22
-  rect(doc, M, y, tableW, headerH)
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
-  doc.text('Handling Unit', (xOf[0] + xOf[2]) / 2, y + 8, { align: 'center' })
-  doc.text('Package', (xOf[2] + xOf[4]) / 2, y + 8, { align: 'center' })
-  doc.text('LTL Only', (xOf[7] + R) / 2, y + 8, { align: 'center' })
-  cols.forEach((c, i) => doc.text(c.t, xOf[i] + c.w / 2, y + 18, { align: 'center', maxWidth: c.w - 2 }))
-  cols.forEach((c, i) => { if (i > 0) line(doc, xOf[i], y, xOf[i], y + headerH) })
-  y += headerH
+  const pageH = doc.internal.pageSize.getHeight()
+  const TOP_Y = 40          // top margin when the table continues on a new page
+  const BOTTOM_Y = pageH - 46 // keep a bottom margin so rows never run off the page
+  const drawTableHeader = () => {
+    rect(doc, M, y, tableW, headerH)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
+    doc.text('Handling Unit', (xOf[0] + xOf[2]) / 2, y + 8, { align: 'center' })
+    doc.text('Package', (xOf[2] + xOf[4]) / 2, y + 8, { align: 'center' })
+    doc.text('LTL Only', (xOf[7] + R) / 2, y + 8, { align: 'center' })
+    cols.forEach((c, i) => doc.text(c.t, xOf[i] + c.w / 2, y + 18, { align: 'center', maxWidth: c.w - 2 }))
+    cols.forEach((c, i) => { if (i > 0) line(doc, xOf[i], y, xOf[i], y + headerH) })
+    y += headerH
+  }
+  drawTableHeader()
 
   const LH = 9 // line height inside a commodity cell
   const drawRow = (cells: (string | number)[], opts?: { indent?: boolean; boldRow?: boolean }) => {
@@ -145,6 +151,7 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
       ? descText.split('\n').flatMap(seg => doc.splitTextToSize(seg, descAvailW) as string[])
       : []
     const rowH = Math.max(13, wrapped.length * LH + 5)
+    if (y + rowH > BOTTOM_Y) { doc.addPage(); y = TOP_Y; drawTableHeader() }
     rect(doc, M, y, tableW, rowH)
     cols.forEach((c, i) => { if (i > 0) line(doc, xOf[i], y, xOf[i], y + rowH) })
     cells.forEach((val, i) => {
@@ -173,6 +180,7 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   for (; drawn < minRows; drawn++) drawRow(['', '', '', '', '', '', '', '', ''])
 
   // Totals row
+  if (y + 13 > BOTTOM_Y) { doc.addPage(); y = TOP_Y; drawTableHeader() }
   const rowH = 13
   doc.setFillColor(245, 245, 245); doc.rect(M, y, tableW, rowH, 'F')
   rect(doc, M, y, tableW, rowH)
@@ -184,7 +192,8 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   doc.text('TOTALS', descX + 3, y + 9)
   y += rowH + 12
 
-  // Declared value + note + signatures
+  // Declared value + note + signatures (keep this block together on a page)
+  if (y + 100 > pageH) { doc.addPage(); y = TOP_Y }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
   doc.text('The agreed or declared value of the property is specifically stated by the shipper to be not exceeding:', M, y, { maxWidth: tableW })
   y += 12
