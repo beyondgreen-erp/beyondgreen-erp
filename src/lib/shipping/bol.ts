@@ -318,10 +318,13 @@ export function buildPackingList(
     const ord = c.orderedUnits ?? c.units ?? shipped
     const mixed = (c.boxes && c.boxes.length > 1) && !c.boxDims
     const bw = c.boxWeight || 0
+    // Freight shipments have no box sizes — leave the box columns blank (not "mixed").
+    const rowHasDims = !!(c.boxDims && String(c.boxDims).trim()) || !!(c.boxes && c.boxes.some(b => b.dims && String(b.dims).trim()))
     const cells = [
       c.sku, c.description || '', c.uom || 'Case',
       String(Math.round(ord)), String(Math.round(shipped)), String(c.caseCount),
-      mixed ? 'mixed' : (c.boxDims || ''), mixed ? 'mixed' : (bw ? String(+bw.toFixed(1)) : ''),
+      !rowHasDims ? '' : (mixed ? 'mixed' : (c.boxDims || '')),
+      !rowHasDims ? '' : (mixed ? 'mixed' : (bw ? String(+bw.toFixed(1)) : '')),
     ]
     doc.setFontSize(9)
     // Row height grows with the wrapped description so nothing ever overlaps.
@@ -349,10 +352,13 @@ export function buildPackingList(
 
   // Box detail — SKUs with the same box for every case collapse to one "Cases 1–N" line;
   // SKUs whose cases differ are listed case-by-case.
+  // Only when actual box sizes were entered (parcel shipments). Freight ships on
+  // pallets with no per-box sizes, so this whole section is skipped for freight.
+  const hasDims = (c: PackListCase) => !!(c.boxDims && String(c.boxDims).trim()) || !!(c.boxes && c.boxes.some(b => b.dims && String(b.dims).trim()))
   const anyBoxDetail = ordered.some(c => {
     const n = c.caseCount || (c.boxes ? c.boxes.length : 0)
     const mixed = (c.boxes && c.boxes.length > 1) && !c.boxDims
-    return mixed || n > 1
+    return (mixed || n > 1) && hasDims(c)
   })
   if (anyBoxDetail) {
     y += 18; need(30)
@@ -361,7 +367,7 @@ export function buildPackingList(
     doc.text('Box detail', M, y); y += 4
     ordered.forEach(c => {
       const n = c.caseCount || (c.boxes ? c.boxes.length : 0)
-      if (n < 1) return
+      if (n < 1 || !hasDims(c)) return
       const mixed = (c.boxes && c.boxes.length > 1) && !c.boxDims
       if (!mixed && n <= 1) return   // single-case SKUs are already fully shown in the table above
       need(20)
