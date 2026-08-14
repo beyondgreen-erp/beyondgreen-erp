@@ -550,6 +550,7 @@ export default function QuotationsPage() {
         subtotal,
         total,
         notes: form.notes || null,
+        payment_terms: form.payment_terms || null,
       },
       pdfLines,
       customer ? { company_name: customer.company_name } : null
