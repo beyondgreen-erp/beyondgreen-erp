@@ -37,6 +37,8 @@ interface PlanRow {
   shippedUnits: number
   // Session-only per-case boxes (size in inches, weight in lb). boxes.length === cases.
   boxes: BoxSpec[]
+  // When true (default), one size/weight applies to every case (no per-box entry).
+  sameBox?: boolean
 }
 // Build the per-case box list from a shipped quantity and units-per-case.
 // Full cases hold `upc`; the last case holds the remainder. Existing box
@@ -379,6 +381,31 @@ export default function ShippingQueuePage() {
     setPlan(p => p.map((r, idx) => {
       if (idx !== i) return r
       const boxes = r.boxes.map((b, k) => k === bi ? { ...b, weightLb: Math.max(0, v || 0) } : b)
+      return { ...r, boxes, caseWeightLb: avgBoxWeight(boxes) }
+    }))
+    invalidateBol()
+  }
+  // Toggle "all boxes same size"; when turning on, copy case 1's size/weight to every case.
+  function setSameBox(i: number, on: boolean) {
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      let boxes = r.boxes
+      if (on && boxes.length) {
+        const b0 = boxes[0]
+        boxes = boxes.map(b => ({ ...b, lengthIn: b0.lengthIn, widthIn: b0.widthIn, heightIn: b0.heightIn, weightLb: b0.weightLb }))
+      }
+      return { ...r, sameBox: on, boxes, caseWeightLb: avgBoxWeight(boxes) }
+    }))
+    invalidateBol()
+  }
+  // Shared size/weight applied to ALL cases of a line (used in "same size" mode).
+  function setUniformDim(i: number, key: 'lengthIn' | 'widthIn' | 'heightIn', v: number) {
+    setPlan(p => p.map((r, idx) => idx === i ? { ...r, boxes: r.boxes.map(b => ({ ...b, [key]: Math.max(0, v || 0) })) } : r)); invalidateBol()
+  }
+  function setUniformWeight(i: number, v: number) {
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      const boxes = r.boxes.map(b => ({ ...b, weightLb: Math.max(0, v || 0) }))
       return { ...r, boxes, caseWeightLb: avgBoxWeight(boxes) }
     }))
     invalidateBol()
@@ -1158,10 +1185,31 @@ export default function ShippingQueuePage() {
                                   </div>
                                   {over && <div className="text-[11px] text-red-600 mt-1">Shipped can&apos;t exceed ordered — it&apos;s capped automatically.</div>}
                                   <div className="mt-2 border-t border-gray-200 pt-2">
-                                    <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Boxes ({r.boxes.length}) — units, size &amp; weight per case</div>
-                                    <div className="space-y-1">
-                                      {r.boxes.map((b, bi) => (
-                                        <div key={bi} className="flex items-center gap-1.5 flex-wrap text-xs">
+                                    <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
+                                      <div className="text-[10px] uppercase tracking-wide text-gray-400">Boxes ({r.boxes.length}) — size &amp; weight</div>
+                                      <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer select-none">
+                                        <input type="checkbox" checked={r.sameBox !== false} onChange={e => setSameBox(i, e.target.checked)} className="accent-emerald-600" />
+                                        All boxes are the same size &amp; weight
+                                      </label>
+                                    </div>
+                                    {r.sameBox !== false ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                                        <span className="text-gray-500 font-semibold shrink-0">Cases 1&ndash;{r.boxes.length}</span>
+                                        <span className="text-gray-400 ml-1.5">Box</span>
+                                        <input type="number" min={0} placeholder="L" value={r.boxes[0]?.lengthIn || ''} onChange={e => setUniformDim(i, 'lengthIn', parseFloat(e.target.value) || 0)} className="w-12 text-center rounded border border-gray-300 px-1 py-0.5" />
+                                        <span className="text-gray-300">×</span>
+                                        <input type="number" min={0} placeholder="W" value={r.boxes[0]?.widthIn || ''} onChange={e => setUniformDim(i, 'widthIn', parseFloat(e.target.value) || 0)} className="w-12 text-center rounded border border-gray-300 px-1 py-0.5" />
+                                        <span className="text-gray-300">×</span>
+                                        <input type="number" min={0} placeholder="H" value={r.boxes[0]?.heightIn || ''} onChange={e => setUniformDim(i, 'heightIn', parseFloat(e.target.value) || 0)} className="w-12 text-center rounded border border-gray-300 px-1 py-0.5" />
+                                        <span className="text-gray-400">in</span>
+                                        <input type="number" min={0} step="0.1" placeholder="wt" value={r.boxes[0]?.weightLb || ''} onChange={e => setUniformWeight(i, parseFloat(e.target.value) || 0)} className="w-16 text-right rounded border border-gray-300 px-1 py-0.5 ml-1.5" />
+                                        <span className="text-gray-400">lb</span>
+                                        <span className="text-[11px] text-gray-400 ml-2">applies to all {r.boxes.length} case{r.boxes.length === 1 ? '' : 's'}</span>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {r.boxes.map((b, bi) => (
+                                          <div key={bi} className="flex items-center gap-1.5 flex-wrap text-xs">
                                           <span className="w-[52px] text-gray-500 shrink-0 font-semibold">Case {bi + 1}</span>
                                           <span className="text-gray-400">Units</span>
                                           <input type="number" min={0} value={b.units} onChange={e => setBoxUnits(i, bi, parseInt(e.target.value) || 0)} className="w-16 text-right rounded border border-gray-300 px-1 py-0.5" />
@@ -1177,7 +1225,8 @@ export default function ShippingQueuePage() {
                                         </div>
                                       ))}
                                     </div>
-                                    <p className="text-[11px] text-gray-400 mt-1.5">The last case holds the remainder (e.g. 30 at 20/case → a case of 20 + a case of 10). Give the partial case its own size/weight if it differs.</p>
+                                  )}
+                                  <p className="text-[11px] text-gray-400 mt-1.5">{r.sameBox !== false ? 'One size & weight is applied to every case. Uncheck if a case (e.g. a partial one) is a different size.' : 'The last case holds the remainder (e.g. 30 at 20/case → a case of 20 + a case of 10). Give the partial case its own size/weight if it differs.'}</p>
                                   </div>
                                 </div>
                               )
