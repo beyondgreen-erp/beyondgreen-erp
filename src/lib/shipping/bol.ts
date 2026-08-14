@@ -312,7 +312,6 @@ export function buildPackingList(
   need(40); header()
   doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 32, 44)
   const ordered = [...cases].sort((a, b) => a.sku.localeCompare(b.sku))
-  const hasMixed = ordered.some(c => (c.boxes && c.boxes.length > 1) && !c.boxDims)
   ordered.forEach((c, idx) => {
     const upc = c.unitsInCase || 1
     const shipped = c.shippedUnits ?? (c.caseCount * upc)
@@ -348,26 +347,41 @@ export function buildPackingList(
   doc.text(`Totals:   ${totalsParts.join('    ')}`, M, y)
   y += 8
 
-  // Per-case box detail — only for SKUs whose cases differ (the columns above already
-  // cover SKUs where every case is the same box).
-  if (hasMixed) {
+  // Box detail — SKUs with the same box for every case collapse to one "Cases 1–N" line;
+  // SKUs whose cases differ are listed case-by-case.
+  const anyBoxDetail = ordered.some(c => {
+    const n = c.caseCount || (c.boxes ? c.boxes.length : 0)
+    const mixed = (c.boxes && c.boxes.length > 1) && !c.boxDims
+    return mixed || n > 1
+  })
+  if (anyBoxDetail) {
     y += 18; need(30)
     doc.setDrawColor(225); doc.line(M, y, R, y); y += 14
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 22, 34)
-    doc.text('Box detail (cases that differ)', M, y); y += 4
+    doc.text('Box detail', M, y); y += 4
     ordered.forEach(c => {
+      const n = c.caseCount || (c.boxes ? c.boxes.length : 0)
+      if (n < 1) return
       const mixed = (c.boxes && c.boxes.length > 1) && !c.boxDims
-      if (!mixed || !c.boxes) return
-      need(16)
+      if (!mixed && n <= 1) return   // single-case SKUs are already fully shown in the table above
+      need(20)
       y += 12
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 32, 44)
       doc.text(`${c.sku}${c.description ? ' — ' + c.description : ''}`, M + 4, y, { maxWidth: tableW - 8 }); y += 12
       doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 64, 78)
-      c.boxes.forEach((b, bi) => {
+      if (mixed && c.boxes) {
+        c.boxes.forEach((b, bi) => {
+          need(12)
+          const parts = [`${b.units} ${c.uom || 'ea'}`, b.dims || 'no size', b.weight ? `${+b.weight.toFixed(1)} lb` : ''].filter(Boolean)
+          doc.text(`Case ${bi + 1}:  ${parts.join('  ·  ')}`, M + 14, y, { maxWidth: tableW - 20 }); y += 11
+        })
+      } else {
+        const dims = c.boxDims || (c.boxes && c.boxes[0]?.dims) || 'no size'
+        const wt = c.boxWeight ?? (c.boxes && c.boxes[0]?.weight) ?? 0
+        const parts = [dims, wt ? `${+Number(wt).toFixed(1)} lb` : ''].filter(Boolean)
         need(12)
-        const parts = [`${b.units} ${c.uom || 'ea'}`, b.dims || 'no size', b.weight ? `${+b.weight.toFixed(1)} lb` : ''].filter(Boolean)
-        doc.text(`Case ${bi + 1}:  ${parts.join('  ·  ')}`, M + 14, y, { maxWidth: tableW - 20 }); y += 11
-      })
+        doc.text(`Cases 1\u2013${n}:  ${parts.join('  ·  ')}`, M + 14, y, { maxWidth: tableW - 20 }); y += 11
+      }
     })
     y += 4
   }
