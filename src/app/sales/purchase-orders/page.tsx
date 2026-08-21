@@ -88,6 +88,7 @@ export default function PurchasingRequestsPage() {
   const [detail, setDetail] = useState<any | null>(null)
   const [editForm, setEditForm] = useState<any>({})
   const [savingDetail, setSavingDetail] = useState(false)
+  const [posting, setPosting] = useState(false)
   const [editItems, setEditItems] = useState<any[]>([])
   const [deletedItemIds, setDeletedItemIds] = useState<string[]>([])
   const [userEmail, setUserEmail] = useState('')
@@ -128,6 +129,27 @@ export default function PurchasingRequestsPage() {
   function updateDetailItem(idx: number, key: string, val: string) { setEditItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: val } : x)) }
   function addDetailLine() { setEditItems(arr => [...arr, { _new: true, part_number: '', description: '', qty_ordered: '', date_ordered: null, total_received: '', date_received: null, balance: '' }]) }
   function removeDetailItem(idx: number) { setEditItems(arr => { const it = arr[idx]; if (it?.id && !it._new) setDeletedItemIds(d => [...d, it.id]); return arr.filter((_, i) => i !== idx) }) }
+  const numOf = (v: any) => { const n = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n }
+  // Option A: post a PO's received quantities into the same inventory ledger the Scan
+  // Station uses. Idempotent per line (only the un-posted delta is added), so it can't double-count.
+  async function postReceiptsToInventory() {
+    if (!detail) return
+    const items = itemsOf(detail.id).filter(it => String(it.part_number ?? '').trim() && numOf(it.total_received) > 0)
+    if (!items.length) { alert('No line items have a part number and a received quantity to post.'); return }
+    if (!confirm(`Post received quantities to inventory for ${items.length} line item(s)? On-hand will update; already-posted amounts are skipped automatically.`)) return
+    setPosting(true)
+    const msgs: string[] = []
+    for (const it of items) {
+      const { data, error } = await sb.rpc('post_line_receipt', { p_item_id: it.id, p_user: userEmail || null })
+      if (error) { msgs.push(`${it.part_number}: ${error.message}`); continue }
+      const d: any = data
+      if (d?.ok && d?.noop) msgs.push(`${it.part_number}: already posted (${d.posted})`)
+      else if (d?.ok) msgs.push(`${it.part_number}: +${d.posted_delta} → on hand ${d.on_hand}`)
+      else msgs.push(`${it.part_number}: ${d?.reason || 'not posted'}`)
+    }
+    setPosting(false)
+    alert('Inventory posting result:\n\n' + msgs.join('\n'))
+  }
   async function saveDetail() {
     if (!detail) return
     setSavingDetail(true)
@@ -570,6 +592,16 @@ th{background:#eef5f0}
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Order Details</p>
                   <button onClick={addDetailLine} className="text-xs font-semibold text-[#3B6FE0] hover:text-[#2f5bc0]">+ Add line</button>
                 </div>
+                {(() => {
+                  const shorts = editItems.filter((it: any) => numOf(it.total_received) > 0 && numOf(it.total_received) < numOf(it.qty_ordered))
+                  if (!shorts.length) return null
+                  return (
+                    <div className="mb-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                      <span>⚠</span>
+                      <div><b>Short receipt — order still open:</b> {shorts.map((it: any) => `${it.part_number || 'item'} received ${numOf(it.total_received)} of ${numOf(it.qty_ordered)} (balance ${numOf(it.qty_ordered) - numOf(it.total_received)})`).join('; ')}.</div>
+                    </div>
+                  )
+                })()}
                 <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                   <table className="w-full text-sm min-w-[720px]">
                     <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
@@ -630,6 +662,8 @@ th{background:#eef5f0}
             </div>
             <div className="shrink-0 px-6 py-3 border-t border-[#EEF0F4] flex items-center justify-end gap-3">
               <button onClick={() => printPickTicket(detail)} className="text-sm font-semibold px-4 py-2 rounded-lg border border-[#00854a]/30 text-[#00854a] hover:bg-[#00854a]/5 transition-colors mr-auto">🎫 Print Pick Ticket</button>
+              <button onClick={postReceiptsToInventory} disabled={posting} className="text-sm font-semibold px-4 py-2 rounded-lg border border-[#0F7A4E]/40 text-[#0F7A4E] hover:bg-[#0F7A4E]/5 transition-colors disabled:opacity-50">{posting ? 'Posting…' : '📦 Post to Inventory'}</button>
+
               <button onClick={() => setDetail(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors">Close</button>
               <button onClick={saveDetail} disabled={savingDetail} className="text-sm font-semibold px-5 py-2 rounded-lg bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white disabled:opacity-60 transition-colors">{savingDetail ? 'Saving…' : 'Save changes'}</button>
             </div>
