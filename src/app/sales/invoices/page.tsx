@@ -181,6 +181,15 @@ export default function InvoicesPage() {
   async function downloadDoc(storage_path: string, file_name: string) {
     await downloadFile(sb, storage_path, file_name)
   }
+  // Packing slip / POD are saved as public-style URLs, but the 'erp-files' bucket is
+  // private — those links are dead. Pull the object path out and open a fresh signed URL.
+  async function openStoredUrl(u: string | null) {
+    if (!u) return
+    const m = u.match(/\/erp-files\/([^?]+)/)
+    if (m && m[1]) { await openDoc(decodeURIComponent(m[1])); return }
+    if (u.startsWith('http')) { window.open(u, '_blank'); return }
+    await openDoc(u)
+  }
 
   async function load() {
     setLoading(true)
@@ -241,7 +250,7 @@ export default function InvoicesPage() {
     setLineItems((data ?? []) as LineItem[])
     // Load documents connected to the source order + shipment
     setConnectedDocs([]); setShipDocs(null)
-    const linkedIds = [inv.sales_order_id, inv.shipment_id].filter(Boolean) as string[]
+    const linkedIds = [inv.id, inv.sales_order_id, inv.shipment_id].filter(Boolean) as string[]
     if (linkedIds.length) {
       const { data: fa } = await sb.from('file_attachments')
         .select('id,file_name,file_type,storage_path,record_type,created_at')
@@ -851,10 +860,10 @@ export default function InvoicesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wider mb-3">Connected Documents <span className="text-gray-300 normal-case font-normal">(from order &amp; shipment)</span></p>
                     <div className="rounded-xl border border-[#E4E6EE] divide-y divide-[#E4E6EE]/60">
                       {shipDocs?.packing_slip_url && (
-                        <a href={shipDocs.packing_slip_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF]">📄 Packing Slip</a>
+                        <button onClick={() => openStoredUrl(shipDocs.packing_slip_url)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF] text-left">📄 Packing Slip <span className="ml-auto text-xs text-gray-400 hover:text-[#3B6FE0]">View</span></button>
                       )}
                       {shipDocs?.pod_file_url && (
-                        <a href={shipDocs.pod_file_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF]">📄 Proof of Delivery</a>
+                        <button onClick={() => openStoredUrl(shipDocs.pod_file_url)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF] text-left">📄 Proof of Delivery <span className="ml-auto text-xs text-gray-400 hover:text-[#3B6FE0]">View</span></button>
                       )}
                       {shipDocs?.bol_number && (
                         <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-500">🚚 BOL #: <span className="font-mono text-[#1A1D2E]">{shipDocs.bol_number}</span></div>
