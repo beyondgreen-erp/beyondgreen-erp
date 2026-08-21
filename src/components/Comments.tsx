@@ -85,6 +85,8 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
   const [mentionIdx, setMentionIdx] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editRef = useRef<HTMLTextAreaElement>(null)
+  const [flashId, setFlashId] = useState<string | null>(null)
+  const deepLinkDone = useRef(false)
 
   const fetchComments = useCallback(async () => {
     if (!recordId) return
@@ -129,6 +131,21 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
 
     return () => { sb.removeChannel(channel) }
   }, [recordId, recordType, fetchComments, loadTeam, sb])
+
+  // Deep-link: when opened from a mention notification (URL has ?comment=<id>), scroll to
+  // and briefly highlight that exact comment once comments have loaded.
+  useEffect(() => {
+    if (loading || deepLinkDone.current || typeof window === 'undefined') return
+    const cid = new URLSearchParams(window.location.search).get('comment')
+    if (!cid || !comments.some(c => String(c.id) === cid)) return
+    deepLinkDone.current = true
+    requestAnimationFrame(() => {
+      const el = document.getElementById('comment-' + cid)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setFlashId(cid)
+      setTimeout(() => setFlashId(null), 2800)
+    })
+  }, [loading, comments])
 
   // Filtered mention suggestions
   const mentionSuggestions = useMemo(() => {
@@ -231,13 +248,13 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       const uploaded: { name: string; url: string }[] = []
       for (const f of pendingFiles) { const r = await uploadToStorage(f); if (r) uploaded.push(r) }
 
-      const { error } = await sb.from('comments').insert({
+      const { data: inserted, error } = await sb.from('comments').insert({
         record_type: recordType,
         record_id: recordId,
         author_email: authorEmail,
         content: body.trim(),
         attachments: uploaded,
-      })
+      }).select('id').single()
       if (error) { alert('Could not post comment: ' + error.message + '\n\nYour text has been kept — please try again.'); return }
 
       // Send @mention notifications
@@ -255,6 +272,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             authorEmail,
             recordId,
             recordType,
+            commentId: inserted?.id,
             recordUrl: window.location.href,
           }),
         }).catch(() => {})
@@ -332,7 +350,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             const initials = p?.avatar_initials || avatarInitials(displayName)
 
             return (
-              <div key={c.id} className="flex gap-2.5">
+              <div key={c.id} id={`comment-${c.id}`} className={`flex gap-2.5 scroll-mt-24 rounded-lg transition-colors ${flashId === c.id ? 'ring-2 ring-amber-400 bg-amber-50 -mx-1 px-1 py-1' : ''}`}>
                 {/* Avatar */}
                 <UserAvatar email={c.author_email} initials={initials} color={p?.avatar_color || '#374151'} size={28} className="mt-0.5" />
 
