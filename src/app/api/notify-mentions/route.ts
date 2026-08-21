@@ -93,7 +93,7 @@ async function lookupRecordContext(sb: any, recordType?: string, recordId?: stri
 
 export async function POST(req: Request) {
   try {
-    const { mentions, body, authorName, authorEmail, recordId, recordType, recordUrl } = await req.json()
+    const { mentions, body, authorName, authorEmail, recordId, recordType, recordUrl, commentId } = await req.json()
 
     if (!mentions?.length || !authorEmail) {
       return Response.json({ ok: true, skipped: true })
@@ -146,7 +146,7 @@ export async function POST(req: Request) {
     }
     const boardPath = recordType ? RECORD_PATHS[recordType] : undefined
     const contextUrl = (boardPath && recordId)
-      ? `${SITE_URL}${boardPath}?item=${recordId}`
+      ? `${SITE_URL}${boardPath}?item=${recordId}${commentId ? `&comment=${commentId}` : ''}`
       : (recordUrl || `${SITE_URL}/${recordType || ''}`)
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
     const recordName = await lookupRecordName(sb, recordType, recordId)
