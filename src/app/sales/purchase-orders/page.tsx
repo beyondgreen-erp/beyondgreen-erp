@@ -603,7 +603,17 @@ th{background:#eef5f0}
                   )
                 })()}
                 <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
-                  <table className="w-full text-sm min-w-[720px]">
+                  <table className="w-full text-sm min-w-[1040px]">
+                    <colgroup>
+                      <col style={{ width: '190px' }} />
+                      <col style={{ width: '340px' }} />
+                      <col style={{ width: '92px' }} />
+                      <col style={{ width: '150px' }} />
+                      <col style={{ width: '112px' }} />
+                      <col style={{ width: '150px' }} />
+                      <col style={{ width: '92px' }} />
+                      <col style={{ width: '36px' }} />
+                    </colgroup>
                     <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
                       <th className="text-left px-2 py-2">P/N</th>
                       <th className="text-left px-2 py-2">Description</th>
@@ -618,10 +628,11 @@ th{background:#eef5f0}
                       {editItems.length === 0 && <tr><td colSpan={8} className="px-3 py-3 text-sm text-gray-400">No line items yet. Click &ldquo;+ Add line&rdquo;.</td></tr>}
                       {editItems.map((it, idx) => {
                         const inp = 'w-full text-sm border border-[#E4E6EE] rounded px-2 py-1 focus:outline-none focus:border-[#3B6FE0]'
+                        const inpBig = 'w-full text-base border border-[#E4E6EE] rounded px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0]'
                         return (
                           <tr key={it.id || 'new' + idx} className="border-t border-[#F0F2F6]">
-                            <td className="px-1.5 py-1"><input value={it.part_number ?? ''} onChange={e => updateDetailItem(idx, 'part_number', e.target.value)} className={inp + ' font-mono text-emerald-700'} /></td>
-                            <td className="px-1.5 py-1"><input value={it.description ?? ''} onChange={e => updateDetailItem(idx, 'description', e.target.value)} className={inp} /></td>
+                            <td className="px-1.5 py-1"><input value={it.part_number ?? ''} onChange={e => updateDetailItem(idx, 'part_number', e.target.value)} title={it.part_number ?? ''} placeholder="SKU / part #" className={inpBig + ' font-mono font-semibold text-emerald-700'} /></td>
+                            <td className="px-1.5 py-1"><input value={it.description ?? ''} onChange={e => updateDetailItem(idx, 'description', e.target.value)} title={it.description ?? ''} placeholder="Description" className={inpBig} /></td>
                             <td className="px-1.5 py-1"><input value={it.qty_ordered ?? ''} onChange={e => updateDetailItem(idx, 'qty_ordered', e.target.value)} className={inp + ' text-right'} /></td>
                             <td className="px-1.5 py-1"><input type="date" value={it.date_ordered ?? ''} onChange={e => updateDetailItem(idx, 'date_ordered', e.target.value)} className={inp} /></td>
                             <td className="px-1.5 py-1"><input value={it.total_received ?? ''} onChange={e => updateDetailItem(idx, 'total_received', e.target.value)} className={inp + ' text-right'} /></td>
