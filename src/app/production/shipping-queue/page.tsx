@@ -940,9 +940,9 @@ export default function ShippingQueuePage() {
       }
     }
   }
-  async function confirmMove() {
+  async function confirmMove(keepOpen = false) {
     if (!canConfirm || !activeItem) return
-    setCoBusy('move')
+    setCoBusy(keepOpen ? 'partial' : 'move')
     try {
       // How much of each SKU is shipping in THIS shipment.
       const shipNow: Record<string, number> = {}
@@ -960,7 +960,9 @@ export default function ShippingQueuePage() {
         if (ordered > 0 && newDone < ordered) fully = false
         if (add > 0) await sb.from('sales_order_lines').update({ completed_qty: newDone }).eq('id', l.id)
       }
-      const newStatus = fully ? 'Shipped' : 'Partially Shipped'
+      // keepOpen = operator chose 'save partial, keep order open': always leave it on the
+      // Shipping Queue as 'Partially Shipped' so the remaining balance can still be shipped.
+      const newStatus = keepOpen ? 'Partially Shipped' : (fully ? 'Shipped' : 'Partially Shipped')
       // Shipment record carries the same status so the auto-bill trigger only bills the
       // completing (full) shipment — partials are recorded + inventory-deducted but not billed.
       await createShipment({ id: coShipId, delivery_status: 'Shipped', status: newStatus, ai_summary: coSummary || null })
@@ -1639,7 +1641,10 @@ export default function ShippingQueuePage() {
 
             <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
               <button onClick={() => setCloseout(false)} className={`${btn} bg-white border-gray-300`}>Cancel</button>
-              <button onClick={confirmMove} disabled={!canConfirm || coBusy === 'move'} className={`${btn} ${canConfirm ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Moving…' : 'Confirm & move to shipments'}</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => confirmMove(true)} disabled={!canConfirm || !!coBusy} title="Records this shipment's details and deducts inventory, but keeps the order on the Shipping Queue as 'Partially Shipped' so the remaining balance can still be shipped." className={`${btn} bg-white border-emerald-600 text-emerald-700`}>{coBusy === 'partial' ? 'Saving…' : '\uD83D\uDCE6 Save partial — keep order open'}</button>
+                <button onClick={() => confirmMove(false)} disabled={!canConfirm || !!coBusy} title="Finalizes: records the shipment and moves the order to the Shipments board (Shipped when everything is shipped)." className={`${btn} ${canConfirm ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Moving…' : '\u2705 Confirm & move to shipments'}</button>
+              </div>
             </div>
           </div>
         </div>
