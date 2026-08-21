@@ -113,6 +113,7 @@ export default function QuotationsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [confirmConvert, setConfirmConvert] = useState<string | null>(null)
+  const [convertError, setConvertError] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState('')
 
   // Panel state
@@ -604,18 +605,37 @@ export default function QuotationsPage() {
 
   async function doConvertToSO(quote: Quote) {
     if (quote.status !== 'Accepted') { alert('This quote must be Accepted (customer-approved) before it can be converted to a sales order.'); setConfirmConvert(null); return }
+    // Gate: a sales order must carry the customer, both addresses, payment terms and at
+    // least one line item. Block the conversion and tell the person what to fill in first.
+    const missing: string[] = []
+    if (!form.customer_id) missing.push('Customer')
+    if (!(form.billing_address || '').trim()) missing.push('Billing address')
+    if (!(form.shipping_address || '').trim()) missing.push('Shipping address')
+    if (!(form.payment_terms || '').trim()) missing.push('Payment terms')
+    if (!lines.some(l => (Number(l.quantity) || 0) > 0)) missing.push('At least one line item with a quantity')
+    if (missing.length) {
+      setConvertError('Please fill in these required details on the quote before converting: ' + missing.join(', ') + '.')
+      return
+    }
+    setConvertError(null)
     setSaving(true)
     try {
+      // Persist the latest header details so the conversion copies the current values.
+      await supabase.from('quotations').update({
+        billing_address: form.billing_address || null,
+        shipping_address: form.shipping_address || null,
+        payment_terms: form.payment_terms || null,
+      }).eq('id', quote.id)
       // Atomic server-side conversion: copies header, line items and comments to a new
       // sales order and marks the quote Converted. (See DB fn convert_quote_to_order.)
       const { error } = await supabase.rpc('convert_quote_to_order', { p_quote_id: quote.id })
-      if (error) { alert('Conversion error: ' + error.message); return }
+      if (error) { setConvertError(error.message.replace(/^MISSING_DETAILS:\s*/, '')); return }
       setConfirmConvert(null)
       closePanel()
       fetchQuotes()
       router.push('/sales/orders')
     } catch (e: any) {
-      alert('Conversion error: ' + e.message)
+      setConvertError(e.message)
     } finally {
       setSaving(false)
     }
@@ -802,7 +822,7 @@ export default function QuotationsPage() {
                               <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {quote.status === 'Accepted' && (
                                   <button
-                                    onClick={() => { openEdit(quote); setConfirmConvert(quote.id) }}
+                                    onClick={() => { openEdit(quote); setConfirmConvert(quote.id); setConvertError(null) }}
                                     className="px-2 py-1 rounded-md text-[11px] font-semibold border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
                                     title="Convert to Sales Order"
                                   >
@@ -1287,13 +1307,19 @@ export default function QuotationsPage() {
         {/* Panel Footer */}
         <div className="px-4 py-3 border-t shrink-0" style={{ borderColor: '#E4E6EE', background: '#F9FAFB' }}>
           {editing && editing.status !== 'Converted' && confirmConvert === editing.id ? (
-            <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="w-full">
+              {convertError && (
+                <div className="mb-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: '#FCA5A5', background: '#FEF2F2', color: '#B91C1C' }}>
+                  <span>⚠️</span><span>{convertError}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-sm font-medium whitespace-nowrap" style={{ color: '#374151' }}>
                 Convert {editing.quote_number} → Sales Order?
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setConfirmConvert(null)}
+                  onClick={() => { setConfirmConvert(null); setConvertError(null) }}
                   className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border"
                   style={{ borderColor: '#E4E6EE', color: '#6B7280' }}
                 >
@@ -1307,6 +1333,7 @@ export default function QuotationsPage() {
                 >
                   {saving ? 'Converting…' : 'Confirm'}
                 </button>
+              </div>
               </div>
             </div>
           ) : (
@@ -1338,7 +1365,7 @@ export default function QuotationsPage() {
 
               {editing && editing.status !== 'Converted' && (
                 <button
-                  onClick={() => setConfirmConvert(editing.id)}
+                  onClick={() => { setConfirmConvert(editing.id); setConvertError(null) }}
                   className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap transition-colors hover:opacity-90 flex items-center gap-1.5"
                   style={{ background: '#ECFDF5', color: '#059669' }}
                   title="Convert this quote into a Sales Order"
