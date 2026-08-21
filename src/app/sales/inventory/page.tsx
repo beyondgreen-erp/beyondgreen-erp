@@ -406,17 +406,20 @@ export default function InventoryPage() {
   const [lastRecv, setLastRecv] = useState<Record<string, string>>({})
   const [activityOpen, setActivityOpen] = useState<Record<string, boolean>>({})
   const [activityData, setActivityData] = useState<Record<string, any[]>>({})
+  const [manualAlloc, setManualAlloc] = useState<Record<string, number>>({})
+  const [allocProduct, setAllocProduct] = useState<Product | null>(null)
   const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }] = await Promise.all([
+    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }, { data: mal }] = await Promise.all([
       sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('product_bom').select('finished_good_sku'),
       sb.from('product_zones').select('product_id'),
       sb.from('v_component_allocation_totals').select('component_sku, allocated_qty, open_orders'),
       sb.rpc('inventory_last_received'),
+      sb.from('v_manual_allocation_totals').select('sku, allocated_qty'),
     ])
     { const m: Record<string, string> = {}; for (const r of (lr as any[]) || []) { if (r.sku) m[r.sku] = r.last_received } setLastRecv(m) }
     if (pErr) { setLoadError(`Failed to load: ${pErr.message}`) }
@@ -429,6 +432,7 @@ export default function InventoryPage() {
     const am: Record<string, { qty: number; orders: number }> = {}
     for (const r of (alloc as any[]) || []) am[r.component_sku] = { qty: Number(r.allocated_qty) || 0, orders: Number(r.open_orders) || 0 }
     setAllocMap(am)
+    { const mm: Record<string, number> = {}; for (const r of (mal as any[]) || []) { if (r.sku) mm[String(r.sku).toUpperCase()] = Number(r.allocated_qty) || 0 } setManualAlloc(mm) }
     setZonedSet(new Set(((pz as any[]) || []).map(r => r.product_id)))
     setLoading(false)
   }, [sb])
@@ -755,9 +759,12 @@ export default function InventoryPage() {
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
                                 <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{(() => {
                                   const a = allocMap[p.sku]?.qty || 0
-                                  if (a <= 0) return <span className="text-gray-300 text-xs">—</span>
-                                  const avail = (p.on_hand_qty ?? 0) - a
-                                  return <div className="leading-tight" title={`${allocMap[p.sku]?.orders || 0} open order(s) reserve ${a.toLocaleString()}`}><div className="text-[11px] text-violet-600 font-semibold">{a.toLocaleString()} alloc</div><div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
+                                  const ma = manualAlloc[String(p.sku).toUpperCase()] || 0
+                                  const tot = a + ma
+                                  if (tot <= 0) return <span className="text-gray-300 text-xs">—</span>
+                                  const avail = (p.on_hand_qty ?? 0) - tot
+                                  const parts = [a>0?`${a.toLocaleString()} BOM`:null, ma>0?`${ma.toLocaleString()} manual`:null].filter(Boolean).join(' + ')
+                                  return <div className="leading-tight" title={`Reserved: ${parts}`}><div className="text-[11px] text-violet-600 font-semibold">{tot.toLocaleString()} alloc{ma>0?' *':''}</div><div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
                                 })()}</td>
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
@@ -770,6 +777,7 @@ export default function InventoryPage() {
                                     <button onClick={() => setZoneProduct(p)} className={`text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                                     {isFG && <button onClick={() => setLabelProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
                                     <button onClick={() => toggleActivity(p)} title="Receiving & movement history" className={`text-[11px] px-2 py-1 rounded transition-colors ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E] hover:bg-[#DDF3E8]'}`}>Activity {activityOpen[p.id] ? '▾' : '▸'}</button>
+                                    <button onClick={() => setAllocProduct(p)} title="Reserve stock to an order/job" className="text-[11px] px-2 py-1 rounded bg-[#E7EAFB] hover:bg-[#D6DCF8] text-[#4338CA] transition-colors">Alloc</button>
                                     <button onClick={() => handleDelete(p.id, p.sku)} className="text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
                                   </div>
                                 </td>
@@ -832,9 +840,105 @@ export default function InventoryPage() {
       {labelProduct && (
         <CaseLabel product={labelProduct} onClose={() => setLabelProduct(null)}/>
       )}
+      {allocProduct && (
+        <AllocPanel product={allocProduct} userEmail={userEmail} onClose={() => { setAllocProduct(null); load() }} />
+      )}
       {zoneProduct && (
         <ZonePicker productId={zoneProduct.id} productName={zoneProduct.product_name} currentUserEmail={userEmail} onClose={() => { setZoneProduct(null); loadZoned() }} />
       )}
+    </div>
+  )
+}
+
+function AllocPanel({ product, userEmail, onClose }: { product: any; userEmail: string; onClose: () => void }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [qty, setQty] = useState('')
+  const [allocTo, setAllocTo] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await sb.from('manual_allocations').select('*').eq('is_active', true)
+      .ilike('sku', product.sku).order('created_at', { ascending: false })
+    setRows((data as any[]) || [])
+    setLoading(false)
+  }, [sb, product.sku])
+  useEffect(() => { load() }, [load])
+
+  const totalAlloc = rows.reduce((s, r) => s + (Number(r.qty) || 0), 0)
+  const avail = (Number(product.on_hand_qty) || 0) - totalAlloc
+
+  async function add() {
+    setErr('')
+    const q = Number(qty)
+    if (!q || q <= 0) { setErr('Enter a quantity greater than 0.'); return }
+    if (!allocTo.trim()) { setErr('Enter the order or job this is reserved for.'); return }
+    setBusy(true)
+    const { error } = await sb.from('manual_allocations').insert({
+      product_id: product.id, sku: product.sku, qty: q,
+      allocated_to: allocTo.trim(), note: note.trim() || null, created_by: userEmail || 'erp',
+    })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    setQty(''); setAllocTo(''); setNote(''); load()
+  }
+  async function release(id: string) {
+    setBusy(true)
+    await sb.from('manual_allocations').update({ is_active: false }).eq('id', id)
+    setBusy(false); load()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#4338CA]">Manual Allocation</p>
+            <p className="font-mono font-semibold text-[#0F7A4E]">{product.sku}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+        </div>
+        <div className="px-5 py-4">
+          <div className="grid grid-cols-3 gap-3 mb-4 text-center">
+            <div className="rounded-lg bg-[#F3F6FC] py-2"><div className="text-[10px] uppercase text-gray-400">On hand</div><div className="font-semibold text-[#1A1D2E]">{(Number(product.on_hand_qty)||0).toLocaleString()}</div></div>
+            <div className="rounded-lg bg-[#EFE7FB] py-2"><div className="text-[10px] uppercase text-gray-400">Reserved</div><div className="font-semibold text-violet-600">{totalAlloc.toLocaleString()}</div></div>
+            <div className="rounded-lg bg-[#EAF7F0] py-2"><div className="text-[10px] uppercase text-gray-400">Available</div><div className={`font-semibold ${avail<0?'text-red-600':'text-emerald-600'}`}>{avail.toLocaleString()}</div></div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 p-3 mb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Reserve stock</p>
+            <div className="flex gap-2 mb-2">
+              <input value={qty} onChange={e=>setQty(e.target.value)} inputMode="decimal" placeholder="Qty" className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm"/>
+              <input value={allocTo} onChange={e=>setAllocTo(e.target.value)} placeholder="Order / job (e.g. SO-31570)" className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"/>
+            </div>
+            <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional)" className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm mb-2"/>
+            {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
+            <button onClick={add} disabled={busy} className="w-full bg-[#4338CA] hover:bg-[#3730A3] disabled:opacity-50 text-white text-sm font-semibold rounded py-2 transition-colors">{busy ? 'Saving…' : 'Reserve'}</button>
+          </div>
+
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Active reservations</p>
+          {loading ? <p className="text-xs text-gray-400 italic">Loading…</p> : rows.length === 0 ? <p className="text-xs text-gray-400 italic">No manual reservations.</p> : (
+            <table className="w-full text-xs">
+              <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400 text-left"><th className="py-1 pr-3 text-right">Qty</th><th className="py-1 pr-3">Reserved for</th><th className="py-1 pr-3">Note</th><th className="py-1 pr-3">By</th><th className="py-1"></th></tr></thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.id} className="border-t border-gray-100">
+                    <td className="py-1.5 pr-3 text-right font-semibold text-violet-600">{(Number(r.qty)||0).toLocaleString()}</td>
+                    <td className="py-1.5 pr-3">{r.allocated_to || '—'}</td>
+                    <td className="py-1.5 pr-3 text-gray-500 truncate max-w-[120px]">{r.note || '—'}</td>
+                    <td className="py-1.5 pr-3 text-gray-400 truncate max-w-[90px]">{r.created_by || '—'}</td>
+                    <td className="py-1.5 text-right"><button onClick={()=>release(r.id)} disabled={busy} className="text-[10px] px-2 py-0.5 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E]">Release</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
