@@ -158,11 +158,17 @@ export default function PurchasingRequestsPage() {
     const { error } = await sb.from('purchasing_requests').update(patch).eq('id', detail.id)
     if (error) { setSavingDetail(false); alert('Save failed: ' + error.message); return }
     if (deletedItemIds.length) await sb.from('purchasing_request_items').delete().in('id', deletedItemIds)
+    // Save each line. New lines get a generated id (the column has no auto-default) and a
+    // name, and every write is error-checked so a failed save is surfaced, not silent.
+    const itemErrors: string[] = []
     for (let idx = 0; idx < editItems.length; idx++) {
       const it = editItems[idx]; const rowp: any = { position: idx }
       for (const k of ITEM_KEYS) { const v = it[k]; rowp[k] = (v === '' || v === undefined) ? null : v }
-      if (it.id && !it._new) { await sb.from('purchasing_request_items').update(rowp).eq('id', it.id) }
-      else { rowp.parent_id = detail.id; await sb.from('purchasing_request_items').insert(rowp) }
+      rowp.name = (it.name && String(it.name).trim()) || rowp.description || rowp.part_number || null
+      let res
+      if (it.id && !it._new) res = await sb.from('purchasing_request_items').update(rowp).eq('id', it.id)
+      else { rowp.id = it.id || newKey(); rowp.parent_id = detail.id; res = await sb.from('purchasing_request_items').insert(rowp) }
+      if (res.error) itemErrors.push(`Line ${idx + 1}: ${res.error.message}`)
     }
     const { data: fresh } = await sb.from('purchasing_request_items').select('*').eq('parent_id', detail.id).order('position', { nullsFirst: false })
     setEditItems((fresh || []).map((x: any) => ({ ...x }))); setDeletedItemIds([])
@@ -170,6 +176,7 @@ export default function PurchasingRequestsPage() {
     setRows((rs: any[]) => rs.map(r => r.id === detail.id ? { ...r, ...patch } : r))
     setDetail((d: any) => ({ ...d, ...patch }))
     setSavingDetail(false)
+    if (itemErrors.length) alert('Some line items did not save:\n\n' + itemErrors.join('\n'))
   }
   const updateStatus = async (id: string, status: string) => {
     // When an item is marked "Received" or "PO Canceled", auto-file it under the Receiving Log group.
