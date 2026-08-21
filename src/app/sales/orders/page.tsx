@@ -323,6 +323,17 @@ const emptyForm = {
 }
 type F = typeof emptyForm
 
+// Draft autosave key for new (unsaved) orders.
+const DRAFT_KEY = 'bg_neworder_draft_v1'
+
+// Format a US phone as (xxx) xxx-xxxx, progressively while typing.
+function fmtPhone(v: string): string {
+  const d = (v || '').replace(/\D/g, '').slice(0, 10)
+  if (d.length < 4) return d
+  if (d.length < 7) return `(${d.slice(0,3)}) ${d.slice(3)}`
+  return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`
+}
+
 interface EditLineState {
   _key: string
   id?: string
@@ -476,12 +487,46 @@ function EditPanel({
     return () => { active = false; clearTimeout(t) }
   }, [leadQ, custMode, onSearchLeads])
   const custMatches = customers.filter(c => c.company_name.toLowerCase().includes(custQ.toLowerCase())).slice(0, 50)
-  function pickCustomer(c: Customer) { setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name })); setPickedLead(false); setCustOpen(false); setCustQ('') }
+  async function pickCustomer(c: Customer) {
+    setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name })); setPickedLead(false); setCustOpen(false); setCustQ('')
+    // Autofill contact + address from the saved customer record (only fills fields left blank).
+    const { data: cd } = await sb.from('customers').select('email,phone,billing_address,shipping_address').eq('id', c.id).maybeSingle()
+    if (cd) setForm(p => ({
+      ...p,
+      customer_email: p.customer_email || (cd as any).email || '',
+      customer_phone: p.customer_phone || fmtPhone((cd as any).phone || ''),
+      billing_address: p.billing_address || (cd as any).billing_address || '',
+      shipping_address: p.shipping_address || (cd as any).shipping_address || '',
+    }))
+  }
   function pickLead(l: { id: string; company_name: string }) { setForm(p => ({ ...p, customer_id: l.id, customer_label: l.company_name })); setPickedLead(true); setLeadQ(''); setLeadResults([]) }
   function clearLinkedCustomer() { setForm(p => ({ ...p, customer_id: '', customer_label: '' })); setPickedLead(false) }
-  const skuMatches = products.filter(p =>
-    skuQ.length > 0 && (p.sku.toLowerCase().includes(skuQ.toLowerCase()) || p.product_name.toLowerCase().includes(skuQ.toLowerCase()))
-  ).slice(0, 8)
+  const skuMatches = products.filter(p => {
+    if (skuQ.length === 0) return false
+    const q = skuQ.toLowerCase()
+    return p.sku.toLowerCase().includes(q)
+      || (p.product_name || '').toLowerCase().includes(q)
+      || (p.our_part_number || '').toLowerCase().includes(q)
+      || (p.supplier_part_number || '').toLowerCase().includes(q)
+  }).slice(0, 8)
+
+  // ── Autosave draft (new orders only) ─────────────────────────
+  const [draftAvail, setDraftAvail] = useState<{ savedAt: number } | null>(null)
+  const orderHasContent = !!(form.customer_label || form.customer_email || form.customer_phone || form.billing_address || form.shipping_address || form.notes || form.po_number) || editLines.some(l => l.sku || l.description || (l.unit_price && l.unit_price !== ''))
+  useEffect(() => {
+    if (!open || editing) { setDraftAvail(null); return }
+    try { const raw = localStorage.getItem(DRAFT_KEY); if (raw) { const d = JSON.parse(raw); if (d && d.form) setDraftAvail({ savedAt: d.savedAt || Date.now() }) } } catch { /* ignore */ }
+  }, [open, editing])
+  useEffect(() => {
+    if (!open || editing || !orderHasContent) return
+    const t = setTimeout(() => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, editLines, savedAt: Date.now() })) } catch { /* ignore */ } }, 600)
+    return () => clearTimeout(t)
+  }, [form, editLines, open, editing, orderHasContent])
+  function restoreDraft() {
+    try { const raw = localStorage.getItem(DRAFT_KEY); if (raw) { const d = JSON.parse(raw); if (d && d.form) { setForm({ ...d.form, order_number: form.order_number }); if (Array.isArray(d.editLines)) setEditLines(d.editLines) } } } catch { /* ignore */ }
+    setDraftAvail(null)
+  }
+  function discardDraft() { try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ } setDraftAvail(null) }
 
   function addLine(preset?: Partial<EditLineState>) {
     setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', our_part_number: '', supplier_part_number: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, ...preset }])
@@ -549,6 +594,15 @@ function EditPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {draftAvail && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span>Unsaved draft from {new Date(draftAvail.savedAt).toLocaleString()}. Restore it?</span>
+              <span className="flex gap-2 shrink-0">
+                <button type="button" onClick={restoreDraft} className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white font-semibold">Restore</button>
+                <button type="button" onClick={discardDraft} className="px-2.5 py-1 rounded bg-white border border-amber-300 hover:bg-amber-100 text-amber-700 font-semibold">Discard</button>
+              </span>
+            </div>
+          )}
           {/* Workflow Progress */}
           {editing && (
             <div className="bg-[#F5F6FA] rounded-xl px-4 py-3">
@@ -779,7 +833,7 @@ function EditPanel({
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Phone</label>
-                  <input value={form.customer_phone} onChange={e => setForm(p => ({ ...p, customer_phone: e.target.value }))} className={inp}/>
+                  <input value={form.customer_phone} onChange={e => setForm(p => ({ ...p, customer_phone: fmtPhone(e.target.value) }))} inputMode="tel" placeholder="(555) 123-4567" className={inp}/>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1651,6 +1705,7 @@ export default function OrdersPage() {
     if (orderId) { try { await sb.rpc('snapshot_order_version', { p_order: orderId, p_by: userEmail || 'system', p_note: null }) } catch { /* best-effort */ } }
 
     setSaving(false); setEditOpen(false)
+    try { if (!editingOrder) localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
 
     // Auto-flow: detect status change and trigger side-effects
     if (editingOrder && orderId && form.status !== editingOrder.status) {
