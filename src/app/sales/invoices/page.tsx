@@ -110,6 +110,7 @@ export default function InvoicesPage() {
   const [search, setSearch] = useState('')
   const [sel, setSel] = useState<Invoice|null>(null)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
+  const [shipInfo, setShipInfo] = useState<{ carrier?: string | null; tracking_number?: string | null } | null>(null)
   const [open, setOpen] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [notes, setNotes] = useState('')
@@ -249,7 +250,7 @@ export default function InvoicesPage() {
     const { data } = await sb.from('invoice_line_items').select('*').eq('invoice_id', inv.id).order('id')
     setLineItems((data ?? []) as LineItem[])
     // Load documents connected to the source order + shipment
-    setConnectedDocs([]); setShipDocs(null)
+    setConnectedDocs([]); setShipDocs(null); setShipInfo(null)
     const linkedIds = [inv.id, inv.sales_order_id, inv.shipment_id].filter(Boolean) as string[]
     if (linkedIds.length) {
       const { data: fa } = await sb.from('file_attachments')
@@ -258,8 +259,12 @@ export default function InvoicesPage() {
       setConnectedDocs((fa ?? []) as any[])
     }
     if (inv.shipment_id) {
-      const { data: sh } = await sb.from('shipments').select('packing_slip_url,pod_file_url,bol_number').eq('id', inv.shipment_id).maybeSingle()
+      const { data: sh } = await sb.from('shipments').select('packing_slip_url,pod_file_url,bol_number,carrier,tracking_number').eq('id', inv.shipment_id).maybeSingle()
       setShipDocs((sh as any) ?? null)
+      if (sh) setShipInfo({ carrier: (sh as any).carrier, tracking_number: (sh as any).tracking_number })
+    } else if (inv.sales_order_id) {
+      const { data: so } = await sb.from('sales_orders').select('carrier,tracking_number').eq('id', inv.sales_order_id).maybeSingle()
+      if (so) setShipInfo({ carrier: (so as any).carrier, tracking_number: (so as any).tracking_number })
     }
   }
 
@@ -626,6 +631,23 @@ export default function InvoicesPage() {
                         <p className="text-sm text-[#1A1D2E] mt-0.5">{value}</p>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                {/* Shipping & Tracking — carrier + tracking for finance to relay to the customer */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-3">Shipping &amp; Tracking</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg bg-[#F9FAFB] px-3 py-2.5">
+                     <p className="text-xs text-gray-500">Carrier</p>
+                      <p className="text-sm text-[#1A1D2E] mt-0.5">{shipInfo?.carrier || '—'}</p>
+                    </div>
+                    <div className="rounded-lg bg-[#F9FAFB] px-3 py-2.5">
+                      <p className="text-xs text-gray-500">Tracking #</p>
+                       {shipInfo?.tracking_number
+                        ? <div className="flex items-center gap-2 mt-0.5"><p className="text-sm font-mono text-[#1A1D2E] break-all">{shipInfo.tracking_number}</p><button type="button" onClick={() => { try { navigator.clipboard?.writeText(shipInfo!.tracking_number!) } catch { /* ignore */ } }} className="text-[11px] text-[#3B6FE0] hover:underline shrink-0">Copy</button></div>
+                        : <p className="text-sm text-[#1A1D2E] mt-0.5">—</p>}
+                    </div>
                   </div>
                 </div>
 
