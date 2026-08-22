@@ -609,48 +609,55 @@ th{background:#eef5f0}
                     </div>
                   )
                 })()}
-                <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
-                  <table className="w-full text-sm min-w-[1040px]">
-                    <colgroup>
-                      <col style={{ width: '190px' }} />
-                      <col style={{ width: '340px' }} />
-                      <col style={{ width: '92px' }} />
-                      <col style={{ width: '150px' }} />
-                      <col style={{ width: '112px' }} />
-                      <col style={{ width: '150px' }} />
-                      <col style={{ width: '92px' }} />
-                      <col style={{ width: '36px' }} />
-                    </colgroup>
-                    <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
-                      <th className="text-left px-2 py-2">P/N</th>
-                      <th className="text-left px-2 py-2">Description</th>
-                      <th className="text-right px-2 py-2">Qty Ordered</th>
-                      <th className="text-left px-2 py-2">Date Ordered</th>
-                      <th className="text-right px-2 py-2">Total Received</th>
-                      <th className="text-left px-2 py-2">Date Received</th>
-                      <th className="text-right px-2 py-2">Balance</th>
-                      <th className="px-2 py-2 w-8"></th>
-                    </tr></thead>
-                    <tbody>
-                      {editItems.length === 0 && <tr><td colSpan={8} className="px-3 py-3 text-sm text-gray-400">No line items yet. Click &ldquo;+ Add line&rdquo;.</td></tr>}
-                      {editItems.map((it, idx) => {
-                        const inp = 'w-full text-sm border border-[#E4E6EE] rounded px-2 py-1 focus:outline-none focus:border-[#3B6FE0]'
-                        const inpBig = 'w-full text-base border border-[#E4E6EE] rounded px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0]'
-                        return (
-                          <tr key={it.id || 'new' + idx} className="border-t border-[#F0F2F6]">
-                            <td className="px-1.5 py-1"><input value={it.part_number ?? ''} onChange={e => updateDetailItem(idx, 'part_number', e.target.value)} title={it.part_number ?? ''} placeholder="SKU / part #" className={inpBig + ' font-mono font-semibold text-emerald-700'} /></td>
-                            <td className="px-1.5 py-1"><input value={it.description ?? ''} onChange={e => updateDetailItem(idx, 'description', e.target.value)} title={it.description ?? ''} placeholder="Description" className={inpBig} /></td>
-                            <td className="px-1.5 py-1"><input value={it.qty_ordered ?? ''} onChange={e => updateDetailItem(idx, 'qty_ordered', e.target.value)} className={inp + ' text-right'} /></td>
-                            <td className="px-1.5 py-1"><input type="date" value={it.date_ordered ?? ''} onChange={e => updateDetailItem(idx, 'date_ordered', e.target.value)} className={inp} /></td>
-                            <td className="px-1.5 py-1"><input value={it.total_received ?? ''} onChange={e => updateDetailItem(idx, 'total_received', e.target.value)} className={inp + ' text-right'} /></td>
-                            <td className="px-1.5 py-1"><input type="date" value={it.date_received ?? ''} onChange={e => updateDetailItem(idx, 'date_received', e.target.value)} className={inp} /></td>
-                            <td className="px-1.5 py-1"><input value={it.balance ?? ''} onChange={e => updateDetailItem(idx, 'balance', e.target.value)} className={inp + ' text-right'} /></td>
-                            <td className="px-1.5 py-1 text-center"><button onClick={() => removeDetailItem(idx)} title="Remove line" className="text-gray-300 hover:text-red-500 text-lg leading-none">&times;</button></td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                <div className="space-y-2.5">
+                  {editItems.length === 0 && <p className="px-1 py-2 text-sm text-gray-400">No line items yet. Click &ldquo;+ Add line&rdquo;.</p>}
+                  {editItems.map((it, idx) => {
+                    const inp = 'w-full text-sm border border-[#E4E6EE] rounded px-2 py-1.5 focus:outline-none focus:border-[#3B6FE0]'
+                    const inpBig = 'w-full text-base border border-[#E4E6EE] rounded px-3 py-2 focus:outline-none focus:border-[#3B6FE0]'
+                    const lbl = 'block text-[10px] uppercase tracking-wide text-gray-400 mb-1'
+                    return (
+                      <div key={it.id || 'new' + idx} className="rounded-lg border border-[#EEF0F4] bg-[#FBFCFE] p-3">
+                        <div className="flex items-start gap-3">
+                          <span className="mt-7 text-[11px] font-semibold text-gray-400 w-4 shrink-0 text-right">{idx + 1}</span>
+                          <div className="flex-1 min-w-0 space-y-2.5">
+                            <div className="grid gap-2.5" style={{ gridTemplateColumns: '220px minmax(0, 1fr)' }}>
+                              <div>
+                                <label className={lbl}>P/N &middot; SKU</label>
+                                <input value={it.part_number ?? ''} onChange={e => updateDetailItem(idx, 'part_number', e.target.value)} placeholder="SKU / part #" className={inpBig + ' font-mono font-semibold text-emerald-700'} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Description</label>
+                                <input value={it.description ?? ''} onChange={e => updateDetailItem(idx, 'description', e.target.value)} placeholder="Product description" className={inpBig} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+                              <div>
+                                <label className={lbl}>Qty Ordered</label>
+                                <input value={it.qty_ordered ?? ''} onChange={e => updateDetailItem(idx, 'qty_ordered', e.target.value)} className={inp + ' text-right'} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Date Ordered</label>
+                                <input type="date" value={it.date_ordered ?? ''} onChange={e => updateDetailItem(idx, 'date_ordered', e.target.value)} className={inp} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Total Received</label>
+                                <input value={it.total_received ?? ''} onChange={e => updateDetailItem(idx, 'total_received', e.target.value)} className={inp + ' text-right'} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Date Received</label>
+                                <input type="date" value={it.date_received ?? ''} onChange={e => updateDetailItem(idx, 'date_received', e.target.value)} className={inp} />
+                              </div>
+                              <div>
+                                <label className={lbl}>Balance</label>
+                                <input value={it.balance ?? ''} onChange={e => updateDetailItem(idx, 'balance', e.target.value)} className={inp + ' text-right'} />
+                              </div>
+                            </div>
+                          </div>
+                          <button onClick={() => removeDetailItem(idx)} title="Remove line" className="mt-7 text-gray-300 hover:text-red-500 text-xl leading-none shrink-0">&times;</button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1.5">Edit any quantity or field, add or remove lines, then click <b>Save changes</b> below.</p>
               </div>
