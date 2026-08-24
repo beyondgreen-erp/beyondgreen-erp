@@ -362,7 +362,8 @@ export function generateBOL(order: PDFOrder, lines: PDFLine[], customer: PDFCust
 export async function generateOrderPDF(
   order: PDFOrder,
   lines: PDFLine[],
-  customer: PDFCustomer | null
+  customer: PDFCustomer | null,
+  opts: { output?: 'save' | 'base64' } = {}
 ) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
@@ -496,7 +497,82 @@ export async function generateOrderPDF(
   // ---- Page 2: Terms & Conditions of Sale ----
   drawTermsPage(doc, order)
 
+  if (opts.output === 'base64') return doc.output('datauristring').split('base64,')[1]
   doc.save(`sales-order-${(order.order_number || 'SO').replace(/[^\w.-]+/g, '_')}.pdf`)
+}
+
+export async function generateAcknowledgementPDF(
+  order: PDFOrder,
+  customer: PDFCustomer | null,
+  opts: { output?: 'save' | 'base64'; customerEmail?: string } = {}
+) {
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  const W = doc.internal.pageSize.getWidth()
+  const L = 36, R = W - 36
+  doc.setTextColor(0, 0, 0)
+
+  const logo = await loadBrandLogo()
+  if (logo) { try { doc.addImage(logo, 'PNG', L, 28, 122, 48) } catch { /* skip */ } }
+  doc.setFont('times', 'bold'); doc.setFontSize(15)
+  doc.text('ORDER ACKNOWLEDGEMENT', R, 48, { align: 'right' })
+
+  doc.setFont('times', 'normal'); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120)
+  let cyc = 90
+  ;['beyondGREEN biotech, Inc.', '1202 E. Wakeham Ave.', 'Santa Ana, CA 92705', 'USA', 'finance@beyondgreenbiotech.com'].forEach(t => { doc.text(t, L, cyc); cyc += 12 })
+  doc.setTextColor(0, 0, 0)
+  doc.setDrawColor(120, 120, 120); doc.setLineWidth(0.6); doc.line(L, cyc, R, cyc)
+
+  let y = cyc + 24
+  doc.setFont('times', 'bold'); doc.setFontSize(20); doc.text('Thank you for your order.', L, y)
+  y += 16
+  doc.setFont('times', 'normal'); doc.setFontSize(10)
+  doc.text('This order is under review. We will contact you if there are any questions or issues with your order request.', L, y)
+  y += 20
+
+  const impText = 'IMPORTANT: This Order Acknowledgement confirms receipt of your purchase order only. It does not constitute acceptance of the order, commencement of production, or confirmation of a delivery date. Acceptance of the order, applicable lead time, and finalized order details will be provided in a separate Order Confirmation.'
+  const impLines = doc.splitTextToSize(impText, R - L - 24) as string[]
+  const impH = impLines.length * 11 + 16
+  doc.setFillColor(240, 248, 244); doc.setDrawColor(180, 210, 195); doc.setLineWidth(0.6)
+  doc.rect(L, y, R - L, impH, 'FD')
+  doc.setFontSize(8.5); doc.setTextColor(60, 60, 60)
+  doc.text(impLines, L + 12, y + 13)
+  doc.setTextColor(0, 0, 0)
+  y += impH + 18
+
+  const colW = (R - L) / 2, rowH = 34, infoY = y
+  doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.5)
+  doc.rect(L, infoY, R - L, rowH * 2)
+  doc.line(L + colW, infoY, L + colW, infoY + rowH * 2)
+  doc.line(L, infoY + rowH, R, infoY + rowH)
+  const cell = (lx: number, ly: number, label: string, val: string) => {
+    doc.setFont('times', 'bold'); doc.setFontSize(8.5); doc.setTextColor(90, 90, 90)
+    doc.text(label, lx + 10, ly + 14)
+    doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(0, 0, 0)
+    doc.text(val || '-', lx + 10, ly + 27)
+  }
+  cell(L, infoY, 'Customer PO Number', order.po_number || '')
+  cell(L + colW, infoY, 'beyondGREEN Order Number', order.order_number || '')
+  cell(L, infoY + rowH, 'Order Received', fmtDate(order.order_date))
+  cell(L + colW, infoY + rowH, 'Customer Email', opts.customerEmail || customer?.email || '')
+  y = infoY + rowH * 2 + 18
+
+  const bH = 92, tW = (R - L - 16) / 3
+  drawAddrBox(doc, L, y, tW, bH, 'SOLD TO', billToRows(order, customer))
+  drawAddrBox(doc, L + tW + 8, y, tW, bH, 'BILL TO', billToRows(order, customer))
+  drawAddrBox(doc, L + (tW + 8) * 2, y, tW, bH, 'SHIP TO', shipToRows(order, customer))
+  y += bH + 16
+
+  doc.setFillColor(245, 247, 250); doc.setDrawColor(220, 225, 232); doc.rect(L, y, R - L, 24, 'FD')
+  doc.setFont('times', 'bold'); doc.setFontSize(9.5); doc.text('Please reference our Order Number and your PO on all inquiries.', L + 12, y + 15)
+  y += 34
+  doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(80, 80, 80)
+  doc.text('Questions regarding your order may be directed to finance@beyondgreenbiotech.com.', L, y)
+  doc.setTextColor(0, 0, 0)
+
+  drawTermsPage(doc, order)
+
+  if (opts.output === 'base64') return doc.output('datauristring').split('base64,')[1]
+  doc.save(`order-acknowledgement-${(order.order_number || 'ORDER').replace(/[^\w.-]+/g, '_')}.pdf`)
 }
 
 const SO_TERMS: [string, string][] = [
