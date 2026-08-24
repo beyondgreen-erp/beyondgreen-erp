@@ -15,9 +15,10 @@ import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
 import { statusColor } from '@/lib/statusColors'
-import { generateOrderPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
+import { generateOrderPDF, generateAcknowledgementPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
 import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
+import ChewyBoard from '@/components/ChewyBoard'
 import { orderDisplayName } from '@/lib/orderName'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -439,7 +440,7 @@ function LastInvoice({ customerId }: { customerId: string }) {
 
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
-  customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSearchLeads, userEmail,
+  customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSendAck, onOpenSOConfirm, emailBusy, canSendSO, onSearchLeads, userEmail,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -457,6 +458,10 @@ function EditPanel({
   onDelete: () => void
   onDuplicate: () => void
   onDownloadSalesOrder: () => void
+  onSendAck: () => void
+  onOpenSOConfirm: () => void
+  emailBusy: 'ack' | 'so' | null
+  canSendSO: boolean
   onSearchLeads: (q: string) => Promise<{ id: string; company_name: string }[]>
   userEmail: string
 }) {
@@ -1023,6 +1028,13 @@ function EditPanel({
 
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
           {err && <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"><p className="text-red-400 text-xs">{err}</p></div>}
+          {editing && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-gray-400">Customer email:</span>
+              <button type="button" onClick={onSendAck} disabled={emailBusy !== null} title="Send the Order Acknowledgement email + PDF to the customer (copy to info@byndgrn.com)" className="text-xs px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors">{emailBusy === 'ack' ? 'Sending…' : '\uD83D\uDCE7 Send Acknowledgement'}</button>
+              <button type="button" onClick={onOpenSOConfirm} disabled={emailBusy !== null || !canSendSO} title={canSendSO ? 'Send the Sales Order Confirmation (with confirmation pop-up)' : 'Add a customer, both addresses, payment terms and a line item first'} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors">{emailBusy === 'so' ? 'Sending…' : '\uD83D\uDCE7 Send SO Confirmation'}</button>
+            </div>
+          )}
           <div className="flex gap-3">
             {editing && (
               <button onClick={onDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete">
@@ -1059,12 +1071,18 @@ export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
   const [walmartTotal, setWalmartTotal] = useState(0)
+  const [chewyTotal, setChewyTotal] = useState(0)
   useEffect(() => {
-    // Include open Walmart order value in the board's Total Value stat.
+    // Include open Walmart + Chewy order value in the board's Total Value stat.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sb.from('walmart_board_orders').select('total_value, group_name, archived').eq('archived', false).then(({ data }: any) => {
       const t = ((data as any[]) || []).filter(r => (r.group_name || '') !== 'Cancelled').reduce((s: number, r: any) => s + (Number(r.total_value) || 0), 0)
       setWalmartTotal(t)
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sb.from('chewy_board_orders').select('total_value, group_name, archived').eq('archived', false).then(({ data }: any) => {
+      const t = ((data as any[]) || []).filter(r => (r.group_name || '') !== 'Cancelled').reduce((s: number, r: any) => s + (Number(r.total_value) || 0), 0)
+      setChewyTotal(t)
     })
   }, [sb])
 
@@ -1078,7 +1096,7 @@ export default function OrdersPage() {
     const target = (orders as any[]).find((x) => x && x.id === openId)
     if (target) { deepLinkOpenedRef.current = openId; openEdit(target) }
   }, [orders]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [view, setView] = useState<'board'|'table'|'walmart'>('board')
+  const [view, setView] = useState<'board'|'table'|'walmart'|'chewy'>('board')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
@@ -1422,7 +1440,7 @@ export default function OrdersPage() {
   }
 
   // Build a customer-ready Sales Order straight from the current form (usable before saving)
-  async function downloadFromForm() {
+  async function buildFormPdfData(): Promise<{ pdfOrder: PDFOrder; pdfLines: PDFLine[]; cust: PDFCustomer | null }> {
     const cust = await fetchCustomerForPdf(form.customer_id)
     const pdfLines: PDFLine[] = editLines
       .filter(l => l.sku || l.description)
@@ -1457,8 +1475,73 @@ export default function OrdersPage() {
       fob: form.fob || 'Santa Ana',
       sales_rep: form.sales_rep || 'RP',
     }
+    return { pdfOrder, pdfLines, cust }
+  }
+  async function downloadFromForm() {
+    const { pdfOrder, pdfLines, cust } = await buildFormPdfData()
     await generateOrderPDF(pdfOrder, pdfLines, cust)
   }
+  const [emailBusy, setEmailBusy] = useState<'ack' | 'so' | null>(null)
+  const [confirmSOOpen, setConfirmSOOpen] = useState(false)
+  async function sendAcknowledgement() {
+    const to = (form.customer_email || '').trim()
+    if (!to) { alert('Add the customer email on this order before sending.'); return }
+    setEmailBusy('ack')
+    try {
+      const { pdfOrder, cust } = await buildFormPdfData()
+      const b64 = (await generateAcknowledgementPDF(pdfOrder, cust, { output: 'base64', customerEmail: to })) as string
+      const name = cust?.contact_name || cust?.company_name || 'Customer'
+      const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1A1D2E;font-size:14px;line-height:1.55">`
+        + `<p>Dear ${name},</p>`
+        + `<p>Thank you for your order. This confirms that we have received your purchase order and added it to our production queue \u2014 our team is actively working on it.</p>`
+        + `<p>You will receive a separate <b>Sales Order Confirmation</b> for your review and confirmation within <b>24\u201348 business hours</b>. That document will contain your accepted order details and estimated lead time.</p>`
+        + `<p style="background:#f0f8f4;border:1px solid #b4d2c3;border-radius:8px;padding:10px 12px;font-size:13px"><b>Important:</b> This acknowledgement confirms receipt of your purchase order only. It does not constitute acceptance of the order, commencement of production, or confirmation of a delivery date.</p>`
+        + `<p><b>Customer PO:</b> ${pdfOrder.po_number || '\u2014'} &nbsp;&nbsp; <b>beyondGREEN Order #:</b> ${pdfOrder.order_number}</p>`
+        + `<p>Please reference our Order Number and your PO on all inquiries. Questions may be directed to finance@beyondgreenbiotech.com.</p>`
+        + `<p>Thank you,<br/>beyondGREEN biotech, Inc.<br/><span style="color:#6B7280">1202 E. Wakeham Ave., Santa Ana, CA 92705 \u00B7 finance@beyondgreenbiotech.com</span></p></div>`
+      const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        to, reply_to: 'finance@beyondgreenbiotech.com',
+        subject: `beyondGREEN \u2014 Order Received  |  PO ${pdfOrder.po_number || '\u2014'}  |  Order ${pdfOrder.order_number}`,
+        html, attachments: [{ filename: `Order-Acknowledgement-${pdfOrder.order_number}.pdf`, content: b64 }],
+      }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Send failed')
+      alert('\u2713 Order Acknowledgement sent to ' + to + ' (a copy also goes to info@byndgrn.com).')
+    } catch (e: any) { alert('Could not send acknowledgement: ' + (e?.message || e)) }
+    setEmailBusy(null)
+  }
+  async function sendSOConfirmation() {
+    const to = (form.customer_email || '').trim()
+    if (!to) { alert('Add the customer email first.'); setConfirmSOOpen(false); return }
+    setEmailBusy('so')
+    try {
+      const { pdfOrder, pdfLines, cust } = await buildFormPdfData()
+      const b64 = (await generateOrderPDF(pdfOrder, pdfLines, cust, { output: 'base64' })) as string
+      const name = cust?.contact_name || cust?.company_name || 'Customer'
+      const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1A1D2E;font-size:14px;line-height:1.55">`
+        + `<p>Dear ${name},</p>`
+        + `<p>Please find attached your <b>Sales Order Confirmation</b> for beyondGREEN Order <b>${pdfOrder.order_number}</b> (your PO ${pdfOrder.po_number || '\u2014'}). This confirms acceptance of your order. The attached document contains the accepted product details, quantities, pricing, payment terms, and estimated manufacturing lead time.</p>`
+        + `<p>A few key terms (full Terms &amp; Conditions are in the attached PDF):</p>`
+        + `<ul style="margin:0 0 10px 18px;padding:0">`
+        + `<li>Acceptance: your order is accepted as set out in the attached Order Confirmation.</li>`
+        + `<li>Lead time: stated lead times are estimates unless expressly guaranteed in writing.</li>`
+        + `<li>Quantity tolerance: manufactured quantities may vary by \u00B110%; you are invoiced for the actual quantity shipped.</li>`
+        + `<li>Freight: shipping and related charges are billed at actual cost unless otherwise agreed in writing.</li>`
+        + `<li>Claims: please inspect on receipt and report any shortage/damage/defect in writing within 7 calendar days.</li></ul>`
+        + `<p>Please review the attached confirmation and reply to this email to confirm.</p>`
+        + `<p>Thank you,<br/>beyondGREEN biotech, Inc.<br/><span style="color:#6B7280">1202 E. Wakeham Ave., Santa Ana, CA 92705 \u00B7 finance@beyondgreenbiotech.com</span></p></div>`
+      const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        to, reply_to: 'finance@beyondgreenbiotech.com',
+        subject: `beyondGREEN \u2014 Sales Order Confirmation ${pdfOrder.order_number}  |  PO ${pdfOrder.po_number || '\u2014'}`,
+        html, attachments: [{ filename: `Sales-Order-Confirmation-${pdfOrder.order_number}.pdf`, content: b64 }],
+      }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Send failed')
+      alert('\u2713 Sales Order Confirmation sent to ' + to + ' (a copy also goes to info@byndgrn.com).')
+    } catch (e: any) { alert('Could not send SO confirmation: ' + (e?.message || e)) }
+    setEmailBusy(null); setConfirmSOOpen(false)
+  }
+
 
   async function handleDownloadPackingListPdf(order: SalesOrder) {
     const lines = await fetchOrderLinesForPdf(order.id)
@@ -1801,7 +1884,7 @@ export default function OrdersPage() {
       {inlineErr && (
         <div className="fixed bottom-5 right-5 z-[130] rounded-lg bg-[#E2445C] text-white text-sm font-semibold px-4 py-2.5 shadow-lg">{inlineErr}</div>
       )}
-      {!loading && view !== 'walmart' && (<>
+      {!loading && view !== 'walmart' && view !== 'chewy' && (<>
         <style>{`@keyframes soBlink{0%,100%{opacity:1}50%{opacity:.4}} .so-blink{animation:soBlink 1s ease-in-out infinite}`}</style>
         {(() => {
           const overdue = orders.filter(o => !isCompleted(o) && orderMatches(o) && shipUrgency(o)?.level === 'overdue')
@@ -1822,13 +1905,13 @@ export default function OrdersPage() {
           <Stat label="In Production" value={String(stats.inProd)} c="#FDAB3D"/>
           <Stat label="Ready to Ship" value={String(stats.ready)} c="#00C7C7"/>
           <Stat label="On Hold" value={String(stats.onHold)} c={stats.onHold > 0 ? '#E2445C' : '#9699A6'}/>
-          <Stat label="Total Value" value={fmt$((stats.totalVal || 0) + walmartTotal) ?? '—'} c="#00A84F"/>
+          <Stat label="Total Value" value={fmt$((stats.totalVal || 0) + walmartTotal + chewyTotal) ?? '—'} c="#00A84F"/>
           <Stat label="Flagged Lines" value={String(stats.flaggedTotal)} c={stats.flaggedTotal > 0 ? '#A25DDC' : '#9699A6'} sub="need SKU"/>
         </div>
       </>)}
 
       {/* Search + status filter — applies to both Board and Table */}
-      {view !== 'walmart' && (
+      {view !== 'walmart' && view !== 'chewy' && (
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -1853,6 +1936,7 @@ export default function OrdersPage() {
           <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Board</button>
           <button onClick={() => setView('table')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'table' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Table</button>
           <button onClick={() => setView('walmart')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'walmart' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Walmart Orders</button>
+          <button onClick={() => setView('chewy')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'chewy' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Chewy.com</button>
         </div>
         {view === 'board' && (
           <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
@@ -1876,6 +1960,7 @@ export default function OrdersPage() {
       </div>
 
       {view === 'walmart' && <WalmartBoard />}
+      {view === 'chewy' && <ChewyBoard />}
 
       {view === 'board' && (() => {
         // Include any status present on active orders that isn't in the canonical list,
@@ -2317,9 +2402,30 @@ export default function OrdersPage() {
         onDelete={() => editingOrder && handleDelete(editingOrder.id)}
         onDuplicate={() => editingOrder && duplicateOrder(editingOrder)}
         onDownloadSalesOrder={downloadFromForm}
+        onSendAck={sendAcknowledgement}
+        onOpenSOConfirm={() => setConfirmSOOpen(true)}
+        emailBusy={emailBusy}
+        canSendSO={!!editingOrder && !!form.customer_id && !!(form.billing_address || '').trim() && !!(form.shipping_address || '').trim() && !!(((form.terms as string) || '') + '').trim() && editLines.some(l => l.sku || l.description)}
         onSearchLeads={searchLeads}
         userEmail={userEmail ?? ''}
       />
+      {confirmSOOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!emailBusy) setConfirmSOOpen(false) }}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-[#1A1D2E] mb-2">Send Sales Order Confirmation?</p>
+            <div className="text-sm text-gray-600 space-y-1 mb-4">
+              <p>To: <b>{form.customer_email || '(no email on order)'}</b></p>
+              <p>Copy to: <b>info@byndgrn.com</b></p>
+              <p>Attachment: <b>Sales Order Confirmation (PDF)</b> for order {form.order_number}</p>
+              <p className="text-xs text-amber-600">Please double-check the recipient and details before sending.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmSOOpen(false)} disabled={emailBusy !== null} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button onClick={sendSOConfirmation} disabled={emailBusy !== null || !(form.customer_email || '').trim()} className="text-sm font-semibold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">{emailBusy === 'so' ? 'Sending…' : 'Confirm & Send'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirmDeleteId && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
