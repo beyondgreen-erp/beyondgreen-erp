@@ -7,7 +7,7 @@ const FROM_NAME = process.env.FROM_NAME || 'beyondGREEN ERP'
 export async function POST(req: NextRequest) {
   try {
     if (!RESEND_API_KEY) return NextResponse.json({ error: 'Email service not configured' }, { status: 500 })
-    const { to, cc, bcc, subject, html, text, reply_to } = await req.json()
+    const { to, cc, bcc, subject, html, text, reply_to, attachments } = await req.json()
     if (!to || !subject || (!html && !text)) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
 
     const body: Record<string, unknown> = {
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     if (text) body.text = text
     if (cc) body.cc = Array.isArray(cc) ? cc : [cc]
     if (reply_to) body.reply_to = Array.isArray(reply_to) ? reply_to : [reply_to]
+    if (Array.isArray(attachments) && attachments.length) body.attachments = attachments
     // Always send a silent copy of every outbound email to the shared inbox.
     const norm = (v: unknown) => (Array.isArray(v) ? v : v ? [v] : []).map(x => String(x).toLowerCase())
     const already = new Set<string>([...norm(to), ...norm(cc)])
