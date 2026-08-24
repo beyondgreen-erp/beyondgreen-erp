@@ -19,7 +19,7 @@ interface Props {
 interface SearchHit { kind: string; label: string; sub?: string; href: string; icon: string; color: string }
 
 // Groups whose dropdown is locked behind a "undergoing sprints" notice.
-const LOCKED_GROUPS = new Set(['Production'])
+const LOCKED_GROUPS = new Set<string>([])
 
 export default function TopNav({ pageTitle, userEmail, userName, userInitials, avatarColor }: Props) {
   const router = useRouter()
