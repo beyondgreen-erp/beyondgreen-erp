@@ -514,11 +514,11 @@ export async function generateAcknowledgementPDF(
   const logo = await loadBrandLogo()
   if (logo) { try { doc.addImage(logo, 'PNG', L, 28, 122, 48) } catch { /* skip */ } }
   doc.setFont('times', 'bold'); doc.setFontSize(15)
-  doc.text('ORDER ACKNOWLEDGEMENT', R, 48, { align: 'right' })
+  doc.text('beyondGREEN Order Acknowledgement', R, 48, { align: 'right' })
 
   doc.setFont('times', 'normal'); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120)
   let cyc = 90
-  ;['beyondGREEN biotech, Inc.', '1202 E. Wakeham Ave.', 'Santa Ana, CA 92705', 'USA', 'finance@beyondgreenbiotech.com'].forEach(t => { doc.text(t, L, cyc); cyc += 12 })
+  ;['beyondGREEN biotech, Inc.', '1202 E. Wakeham Ave.', 'Santa Ana, CA 92705', 'USA', 'accounting@byndgrn.com'].forEach(t => { doc.text(t, L, cyc); cyc += 12 })
   doc.setTextColor(0, 0, 0)
   doc.setDrawColor(120, 120, 120); doc.setLineWidth(0.6); doc.line(L, cyc, R, cyc)
 
@@ -529,7 +529,7 @@ export async function generateAcknowledgementPDF(
   doc.text('This order is under review. We will contact you if there are any questions or issues with your order request.', L, y)
   y += 20
 
-  const impText = 'IMPORTANT: This Order Acknowledgement confirms receipt of your purchase order only. It does not constitute acceptance of the order, commencement of production, or confirmation of a delivery date. Acceptance of the order, applicable lead time, and finalized order details will be provided in a separate Order Confirmation.'
+  const impText = 'IMPORTANT: This Order Acknowledgement confirms receipt of your purchase order only. Acceptance of this order, applicable current lead time, estimated ship date, and finalized order details will be provided separately in an Order Confirmation within 24–48 hours.'
   const impLines = doc.splitTextToSize(impText, R - L - 24) as string[]
   const impH = impLines.length * 11 + 16
   doc.setFillColor(240, 248, 244); doc.setDrawColor(180, 210, 195); doc.setLineWidth(0.6)
@@ -566,13 +566,13 @@ export async function generateAcknowledgementPDF(
   doc.setFont('times', 'bold'); doc.setFontSize(9.5); doc.text('Please reference our Order Number and your PO on all inquiries.', L + 12, y + 15)
   y += 34
   doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(80, 80, 80)
-  doc.text('Questions regarding your order may be directed to finance@beyondgreenbiotech.com.', L, y)
+  doc.text('Questions regarding your order may be directed to accounting@byndgrn.com.', L, y)
   doc.setTextColor(0, 0, 0)
 
   drawTermsPage(doc, order)
 
   if (opts.output === 'base64') return doc.output('datauristring').split('base64,')[1]
-  doc.save(`order-acknowledgement-${(order.order_number || 'ORDER').replace(/[^\w.-]+/g, '_')}.pdf`)
+  doc.save(`beyondGREEN-Order-Acknowledgement-${(order.order_number || 'ORDER').replace(/[^\w.-]+/g, '_')}.pdf`)
 }
 
 const SO_TERMS: [string, string][] = [
