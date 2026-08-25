@@ -90,7 +90,12 @@ export function regenPalletLabels(p: DocPayload, meta: DocMeta): jsPDF {
 
 export function regenCaseLabels(p: DocPayload, meta: DocMeta): jsPDF {
   const cases: CaseLabel[] = []
-  for (const r of planOf(p)) for (let n = 1; n <= (r.cases || 0); n++) cases.push({ sku: r.sku, description: r.description, upcGtin: r.upc ?? null, customerPartNumber: r.customerPart ?? null, vendorPartNumber: r.sku, caseNumber: n, totalCases: r.cases, unitsInCase: r.unitsPerCase })
+  // Number cases continuously across the WHOLE order (1..grandTotal),
+  // grouped by SKU so each case keeps its own part number.
+  const plan = planOf(p)
+  const grandTotalCases = plan.reduce((s, r) => s + (r.cases || 0), 0)
+  let runningCase = 0
+  for (const r of plan) for (let n = 1; n <= (r.cases || 0); n++) { runningCase++; cases.push({ sku: r.sku, description: r.description, upcGtin: r.upc ?? null, customerPartNumber: r.customerPart ?? null, vendorPartNumber: r.sku, caseNumber: runningCase, totalCases: grandTotalCases, unitsInCase: r.unitsPerCase }) }
   return buildCaseLabels({ poNumber: meta.poNumber || '', shipToName: meta.shipToName || '', shipToAddress: meta.shipToAddress || '' }, cases)
 }
 
