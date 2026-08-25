@@ -1500,19 +1500,15 @@ export default function OrdersPage() {
     try {
       const { pdfOrder, cust } = await buildFormPdfData()
       const b64 = (await generateAcknowledgementPDF(pdfOrder, cust, { output: 'base64', customerEmail: to })) as string
-      const name = cust?.contact_name || cust?.company_name || 'Customer'
       const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1A1D2E;font-size:14px;line-height:1.55">`
-        + `<p>Dear ${name},</p>`
-        + `<p>Thank you for your order. This confirms that we have received your purchase order and added it to our production queue \u2014 our team is actively working on it.</p>`
-        + `<p>You will receive a separate <b>Sales Order Confirmation</b> for your review and confirmation within <b>24\u201348 business hours</b>. That document will contain your accepted order details and estimated lead time.</p>`
-        + `<p style="background:#f0f8f4;border:1px solid #b4d2c3;border-radius:8px;padding:10px 12px;font-size:13px"><b>Important:</b> This acknowledgement confirms receipt of your purchase order only. It does not constitute acceptance of the order, commencement of production, or confirmation of a delivery date.</p>`
-        + `<p><b>Customer PO:</b> ${pdfOrder.po_number || '\u2014'} &nbsp;&nbsp; <b>beyondGREEN Order #:</b> ${pdfOrder.order_number}</p>`
-        + `<p>Please reference our Order Number and your PO on all inquiries. Questions may be directed to finance@beyondgreenbiotech.com.</p>`
-        + `<p>Thank you,<br/>beyondGREEN biotech, Inc.<br/><span style="color:#6B7280">1202 E. Wakeham Ave., Santa Ana, CA 92705 \u00B7 finance@beyondgreenbiotech.com</span></p></div>`
+        + `<p>Dear Customer,</p>`
+        + `<p>Thank you for your order!</p>`
+        + `<p>This order is under review. We will contact you if there are any questions or issues with your order request.</p>`
+        + `<p>Thank you,<br/>beyondGREEN</p></div>`
       const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        to, reply_to: 'finance@beyondgreenbiotech.com',
+        to, reply_to: 'accounting@byndgrn.com',
         subject: `beyondGREEN \u2014 Order Received  |  PO ${pdfOrder.po_number || '\u2014'}  |  Order ${pdfOrder.order_number}`,
-        html, attachments: [{ filename: `Order-Acknowledgement-${pdfOrder.order_number}.pdf`, content: b64 }],
+        html, attachments: [{ filename: `beyondGREEN-Order-Acknowledgement-${pdfOrder.order_number}.pdf`, content: b64 }],
       }) })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Send failed')
