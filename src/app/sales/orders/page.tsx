@@ -1395,17 +1395,27 @@ export default function OrdersPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const p of ((prods as any[]) || [])) prodMap[String(p.sku).toUpperCase()] = p
     }
-    const cases: CaseLabel[] = []
+    // First pass: resolve per-line case counts + GTIN images.
+    const prepared: { sku: string; p: any; per: number; lineCases: number; gtinImg: string | null; l: any }[] = []  // eslint-disable-line @typescript-eslint/no-explicit-any
     for (const l of ls) {
       const sku = String(l.sku).trim()
       const p = prodMap[sku.toUpperCase()]
       const per = Number(p?.case_qty) || Number(l.qty_per_case) || 0
       const qty = Number(l.quantity ?? l.qty) || 0
-      const totalCases = per > 0 ? Math.max(1, Math.ceil(qty / per)) : 1
+      const lineCases = per > 0 ? Math.max(1, Math.ceil(qty / per)) : 1
       let gtinImg: string | null = null
       if (p?.gtin_image_url) { try { gtinImg = await loadBarcodePng(p.gtin_image_url) } catch { gtinImg = null } }
-      for (let c = 1; c <= totalCases; c++) {
-        cases.push({ sku, description: p?.product_name || l.description || sku, upcGtin: p?.upc_gtin || null, customerPartNumber: l.our_part_number || null, caseNumber: c, totalCases, unitsInCase: per || undefined, gtinImageDataUrl: gtinImg })
+      prepared.push({ sku, p, per, lineCases, gtinImg, l })
+    }
+    // Number cases continuously across the WHOLE order (1..grandTotal),
+    // grouped by line so each case keeps its own SKU/part number.
+    const grandTotalCases = prepared.reduce((s, x) => s + x.lineCases, 0)
+    const cases: CaseLabel[] = []
+    let runningCase = 0
+    for (const x of prepared) {
+      for (let c = 1; c <= x.lineCases; c++) {
+        runningCase++
+        cases.push({ sku: x.sku, description: x.p?.product_name || x.l.description || x.sku, upcGtin: x.p?.upc_gtin || null, customerPartNumber: x.l.our_part_number || null, caseNumber: runningCase, totalCases: grandTotalCases, unitsInCase: x.per || undefined, gtinImageDataUrl: x.gtinImg })
       }
     }
     const doc = buildCaseLabels({ poNumber: order.po_number || order.order_number || '', shipToName: order.customer?.company_name || '', shipToAddress: order.shipping_address || '' }, cases)
