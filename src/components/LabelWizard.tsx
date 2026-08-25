@@ -234,15 +234,19 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
   // ── Generate functions ────────────────────────────────────────
 
   function doCaseLabels() {
+    // Number cases continuously across the WHOLE order (1..grandTotal),
+    // grouped by line so each case keeps its own SKU/part number.
+    const grandTotalCases = lines.reduce((s, l) => s + l.numCases, 0)
+    let runningCase = 0
     const allLabels = lines.flatMap(line => {
-      return Array.from({ length: line.numCases }, (_, i) => ({
+      return Array.from({ length: line.numCases }, () => ({
         sku: line.sku,
         productName: line.productName,
         upc: line.upc || line.sku,
         caseQty: line.caseQty,
         uom: line.uom,
-        caseNumber: i + 1,
-        totalCases: line.numCases,
+        caseNumber: ++runningCase,
+        totalCases: grandTotalCases,
       }))
     })
     generateCaseLabels({
