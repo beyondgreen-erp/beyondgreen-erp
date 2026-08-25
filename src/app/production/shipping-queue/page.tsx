@@ -627,11 +627,15 @@ export default function ShippingQueuePage() {
       } catch { /* leave unmapped → barcode fallback */ }
     }))
     const cases: CaseLabel[] = []
-    for (const r of plan) for (let n = 1; n <= r.cases; n++) cases.push({
+    // Number cases continuously across the WHOLE order (1..grandTotal),
+    // grouped by SKU so each case keeps its own part number + UPC.
+    const grandTotalCases = plan.reduce((s, r) => s + r.cases, 0)
+    let runningCase = 0
+    for (const r of plan) for (let n = 1; n <= r.cases; n++) { runningCase++; cases.push({
       sku: r.sku, description: r.description, upcGtin: r.upc,
       gtinImageDataUrl: r.gtinImageUrl ? map[r.gtinImageUrl] || null : null,
-      customerPartNumber: r.customerPart, vendorPartNumber: r.sku, caseNumber: n, totalCases: r.cases, unitsInCase: r.unitsPerCase,
-    })
+      customerPartNumber: r.customerPart, vendorPartNumber: r.sku, caseNumber: runningCase, totalCases: grandTotalCases, unitsInCase: r.unitsPerCase,
+    }) }
     const miss = missingUpcSkus(cases)
     if (miss.length) { setMissing(miss); setBusy(''); return }
     setMissing([])
