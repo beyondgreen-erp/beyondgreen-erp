@@ -782,7 +782,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
 
       {/* New order modal */}
       {showNew && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => !creating && setShowNew(false)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.5)' }}>
           <div className="relative w-full max-w-[720px] my-6 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 text-white" style={{ background: '#0086C0' }}>
               <h2 className="text-lg font-bold">New Chewy Order</h2>
