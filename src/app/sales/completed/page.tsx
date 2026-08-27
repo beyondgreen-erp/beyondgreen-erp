@@ -95,7 +95,7 @@ export default function CompletedOrdersPage() {
                 <span className="text-sm text-right tabular-nums text-[#1A1D2E]">{fmt$(r.total ?? r.subtotal)}</span>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <DocPill label="PO" href={r.purchase_order_url} present={!!r.purchase_order_url} />
-                  <DocPill label="Slip" href={r.packing_slip_url} present={!!r.packing_slip_url} />
+                  <DocPill label="List" href={r.packing_slip_url} present={!!r.packing_slip_url} />
                   <DocPill label="BOL" present={!!r.bol} />
                   <DocPill label={r.photos ? `Photos (${r.photos})` : 'Photos'} present={!!r.photos} />
                   <DocPill label={r.inv ? r.inv.display : 'Invoice'} present={!!r.inv} />
