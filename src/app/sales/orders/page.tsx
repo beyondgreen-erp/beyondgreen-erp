@@ -894,7 +894,7 @@ function EditPanel({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Packing Slip URL</label>
+                  <label className="block text-xs text-gray-400 mb-1.5">Packing List URL</label>
                   <input value={form.packing_slip_url} onChange={e => setForm(p => ({ ...p, packing_slip_url: e.target.value }))} className={inp}/>
                 </div>
                 <div>
@@ -2380,7 +2380,7 @@ export default function OrdersPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" >
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-[#1A1D2E] mb-1">Verify before generating</h3>
-            <p className="text-sm text-gray-500 mb-4">Confirm the packing slip matches the order.</p>
+            <p className="text-sm text-gray-500 mb-4">Confirm the packing list matches the order.</p>
             <div className="space-y-2 mb-5">
               {([['qty', 'Quantities match the order'], ['desc', 'Descriptions are correct'], ['po', 'PO number matches']] as const).map(([k, label]) => (
                 <label key={k} className="flex items-center gap-2 text-sm text-[#1A1D2E] cursor-pointer">
@@ -2391,7 +2391,7 @@ export default function OrdersPage() {
             </div>
             <div className="flex gap-3 justify-end">
               <button onClick={() => setVerifySlip(null)} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
-              <button disabled={!(slipChecks.qty && slipChecks.desc && slipChecks.po)} onClick={() => { const o = verifySlip; setVerifySlip(null); if (o) handleDownloadPackingListPdf(o) }} className="px-4 py-2 text-sm rounded-lg bg-[#00854a] text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed">Generate packing slip</button>
+              <button disabled={!(slipChecks.qty && slipChecks.desc && slipChecks.po)} onClick={() => { const o = verifySlip; setVerifySlip(null); if (o) handleDownloadPackingListPdf(o) }} className="px-4 py-2 text-sm rounded-lg bg-[#00854a] text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed">Generate packing list</button>
             </div>
           </div>
         </div>
