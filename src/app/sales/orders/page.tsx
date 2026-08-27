@@ -580,7 +580,7 @@ function EditPanel({
 
   return (
     <>
-      <div onClick={onClose}
+      <div onClick={editing ? onClose : undefined}
         className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={{ background: 'rgba(26,32,53,0.48)', backdropFilter: 'blur(3px)' }}>
       <div onClick={e => e.stopPropagation()}
