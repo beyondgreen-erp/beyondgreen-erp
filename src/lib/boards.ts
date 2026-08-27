@@ -35,7 +35,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/sales/leads', label: 'Leads', icon: 'ti-user-search', nav_group: 'CRM', href: '/sales/leads', sort_order: 1 },
   { board_key: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask', nav_group: 'CRM', href: '/operations/samples', sort_order: 2 },
   { board_key: '/sales/quotes', label: 'Quotes & Costing', icon: 'ti-file-invoice', nav_group: 'Sales', href: '/sales/quotes', sort_order: 0 },
-  { board_key: '/sales/orders', label: 'Sales Orders', icon: 'ti-shopping-cart', nav_group: 'Sales', href: '/sales/orders', sort_order: 2 },
+  { board_key: '/sales/orders', label: 'Order Pipeline', icon: 'ti-shopping-cart', nav_group: 'Sales', href: '/sales/orders', sort_order: 2 },
   { board_key: '/production/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', nav_group: 'Sales', href: '/production/shipping-queue', sort_order: 3 },
   { board_key: '/shipments', label: 'Shipments', icon: 'ti-package-export', nav_group: 'Sales', href: '/shipments', sort_order: 4 },
   { board_key: '/operations/fba', label: 'FBA / WFS', icon: 'ti-brand-amazon', nav_group: 'Sales', href: '/operations/fba', sort_order: 5 },
