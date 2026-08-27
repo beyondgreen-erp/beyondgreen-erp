@@ -16,7 +16,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/sales/customers': 'Customers',
   '/sales/quotations': 'Quotations',
   '/sales/costing': 'Quick Quote',
-  '/sales/orders': 'Sales Orders',
+  '/sales/orders': 'Order Pipeline',
   '/sales/purchase-orders': 'Purchase Orders',
   '/sales/invoices': 'Invoices',
   '/sales/vendors': 'Vendors',
