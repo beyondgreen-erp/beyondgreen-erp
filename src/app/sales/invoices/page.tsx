@@ -882,7 +882,7 @@ export default function InvoicesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wider mb-3">Connected Documents <span className="text-gray-300 normal-case font-normal">(from order &amp; shipment)</span></p>
                     <div className="rounded-xl border border-[#E4E6EE] divide-y divide-[#E4E6EE]/60">
                       {shipDocs?.packing_slip_url && (
-                        <button onClick={() => openStoredUrl(shipDocs.packing_slip_url)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF] text-left">📄 Packing Slip <span className="ml-auto text-xs text-gray-400 hover:text-[#3B6FE0]">View</span></button>
+                        <button onClick={() => openStoredUrl(shipDocs.packing_slip_url)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF] text-left">📄 Packing List <span className="ml-auto text-xs text-gray-400 hover:text-[#3B6FE0]">View</span></button>
                       )}
                       {shipDocs?.pod_file_url && (
                         <button onClick={() => openStoredUrl(shipDocs.pod_file_url)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[#3B6FE0] hover:bg-[#F8FAFF] text-left">📄 Proof of Delivery <span className="ml-auto text-xs text-gray-400 hover:text-[#3B6FE0]">View</span></button>
