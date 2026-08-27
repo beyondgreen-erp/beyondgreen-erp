@@ -781,7 +781,7 @@ export default function ShipmentsPage() {
                       ) : (
                         <p className="text-xs text-gray-400">No saved packing data for this order — documents can&apos;t be regenerated.</p>
                       )}
-                      {docsSynthetic && <p className="text-[10px] text-amber-600 mt-1.5">Packing slip built from the order — this order shipped without a pack step, so there is no BOL or case/pallet labels on file.</p>}
+                      {docsSynthetic && <p className="text-[10px] text-amber-600 mt-1.5">Packing list built from the order — this order shipped without a pack step, so there is no BOL or case/pallet labels on file.</p>}
                       <button onClick={moveBackToQueue} disabled={movingBack} className="mt-3 text-xs px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50">{movingBack ? 'Moving…' : '↩ Move back to shipping queue'}</button>
                     </div>
                   )}
@@ -799,7 +799,7 @@ export default function ShipmentsPage() {
                         )}
                         {editing.packing_slip_url && (
                           <a href={editing.packing_slip_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 hover:bg-emerald-50">
-                            <span className="text-xs text-gray-500">Signed Packing Slip</span>
+                            <span className="text-xs text-gray-500">Signed Packing List</span>
                             <span className="text-xs text-emerald-600 font-medium">Open ↗</span>
                           </a>
                         )}
