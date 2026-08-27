@@ -443,8 +443,10 @@ export default function InventoryPage() {
   }, [sb])
 
   async function toggleActivity(p: Product) {
-    setActivityOpen(o => ({ ...o, [p.id]: !o[p.id] }))
-    if (!activityData[p.id]) {
+    const willOpen = !activityOpen[p.id]
+    setActivityOpen(o => ({ ...o, [p.id]: willOpen }))
+    if (willOpen) {
+      // Always re-fetch so a just-made manual entry shows immediately (no stale cache).
       const { data } = await sb.rpc('sku_activity', { p_sku: p.sku, p_limit: 25 })
       setActivityData(d => ({ ...d, [p.id]: (data as any[]) || [] }))
     }
