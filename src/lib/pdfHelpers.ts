@@ -171,7 +171,7 @@ function header(doc: jsPDF, title: string) {
 export function generatePackingSlip(order: PDFOrder, lines: PDFLine[], customer: PDFCustomer | null) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
-  header(doc, 'PACKING SLIP')
+  header(doc, 'PACKING LIST')
   // Partial vs Final caption based on shipped vs ordered quantities
   const anyShipped = lines.some(l => (l.quantity_shipped || 0) > 0)
   const fullyShipped = lines.length > 0 && lines.every(l => (l.quantity_shipped || 0) >= l.quantity)
@@ -257,7 +257,7 @@ export function generatePackingSlip(order: PDFOrder, lines: PDFLine[], customer:
   doc.setTextColor(...GRAY)
   doc.text(`Generated ${new Date().toLocaleString()} · beyondGREEN ERP`, W / 2, doc.internal.pageSize.getHeight() - 18, { align: 'center' })
 
-  doc.save(`packing-slip-${order.order_number}.pdf`)
+  doc.save(`packing-list-${order.order_number}.pdf`)
 }
 
 export function generateBOL(order: PDFOrder, lines: PDFLine[], customer: PDFCustomer | null) {
