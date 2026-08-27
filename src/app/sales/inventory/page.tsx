@@ -606,6 +606,21 @@ export default function InventoryPage() {
         : error.message
       setErr(msg); setSaving(false); return
     }
+    // Log a manual on-hand adjustment so the team's manual entry shows in the item's Activity feed.
+    if (editing) {
+      const oldOnHand = Number(editing.on_hand_qty ?? 0)
+      const newOnHand = parseFloat(form.on_hand_qty) || 0
+      const delta = newOnHand - oldOnHand
+      if (delta !== 0) {
+        try {
+          await sb.from('inventory_movements').insert({
+            product_id: editing.id, sku: payload.sku, movement_type: 'adjust',
+            qty: delta, uom: payload.unit_of_measure || null, ref_table: 'manual',
+            note: `Manual on-hand adjustment (${oldOnHand} \u2192 ${newOnHand})`, created_by: userEmail || null,
+          })
+        } catch { /* never block the save on activity logging */ }
+      }
+    }
     setSaving(false); closeEdit(); load()
   }
 
