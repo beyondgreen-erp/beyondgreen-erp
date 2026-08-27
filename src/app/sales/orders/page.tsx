@@ -1875,7 +1875,7 @@ export default function OrdersPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
           <span className="mon-tag">📦 Orders</span>
-          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Sales Orders</h1>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Order Pipeline</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${orders.length} orders`}</p>
         </div>
         {userRole !== 'accounting' && (
