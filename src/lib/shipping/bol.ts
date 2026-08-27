@@ -256,7 +256,7 @@ export function buildPackingList(
 
   if (logo) { try { doc.addImage(logo, 'PNG', M, y, 104, 40) } catch { /* */ } }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(20, 22, 34)
-  doc.text('Packing Slip', R, y + 15, { align: 'right' })
+  doc.text('Packing List', R, y + 15, { align: 'right' })
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 96, 110)
   doc.text(order.date, R, y + 30, { align: 'right' })
   if (order.partialCaption) { doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(200, 40, 40); doc.text(order.partialCaption, R, y + 44, { align: 'right' }); doc.setTextColor(20, 22, 34) }
