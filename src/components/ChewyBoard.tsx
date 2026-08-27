@@ -451,7 +451,7 @@ export default function ChewyBoard() {
       { poNumber: order.po_number || '', orderNumber: order.name, shipToName: ((order.ship_to || 'Chewy').split(/[,\n]/)[0] || 'Chewy').trim(), shipToAddress: order.ship_to || '', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR },
       cases, { pallets: totalPallets, cases: totalCases, weight: Number(order.weight) || 0 }, null, pls.length ? pls : undefined,
     )
-    doc.save(`Packing Slip - ${order.name}.pdf`)
+    doc.save(`Packing List - ${order.name}.pdf`)
   }
 
   async function printPalletQRs(order: WOrder) {
@@ -946,7 +946,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
               <div className="flex flex-wrap items-center gap-2 border border-[#E6EFF7] bg-[#F5FAFF] rounded-lg p-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-[#03567A] mr-1">🚚 Shipping</span>
                 <button onClick={() => genBOL(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#BBD8EC] text-[#03567A] font-semibold hover:bg-[#E4F2FA]">📄 Generate BOL</button>
-                <button onClick={() => genPackingSlip(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#BBD8EC] text-[#03567A] font-semibold hover:bg-[#E4F2FA]">📦 Generate Packing Slip</button>
+                <button onClick={() => genPackingSlip(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#BBD8EC] text-[#03567A] font-semibold hover:bg-[#E4F2FA]">📦 Generate Packing List</button>
                 {detail.shipment_id
                   ? <a href="/sales/shipments" target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-semibold hover:bg-emerald-200 ml-auto">✓ On Shipments board ↗</a>
                   : <button onClick={() => markShipped(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-[#037F4C] text-white font-semibold hover:bg-[#026a40] ml-auto">🚚 Mark as Shipped</button>}
