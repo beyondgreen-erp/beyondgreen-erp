@@ -390,6 +390,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState('')
   const [tabFilter, setTabFilter] = useState('All')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [activeClass, setActiveClass] = useState<string>('All')
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<F>(emptyForm)
@@ -719,14 +720,31 @@ export default function InventoryPage() {
         for (const p of filtered) { const k = classOf(p); (gmap[k] ||= []).push(p) }
         const extra = Object.keys(gmap).filter(k => !CLASS_ORDER.includes(k)).sort()
         const keys = [...CLASS_ORDER.filter(k => gmap[k]), ...extra]
+        const effectiveClass = search.trim() ? 'All' : (keys.includes(activeClass) ? activeClass : 'All')
+        const shownKeys = effectiveClass === 'All' ? keys : keys.filter(k => k === effectiveClass)
+        const tabList = ['All', ...keys]
         return (
           <div className="space-y-2.5 mb-6">
-            {keys.map(cat => {
-              const items = gmap[cat]; const isCol = collapsed[cat]; const color = COLORS[cat] || '#9699A6'
+            <div className="flex items-center gap-1.5 flex-wrap bg-white rounded-xl border border-[#ECEEF3] shadow-sm px-2.5 py-2 sticky top-0 z-40 mb-1">
+              {tabList.map(t => {
+                const cnt = t === 'All' ? keys.reduce((sm, k) => sm + gmap[k].length, 0) : (gmap[t]?.length || 0)
+                const col = t === 'All' ? '#3B6FE0' : (COLORS[t] || '#9699A6')
+                const on = effectiveClass === t
+                return (
+                  <button key={t} onClick={() => setActiveClass(t)}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                    style={on ? { background: col, color: '#fff' } : { background: col + '18', color: col }}>
+                    {t} <span className="opacity-70">{cnt}</span>
+                  </button>
+                )
+              })}
+            </div>
+            {shownKeys.map(cat => {
+              const items = gmap[cat]; const isCol = effectiveClass === 'All' ? collapsed[cat] : false; const color = COLORS[cat] || '#9699A6'
               const gVal = items.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
               return (
                 <div key={cat} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
-                  <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [cat]: !c[cat] }))}>
+                  <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-[46px] z-20 rounded-t-xl" style={{ background: '#fff', borderLeft: '5px solid ' + color }} onClick={() => setCollapsed(c => ({ ...c, [cat]: !c[cat] }))}>
                     <span className="text-[10px]" style={{ color, display:'inline-block', transform: isCol ? 'none' : 'rotate(90deg)' }}>&#9654;</span>
                     <span className="font-bold text-sm" style={{ color }}>{cat}</span>
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: color + '26', color }}>{items.length}</span>
