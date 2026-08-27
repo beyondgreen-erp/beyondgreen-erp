@@ -884,7 +884,7 @@ export default function ShippingQueuePage() {
     try {
       const res = await fetch('/api/shipping/ship-summary', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderNumber: o?.order_number, poNumber: o?.po_number, customer: st.name, carrier: o?.carrier, bolNumber: bolForm?.bolNumber, totalPallets: totals.pallets, totalCases: totals.cases, totalWeight: totals.weight, photoUrls: coPhotos.map(p => p.url), docNames: [coSlipUrl && 'Signed Packing Slip', coBolUrl && 'Signed BOL'].filter(Boolean) }),
+        body: JSON.stringify({ orderNumber: o?.order_number, poNumber: o?.po_number, customer: st.name, carrier: o?.carrier, bolNumber: bolForm?.bolNumber, totalPallets: totals.pallets, totalCases: totals.cases, totalWeight: totals.weight, photoUrls: coPhotos.map(p => p.url), docNames: [coSlipUrl && 'Signed Packing List', coBolUrl && 'Signed BOL'].filter(Boolean) }),
       })
       const j = await res.json(); setCoSummary(j.summary || '')
     } catch { setCoSummary('') }
@@ -1168,7 +1168,7 @@ export default function ShippingQueuePage() {
                               <button onClick={() => setParcel(false)} className={`px-3 py-1.5 text-sm font-semibold ${!parcel ? 'bg-[#0086C0] text-white' : 'bg-white text-gray-600'}`}>🚛 Freight (pallets)</button>
                               <button onClick={() => { setParcel(true); setBolForm(null); setFinalized(false) }} className={`px-3 py-1.5 text-sm font-semibold border-l border-gray-300 ${parcel ? 'bg-[#7A3FB0] text-white' : 'bg-white text-gray-600'}`}>📦 Parcel (boxes)</button>
                             </div>
-                            <span className="text-xs text-gray-400">{parcel ? 'Enter box size & weight below; the packing slip shows box details.' : 'No per-box entry — build pallets below; the packing slip shows pallet details.'}</span>
+                            <span className="text-xs text-gray-400">{parcel ? 'Enter box size & weight below; the packing list shows box details.' : 'No per-box entry — build pallets below; the packing list shows pallet details.'}</span>
                           </div>
                         </div>
                         {/* STEP 0 — Line items: UOM, units per case, ordered/shipped, per-case boxes (session only) */}
@@ -1599,7 +1599,7 @@ export default function ShippingQueuePage() {
                 <div className="text-sm font-semibold text-[#1A1D2E] mb-2">Signed documents</div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className={`flex flex-col items-start gap-1 border rounded-xl p-3 cursor-pointer ${coSlipUrl ? 'border-emerald-300 bg-emerald-50/50' : 'border-gray-200'}`}>
-                    <span className="text-xs font-semibold">Signed Packing Slip <span className="text-red-500">*</span></span>
+                    <span className="text-xs font-semibold">Signed Packing List <span className="text-red-500">*</span></span>
                     <span className="text-[11px] text-gray-500">{coSlipUrl ? '✓ Uploaded' : coBusy === 'slip' ? 'Uploading…' : 'PDF or photo'}</span>
                     <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'slip') }} />
                   </label>
