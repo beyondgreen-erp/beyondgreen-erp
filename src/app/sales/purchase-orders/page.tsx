@@ -89,6 +89,7 @@ export default function PurchasingRequestsPage() {
   const [editForm, setEditForm] = useState<any>({})
   const [savingDetail, setSavingDetail] = useState(false)
   const [posting, setPosting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [editItems, setEditItems] = useState<any[]>([])
   const [deletedItemIds, setDeletedItemIds] = useState<string[]>([])
   const [userEmail, setUserEmail] = useState('')
@@ -102,7 +103,7 @@ export default function PurchasingRequestsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: o }, { data: it }, { data: cm }, { data: pr }, { data: vn }] = await Promise.all([
-      sb.from('purchasing_requests').select('*').order('position', { nullsFirst: false }),
+      sb.from('purchasing_requests').select('*').eq('is_active', true).order('position', { nullsFirst: false }),
       sb.from('purchasing_request_items').select('*').order('position', { nullsFirst: false }),
       sb.from('comments').select('record_id').eq('record_type', 'purchasing_request'),
       sb.from('products').select('id,sku,product_name,unit_cost,vendor_id').order('product_name', { ascending: true }),
@@ -149,6 +150,17 @@ export default function PurchasingRequestsPage() {
     }
     setPosting(false)
     alert('Inventory posting result:\n\n' + msgs.join('\n'))
+  }
+  async function deleteDetail() {
+    if (!detail) return
+    if (!confirm(`Delete purchase order "${detail.name || detail.po_number || 'this record'}"?\n\nIt will be moved to the Recycle Bin \u2014 you can restore it from there if needed.`)) return
+    setDeleting(true)
+    try {
+      const { error } = await sb.from('purchasing_requests').update({ is_active: false }).eq('id', detail.id)
+      if (error) { alert('Delete failed: ' + error.message); return }
+      setRows((rs: any[]) => rs.filter(r => r.id !== detail.id))
+      setDetail(null)
+    } finally { setDeleting(false) }
   }
   async function saveDetail() {
     if (!detail) return
@@ -689,6 +701,7 @@ th{background:#eef5f0}
               <button onClick={() => printPickTicket(detail)} className="text-sm font-semibold px-4 py-2 rounded-lg border border-[#00854a]/30 text-[#00854a] hover:bg-[#00854a]/5 transition-colors mr-auto">🎫 Print Pick Ticket</button>
               <button onClick={postReceiptsToInventory} disabled={posting} className="text-sm font-semibold px-4 py-2 rounded-lg border border-[#0F7A4E]/40 text-[#0F7A4E] hover:bg-[#0F7A4E]/5 transition-colors disabled:opacity-50">{posting ? 'Posting…' : '📦 Post to Inventory'}</button>
 
+              <button onClick={deleteDetail} disabled={deleting} className="text-sm font-semibold px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors">{deleting ? 'Deleting\u2026' : '\uD83D\uDDD1 Delete'}</button>
               <button onClick={() => setDetail(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors">Close</button>
               <button onClick={saveDetail} disabled={savingDetail} className="text-sm font-semibold px-5 py-2 rounded-lg bg-[#3B6FE0] hover:bg-[#2f5bc0] text-white disabled:opacity-60 transition-colors">{savingDetail ? 'Saving…' : 'Save changes'}</button>
             </div>
