@@ -276,9 +276,11 @@ export function buildPackingList(
     let yy = boxTop
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(120, 126, 140)
     doc.text(label.toUpperCase(), x, yy); yy += 13
-    doc.setFontSize(10); doc.setTextColor(20, 22, 34); doc.text(name || '—', x, yy); yy += 12
+    doc.setFontSize(10); doc.setTextColor(20, 22, 34)
+    const nmLines = doc.splitTextToSize(name || '—', colW - 6) as string[]
+    doc.text(nmLines, x, yy); yy += nmLines.length * 12
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(70, 74, 88)
-    ;(addr || '').split('\n').forEach(l => { if (l.trim()) { doc.text(l.trim(), x, yy, { maxWidth: colW - 6 }); yy += 11 } })
+    ;(addr || '').split('\n').forEach(l => { if (l.trim()) { const aw = doc.splitTextToSize(l.trim(), colW - 6) as string[]; doc.text(aw, x, yy); yy += aw.length * 11 } })
     return yy
   }
   const y1 = addrBlock(M, 'Ship From', order.shipFromName || 'beyondGREEN Biotech, Inc.', order.shipFromAddress || '1202 E. Wakeham Ave.\nSanta Ana, CA 92705 USA')
@@ -373,7 +375,9 @@ export function buildPackingList(
       need(20)
       y += 12
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 32, 44)
-      doc.text(`${c.sku}${c.description ? ' — ' + c.description : ''}`, M + 4, y, { maxWidth: tableW - 8 }); y += 12
+      const bdHead = doc.splitTextToSize(`${c.sku}${c.description ? ' — ' + c.description : ''}`, tableW - 8) as string[]
+      need(bdHead.length * 11 + 2)
+      doc.text(bdHead, M + 4, y); y += bdHead.length * 11
       doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 64, 78)
       if (mixed && c.boxes) {
         c.boxes.forEach((b, bi) => {
@@ -398,22 +402,30 @@ export function buildPackingList(
     doc.setDrawColor(225); doc.line(M, y, R, y); y += 15
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20, 22, 34)
     doc.text('Pallet detail', M, y); y += 6
+    const PAL_UNITS_W = 74
+    const PAL_LH = 11
+    const palLabelW = tableW - 12 - PAL_UNITS_W - 6
     pallets.forEach(p => {
-      need(34)
-      y += 12
-      doc.setFillColor(238, 242, 246); doc.rect(M, y - 9, tableW, 16, 'F')
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 32, 44)
-      const meta = [p.dims, p.weight ? `${Math.round(p.weight)} lb` : ''].filter(Boolean).join('  ·  ')
-      doc.text(`Pallet ${p.number}`, M + 4, y + 2)
-      if (meta) doc.text(meta, R - 4, y + 2, { align: 'right' })
-      y += 15
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 64, 78)
+      const drawBand = (contd: boolean) => {
+        need(34)
+        y += 12
+        doc.setFillColor(238, 242, 246); doc.rect(M, y - 9, tableW, 16, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 32, 44)
+        const meta = [p.dims, p.weight ? `${Math.round(p.weight)} lb` : ''].filter(Boolean).join('  ·  ')
+        doc.text(`Pallet ${p.number}${contd ? ' (cont.)' : ''}`, M + 4, y + 2)
+        if (meta && !contd) doc.text(meta, R - 4, y + 2, { align: 'right' })
+        y += 15
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 64, 78)
+      }
+      drawBand(false)
       p.lines.forEach(l => {
-        need(13)
         const label = `${l.cases} × ${l.sku}${l.description ? ' — ' + l.description : ''}`
-        doc.text(label, M + 12, y + 8, { maxWidth: tableW - 120 })
+        const wrapped = doc.splitTextToSize(label, palLabelW) as string[]
+        const rowH = Math.max(13, wrapped.length * PAL_LH + 2)
+        if (y + rowH > bottom) { doc.addPage(); y = M; drawBand(true) }
+        doc.text(wrapped, M + 12, y + 8)
         doc.text(`${l.units} units`, R - 4, y + 8, { align: 'right' })
-        y += 13
+        y += rowH
       })
     })
   }
