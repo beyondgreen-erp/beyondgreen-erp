@@ -91,7 +91,7 @@ const SECTION_TABS = ['All', ...SECTIONS]
 const SECTION_COLORS: Record<string,string> = { 'Walmart':'#0071CE','Chewy':'#1C49C2','Make To Stock':'#037f4c','Private Label':'#784bd1','Straw Orders':'#ff6d3b','Customer DropShip':'#216edf','Injection Molding':'#bb3354','Paper Products':'#cab641','Outsourced':'#7e3b8a' }
 const STATUSES = [
   'Pending','Pending Lead Time','Confirmed','Awaiting BOM Components',
-  'Production Queue','In Production','QC','Ready for Packing Slip',
+  'Production Queue','In Production','QC','Ready for Packing List',
   'Ready to Ship','Ready at Will Call',
   'Partially Shipped','Ready for Invoice','Shipped','Completed',
   'On Hold','Cancelled','Closed',
@@ -107,7 +107,7 @@ const STATUS_COLORS: Record<string,string> = {
   'On Hold':           'bg-red-500/15 text-red-400 border-red-500/20',
   'Partially Shipped': 'bg-violet-500/15 text-violet-400 border-violet-500/20',
   'Pending Lead Time': 'bg-amber-500/15 text-amber-500 border-amber-500/20',
-  'Ready for Packing Slip': 'bg-cyan-500/15 text-cyan-500 border-cyan-500/20',
+  'Ready for Packing List': 'bg-cyan-500/15 text-cyan-500 border-cyan-500/20',
   'Ready for Invoice': 'bg-indigo-500/15 text-indigo-500 border-indigo-500/20',
   Completed:           'bg-emerald-500/15 text-emerald-500 border-emerald-500/20',
   Closed:              'bg-[#F3F4F6] text-gray-500 border-[#E4E6EE]',
@@ -1142,7 +1142,7 @@ export default function OrdersPage() {
     }
   }
   // ── Change audit: notify when an order is edited after production has started ──
-  const POST_PROCESSING = ['In Production','QC','Ready for Packing Slip','Ready to Ship','Ready at Will Call','Partially Shipped','Ready for Invoice','Shipped','Completed']
+  const POST_PROCESSING = ['In Production','QC','Ready for Packing List','Ready to Ship','Ready at Will Call','Partially Shipped','Ready for Invoice','Shipped','Completed']
   async function auditOrderChange(orig: SalesOrder) {
     if (!POST_PROCESSING.includes(orig.status)) return
     const changes: string[] = []
