@@ -11,7 +11,7 @@ import InventoryLinkGaps from './InventoryLinkGaps'
 
 const sb = createSupabaseBrowserClient()
 
-const OPEN_STATUSES = ['New', 'Pending', 'Pending Lead Time', 'Confirmed', 'Awaiting BOM Components', 'Awaiting Production', 'Production Queue', 'In Production', 'QC', 'Ready for Packing Slip', 'Ready to Ship', 'Ready at Will Call', 'Partially Shipped', 'Ready for Invoice', 'On Hold']
+const OPEN_STATUSES = ['New', 'Pending', 'Pending Lead Time', 'Confirmed', 'Awaiting BOM Components', 'Awaiting Production', 'Production Queue', 'In Production', 'QC', 'Ready for Packing List', 'Ready to Ship', 'Ready at Will Call', 'Partially Shipped', 'Ready for Invoice', 'On Hold']
 const fmt$ = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const fmtD = (d?: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—')
 
@@ -647,7 +647,7 @@ function WorkflowCategories() {
   const cats = [
     { label: 'Active Orders', color: '#0086C0', href: '/sales/orders', statuses: OPEN_STATUSES },
     { label: 'In Production', color: '#F59E0B', href: '/sales/orders?status=' + encodeURIComponent('In Production'), statuses: ['In Production'] },
-    { label: 'Ready for Packing Slip', color: '#00C7C7', href: '/sales/orders?status=' + encodeURIComponent('Ready for Packing Slip'), statuses: ['Ready for Packing Slip'] },
+    { label: 'Ready for Packing List', color: '#00C7C7', href: '/sales/orders?status=' + encodeURIComponent('Ready for Packing List'), statuses: ['Ready for Packing List'] },
     { label: 'Partially Shipped', color: '#A25DDC', href: '/sales/orders?status=' + encodeURIComponent('Partially Shipped'), statuses: ['Partially Shipped'] },
     { label: 'On Hold', color: '#E2445C', href: '/sales/orders?status=' + encodeURIComponent('On Hold'), statuses: ['On Hold'] },
     { label: 'Ready for Invoice', color: '#6366F1', href: '/sales/orders?status=' + encodeURIComponent('Ready for Invoice'), statuses: ['Ready for Invoice'] },
@@ -678,7 +678,7 @@ function WorkflowCategories() {
    ============================================================ */
 export const CATALOG: Record<string, CatalogEntry> = {
   clock: { label: 'Clock & Date', icon: '🕐', defaultSize: 'sm', category: 'Personal', description: 'Live clock with day/date.', render: () => <ClockWidget /> },
-  workflow_categories: { label: 'Workflow Categories', icon: '🗂️', defaultSize: 'xl', category: 'ERP Boards', description: 'Clickable order-stage tiles: Active, In Production, Ready for Packing Slip, Partially Shipped, On Hold, Ready for Invoice, Completed.', render: () => <WorkflowCategories /> },
+  workflow_categories: { label: 'Workflow Categories', icon: '🗂️', defaultSize: 'xl', category: 'ERP Boards', description: 'Clickable order-stage tiles: Active, In Production, Ready for Packing List, Partially Shipped, On Hold, Ready for Invoice, Completed.', render: () => <WorkflowCategories /> },
   weather: { label: 'Weather', icon: '☁️', defaultSize: 'sm', category: 'Personal', description: '4-day forecast for any city.', configurable: true, render: (w, o) => <WeatherWidget w={w} onCfg={o} /> },
   news: { label: 'Sustainability News Ticker', icon: '📰', defaultSize: 'xl', category: 'Personal', description: 'Scrolling ticker of headlines: plastic bans, sustainability legislation, EPR, compostables. Fully editable topics.', configurable: true, render: (w, o) => <NewsWidget w={w} onCfg={o} /> },
   notes: { label: 'My Notes', icon: '📝', defaultSize: 'md', category: 'Personal', description: 'Private scratchpad, auto-saved.', render: () => <NotesInline /> },
