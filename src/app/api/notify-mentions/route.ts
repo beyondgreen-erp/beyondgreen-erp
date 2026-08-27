@@ -143,6 +143,7 @@ export async function POST(req: Request) {
       invoice: '/sales/invoices', invoices: '/sales/invoices',
       fba_shipment: '/operations/fba', fba_shipments: '/operations/fba',
       lead: '/sales/leads', leads: '/sales/leads',
+      product: '/sales/inventory', products: '/sales/inventory',
     }
     const boardPath = recordType ? RECORD_PATHS[recordType] : undefined
     const contextUrl = (boardPath && recordId)
