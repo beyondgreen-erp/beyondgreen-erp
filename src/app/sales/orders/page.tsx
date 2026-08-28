@@ -1224,7 +1224,7 @@ export default function OrdersPage() {
   const load = useCallback(async () => {
     setLoading(true); setLoadError('')
     const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }, { data: pc }] = await Promise.all([
-      sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone,city,state)').eq('archived', false).order('created_at', { ascending: false }),
+      sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone,city,state)').eq('archived', false).eq('is_active', true).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),
