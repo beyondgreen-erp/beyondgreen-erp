@@ -36,6 +36,20 @@ interface Product {
   msrp: number | null
   imap: number | null
   map_price: number | null
+  product_image_url: string | null
+  product_size: string | null
+  product_weight: string | null
+  product_thickness: string | null
+  product_color: string | null
+  print_color: string | null
+  pieces_per_pack: number | null
+  packs_per_case: number | null
+  case_size: string | null
+  case_weight: string | null
+  cases_per_pallet: number | null
+  pallet_ti_hi: string | null
+  pallet_weight: string | null
+  special_instructions: string | null
   requires_bom: boolean | null
   is_import: boolean | null
   is_active: boolean
@@ -101,6 +115,20 @@ const emptyForm = {
   msrp: '',
   imap: '',
   map_price: '',
+  product_image_url: '',
+  product_size: '',
+  product_weight: '',
+  product_thickness: '',
+  product_color: '',
+  print_color: '',
+  pieces_per_pack: '',
+  packs_per_case: '',
+  case_size: '',
+  case_weight: '',
+  cases_per_pallet: '',
+  pallet_ti_hi: '',
+  pallet_weight: '',
+  special_instructions: '',
   notes: '',
   is_active: true,
   is_discontinued: false,
@@ -150,6 +178,18 @@ const EditPanel = memo(function EditPanel({
       const { data } = gsb.storage.from('erp-images').getPublicUrl(path)
       setForm(p => ({ ...p, gtin_image_url: data.publicUrl }))
     } finally { setGtinUploading(false) }
+  }
+  const [productUploading, setProductUploading] = useState(false)
+  async function uploadProductImage(file: File) {
+    setProductUploading(true)
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+      const path = `products/${(form.sku || 'sku').trim().toUpperCase().replace(/[^A-Za-z0-9_-]/g, '')}-${Date.now()}.${ext}`
+      const { error } = await gsb.storage.from('record-board').upload(path, file, { upsert: true, contentType: file.type || 'image/png' })
+      if (error) { alert('Image upload failed: ' + error.message); return }
+      const { data } = gsb.storage.from('record-board').getPublicUrl(path)
+      setForm(p => ({ ...p, product_image_url: data.publicUrl }))
+    } finally { setProductUploading(false) }
   }
 
   return (
@@ -296,6 +336,57 @@ const EditPanel = memo(function EditPanel({
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Weight per unit (g)</label>
             <input type="number" min="0" step="0.001" value={form.weight_per_unit_grams} onChange={e => setForm(p => ({ ...p, weight_per_unit_grams: e.target.value }))} className={inp}/>
+          </div>
+
+          {/* Product Specifications */}
+          <div className="border-t border-[#E4E6EE] pt-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Specifications</p>
+
+            <div className="mb-3">
+              <label className="block text-xs text-gray-400 mb-1.5">Product Image</label>
+              {form.product_image_url ? (
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={form.product_image_url} alt="Product" className="h-20 w-20 border border-[#E4E6EE] rounded bg-white p-1 object-contain" />
+                  <a href={form.product_image_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">View</a>
+                  <button type="button" onClick={() => setForm(p => ({ ...p, product_image_url: '' }))} className="text-xs text-red-500 underline">Remove</button>
+                </div>
+              ) : (
+                <label className={`${inp} flex items-center justify-center cursor-pointer text-gray-500 ${productUploading ? 'opacity-60' : 'hover:border-blue-400'}`}>
+                  {productUploading ? 'Uploading…' : 'Upload product image (PNG/JPG)'}
+                  <input type="file" accept="image/*" className="hidden" disabled={productUploading}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadProductImage(f); e.target.value = '' }} />
+                </label>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                ['Product Size', 'product_size'],
+                ['Product Weight', 'product_weight'],
+                ['Product Thickness', 'product_thickness'],
+                ['Product Color', 'product_color'],
+                ['Print Color', 'print_color'],
+                ['Pieces Per Pack', 'pieces_per_pack'],
+                ['Packs Per Case', 'packs_per_case'],
+                ['Case Size', 'case_size'],
+                ['Case Weight', 'case_weight'],
+                ['Cases Per Pallet', 'cases_per_pallet'],
+                ['Pallet Ti x Hi', 'pallet_ti_hi'],
+                ['Pallet Weight', 'pallet_weight'],
+              ] as const).map(([label, key]) => (
+                <div key={key}>
+                  <label className="block text-xs text-gray-400 mb-1.5">{label}</label>
+                  <input value={(form as any)[key]}
+                    onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} className={inp}/>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3">
+              <label className="block text-xs text-gray-400 mb-1.5">Special Instructions</label>
+              <textarea rows={2} value={form.special_instructions} onChange={e => setForm(p => ({ ...p, special_instructions: e.target.value }))} className={inp + ' resize-none'}/>
+            </div>
           </div>
 
           {/* Pricing */}
@@ -547,6 +638,20 @@ export default function InventoryPage() {
       msrp: r.msrp != null ? String(r.msrp) : '',
       imap: r.imap != null ? String(r.imap) : '',
       map_price: r.map_price != null ? String(r.map_price) : '',
+      product_image_url: r.product_image_url ?? '',
+      product_size: r.product_size ?? '',
+      product_weight: r.product_weight ?? '',
+      product_thickness: r.product_thickness ?? '',
+      product_color: r.product_color ?? '',
+      print_color: r.print_color ?? '',
+      pieces_per_pack: r.pieces_per_pack != null ? String(r.pieces_per_pack) : '',
+      packs_per_case: r.packs_per_case != null ? String(r.packs_per_case) : '',
+      case_size: r.case_size ?? '',
+      case_weight: r.case_weight ?? '',
+      cases_per_pallet: r.cases_per_pallet != null ? String(r.cases_per_pallet) : '',
+      pallet_ti_hi: r.pallet_ti_hi ?? '',
+      pallet_weight: r.pallet_weight ?? '',
+      special_instructions: r.special_instructions ?? '',
       notes: r.notes ?? '',
       is_active: r.is_active !== false,
       is_discontinued: r.is_discontinued === true,
@@ -585,6 +690,20 @@ export default function InventoryPage() {
       msrp: form.msrp ? parseFloat(form.msrp) : null,
       imap: form.imap ? parseFloat(form.imap) : null,
       map_price: form.map_price ? parseFloat(form.map_price) : null,
+      product_image_url: form.product_image_url || null,
+      product_size: form.product_size.trim() || null,
+      product_weight: form.product_weight.trim() || null,
+      product_thickness: form.product_thickness.trim() || null,
+      product_color: form.product_color.trim() || null,
+      print_color: form.print_color.trim() || null,
+      pieces_per_pack: form.pieces_per_pack ? parseInt(form.pieces_per_pack) : null,
+      packs_per_case: form.packs_per_case ? parseInt(form.packs_per_case) : null,
+      case_size: form.case_size.trim() || null,
+      case_weight: form.case_weight.trim() || null,
+      cases_per_pallet: form.cases_per_pallet ? parseInt(form.cases_per_pallet) : null,
+      pallet_ti_hi: form.pallet_ti_hi.trim() || null,
+      pallet_weight: form.pallet_weight.trim() || null,
+      special_instructions: form.special_instructions.trim() || null,
       notes: form.notes.trim() || null,
       is_active: form.is_active,
       is_discontinued: form.is_discontinued,
