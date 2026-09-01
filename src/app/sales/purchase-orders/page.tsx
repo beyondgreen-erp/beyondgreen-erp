@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 
 const GROUPS = [
   { key: 'group_mkr363e4', title: 'Imports', color: '#007eb5' },
@@ -99,6 +100,9 @@ export default function PurchasingRequestsPage() {
   const [form, setForm] = useState<CreateForm>(emptyCreate)
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState('')
+
+  const openDetail = useCallback((r: any) => setDetail(r), [])
+  useItemDeepLink(rows, openDetail)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -443,7 +447,7 @@ th{background:#eef5f0}
                         const nFiles = filesOf(r).length
                         const nc = commentCounts[r.id] || 0
                         return (
-                          <tr key={r.id} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => setDetail(r)}>
+                          <tr key={r.id} id={`item-${r.id}`} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => setDetail(r)}>
                             <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{r.name}</td>
                             <td className="px-3 py-2.5">{r.location ? <span className="text-white text-[10px] font-semibold rounded-full px-2 py-0.5 inline-block whitespace-nowrap" style={{ background: LOC_COLORS[r.location] || '#c4c4c4' }}>{r.location}</span> : <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
