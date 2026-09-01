@@ -5,9 +5,20 @@ import { createBrowserClient, createServerClient } from '@supabase/ssr'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'
 
-// Browser client — use inside Client Components
-export function createSupabaseBrowserClient() {
+// Browser client — a single memoized instance shared across all Client Components,
+// so the app doesn't spin up a new GoTrueClient per component (which triggers the
+// "Multiple GoTrueClient instances" warning and can race on the shared auth token).
+// makeBrowserClient() is a concrete (non-generic) factory so the returned type stays
+// fully inferred — annotating with ReturnType<typeof createBrowserClient> would widen it.
+function makeBrowserClient() {
   return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+}
+let browserClient: ReturnType<typeof makeBrowserClient> | undefined
+export function createSupabaseBrowserClient() {
+  // On the server each request is isolated — never reuse a cached client there.
+  if (typeof window === 'undefined') return makeBrowserClient()
+  if (!browserClient) browserClient = makeBrowserClient()
+  return browserClient
 }
 
 // Server client — use inside Server Components and Route Handlers
