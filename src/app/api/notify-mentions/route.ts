@@ -144,6 +144,7 @@ export async function POST(req: Request) {
       fba_shipment: '/operations/fba', fba_shipments: '/operations/fba',
       lead: '/sales/leads', leads: '/sales/leads',
       product: '/sales/inventory', products: '/sales/inventory',
+      purchasing_request: '/sales/purchase-orders', purchasing_requests: '/sales/purchase-orders',
     }
     const boardPath = recordType ? RECORD_PATHS[recordType] : undefined
     const contextUrl = (boardPath && recordId)
