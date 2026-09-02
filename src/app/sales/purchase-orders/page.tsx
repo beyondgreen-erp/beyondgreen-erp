@@ -171,6 +171,8 @@ export default function PurchasingRequestsPage() {
     setSavingDetail(true)
     const patch: any = {}
     for (const k of DETAIL_KEYS) { const v = editForm[k]; patch[k] = (v === '' || v === undefined) ? null : v }
+    // Balance is always Ordered − Received, never a stale free-text value.
+    if (numOf(editForm.qty_ordered)) patch.balance = String(numOf(editForm.qty_ordered) - numOf(editForm.qty_received))
     const { error } = await sb.from('purchasing_requests').update(patch).eq('id', detail.id)
     if (error) { setSavingDetail(false); alert('Save failed: ' + error.message); return }
     if (deletedItemIds.length) await sb.from('purchasing_request_items').delete().in('id', deletedItemIds)
@@ -181,6 +183,7 @@ export default function PurchasingRequestsPage() {
       const it = editItems[idx]; const rowp: any = { position: idx }
       for (const k of ITEM_KEYS) { const v = it[k]; rowp[k] = (v === '' || v === undefined) ? null : v }
       rowp.name = (it.name && String(it.name).trim()) || rowp.description || rowp.part_number || null
+      if (numOf(it.qty_ordered)) rowp.balance = String(numOf(it.qty_ordered) - numOf(it.total_received))
       let res
       if (it.id && !it._new) res = await sb.from('purchasing_request_items').update(rowp).eq('id', it.id)
       else { rowp.id = it.id || newKey(); rowp.parent_id = detail.id; res = await sb.from('purchasing_request_items').insert(rowp) }
@@ -613,7 +616,9 @@ th{background:#eef5f0}
                 {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
                   <div key={k}>
                     <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>
-                    <input type={type} value={editForm[k] ?? ''} onChange={e => setEditForm((ff: any) => ({ ...ff, [k]: e.target.value }))} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0]" />
+                    {k === 'balance'
+                      ? <input readOnly title="Auto: Ordered − Received" value={numOf(editForm.qty_ordered) ? String(numOf(editForm.qty_ordered) - numOf(editForm.qty_received)) : (editForm[k] ?? '')} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-700" />
+                      : <input type={type} value={editForm[k] ?? ''} onChange={e => setEditForm((ff: any) => ({ ...ff, [k]: e.target.value }))} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0]" />}
                   </div>
                 ))}
               </div>
@@ -673,7 +678,7 @@ th{background:#eef5f0}
                               </div>
                               <div>
                                 <label className={lbl}>Balance</label>
-                                <input value={it.balance ?? ''} onChange={e => updateDetailItem(idx, 'balance', e.target.value)} className={inp + ' text-right'} />
+                                <input readOnly title="Auto: Ordered − Received" value={numOf(it.qty_ordered) ? String(numOf(it.qty_ordered) - numOf(it.total_received)) : (it.balance ?? '')} className={inp + ' text-right bg-gray-50'} />
                               </div>
                             </div>
                           </div>
