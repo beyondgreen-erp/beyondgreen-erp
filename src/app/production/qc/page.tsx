@@ -359,8 +359,11 @@ ${form.corrective_action ? `<div class="row"><span class="lbl">Corrective Action
     }
 
     if (submit && form.work_order_id) {
-      const { data: wo } = await sb.from('work_orders').select('notes,wo_number').eq('id', form.work_order_id).maybeSingle()
-      const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
+      const { data: wo } = await sb.from('work_orders').select('sales_order_id,notes,wo_number').eq('id', form.work_order_id).maybeSingle()
+      // Prefer the work order's own sales_order_id column; fall back to a SOREF: tag anywhere
+      // in notes (shortage WOs store it as "AUTO|<product>|SOREF:<id>|...", so it is NOT at the start).
+      const soRef = (wo as any)?.notes ? (String((wo as any).notes).match(/SOREF:([^\s|]+)/)?.[1] ?? null) : null
+      const soId = (wo as any)?.sales_order_id ?? soRef
       const woNum = (wo as any)?.wo_number
       if (finalResult === 'Pass') {
         await sb.from('work_orders').update({ status: 'QC Passed', updated_at: new Date().toISOString() }).eq('id', form.work_order_id)
