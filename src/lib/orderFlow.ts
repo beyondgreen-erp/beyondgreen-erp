@@ -350,13 +350,15 @@ export async function onStatusChange(
       if (!line.sku || !line.quantity) continue
       const { data: prod } = await sb
         .from('products')
-        .select('on_hand_qty')
+        .select('id, on_hand_qty, unit_of_measure')
         .eq('sku', line.sku)
         .maybeSingle()
       if (prod) {
         const prevQty = (prod as any).on_hand_qty ?? 0
         const newQty = Math.max(0, prevQty - (line.quantity ?? 0))
         await sb.from('products').update({ on_hand_qty: newQty }).eq('sku', line.sku)
+        // Ledger: every on-hand change writes an activity entry.
+        await sb.from('inventory_movements').insert({ product_id: (prod as any).id, sku: line.sku, movement_type: 'ship', qty: -(line.quantity ?? 0), uom: (prod as any).unit_of_measure ?? null, ref_table: 'sales_orders', ref_id: (order as any)?.id ?? null, created_by: 'system', note: `Shipped on order ${order?.order_number ?? ''}` })
         inventoryChanges.push({ sku: line.sku, qty: line.quantity, prevQty })
       }
     }
@@ -481,10 +483,11 @@ export async function shipOrder(
     const newShipped = (l.quantity_shipped ?? 0) + l.qtyToShip
     await sb.from('sales_order_lines').update({ quantity_shipped: newShipped }).eq('id', l.id)
     if (l.sku) {
-      const { data: prod } = await sb.from('products').select('on_hand_qty').eq('sku', l.sku).maybeSingle()
+      const { data: prod } = await sb.from('products').select('id, on_hand_qty, unit_of_measure').eq('sku', l.sku).maybeSingle()
       if (prod) {
         const prevQty = (prod as any).on_hand_qty ?? 0
         await sb.from('products').update({ on_hand_qty: Math.max(0, prevQty - l.qtyToShip) }).eq('sku', l.sku)
+        await sb.from('inventory_movements').insert({ product_id: (prod as any).id, sku: l.sku, movement_type: 'ship', qty: -l.qtyToShip, uom: (prod as any).unit_of_measure ?? null, ref_table: 'sales_orders', ref_id: orderId, created_by: 'system', note: `Partial shipment on order ${orderRef}` })
         inventoryChanges.push({ sku: l.sku, qty: l.qtyToShip, prevQty })
       }
     }
@@ -609,7 +612,9 @@ export async function undoFlow(undoData: any): Promise<FlowResult> {
 
     for (const change of (undoData.inventoryChanges ?? [])) {
       if (!change.sku) continue
+      const { data: prod } = await sb.from('products').select('id, unit_of_measure').eq('sku', change.sku).maybeSingle()
       await sb.from('products').update({ on_hand_qty: change.prevQty }).eq('sku', change.sku)
+      if (prod) await sb.from('inventory_movements').insert({ product_id: (prod as any).id, sku: change.sku, movement_type: 'adjust', qty: change.qty, uom: (prod as any).unit_of_measure ?? null, ref_table: 'sales_orders', ref_id: undoData.orderId ?? null, created_by: 'system', note: 'Reversed shipment (undo)' })
     }
 
     // Reverse per-line shipped quantities (partial shipments)
