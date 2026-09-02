@@ -187,6 +187,14 @@ export default function PurchasingRequestsPage() {
       if (res.error) itemErrors.push(`Line ${idx + 1}: ${res.error.message}`)
     }
     const { data: fresh } = await sb.from('purchasing_request_items').select('*').eq('parent_id', detail.id).order('position', { nullsFirst: false })
+    // Real-time posting (Ultron): the moment a received qty is saved, post it to inventory.
+    // post_line_receipt is idempotent per line (only the un-posted delta is added), so running
+    // it on every save can never double-count.
+    for (const it of ((fresh || []) as any[])) {
+      if (String(it.part_number ?? '').trim() && numOf(it.total_received) > 0) {
+        try { await sb.rpc('post_line_receipt', { p_item_id: it.id, p_user: userEmail || null }) } catch { /* non-blocking */ }
+      }
+    }
     setEditItems((fresh || []).map((x: any) => ({ ...x }))); setDeletedItemIds([])
     setItems((all: any[]) => [...all.filter(i => i.parent_id !== detail.id), ...((fresh as any[]) || [])])
     setRows((rs: any[]) => rs.map(r => r.id === detail.id ? { ...r, ...patch } : r))
