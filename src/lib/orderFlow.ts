@@ -122,7 +122,7 @@ export async function checkOrderReadyToShip(orderId: string): Promise<{ readyToS
 
   if (!wos || wos.length === 0) return { readyToShip: false, pending: 0 }
 
-  const pending = (wos as any[]).filter(w => !['Complete', 'Cancelled'].includes(w.status)).length
+  const pending = (wos as any[]).filter(w => !['Complete', 'QC Passed', 'Cancelled'].includes(w.status)).length
 
   if (pending === 0) {
     await onStatusChange(orderId, 'Ready to Ship', 'Awaiting Production')
