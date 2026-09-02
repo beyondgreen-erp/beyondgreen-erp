@@ -98,9 +98,10 @@ export default function FbaBoard() {
     setProdSearch(''); setProdResults([])
   }
   async function adjustInventory(productId: string, delta: number) {
-    const { data } = await sb.from('products').select('on_hand_qty').eq('id', productId).single()
+    const { data } = await sb.from('products').select('sku, on_hand_qty, unit_of_measure').eq('id', productId).single()
     const cur = Number((data as any)?.on_hand_qty || 0)
     await sb.from('products').update({ on_hand_qty: cur + delta }).eq('id', productId)
+    if (delta && data) await sb.from('inventory_movements').insert({ product_id: productId, sku: (data as any).sku, movement_type: 'fba', qty: delta, uom: (data as any).unit_of_measure ?? null, ref_table: 'fba_shipments', created_by: 'system', note: delta < 0 ? 'FBA/WFS shipment deduction' : 'FBA/WFS deduction reversed' })
   }
 
   function formFrom(r: Row) {
