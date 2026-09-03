@@ -22,7 +22,7 @@ interface WOrder {
   carrier: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
-  updated_at: string | null; created_at: string | null
+  updated_at: string | null; created_at: string | null; sales_order_id: string | null
 }
 interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null; unit_price: number | null; case_price: number | null; distribution_price: number | null; wholesale_price: number | null }
 interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
@@ -30,6 +30,7 @@ interface Pallet { id: string; order_id: string; pallet_number: number; total_pa
 interface PalletItem { id: string; pallet_id: string; order_id: string; sku: string; qty: number }
 
 const UNITS_PER_SRP = 6
+const WALMART_CUSTOMER_ID = '07a4450c-2577-49fc-a02a-cbfbe6b133e5'
 const DEFAULT_COMMODITY = 'Disposable Cutlery'
 const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
 const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
@@ -228,6 +229,25 @@ export default function WalmartBoard() {
       }
       const { error } = await sb.from('walmart_board_orders').update(patch).eq('id', detail.id)
       if (error) { alert('Save failed: ' + error.message); return }
+      // Ultron: keep the linked pipeline order in step so status + details flow to every board.
+      {
+        const soPatch: any = { updated_at: new Date().toISOString() }
+        if (patch.name != null) soPatch.order_number = patch.name
+        soPatch.po_number = patch.po_number ?? null
+        if (patch.status) soPatch.status = patch.status
+        soPatch.order_date = patch.order_date ?? null
+        soPatch.required_ship_date = patch.ship_due_date ?? null
+        soPatch.carrier = patch.carrier ?? null
+        soPatch.facility = patch.facility ?? null
+        soPatch.total = patch.total_value ?? null
+        soPatch.total_value = patch.total_value ?? null
+        if (detail.sales_order_id) {
+          await sb.from('sales_orders').update(soPatch).eq('id', detail.sales_order_id)
+        } else {
+          const { data: so } = await sb.from('sales_orders').insert({ ...soPatch, order_number: patch.name, status: patch.status || 'Pending', customer_id: WALMART_CUSTOMER_ID, notes: patch.name, is_active: true }).select('id').single()
+          if (so) { patch.sales_order_id = (so as any).id; await sb.from('walmart_board_orders').update({ sales_order_id: (so as any).id }).eq('id', detail.id) }
+        }
+      }
       const keptIds = lineForms.filter(l => l.id && !l._new).map(l => l.id)
       const toDelete = detailLines.map(l => l.id).filter(id => id && !keptIds.includes(id)) as string[]
       if (toDelete.length) await sb.from('walmart_board_lines').delete().in('id', toDelete)
@@ -341,6 +361,16 @@ export default function WalmartBoard() {
         uom: (l.uom || 'SRPs'), packaging: (l.packaging || 'Packed'), line_number: i + 1, unit_price: (Number(l.unit_price) || null),
       }))
       if (toInsert.length) await sb.from('walmart_board_lines').insert(toInsert)
+      // Ultron: mirror into the sales pipeline so the order flows across every board.
+      try {
+        const { data: so } = await sb.from('sales_orders').insert({
+          order_number: name, po_number: ins.po_number, customer_id: WALMART_CUSTOMER_ID,
+          status: ins.status, order_date: ins.order_date, required_ship_date: ins.ship_due_date,
+          carrier: ins.carrier, facility: ins.facility, total: ins.total_value, total_value: ins.total_value,
+          notes: name, is_active: true,
+        }).select('id').single()
+        if (so) { const sid = (so as any).id as string; await sb.from('walmart_board_orders').update({ sales_order_id: sid }).eq('id', oid); if (data) (data as any).sales_order_id = sid }
+      } catch { /* non-blocking */ }
       setShowNew(false)
       await load()
       if (data) openDetail(data as WOrder)
@@ -400,6 +430,7 @@ export default function WalmartBoard() {
     if (order.shipment_id) { alert('This order is already on the Shipments board.'); return }
     if (!confirm(`Mark "${order.name}" as Shipped?\n\nThis moves it to the Shipments board and auto-creates its bill for finance. Inventory was already deducted as pallets were built.`)) return
     await sb.from('walmart_board_orders').update({ status: 'Shipped', group_name: 'Shipped', updated_at: new Date().toISOString() }).eq('id', order.id)
+    if (order.sales_order_id) await sb.from('sales_orders').update({ status: 'Shipped', updated_at: new Date().toISOString() }).eq('id', order.sales_order_id)
     const sid = await shipWalmartOrder(order)
     if (sid && detail && detail.id === order.id) setDetail(d => d ? { ...d, status: 'Shipped', group_name: 'Shipped', shipment_id: sid } : d)
     await load()
@@ -409,7 +440,7 @@ export default function WalmartBoard() {
     return parseInt(String(order.pallets || '').match(/\d+/)?.[0] || '0', 10) || (pallets[order.id]?.length || 0)
   }
 
-  function genBOL(order: WOrder) {
+  async function genBOL(order: WOrder) {
     const ls = lines[order.id] || []
     const totalCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
     const totalPallets = palletCountFor(order)
@@ -431,10 +462,23 @@ export default function WalmartBoard() {
       poNote: order.po_number ? ('PO ' + order.po_number) : undefined,
       specialInstructions: order.special_instructions ? [order.special_instructions] : undefined,
     }, bolLines, null)
-    doc.save(`BOL - ${order.name}.pdf`)
+    const bolName = `BOL - ${order.name}.pdf`
+    doc.save(bolName)
+    try {
+      const blob = doc.output('blob') as Blob
+      const target = order.sales_order_id ? 'sales_order' : 'walmart_order'
+      const rid = order.sales_order_id ?? order.id
+      const path = `walmart/${rid}/bol-${Date.now()}.pdf`
+      const { error: upErr } = await sb.storage.from('erp-files').upload(path, blob, { upsert: true, contentType: 'application/pdf' })
+      if (!upErr) {
+        const { data: pub } = sb.storage.from('erp-files').getPublicUrl(path)
+        await sb.from('file_attachments').insert({ record_type: target, record_id: rid, file_name: bolName, file_size: (blob as any).size ?? null, file_type: 'application/pdf', storage_path: path, uploaded_by: userEmail })
+        if (order.sales_order_id) await sb.from('sales_orders').update({ bol: pub.publicUrl }).eq('id', order.sales_order_id)
+      }
+    } catch { /* non-blocking */ }
   }
 
-  function genPackingSlip(order: WOrder) {
+  async function genPackingSlip(order: WOrder) {
     const ls = lines[order.id] || []
     const cases: PackListCase[] = ls.map(l => {
       const q = Number(l.qty) || 0
@@ -451,7 +495,20 @@ export default function WalmartBoard() {
       { poNumber: order.po_number || '', orderNumber: order.name, shipToName: ((order.ship_to || 'Walmart').split(/[,\n]/)[0] || 'Walmart').trim(), shipToAddress: order.ship_to || '', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR },
       cases, { pallets: totalPallets, cases: totalCases, weight: Number(order.weight) || 0 }, null, pls.length ? pls : undefined,
     )
-    doc.save(`Packing List - ${order.name}.pdf`)
+    const plName = `Packing List - ${order.name}.pdf`
+    doc.save(plName)
+    try {
+      const blob = doc.output('blob') as Blob
+      const target = order.sales_order_id ? 'sales_order' : 'walmart_order'
+      const rid = order.sales_order_id ?? order.id
+      const path = `walmart/${rid}/packing-list-${Date.now()}.pdf`
+      const { error: upErr } = await sb.storage.from('erp-files').upload(path, blob, { upsert: true, contentType: 'application/pdf' })
+      if (!upErr) {
+        const { data: pub } = sb.storage.from('erp-files').getPublicUrl(path)
+        await sb.from('file_attachments').insert({ record_type: target, record_id: rid, file_name: plName, file_size: (blob as any).size ?? null, file_type: 'application/pdf', storage_path: path, uploaded_by: userEmail })
+        if (order.sales_order_id) await sb.from('sales_orders').update({ packing_slip_url: pub.publicUrl }).eq('id', order.sales_order_id)
+      }
+    } catch { /* non-blocking */ }
   }
 
   async function printPalletQRs(order: WOrder) {
@@ -638,6 +695,8 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
         </div>
         <button onClick={openNew} className="mon-btn">+ New Walmart order</button>
       </div>
+
+      <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — every Walmart order mirrors into the Order Pipeline and flows across Production, Shipping &amp; Invoices; status, comments, files, BOL &amp; packing list stay in sync.</div>
 
       {/* Requirements roll-up */}
       {!loading && (req.fg.length > 0 || req.comps.length > 0) && (
@@ -1004,10 +1063,10 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
               )}
 
               <div className="border-t border-[#EEF0F4] pt-4">
-                <FileUpload supabase={sb} recordType="walmart_order" recordId={detail.id} currentUserEmail={userEmail} />
+                <FileUpload supabase={sb} recordType={detail.sales_order_id ? 'sales_order' : 'walmart_order'} recordId={detail.sales_order_id ?? detail.id} currentUserEmail={userEmail} />
               </div>
               <div className="border-t border-[#EEF0F4] pt-4">
-                <Comments recordId={detail.id} recordType="walmart_order" currentUserEmail={userEmail} title="Notes & Comments" />
+                <Comments recordId={detail.sales_order_id ?? detail.id} recordType={detail.sales_order_id ? 'sales_order' : 'walmart_order'} currentUserEmail={userEmail} title="Notes & Comments" />
               </div>
             </div>
           </div>
