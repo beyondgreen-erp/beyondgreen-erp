@@ -53,6 +53,20 @@ export default function WorkOrdersPage() {
   const openDetail = useCallback((wo: WO) => setDetail(wo), [])
   useItemDeepLink(orders, openDetail)
 
+  // Ultron: clicking a production order opens (creating if needed) its work-order record in place.
+  const openForOrder = useCallback(async (soId: string) => {
+    let wo = orders.find(o => o.sales_order_id === soId)
+    if (!wo) {
+      const { data } = await sb
+        .from('work_orders')
+        .insert({ sales_order_id: soId, order_id: soId, status: 'Queued' })
+        .select('*, sales_orders!work_orders_sales_order_id_fkey(order_number, customers(company_name))')
+        .single()
+      if (data) { wo = data as WO; setOrders(os => [wo as WO, ...os]) }
+    }
+    if (wo) setDetail(wo)
+  }, [orders])
+
   async function setStatus(wo: WO, status: string) {
     if (!status || status === wo.status) return
     setOrders(os => os.map(o => (o.id === wo.id ? { ...o, status } : o)))
@@ -91,7 +105,7 @@ export default function WorkOrdersPage() {
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — status is editable inline and on each record; notes &amp; comments sync two-way with the Sales / Production boards.</div>
 
       {/* Sales orders currently in production (mirrored from Sales Orders) */}
-      <OrdersMirror statuses={['Production Queue', 'In Production']} title="Sales Orders in Production" tagClass="t-orange" emoji="🏭" />
+      <OrdersMirror statuses={['Production Queue', 'In Production']} title="Sales Orders in Production" tagClass="t-orange" emoji="🏭" onRowClick={openForOrder} />
 
       <div className="grid grid-cols-3 gap-4 mb-8">
         {[
