@@ -973,23 +973,31 @@ export default function ShippingQueuePage() {
       for (const r of plan) shipNow[r.sku] = (shipNow[r.sku] || 0) + (Number(r.shippedUnits) || 0)
       // Roll the shipped qty into each order line's completed_qty and decide full vs partial.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped').eq('sales_order_id', activeItem.sales_order_id)
+      const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped, unit_price').eq('sales_order_id', activeItem.sales_order_id)
+      // Value of THIS shipment only. createShipment otherwise stamps the whole
+      // order's value on every shipment, so a partial reported the full order amount.
+      let shippedValue = 0
       let fully = true
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const l of ((curLines as any[]) || [])) {
         const ordered = Number(l.quantity ?? l.qty) || 0
-        const prior = Number(l.completed_qty ?? l.quantity_shipped) || 0
+        // quantity_shipped is the shipped balance every other screen reads;
+        // completed_qty is production progress. They are not the same field.
+        const prior = Number(l.quantity_shipped ?? l.completed_qty) || 0
         const add = shipNow[l.sku] || 0
         const newDone = ordered > 0 ? Math.min(prior + add, ordered) : prior + add
         if (ordered > 0 && newDone < ordered) fully = false
-        if (add > 0) await sb.from('sales_order_lines').update({ completed_qty: newDone }).eq('id', l.id)
+        if (add > 0) {
+          shippedValue += add * (Number(l.unit_price) || 0)
+          await sb.from('sales_order_lines').update({ quantity_shipped: newDone, completed_qty: newDone }).eq('id', l.id)
+        }
       }
       // keepOpen = operator chose 'save partial, keep order open': always leave it on the
       // Shipping Queue as 'Partially Shipped' so the remaining balance can still be shipped.
       const newStatus = keepOpen ? 'Partially Shipped' : (fully ? 'Shipped' : 'Partially Shipped')
       // Shipment record carries the same status so the auto-bill trigger only bills the
       // completing (full) shipment — partials are recorded + inventory-deducted but not billed.
-      await createShipment({ id: coShipId, delivery_status: 'Shipped', status: newStatus, ai_summary: coSummary || null })
+      await createShipment({ id: coShipId, delivery_status: 'Shipped', status: newStatus, ai_summary: coSummary || null, total_value: shippedValue > 0 ? shippedValue : undefined })
       await sb.from('sales_orders').update({ status: newStatus, carrier: (shipCarrier || o?.carrier) || null, tracking_number: (shipTracking || o?.tracking_number) || null }).eq('id', activeItem.sales_order_id)
     } catch (e) { alert('Move failed: ' + (e as Error).message); setCoBusy(''); return }
     setOpenId(null); resetPackState(); load()

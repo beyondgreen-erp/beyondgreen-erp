@@ -318,114 +318,45 @@ export async function onStatusChange(
     }
   }
 
-  // ── SHIPPED → shipment + invoice + inventory deduction ──────────────────
+  // ── SHIPPED → delegate to shipOrder so there is ONE shipping code path ──
+  // Previously this branch shipped the FULL ordered quantity of every line and
+  // invoiced the FULL order total, ignoring anything already shipped. Flipping the
+  // status to Shipped after a partial therefore double-billed the customer and
+  // reported the whole order as gone. It now ships only the outstanding balance.
   if (newStatus === 'Shipped') {
-    const today = new Date().toISOString().split('T')[0]
+    const { data: soLines } = await sb
+      .from('sales_order_lines')
+      .select('id, sku, description, quantity, quantity_shipped, unit_price, unit_of_measure')
+      .eq('sales_order_id', orderId)
 
-    const { data: order } = await sb
-      .from('sales_orders')
-      .select('*, customers(company_name, email), sales_order_lines(*)')
-      .eq('id', orderId)
-      .maybeSingle()
-
-    const customerName =
-      (order?.customers as any)?.company_name ||
-      (order?.notes ?? '').split('|')[0].trim() || ''
-    const lines: any[] = (order as any)?.sales_order_lines ?? []
-
-    // 1. Create shipment record
-    const { data: shipment, error: shipErr } = await sb.from('shipments').insert({
-      customer_name: customerName,
-      po_number: order?.order_number ?? null,
-      order_date: order?.order_date ?? null,
-      ship_date: shipDetails?.shipDate ?? today,
-      carrier: shipDetails?.carrier ?? null,
-      tracking_number: shipDetails?.trackingNumber ?? null,
-      delivery_status: 'Shipped',
-      notes: `Auto-created from Sales Order ${order?.order_number ?? ''}`,
-    }).select('id').maybeSingle()
-
-    if (shipErr) console.error('shipment insert error:', shipErr.message)
-
-    // 2. Deduct inventory per SKU
-    const inventoryChanges: { sku: string; qty: number; prevQty: number }[] = []
-    for (const line of lines) {
-      if (!line.sku || !line.quantity) continue
-      const { data: prod } = await sb
-        .from('products')
-        .select('id, on_hand_qty, unit_of_measure')
-        .eq('sku', line.sku)
-        .maybeSingle()
-      if (prod) {
-        const prevQty = (prod as any).on_hand_qty ?? 0
-        const newQty = Math.max(0, prevQty - (line.quantity ?? 0))
-        await sb.from('products').update({ on_hand_qty: newQty }).eq('sku', line.sku)
-        // Ledger: every on-hand change writes an activity entry.
-        await sb.from('inventory_movements').insert({ product_id: (prod as any).id, sku: line.sku, movement_type: 'ship', qty: -(line.quantity ?? 0), uom: (prod as any).unit_of_measure ?? null, ref_table: 'sales_orders', ref_id: (order as any)?.id ?? null, created_by: 'system', note: `Shipped on order ${order?.order_number ?? ''}` })
-        inventoryChanges.push({ sku: line.sku, qty: line.quantity, prevQty })
+    const shipLines: ShipLineInput[] = ((soLines ?? []) as any[]).map(l => {
+      const quantity = Number(l.quantity) || 0
+      const already = Number(l.quantity_shipped) || 0
+      return {
+        id: l.id,
+        sku: l.sku,
+        description: l.description,
+        unit_price: l.unit_price != null ? Number(l.unit_price) : 0,
+        unit_of_measure: l.unit_of_measure,
+        quantity,
+        quantity_shipped: already,
+        qtyToShip: Math.max(0, quantity - already),
       }
+    })
+
+    const outstanding = shipLines.reduce((s, l) => s + l.qtyToShip, 0)
+    if (outstanding <= 0) {
+      await sb.from('sales_orders').update({ status: 'Shipped', updated_at: new Date().toISOString() }).eq('id', orderId)
+      await sb.from('shipping_queue').delete().eq('order_id', orderId)
+      return { success: true, message: 'Order closed — every line was already shipped and invoiced.' }
     }
 
-    // 3. Auto-create invoice
-    const invNum = 'INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5)
-    const totalAmt = (order as any)?.total_amount ?? (order as any)?.total ?? 0
-
-    const { data: invoice, error: invErr } = await sb.from('invoices').insert({
-      invoice_number: invNum,
-      invoice_number_display: invNum,
-      invoice_type: 'invoice',
-      customer_id: order?.customer_id ?? null,
-      sales_order_id: orderId,
-      invoice_date: today,
-      due_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-      status: 'pending',
-      subtotal: totalAmt,
-      total_amount: totalAmt,
-      balance_due: totalAmt,
-      amount_paid: 0,
-      payment_terms: 'Net 30',
-      po_number: order?.order_number ?? null,
-      notes: `Auto-created when order shipped on ${today}`,
-    }).select('id').maybeSingle()
-
-    if (invErr) console.error('invoice insert error:', invErr.message)
-
-    // 4. Copy line items to invoice_line_items
-    if ((invoice as any)?.id && lines.length > 0) {
-      const lineRows = lines
-        .filter(l => l.sku || l.description)
-        .map((l: any) => ({
-          invoice_id: (invoice as any).id,
-          sku: l.sku ?? null,
-          description: l.description ?? '',
-          quantity: l.quantity ?? 1,
-          unit_price: l.unit_price ?? 0,
-          uom: l.unit_of_measure ?? null,
-          line_total: (l.quantity ?? 1) * (l.unit_price ?? 0),
-        }))
-      if (lineRows.length > 0) await sb.from('invoice_line_items').insert(lineRows)
-    }
-
-    // 5. Update order + remove from shipping queue
-    await sb.from('sales_orders')
-      .update({ ship_date: shipDetails?.shipDate ?? today })
-      .eq('id', orderId)
-    await sb.from('shipping_queue').delete().eq('order_id', orderId)
-
-    try { await emailCustomerOnStatus(orderId, 'shipped', { carrier: shipDetails?.carrier, tracking: shipDetails?.trackingNumber, shipDate: shipDetails?.shipDate ?? today }) } catch { /* */ }
-
-    return {
-      success: true,
-      message: `Shipped ✓  Invoice ${invNum} created`,
-      undoData: {
-        action: 'undo_ship',
-        orderId,
-        prevStatus,
-        invoiceId: (invoice as any)?.id,
-        shipmentId: (shipment as any)?.id,
-        inventoryChanges,
-      },
-    }
+    return await shipOrder(orderId, shipLines, {
+      carrier: shipDetails?.carrier,
+      trackingNumber: shipDetails?.trackingNumber,
+      shipDate: shipDetails?.shipDate,
+      notes: 'Closed out from the order pipeline',
+    })
   }
 
   return { success: true, message: `Status → ${newStatus}` }
