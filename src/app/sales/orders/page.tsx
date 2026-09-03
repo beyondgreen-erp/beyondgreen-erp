@@ -22,6 +22,111 @@ import WalmartBoard from '@/components/WalmartBoard'
 import ChewyBoard from '@/components/ChewyBoard'
 import { orderDisplayName } from '@/lib/orderName'
 
+// Shipment log shown on the order itself: every partial that has gone out, what it
+// carried, and its documents. The order is not complete until the balance is zero.
+function OrderShipmentLog({ orderId, currentUserEmail }: { orderId: string; currentUserEmail: string }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [ships, setShips] = useState<Record<string, unknown>[]>([])
+  const [units, setUnits] = useState<Record<string, number>>({})
+  const [tot, setTot] = useState({ ordered: 0, shipped: 0 })
+  const [openDocs, setOpenDocs] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const { data: sh } = await sb.from('shipments')
+      .select('id, shipment_number, ship_date, carrier, tracking_number, status, total_value, invoice_number')
+      .eq('sales_order_id', orderId).order('created_at')
+    const rows = (sh ?? []) as Record<string, unknown>[]
+    setShips(rows)
+    if (rows.length) {
+      const { data: sl } = await sb.from('shipment_lines').select('shipment_id, qty_shipped').in('shipment_id', rows.map(r => String(r.id)))
+      setUnits(((sl ?? []) as Record<string, unknown>[]).reduce((a: Record<string, number>, r) => {
+        const k = String(r.shipment_id); a[k] = (a[k] || 0) + (Number(r.qty_shipped) || 0); return a
+      }, {}))
+    }
+    const { data: ol } = await sb.from('sales_order_lines').select('quantity, quantity_shipped').eq('sales_order_id', orderId)
+    const rowsL = (ol ?? []) as Record<string, unknown>[]
+    setTot({
+      ordered: rowsL.reduce((s, l) => s + (Number(l.quantity) || 0), 0),
+      shipped: rowsL.reduce((s, l) => s + (Number(l.quantity_shipped) || 0), 0),
+    })
+  }, [sb, orderId])
+  useEffect(() => { load() }, [load])
+
+  const remaining = Math.max(0, tot.ordered - tot.shipped)
+  const pct = tot.ordered > 0 ? Math.min(100, Math.round((tot.shipped / tot.ordered) * 100)) : 0
+
+  return (
+    <div className="pt-4 border-t border-[#E4E6EE]">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">
+        Shipment log{ships.length > 0 ? ` · ${ships.length}` : ''}
+      </p>
+      <div className="rounded-xl border border-[#E4E6EE] bg-[#F9FAFC] px-4 py-3 mb-3">
+        <div className="flex items-baseline justify-between gap-3 mb-2">
+          <span className="text-xs text-gray-500"><b className="text-[#1A1D2E] text-sm">{tot.shipped.toLocaleString()}</b> of {tot.ordered.toLocaleString()} units shipped</span>
+          <span className={`text-xs font-semibold ${remaining > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+            {remaining > 0 ? `${remaining.toLocaleString()} still to fulfil` : 'Fully fulfilled'}
+          </span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-[#E4E6EE] overflow-hidden">
+          <div className={`h-full rounded-full ${remaining > 0 ? 'bg-amber-400' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+      {ships.length === 0 ? (
+        <p className="text-xs text-gray-400">No shipments recorded yet. Move the order to Ready to Ship to record one.</p>
+      ) : (
+        <div className="space-y-2">
+          {ships.map((s, i) => {
+            const id = String(s.id)
+            const isFinal = String(s.status ?? '') === 'Shipped'
+            return (
+              <div key={id} className="rounded-xl border border-[#E4E6EE] bg-white overflow-hidden">
+                <div className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-[#1A1D2E]">Shipment {i + 1}{remaining === 0 ? ` of ${ships.length}` : ''}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${isFinal ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-violet-50 text-violet-700 border-violet-200'}`}>
+                        {isFinal ? 'Final' : 'Partial'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {String(s.ship_date ?? 'no date')}
+                      {s.carrier ? ` · ${String(s.carrier)}` : ''}
+                      {s.tracking_number ? ` · ${String(s.tracking_number)}` : ''}
+                      {units[id] ? ` · ${units[id].toLocaleString()} units` : ''}
+                      {s.total_value ? ` · $${Number(s.total_value).toLocaleString()}` : ''}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setOpenDocs(openDocs === id ? null : id)}
+                    className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E]">
+                    {openDocs === id ? 'Hide documents' : 'Documents'}
+                  </button>
+                </div>
+                {openDocs === id && (
+                  <div className="border-t border-[#EEF0F4] bg-[#FAFBFD] px-4 py-3 space-y-4">
+                    {[
+                      { rt: 'shipment_bol', label: 'Bill of Lading' },
+                      { rt: 'shipment_packing_list', label: 'Packing list' },
+                      { rt: 'shipment_labels', label: 'Case / pallet labels' },
+                      { rt: 'shipment_pod', label: 'Proof of delivery' },
+                      { rt: 'shipment_other', label: 'Other documents' },
+                    ].map(d => (
+                      <div key={d.rt}>
+                        <label className="block text-[11px] font-medium text-gray-500 mb-1">{d.label}</label>
+                        <FileUpload supabase={sb} recordType={d.rt} recordId={id} currentUserEmail={currentUserEmail} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 // Secondary confirmation shown when an order reaches Ready to Ship: is this the
 // whole order or a partial? A partial keeps the order on the pipeline with the
 // balance visible, and can be repeated as many times as it takes.
@@ -1190,6 +1295,8 @@ function EditPanel({
               )}
             </div>
           </div>
+
+          {editing && <OrderShipmentLog orderId={editing.id} currentUserEmail={userEmail} />}
 
           {editing && (
             <div className="pt-4 border-t border-[#E4E6EE]">
