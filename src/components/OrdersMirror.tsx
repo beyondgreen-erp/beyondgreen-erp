@@ -1,6 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, ReactNode } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { statusColor } from '@/lib/statusColors'
 
@@ -20,12 +20,17 @@ interface MirrorOrder {
 const fmt$ = (n: number | null | undefined) =>
   n == null ? '' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
+function RowWrap({ id, onRowClick, className, children }: { id: string; onRowClick?: (orderId: string) => void; className: string; children: ReactNode }) {
+  if (onRowClick) return <button type="button" onClick={() => onRowClick(id)} className={className}>{children}</button>
+  return <a href={`/sales/orders?item=${id}`} className={className}>{children}</a>
+}
+
 /**
  * Live, read-through mirror of Sales Orders filtered by status. Renders an exact
  * copy of the order rows on another page (Work Orders, QC, etc.); clicking a row
  * opens the full order window on the Sales Orders page via ?item=<id>.
  */
-export default function OrdersMirror({ statuses, title, tagClass = '', emoji = '' }: { statuses: string[]; title: string; tagClass?: string; emoji?: string }) {
+export default function OrdersMirror({ statuses, title, tagClass = '', emoji = '', onRowClick }: { statuses: string[]; title: string; tagClass?: string; emoji?: string; onRowClick?: (orderId: string) => void }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<MirrorOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,7 +65,7 @@ export default function OrdersMirror({ statuses, title, tagClass = '', emoji = '
           {rows.map(o => {
             const c = statusColor(o.status)
             return (
-              <a key={o.id} href={`/sales/orders?item=${o.id}`} className="flex items-center gap-2.5 px-4 py-2.5 mon-row no-underline">
+              <RowWrap key={o.id} id={o.id} onRowClick={onRowClick} className="flex items-center gap-2.5 px-4 py-2.5 mon-row no-underline w-full text-left">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-[#1A1D2E] truncate">{o.order_number || name(o)}</p>
                   <p className="text-xs text-gray-500 truncate">{name(o)}{o.po_number ? ' · PO ' + o.po_number : ''}</p>
@@ -70,7 +75,7 @@ export default function OrdersMirror({ statuses, title, tagClass = '', emoji = '
                 </span>
                 <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">{o.required_ship_date || ''}</span>
                 <span className="text-xs font-semibold text-gray-700 w-20 text-right shrink-0">{fmt$(val(o))}</span>
-              </a>
+              </RowWrap>
             )
           })}
         </div>
