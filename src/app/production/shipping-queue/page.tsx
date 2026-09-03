@@ -828,7 +828,7 @@ export default function ShippingQueuePage() {
     }
   }
 
-  function genPackingList() {
+  async function genPackingList() {
     if (!activeItem) return
     const cases = buildPackListCases()
     const meta = packMeta()
@@ -838,8 +838,24 @@ export default function ShippingQueuePage() {
       pallets: 0,
       weight: Math.round(cases.reduce((a, c) => a + (c.weight || 0), 0)),
     }
-    loadImageDataUrl('/bG-logo-clean.png').then(logo => buildPackingList(meta, cases, listTotals, logo, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
-      .catch(() => buildPackingList(meta, cases, listTotals, null, plts).save(`packing-list-${o?.order_number || 'order'}.pdf`))
+    let logo: string | null = null
+    try { logo = await loadImageDataUrl('/bG-logo-clean.png') } catch { /* logo optional */ }
+    const doc = buildPackingList(meta, cases, listTotals, logo, plts)
+    const fileName = `packing-list-${o?.order_number || 'order'}.pdf`
+    doc.save(fileName)
+    // Persist the generated packing list so it is SAVED with the shipment, not just downloaded.
+    // coSlipUrl flows into the shipment's packing_slip_url when the shipment is created/closed out.
+    try {
+      const blob = doc.output('blob') as Blob
+      const path = `shipping/${coShipId || activeItem.sales_order_id}/packing-list-${Date.now()}.pdf`
+      const { error } = await sb.storage.from('erp-files').upload(path, blob, { upsert: true, contentType: 'application/pdf' })
+      if (!error) {
+        const { data } = sb.storage.from('erp-files').getPublicUrl(path)
+        setCoSlipUrl(data.publicUrl)
+        await sb.from('file_attachments').insert({ record_type: coShipId ? 'shipment' : 'sales_order', record_id: coShipId || activeItem.sales_order_id, file_name: fileName, file_size: (blob as any).size ?? null, file_type: 'application/pdf', storage_path: path, uploaded_by: userEmail })
+        if (coShipId) await sb.from('shipments').update({ packing_slip_url: data.publicUrl }).eq('id', coShipId)
+      }
+    } catch { /* non-blocking */ }
     markDoc('packingList')
   }
 
