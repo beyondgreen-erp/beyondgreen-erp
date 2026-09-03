@@ -111,8 +111,8 @@ export default function WorkOrdersPage() {
       ) : (
         <div className="space-y-3">
           {orders.map(wo => (
-            <div key={wo.id} id={`item-${wo.id}`} className="bg-white rounded-xl border border-gray-100 p-5 flex items-center justify-between shadow-sm hover:border-gray-200 transition-colors">
-              <div className="min-w-0 cursor-pointer" onClick={() => openDetail(wo)}>
+            <div key={wo.id} id={`item-${wo.id}`} onClick={() => openDetail(wo)} className="bg-white rounded-xl border border-gray-100 p-5 flex items-center justify-between shadow-sm hover:border-gray-200 hover:shadow transition-all cursor-pointer">
+              <div className="min-w-0">
                 <div className="flex items-center gap-3 mb-1">
                   <span className="font-bold text-gray-900">WO-{wo.wo_number}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusClass(wo.status)}`}>{wo.status}</span>
@@ -120,7 +120,7 @@ export default function WorkOrdersPage() {
                 <p className="text-sm text-gray-500">SO: {wo.sales_orders?.order_number ?? '—'} &middot; {wo.sales_orders?.customers?.company_name ?? '—'}</p>
                 {wo.notes && <p className="text-xs text-gray-400 mt-1 truncate max-w-2xl">{wo.notes}</p>}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
                 <StatusSelect wo={wo} />
                 <button onClick={() => openDetail(wo)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">View</button>
               </div>
