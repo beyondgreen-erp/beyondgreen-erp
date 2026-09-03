@@ -10,7 +10,7 @@ import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
 import { WorkflowProgressBar } from '@/components/WorkflowMover'
-import { onStatusChange, undoFlow, logActivity, type OrderStatus } from '@/lib/orderFlow'
+import { onStatusChange, undoFlow, logActivity, shipOrder, type OrderStatus, type ShipLineInput } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
@@ -21,6 +21,158 @@ import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
 import ChewyBoard from '@/components/ChewyBoard'
 import { orderDisplayName } from '@/lib/orderName'
+
+// Secondary confirmation shown when an order reaches Ready to Ship: is this the
+// whole order or a partial? A partial keeps the order on the pipeline with the
+// balance visible, and can be repeated as many times as it takes.
+function PartialShipDialog({ order, onClose, onDone }: { order: { id: string; number: string; customer: string; carrier: string | null }; onClose: () => void; onDone: (m: string, u?: unknown) => void }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [step, setStep] = useState<'ask' | 'form'>('ask')
+  const [rows, setRows] = useState<ShipLineInput[]>([])
+  const [past, setPast] = useState<{ n: number; date: string; units: number }[]>([])
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [f, setF] = useState({ carrier: order.carrier || '', tracking: '', date: new Date().toISOString().split('T')[0], notes: '' })
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data } = await sb.from('sales_order_lines')
+        .select('id, sku, description, quantity, quantity_shipped, unit_price, unit_of_measure')
+        .eq('sales_order_id', order.id).order('line_number')
+      if (!alive) return
+      setRows(((data ?? []) as Record<string, unknown>[]).map(l => ({
+        id: String(l.id), sku: (l.sku as string) ?? null, description: (l.description as string) ?? null,
+        unit_price: Number(l.unit_price) || 0, unit_of_measure: (l.unit_of_measure as string) ?? null,
+        quantity: Number(l.quantity) || 0, quantity_shipped: Number(l.quantity_shipped) || 0, qtyToShip: 0,
+      })))
+      const { data: sh } = await sb.from('shipments')
+        .select('id, ship_date, shipment_number').eq('sales_order_id', order.id).order('created_at')
+      const ids = ((sh ?? []) as Record<string, unknown>[]).map(x => String(x.id))
+      let counts: Record<string, number> = {}
+      if (ids.length) {
+        const { data: sl } = await sb.from('shipment_lines').select('shipment_id, qty_shipped').in('shipment_id', ids)
+        counts = ((sl ?? []) as Record<string, unknown>[]).reduce((a: Record<string, number>, r) => {
+          const k = String(r.shipment_id); a[k] = (a[k] || 0) + (Number(r.qty_shipped) || 0); return a
+        }, {})
+      }
+      if (!alive) return
+      setPast(((sh ?? []) as Record<string, unknown>[]).map((x, i) => ({
+        n: i + 1, date: String(x.ship_date ?? ''), units: counts[String(x.id)] || 0,
+      })))
+    })()
+    return () => { alive = false }
+  }, [sb, order.id])
+
+  const outstanding = rows.reduce((s, r) => s + Math.max(0, r.quantity - r.quantity_shipped), 0)
+  const ordered = rows.reduce((s, r) => s + r.quantity, 0)
+  const now = rows.reduce((s, r) => s + (r.qtyToShip || 0), 0)
+  const left = Math.max(0, outstanding - now)
+
+  function setQty(id: string, v: string) {
+    setRows(p => p.map(r => r.id === id ? { ...r, qtyToShip: Math.max(0, Math.min(Math.max(0, r.quantity - r.quantity_shipped), Number(v) || 0)) } : r))
+  }
+
+  async function go() {
+    if (now <= 0) { setErr('Enter a quantity on at least one line.'); return }
+    setErr(''); setBusy(true)
+    const r = await shipOrder(order.id, rows, { carrier: f.carrier, trackingNumber: f.tracking, shipDate: f.date, notes: f.notes })
+    setBusy(false)
+    if (!r.success) { setErr(r.message); return }
+    onDone(r.message, (r as { undoData?: unknown }).undoData); onClose()
+  }
+
+  const inp = 'w-full bg-white border border-[#E4E6EE] focus:border-[#3B6FE0] rounded-lg px-3 py-2 text-sm focus:outline-none'
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(26,32,53,0.55)' }}>
+      <div className="relative w-full max-w-[720px] my-8 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+        <div className="shrink-0 px-6 py-4 bg-[#0F7A5A] text-white">
+          <p className="text-[10px] uppercase tracking-wider text-white/70">Ready to ship</p>
+          <h2 className="text-lg font-semibold">{order.number}</h2>
+          {order.customer && <p className="text-white/80 text-xs">{order.customer}</p>}
+        </div>
+
+        {step === 'ask' ? (
+          <div className="px-6 py-7">
+            <p className="text-sm font-medium text-[#1A1D2E] mb-1">Is this the complete order, or a partial shipment?</p>
+            <p className="text-xs text-gray-500 mb-5">{outstanding.toLocaleString()} of {ordered.toLocaleString()} units are still outstanding.</p>
+            {past.length > 0 && (
+              <div className="mb-5 rounded-xl border border-[#E4E6EE] bg-[#F9FAFC] px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Already shipped</p>
+                {past.map(x => (
+                  <p key={x.n} className="text-xs text-gray-600">Shipment {x.n} — {x.date || 'no date'} — {x.units.toLocaleString()} units</p>
+                ))}
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button type="button" disabled={outstanding === 0}
+                onClick={() => { setRows(p => p.map(r => ({ ...r, qtyToShip: Math.max(0, r.quantity - r.quantity_shipped) }))); setStep('form') }}
+                className="text-left rounded-xl border-2 border-[#037F4C] bg-emerald-50 hover:bg-emerald-100 px-4 py-4 disabled:opacity-40">
+                <span className="block text-sm font-semibold text-[#037F4C]">Complete shipment</span>
+                <span className="block text-xs text-gray-600 mt-1">All {outstanding.toLocaleString()} remaining units ship now. The order closes.</span>
+              </button>
+              <button type="button" disabled={outstanding === 0} onClick={() => setStep('form')}
+                className="text-left rounded-xl border-2 border-violet-400 bg-violet-50 hover:bg-violet-100 px-4 py-4 disabled:opacity-40">
+                <span className="block text-sm font-semibold text-violet-700">Partial shipment</span>
+                <span className="block text-xs text-gray-600 mt-1">Enter what ships today. The balance stays on the Order Pipeline.</span>
+              </button>
+            </div>
+            <button onClick={onClose} className="mt-5 text-xs text-gray-500 hover:text-[#1A1D2E] underline">Not shipping yet</button>
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              <div className="border border-[#E4E6EE] rounded-xl overflow-hidden">
+                <div className="grid grid-cols-[1fr_5rem_5rem_5rem_6rem] gap-2 px-3 py-2 bg-[#F5F6FA] text-[10px] font-semibold text-gray-500 uppercase">
+                  <span>Item</span><span className="text-right">Ordered</span><span className="text-right">Shipped</span><span className="text-right">Remaining</span><span className="text-right">Ship now</span>
+                </div>
+                <div className="divide-y divide-[#F0F1F5]">
+                  {rows.map(r => {
+                    const rem = Math.max(0, r.quantity - r.quantity_shipped)
+                    return (
+                      <div key={r.id} className="grid grid-cols-[1fr_5rem_5rem_5rem_6rem] gap-2 items-center px-3 py-2">
+                        <span className="text-xs truncate">{r.sku || r.description || 'Item'}</span>
+                        <span className="text-right text-xs text-gray-500">{r.quantity.toLocaleString()}</span>
+                        <span className="text-right text-xs text-gray-500">{r.quantity_shipped.toLocaleString()}</span>
+                        <span className={`text-right text-xs font-medium ${rem > 0 ? 'text-amber-600' : 'text-gray-300'}`}>{rem.toLocaleString()}</span>
+                        <input type="number" min={0} max={rem} value={r.qtyToShip} disabled={rem === 0}
+                          onChange={e => setQty(r.id, e.target.value)}
+                          className="w-full border border-[#E4E6EE] rounded-lg px-2 py-1.5 text-sm text-right disabled:bg-[#F5F6FA]" />
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="flex justify-between px-3 py-2 bg-[#F5F6FA] text-xs">
+                  <span className="text-gray-500">Shipping now <b className="text-[#1A1D2E]">{now.toLocaleString()}</b> units</span>
+                  <span className={left > 0 ? 'text-amber-700 font-semibold' : 'text-emerald-700 font-semibold'}>
+                    {left > 0 ? `${left.toLocaleString()} will stay open` : 'Completes the order'}
+                  </span>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div><label className="block text-xs text-gray-400 mb-1">Carrier</label><input value={f.carrier} onChange={e => setF(p => ({ ...p, carrier: e.target.value }))} className={inp} /></div>
+                <div><label className="block text-xs text-gray-400 mb-1">Tracking / BOL</label><input value={f.tracking} onChange={e => setF(p => ({ ...p, tracking: e.target.value }))} className={inp} /></div>
+                <div><label className="block text-xs text-gray-400 mb-1">Ship date</label><input type="date" value={f.date} onChange={e => setF(p => ({ ...p, date: e.target.value }))} className={inp} /></div>
+              </div>
+              <div><label className="block text-xs text-gray-400 mb-1">Notes</label><input value={f.notes} onChange={e => setF(p => ({ ...p, notes: e.target.value }))} className={inp} placeholder="Pallets, seal numbers, reason for the split" /></div>
+            </div>
+            <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] bg-white">
+              {err && <p className="text-red-600 text-xs mb-2">{err}</p>}
+              <div className="flex justify-end gap-2">
+                <button onClick={onClose} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-600">Cancel</button>
+                <button onClick={go} disabled={busy || now <= 0} className="text-sm px-4 py-2 rounded-lg bg-[#037F4C] text-white font-semibold disabled:opacity-50">
+                  {busy ? 'Recording...' : left > 0 ? 'Record partial shipment' : 'Record complete shipment'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SalesOrder {
@@ -1163,6 +1315,8 @@ export default function OrdersPage() {
       await sb.from('sales_orders').update({ status: newStatus }).eq('id', o.id)
       const result = await onStatusChange(o.id, newStatus as OrderStatus, prev as OrderStatus)
       if (result?.message) setFlowToast({ message: result.message, undoData: result.undoData })
+      // Ask what is actually going out before anything is written.
+      if (newStatus === 'Ready to Ship') setShipPrompt({ id: o.id, number: o.order_number || 'Order', customer: orderCustomerName(o), carrier: o.carrier ?? null })
     } catch { /* keep optimistic state */ }
   }
   async function inlineField(id: string, field: 'required_ship_date', value: string) {
@@ -1236,6 +1390,7 @@ export default function OrdersPage() {
   const [inlineErr, setInlineErr] = useState('')
   const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
   const [userEmail, setUserEmail] = useState('')
+  const [shipPrompt, setShipPrompt] = useState<{ id: string; number: string; customer: string; carrier: string | null } | null>(null)
   const [userRole, setUserRole] = useState('')
   const [verifySlip, setVerifySlip] = useState<SalesOrder | null>(null)
   const [slipChecks, setSlipChecks] = useState({ qty: false, desc: false, po: false })
@@ -2436,6 +2591,13 @@ export default function OrdersPage() {
             </div>
           </div>
         </div>
+      )}
+      {shipPrompt && (
+        <PartialShipDialog
+          order={shipPrompt}
+          onClose={() => setShipPrompt(null)}
+          onDone={(m, u) => { setFlowToast({ message: m, undoData: u }); load() }}
+        />
       )}
       <EditPanel
         open={editOpen}
