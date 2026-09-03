@@ -41,7 +41,7 @@ export default function WorkOrdersPage() {
     setLoading(true)
     const { data } = await sb
       .from('work_orders')
-      .select('*, sales_orders(order_number, customers(company_name))')
+      .select('*, sales_orders!work_orders_sales_order_id_fkey(order_number, customers(company_name))')
       .order('created_at', { ascending: false })
     setOrders((data as WO[]) || [])
     setLoading(false)
