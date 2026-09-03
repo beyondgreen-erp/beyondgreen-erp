@@ -125,6 +125,9 @@ export async function checkOrderReadyToShip(orderId: string): Promise<{ readyToS
   const pending = (wos as any[]).filter(w => !['Complete', 'QC Passed', 'Cancelled'].includes(w.status)).length
 
   if (pending === 0) {
+    // Actually advance the order's status (onStatusChange only queues + notifies, it does not
+    // set the status field), so every caller — QC screen, work-orders board — moves it forward.
+    await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', orderId)
     await onStatusChange(orderId, 'Ready to Ship', 'Awaiting Production')
     return { readyToShip: true, pending: 0 }
   }
