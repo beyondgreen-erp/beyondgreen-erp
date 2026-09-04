@@ -172,6 +172,7 @@ export default function InvoicesPage() {
   const panelRef = useRef<HTMLDivElement>(null)
   // Documents connected to the source order / shipment (shown on the bill)
   const [connectedDocs, setConnectedDocs] = useState<any[]>([])
+  const [srcThread, setSrcThread] = useState<{ type: string; id: string } | null>(null)
   const [shipDocs, setShipDocs] = useState<{ packing_slip_url: string | null; pod_file_url: string | null; bol_number: string | null } | null>(null)
 
   async function openDoc(storage_path: string) {
@@ -250,13 +251,25 @@ export default function InvoicesPage() {
     const { data } = await sb.from('invoice_line_items').select('*').eq('invoice_id', inv.id).order('id')
     setLineItems((data ?? []) as LineItem[])
     // Load documents connected to the source order + shipment
-    setConnectedDocs([]); setShipDocs(null); setShipInfo(null)
-    const linkedIds = [inv.id, inv.sales_order_id, inv.shipment_id].filter(Boolean) as string[]
+    setConnectedDocs([]); setShipDocs(null); setShipInfo(null); setSrcThread(null)
+    // Resolve the originating order thread (Walmart/Chewy board order, else the sales order) so the
+    // invoice shows the same SKUs, documents and team comments as the source order.
+    let src: { type: string; id: string } | null = null
+    if (inv.shipment_id) {
+      const { data: wmo } = await sb.from('walmart_board_orders').select('id').eq('shipment_id', inv.shipment_id).maybeSingle()
+      if (wmo) src = { type: 'walmart_order', id: (wmo as any).id }
+      if (!src) { const { data: cho } = await sb.from('chewy_board_orders').select('id').eq('shipment_id', inv.shipment_id).maybeSingle(); if (cho) src = { type: 'chewy_order', id: (cho as any).id } }
+    }
+    if (!src && inv.sales_order_id) src = { type: 'sales_order', id: inv.sales_order_id }
+    setSrcThread(src)
+    const linkedIds = [inv.id, inv.sales_order_id, inv.shipment_id, src?.id].filter(Boolean) as string[]
     if (linkedIds.length) {
       const { data: fa } = await sb.from('file_attachments')
         .select('id,file_name,file_type,storage_path,record_type,created_at')
         .in('record_id', linkedIds).order('created_at', { ascending: true })
-      setConnectedDocs((fa ?? []) as any[])
+      const seen = new Set<string>()
+      const deduped = ((fa ?? []) as any[]).filter(d => { const k = d.storage_path || d.id; if (seen.has(k)) return false; seen.add(k); return true })
+      setConnectedDocs(deduped)
     }
     if (inv.shipment_id) {
       const { data: sh } = await sb.from('shipments').select('packing_slip_url,pod_file_url,bol_number,carrier,tracking_number').eq('id', inv.shipment_id).maybeSingle()
@@ -919,7 +932,7 @@ export default function InvoicesPage() {
 
                 {/* Comments */}
                 <div className="border-t border-[#E4E6EE] pt-5 pb-6">
-                  <Comments recordType="invoice" recordId={sel.id} currentUserEmail={userEmail}/>
+                  <Comments recordType={srcThread?.type ?? 'invoice'} recordId={srcThread?.id ?? sel.id} currentUserEmail={userEmail}/>
                 </div>
               </div>
             </div>
