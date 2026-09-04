@@ -369,27 +369,14 @@ export default function WalmartBoard() {
         uom: (l.uom || 'SRPs'), packaging: (l.packaging || 'Packed'), line_number: i + 1, unit_price: (Number(l.unit_price) || null),
       }))
       if (toInsert.length) await sb.from('walmart_board_lines').insert(toInsert)
-      // Ultron: mirror into the sales pipeline so the order flows across every board.
+      // Ultron: a DB trigger auto-creates + links the pipeline sales order and mirrors SKU lines.
       try {
-        const { data: so } = await sb.from('sales_orders').insert({
-          order_number: name, po_number: ins.po_number, customer_id: WALMART_CUSTOMER_ID,
-          status: ins.status, order_date: ins.order_date, required_ship_date: ins.ship_due_date,
-          carrier: ins.carrier, facility: ins.facility, total: ins.total_value, total_value: ins.total_value,
-          notes: name, is_active: true,
-        }).select('id').single()
-        if (so) {
-          const sid = (so as any).id as string
-          await sb.from('walmart_board_orders').update({ sales_order_id: sid }).eq('id', oid); if (data) (data as any).sales_order_id = sid
-          // mirror SKU line items to the pipeline so they show on Production, QC, Invoices, docs
-          const solRows = nLines.filter(l => (l.part_number || '').trim() || Number(l.qty)).map((l, i) => ({ sales_order_id: sid, order_id: sid, sku: (l.part_number || '').trim() || null, quantity: Number(l.qty) || 1, qty: Number(l.qty) || 1, unit_price: Number(l.unit_price) || 0, description: l.added_details || null, line_number: i + 1, qty_per_case: l.qty_per_case != null ? Number(l.qty_per_case) : null, packaging: (l.packaging || 'Packed'), production_status: l.production_status || null, completed_qty: Number(l.completed_qty) || 0, added_details: l.added_details || null, unit_of_measure: (l.uom || 'SRPs') }))
-          if (solRows.length) await sb.from('sales_order_lines').insert(solRows)
-          // attach the uploaded Walmart PO as a document on both the order and the pipeline order
-          if (poStoragePath) {
-            const { data: pub } = sb.storage.from('erp-files').getPublicUrl(poStoragePath)
-            await sb.from('file_attachments').insert({ record_type: 'sales_order', record_id: sid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
-            await sb.from('file_attachments').insert({ record_type: 'walmart_order', record_id: oid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
-            await sb.from('sales_orders').update({ purchase_order_url: pub.publicUrl }).eq('id', sid)
-          }
+        const sid = (data as any)?.sales_order_id as string | undefined
+        if (sid && poStoragePath) {
+          const { data: pub } = sb.storage.from('erp-files').getPublicUrl(poStoragePath)
+          await sb.from('file_attachments').insert({ record_type: 'sales_order', record_id: sid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
+          await sb.from('file_attachments').insert({ record_type: 'walmart_order', record_id: oid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
+          await sb.from('sales_orders').update({ purchase_order_url: pub.publicUrl }).eq('id', sid)
         }
       } catch { /* non-blocking */ }
       setShowNew(false)
@@ -1084,10 +1071,10 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
               )}
 
               <div className="border-t border-[#EEF0F4] pt-4">
-                <FileUpload supabase={sb} recordType={detail.sales_order_id ? 'sales_order' : 'walmart_order'} recordId={detail.sales_order_id ?? detail.id} currentUserEmail={userEmail} />
+                <FileUpload supabase={sb} recordType="walmart_order" recordId={detail.id} currentUserEmail={userEmail} />
               </div>
               <div className="border-t border-[#EEF0F4] pt-4">
-                <Comments recordId={detail.sales_order_id ?? detail.id} recordType={detail.sales_order_id ? 'sales_order' : 'walmart_order'} currentUserEmail={userEmail} title="Notes & Comments" />
+                <Comments recordId={detail.id} recordType="walmart_order" currentUserEmail={userEmail} title="Notes & Comments" />
               </div>
             </div>
           </div>
