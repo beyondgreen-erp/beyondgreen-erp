@@ -20,12 +20,7 @@ export async function POST(req: NextRequest) {
     if (cc) body.cc = Array.isArray(cc) ? cc : [cc]
     if (reply_to) body.reply_to = Array.isArray(reply_to) ? reply_to : [reply_to]
     if (Array.isArray(attachments) && attachments.length) body.attachments = attachments
-    // Always send a silent copy of every outbound email to the shared inbox.
-    const norm = (v: unknown) => (Array.isArray(v) ? v : v ? [v] : []).map(x => String(x).toLowerCase())
-    const already = new Set<string>([...norm(to), ...norm(cc)])
-    const bccList = norm(bcc).filter(x => x !== 'info@byndgrn.com')
-    if (!already.has('info@byndgrn.com')) bccList.push('info@byndgrn.com')
-    if (bccList.length) body.bcc = Array.from(new Set(bccList))
+    if (bcc) body.bcc = Array.isArray(bcc) ? bcc : [bcc]
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
