@@ -136,6 +136,7 @@ export default function WalmartBoard() {
   const [poParsing, setPoParsing] = useState(false)
   const [poError, setPoError] = useState('')
   const [poFileName, setPoFileName] = useState('')
+  const [poStoragePath, setPoStoragePath] = useState<string | null>(null)
   const [flagged, setFlagged] = useState<Set<string>>(new Set())
 
   // drag & drop
@@ -247,6 +248,12 @@ export default function WalmartBoard() {
           const { data: so } = await sb.from('sales_orders').insert({ ...soPatch, order_number: patch.name, status: patch.status || 'Pending', customer_id: WALMART_CUSTOMER_ID, notes: patch.name, is_active: true }).select('id').single()
           if (so) { patch.sales_order_id = (so as any).id; await sb.from('walmart_board_orders').update({ sales_order_id: (so as any).id }).eq('id', detail.id) }
         }
+        const soLinkId = detail.sales_order_id ?? patch.sales_order_id
+        if (soLinkId) {
+          await sb.from('sales_order_lines').delete().eq('sales_order_id', soLinkId)
+          const solRows = lineForms.filter(l => (String(l.part_number ?? '').trim()) || Number(l.qty)).map((l, i) => ({ sales_order_id: soLinkId, order_id: soLinkId, sku: (String(l.part_number ?? '').trim() || null), quantity: Number(l.qty) || 1, qty: Number(l.qty) || 1, unit_price: Number(l.unit_price) || 0, description: (String(l.added_details ?? '').trim() || null), line_number: i + 1, qty_per_case: l.qty_per_case != null ? Number(l.qty_per_case) : null, packaging: (String(l.packaging ?? '').trim() || 'Packed'), production_status: (String(l.production_status ?? '').trim() || null), completed_qty: Number(l.completed_qty) || 0, added_details: (String(l.added_details ?? '').trim() || null), unit_of_measure: (String(l.uom ?? '').trim() || 'SRPs') }))
+          if (solRows.length) await sb.from('sales_order_lines').insert(solRows)
+        }
       }
       const keptIds = lineForms.filter(l => l.id && !l._new).map(l => l.id)
       const toDelete = detailLines.map(l => l.id).filter(id => id && !keptIds.includes(id)) as string[]
@@ -289,7 +296,7 @@ export default function WalmartBoard() {
   const nUnitsAuto = useMemo(() => nLines.reduce((a, l) => a + (Number(l.qty) || 0) * UNITS_PER_SRP, 0), [nLines])
   function openNew() {
     setNf({ name: '', po_number: '', carrier: '', commodity_description: DEFAULT_COMMODITY, facility: 'bG - SACA', order_date: new Date().toISOString().slice(0, 10), ship_due_date: '', load_number: '', ship_to: '', pallets: '', srp: '', units: '' })
-    setNfTouched({}); setNLines([]); setPoError(''); setPoFileName(''); setFlagged(new Set()); setShowNew(true)
+    setNfTouched({}); setNLines([]); setPoError(''); setPoFileName(''); setPoStoragePath(null); setFlagged(new Set()); setShowNew(true)
   }
 
   async function uploadPO(file: File) {
@@ -299,6 +306,7 @@ export default function WalmartBoard() {
       const path = `walmart-po/${Date.now()}_${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`
       const { error: upErr } = await sb.storage.from('erp-files').upload(path, file, { upsert: true })
       if (upErr) { setPoError('Upload failed: ' + upErr.message); return }
+      setPoStoragePath(path)
       const r = await fetch('/api/walmart/parse-po', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storagePath: path, fileName: file.name }) })
       const j = await r.json()
       if (!r.ok) { setPoError(j.error || 'Could not read the PO'); return }
@@ -369,7 +377,20 @@ export default function WalmartBoard() {
           carrier: ins.carrier, facility: ins.facility, total: ins.total_value, total_value: ins.total_value,
           notes: name, is_active: true,
         }).select('id').single()
-        if (so) { const sid = (so as any).id as string; await sb.from('walmart_board_orders').update({ sales_order_id: sid }).eq('id', oid); if (data) (data as any).sales_order_id = sid }
+        if (so) {
+          const sid = (so as any).id as string
+          await sb.from('walmart_board_orders').update({ sales_order_id: sid }).eq('id', oid); if (data) (data as any).sales_order_id = sid
+          // mirror SKU line items to the pipeline so they show on Production, QC, Invoices, docs
+          const solRows = nLines.filter(l => (l.part_number || '').trim() || Number(l.qty)).map((l, i) => ({ sales_order_id: sid, order_id: sid, sku: (l.part_number || '').trim() || null, quantity: Number(l.qty) || 1, qty: Number(l.qty) || 1, unit_price: Number(l.unit_price) || 0, description: l.added_details || null, line_number: i + 1, qty_per_case: l.qty_per_case != null ? Number(l.qty_per_case) : null, packaging: (l.packaging || 'Packed'), production_status: l.production_status || null, completed_qty: Number(l.completed_qty) || 0, added_details: l.added_details || null, unit_of_measure: (l.uom || 'SRPs') }))
+          if (solRows.length) await sb.from('sales_order_lines').insert(solRows)
+          // attach the uploaded Walmart PO as a document on both the order and the pipeline order
+          if (poStoragePath) {
+            const { data: pub } = sb.storage.from('erp-files').getPublicUrl(poStoragePath)
+            await sb.from('file_attachments').insert({ record_type: 'sales_order', record_id: sid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
+            await sb.from('file_attachments').insert({ record_type: 'walmart_order', record_id: oid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
+            await sb.from('sales_orders').update({ purchase_order_url: pub.publicUrl }).eq('id', sid)
+          }
+        }
       } catch { /* non-blocking */ }
       setShowNew(false)
       await load()
