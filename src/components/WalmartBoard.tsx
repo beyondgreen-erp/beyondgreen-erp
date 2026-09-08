@@ -8,6 +8,7 @@ import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { statusColor } from '@/lib/statusColors'
 import { buildBOL, buildPackingList, type BolLine, type PackListCase } from '@/lib/shipping/bol'
+import ExportButton from '@/components/ExportButton'
 
 interface WLine {
   id?: string; _new?: boolean; part_number: string | null; qty: number | null; qty_per_case: number | null
@@ -696,6 +697,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
 
   return (
     <div ref={navRef}>
+      <ExportButton rows={rows} name="Walmart Orders" />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div>
           <span className="mon-tag">🛒 Walmart Orders</span>
