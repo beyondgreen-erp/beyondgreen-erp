@@ -7,6 +7,7 @@ import { shipOrder, undoFlow, type ShipLineInput } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import ExportButton from '@/components/ExportButton'
 import Comments from '@/components/Comments'
 import LabelWizard from '@/components/LabelWizard'
 
@@ -406,13 +407,14 @@ export default function ShippingQueuePage() {
         )}
       </div>
 
+      <ExportButton rows={filtered} name="Shipping Queue" />
       <BulkActionBar
         count={ms.count}
         onDelete={bulkDelete}
         onClear={ms.clear}
         deleting={deleting}
         extraActions={
-          <span className="text-gray-500 text-xs">Remove from queue</span>
+          <ExportButton variant="bar" rows={filtered.filter(r=>ms.selected.has(r.id))} name="Shipping Queue" />
         }
       />
 
