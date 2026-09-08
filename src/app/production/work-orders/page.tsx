@@ -6,6 +6,7 @@ import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 import { checkOrderReadyToShip } from '@/lib/orderFlow'
+import ExportButton from '@/components/ExportButton'
 
 const sb = createSupabaseBrowserClient()
 
@@ -99,6 +100,7 @@ export default function WorkOrdersPage() {
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
+      <ExportButton rows={orders} name="Work Orders" />
       <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">PRODUCTION</p>
       <h1 className="text-3xl font-bold text-gray-900 mb-4">Work Orders</h1>
 
