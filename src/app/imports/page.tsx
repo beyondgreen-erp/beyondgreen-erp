@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import dynamic from 'next/dynamic'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import ExportButton from '@/components/ExportButton'
 import Comments from '@/components/Comments'
 
 const ImportMap = dynamic(
@@ -1114,7 +1115,8 @@ export default function ImportsPage() {
         />
       )}
 
-      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+      <ExportButton rows={filtered} name="Imports" />
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting} extraActions={<ExportButton variant="bar" rows={filtered.filter(r=>ms.selected.has(r.id))} name="Imports" />}/>
 
       {vesselPanelOpen && editingVessel && (
         <>
