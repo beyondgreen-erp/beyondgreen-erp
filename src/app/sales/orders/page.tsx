@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { buildCaseLabels, loadBarcodePng, type CaseLabel } from '@/lib/shipping/labels'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import ExportButton from '@/components/ExportButton'
 import { WorkflowProgressBar } from '@/components/WorkflowMover'
 import { onStatusChange, undoFlow, logActivity, type OrderStatus } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
@@ -2349,7 +2350,8 @@ export default function OrdersPage() {
         </div>
       )}
 
-      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+      <ExportButton rows={filtered} name="Order Pipeline" />
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting} extraActions={<ExportButton variant="bar" rows={filtered.filter(r=>ms.selected.has(r.id))} name="Order Pipeline" />}/>
 
       {inventoryCheckOrder && (
         <InventoryCheckModal
