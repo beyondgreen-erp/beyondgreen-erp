@@ -12,6 +12,7 @@ import { regenBol, regenPackingList, regenPalletLabels, regenCaseLabels, hasBol,
 import OrdersMirror from '@/components/OrdersMirror'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import ExportButton from '@/components/ExportButton'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -612,7 +613,8 @@ export default function ShipmentsPage() {
         </div>
       )}
 
-      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+      <ExportButton rows={filtered} name="Shipments" />
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting} extraActions={<ExportButton variant="bar" rows={filtered.filter(r=>ms.selected.has(r.id))} name="Shipments" />}/>
 
       {/* ── SLIDE-OUT PANEL ── */}
       {open && (
