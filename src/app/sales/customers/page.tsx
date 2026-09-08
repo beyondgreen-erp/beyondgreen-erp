@@ -14,6 +14,7 @@ import RichTextEditor from '@/components/RichTextEditor'
 import LinkedTasks from '@/components/LinkedTasks'
 import ConversationLog from '@/components/ConversationLog'
 import BulkActionBar from '@/components/BulkActionBar'
+import ExportButton from '@/components/ExportButton'
 import OutreachDrawer from '@/components/OutreachDrawer'
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
@@ -1374,9 +1375,11 @@ export default function CustomersPage() {
         )}
       </div>
 
+      <ExportButton rows={filtered} name="Customers" />
       <BulkActionBar count={selectedArr.length} onDelete={bulkDelete} onClear={()=>setSelectedIds(new Set())}
         extraActions={(
           <>
+            <ExportButton variant="bar" rows={selectedCustomers} name="Customers" />
             <button onClick={moveToLeads} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-700 font-medium transition-colors">
               Move to Leads
             </button>
