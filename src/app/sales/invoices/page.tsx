@@ -11,6 +11,7 @@ import { generateInvoicePDF } from '@/lib/generateInvoice'
 import { downloadFile, getFileUrl } from '@/lib/fileHelpers'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import ExportButton from '@/components/ExportButton'
 import WorkflowMover from '@/components/WorkflowMover'
 
 interface LineItem { id: string; sku: string | null; description: string; quantity: number; unit_price: number; uom: string | null; line_total: number }
@@ -583,7 +584,8 @@ export default function InvoicesPage() {
         )}
       </div>
 
-      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+      <ExportButton rows={filtered} name="Invoices" />
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting} extraActions={<ExportButton variant="bar" rows={filtered.filter(r=>ms.selected.has(r.id))} name="Invoices" />}/>
 
       {/* Backdrop */}
       <div className={`fixed inset-0 z-40 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} style={{ background:'rgba(26,32,53,0.48)', backdropFilter:'blur(3px)' }} />
