@@ -10,6 +10,7 @@ import CaseLabel from './CaseLabel'
 import ZonePicker from '@/components/ZonePicker'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
+import * as XLSX from 'xlsx'
 import Comments from '@/components/Comments'
 
 interface Product {
@@ -566,6 +567,23 @@ export default function InventoryPage() {
     return [...exact, ...starts, ...contains, ...name]
   }, [tabPool, search])
 
+  function exportInventory(list: Product[], scope: string) {
+    const header = ['SKU','Product','Category','UOM','On Hand','Allocated','Available','Unit Cost','Inventory Value','UPC']
+    const data = list.map(p => {
+      const a = allocMap[p.sku]?.qty || 0
+      const ma = manualAlloc[String(p.sku).toUpperCase()] || 0
+      const alloc = a + ma
+      const oh = p.on_hand_qty ?? 0
+      const uc = p.unit_cost ?? 0
+      return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh, alloc, oh - alloc, uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
+    })
+    const ws = XLSX.utils.aoa_to_sheet([header, ...data])
+    ws['!cols'] = [{wch:20},{wch:50},{wch:18},{wch:8},{wch:11},{wch:11},{wch:11},{wch:12},{wch:15},{wch:16}]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory')
+    XLSX.writeFile(wb, `beyondGREEN_Inventory_${scope}_${new Date().toISOString().slice(0,10)}.xlsx`)
+  }
+
   // Stats (based on tab pool, not search-filtered)
   const stats = useMemo(() => {
     const totalValue = tabPool.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
@@ -820,6 +838,7 @@ export default function InventoryPage() {
             className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
         </div>
         <span className="text-xs text-gray-400">{filtered.length} shown</span>
+        <button onClick={() => exportInventory(filtered, tabFilter === 'All' ? 'All' : tabFilter)} className="px-2.5 py-1.5 rounded-md text-[13px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200">Export</button>
         <div className="flex items-center gap-1.5 ml-auto text-xs">
           <button onClick={() => setCollapsed(Object.fromEntries(PRODUCT_TAB_OPTIONS.concat('Uncategorized').map(g => [g, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
           <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
@@ -977,7 +996,7 @@ export default function InventoryPage() {
       })()}
 
 
-      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting}/>
+      <BulkActionBar count={ms.count} onDelete={bulkDelete} onClear={ms.clear} deleting={deleting} extraActions={<button onClick={() => exportInventory(rows.filter(r => ms.selected.has(r.id)), 'Selected')} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl" style={{background:'#ECFDF5',color:'#047857',border:'1px solid #A7F3D0'}}>Export {ms.count}</button>}/>
 
       <EditPanel
         open={open} editing={editing} form={form} setForm={setForm}
