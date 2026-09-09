@@ -20,7 +20,9 @@ interface ProductProp {
   [key: string]: any
 }
 
-type Basis = 'percentage' | 'pcs_unit' | 'pcs_case'
+import { conversionFactor, describeLadder } from '@/lib/uom'
+
+type Basis = 'percentage' | 'pcs_unit' | 'pcs_pack' | 'pcs_case'
 
 interface BomRow {
   id: string
@@ -62,6 +64,7 @@ const defaultBasis = (cat: string | null): Basis =>
 const BASIS_LABEL: Record<Basis, string> = {
   percentage: '% by weight',
   pcs_unit: 'pcs / unit',
+  pcs_pack: 'pcs / pack',
   pcs_case: 'pcs / case',
 }
 
@@ -133,8 +136,12 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
       const comp = pm[r.component_sku]
       const linked = !!comp
       const cat = comp?.category ?? null
-      const uom = r.uom_type === 'pcs' ? 'pcs' : r.uom_type === 'percentage' ? 'percentage' : (defaultBasis(cat) === 'percentage' ? 'percentage' : 'pcs')
-      const basis: Basis = uom === 'percentage' ? 'percentage' : (r.is_case_level ? 'pcs_case' : 'pcs_unit')
+      const uom = r.uom_type === 'percentage' ? 'percentage' : (r.uom_type === 'pcs' || r.uom_type === 'pcs_pack') ? 'pcs' : (defaultBasis(cat) === 'percentage' ? 'percentage' : 'pcs')
+      const basis: Basis = uom === 'percentage'
+        ? 'percentage'
+        : r.is_case_level ? 'pcs_case'
+        : r.uom_type === 'pcs_pack' ? 'pcs_pack'
+        : 'pcs_unit'
       return {
         id: r.id,
         component_sku: r.component_sku,
@@ -162,11 +169,17 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const wG = parseFloat(weightGrams) || 0
   const caseQty = product.case_qty || 1
 
+  // Base units in one pack, from the product's ladder. 1 when undefined, which
+  // makes pcs_pack behave exactly like pcs_unit rather than silently mis-costing.
+  const packConv = useMemo(() => conversionFactor(product, 'PKS'), [product])
+  const packQty = packConv.factor || 1
+
   const extOf = useCallback((c: { basis: Basis; qty_value: number; unit_cost: number }) => {
     if (c.basis === 'percentage') return (c.qty_value / 100) * wG * (c.unit_cost / GRAMS_PER_LB)
     if (c.basis === 'pcs_unit') return c.qty_value * c.unit_cost
+    if (c.basis === 'pcs_pack') return (c.qty_value * c.unit_cost) / packQty // pcs_pack → per unit
     return (c.qty_value * c.unit_cost) / caseQty // pcs_case → per unit
-  }, [wG, caseQty])
+  }, [wG, caseQty, packQty])
 
   const computedRows = useMemo(() => components.map(c => ({ ...c, extended_cost: extOf(c) })), [components, extOf])
 
@@ -174,7 +187,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     let rawMat = 0, unitPkg = 0, casePkg = 0
     for (const c of computedRows) {
       if (c.basis === 'percentage') rawMat += c.extended_cost
-      else if (c.basis === 'pcs_unit') unitPkg += c.extended_cost
+      else if (c.basis === 'pcs_unit' || c.basis === 'pcs_pack') unitPkg += c.extended_cost
       else casePkg += c.extended_cost
     }
     return { rawMat, unitPkg, casePkg, totalMat: rawMat + unitPkg + casePkg }
@@ -212,7 +225,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
 
   // ── Persistence helpers ─────────────────────────────────────────────────────
-  const basisToDb = (b: Basis) => ({ uom_type: b === 'percentage' ? 'percentage' : 'pcs', is_case_level: b === 'pcs_case' })
+  const basisToDb = (b: Basis) => ({
+    uom_type: b === 'percentage' ? 'percentage' : b === 'pcs_pack' ? 'pcs_pack' : 'pcs',
+    is_case_level: b === 'pcs_case',
+  })
 
   async function saveWeight() {
     setSavingWeight(true)
@@ -309,7 +325,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 <label className="text-xs text-gray-500 whitespace-nowrap font-medium">Unit weight (g)</label>
                 <input type="number" min="0" step="0.001" value={weightGrams} onChange={e => setWeightGrams(e.target.value)} className={inp + ' w-28'} />
                 <button onClick={saveWeight} disabled={savingWeight} className="text-xs px-2.5 py-1.5 bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 rounded-lg disabled:opacity-50">{savingWeight ? '…' : 'Save'}</button>
-                <span className="text-xs text-gray-400 ml-auto">Case = {caseQty} unit{caseQty === 1 ? '' : 's'}</span>
+                <span className="text-xs text-gray-400 ml-auto" title={describeLadder(product) || 'No pack/case conversions set on this product.'}>
+                  Case = {caseQty} unit{caseQty === 1 ? '' : 's'}
+                  {packConv.known && packQty > 1 ? <> &middot; Pack = {packQty} unit{packQty === 1 ? '' : 's'}</> : null}
+                </span>
               </div>
 
               {/* Warnings */}
@@ -357,6 +376,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                             <select value={c.basis} onChange={e => updateBasis(c.id, e.target.value as Basis)} className={inp + ' w-full !py-1 !px-1.5 text-[11px] cursor-pointer'}>
                               <option value="percentage">% by weight</option>
                               <option value="pcs_unit">pcs / unit</option>
+                              <option value="pcs_pack">pcs / pack</option>
                               <option value="pcs_case">pcs / case</option>
                             </select>
                           </td>
@@ -416,6 +436,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 <select value={addBasis} onChange={e => setAddBasis(e.target.value as Basis)} className={inp + ' cursor-pointer'}>
                   <option value="percentage">% by weight</option>
                   <option value="pcs_unit">pcs / unit</option>
+                  <option value="pcs_pack">pcs / pack</option>
                   <option value="pcs_case">pcs / case</option>
                 </select>
                 <input ref={addQtyRef} type="number" min="0" step="0.01" value={addQty} onChange={e => setAddQty(e.target.value)} onKeyDown={e => e.key === 'Enter' && addComponent()} placeholder={addBasis === 'percentage' ? '%' : 'pcs'} className={inp + ' w-20 text-right'} />
