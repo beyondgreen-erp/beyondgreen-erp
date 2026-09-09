@@ -747,7 +747,7 @@ function EditPanel({
     try {
       const { error } = await sb.rpc('allocate_raw_materials', { p_order_id: editing.id, p_by: userEmail || null })
       if (error) { alert('Could not allocate: ' + error.message); return }
-      setAllocState({ at: new Date().YoSOTring(), by: userEmail || null, released: null })
+      setAllocState({ at: new Date().toISOString(), by: userEmail || null, released: null })
     } catch (e: any) { alert('Could not allocate: ' + (e?.message || e)) }
     finally { setAllocBusy(false) }
   }  useEffect(() => {
