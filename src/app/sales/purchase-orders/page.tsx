@@ -57,6 +57,7 @@ const emptyCreate = {
   po_required: 'Yes',
   po_number: '',
   customer_project: '',
+  order_ref: '',
   po_date: '',
   // vendor
   vendorMode: 'search' as 'search' | 'new',
@@ -122,6 +123,14 @@ export default function PurchasingRequestsPage() {
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
   }, [sb])
   useEffect(() => { load() }, [load])
+  // Deep-link filter: /sales/purchase-orders?order=<SO#> (or ?q=) pre-filters the board.
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      const initial = p.get('order') || p.get('q')
+      if (initial) setQ(initial)
+    } catch { /* ignore */ }
+  }, [])
 
   const itemsOf = (oid: string) => items.filter(i => i.parent_id === oid).sort((a, b) => (a.position || 0) - (b.position || 0))
   useEffect(() => {
@@ -129,7 +138,7 @@ export default function PurchasingRequestsPage() {
     setEditItems(detail ? items.filter(i => i.parent_id === detail.id).sort((a, b) => (a.position || 0) - (b.position || 0)).map(x => ({ ...x })) : [])
     setDeletedItemIds([])
   }, [detail?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','supplier','supplier_pn','po_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
+  const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','order_ref','supplier','supplier_pn','po_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
   const ITEM_KEYS = ['part_number','description','qty_ordered','date_ordered','total_received','date_received','balance'] as const
   function updateDetailItem(idx: number, key: string, val: string) { setEditItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: val } : x)) }
   function addDetailLine() { setEditItems(arr => [...arr, { _new: true, part_number: '', description: '', qty_ordered: '', date_ordered: null, total_received: '', date_received: null, balance: '' }]) }
@@ -224,7 +233,7 @@ export default function PurchasingRequestsPage() {
   const match = (r: any) => {
     if (!q) return true
     const s = q.toLowerCase()
-    return ['name', 'status', 'location', 'po_number', 'supplier', 'supplier_pn', 'person_requesting', 'customer_project', 'batch_lot', 'received_by'].some(k => String(r[k] ?? '').toLowerCase().includes(s))
+    return ['name', 'status', 'location', 'po_number', 'supplier', 'supplier_pn', 'person_requesting', 'customer_project', 'order_ref', 'batch_lot', 'received_by'].some(k => String(r[k] ?? '').toLowerCase().includes(s))
       || itemsOf(r.id).some(i => [i.part_number, i.description].some(v => String(v ?? '').toLowerCase().includes(s)))
   }
   const groupRows = (key: string) => rows
@@ -375,6 +384,7 @@ th{background:#eef5f0}
       po_required: form.po_required || null,
       po_number: form.po_number.trim() || null,
       customer_project: form.customer_project.trim() || null,
+      order_ref: form.order_ref.trim() || null,
       supplier: vendorName || null,
       supplier_pn: resolved.length === 1 ? (first.partNumber || null) : null,
       po_date: poDate,
@@ -564,6 +574,7 @@ th{background:#eef5f0}
                   <SelectField label="PO Required?" value={form.po_required} onChange={v => setForm(f => ({ ...f, po_required: v }))} options={PO_REQUIRED_OPTIONS.map(o => ({ value: o, label: o }))} />
                   <TextField label="PO Number" value={form.po_number} onChange={v => setForm(f => ({ ...f, po_number: v }))} />
                   <TextField label="Customer / Project" value={form.customer_project} onChange={v => setForm(f => ({ ...f, customer_project: v }))} />
+                  <TextField label="Order # (Sales Order)" value={form.order_ref} onChange={v => setForm(f => ({ ...f, order_ref: v }))} />
                   <TextField label="PO Date" type="date" value={form.po_date} onChange={v => setForm(f => ({ ...f, po_date: v }))} />
                 </div>
               </div>
@@ -613,7 +624,7 @@ th{background:#eef5f0}
                     {LOCATION_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
-                {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
+                {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['order_ref','Order # (Sales Order)','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
                   <div key={k}>
                     <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>
                     {k === 'balance'
