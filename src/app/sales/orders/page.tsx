@@ -2236,7 +2236,7 @@ export default function OrdersPage() {
       </div>
 
       {/* ── Completed / Shipped Group — REMOVED. Shipped/Closed/Cancelled orders live only on the Shipments page. ── */}
-      {false && completedOrders.length > 0 && (
+      {!!search.trim() && completedOrders.length > 0 && (
         <div className="mt-4 rounded-xl overflow-hidden" style={{ border: '1px solid #E4E6EE' }}>
           <button
             onClick={() => setCompletedOpen(v => !v)}
@@ -2249,7 +2249,7 @@ export default function OrdersPage() {
             </div>
             <span className="text-xs text-gray-400">{completedOpen ? 'hide' : 'show'}</span>
           </button>
-          {completedOpen && (
+          {(completedOpen || !!search.trim()) && (
             <div className="bg-white overflow-x-auto">
               <table className="w-full min-w-[1100px] text-sm">
                 <thead>
