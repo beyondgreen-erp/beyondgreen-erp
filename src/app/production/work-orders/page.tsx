@@ -40,6 +40,7 @@ export default function WorkOrdersPage() {
   const [woProduct, setWoProduct] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null; unit_of_measure: string | null } | null>(null)
   const [fgMoves, setFgMoves] = useState<{ created_at: string; qty: number; uom: string | null; created_by: string | null }[]>([])
   const [booking, setBooking] = useState(false)
+  const [negStock, setNegStock] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null }[]>([])
   const fmtN = (n: any) => (n === null || n === undefined || n === '') ? '\u2014' : Number(n).toLocaleString()
   const fgBooked = fgMoves.reduce((s, m) => s + Number(m.qty || 0), 0)
 
@@ -50,6 +51,8 @@ export default function WorkOrdersPage() {
       .select('*, sales_orders!work_orders_sales_order_id_fkey(order_number, customers(company_name))')
       .order('created_at', { ascending: false })
     setOrders((data as WO[]) || [])
+    const { data: neg } = await sb.from('products').select('sku,product_name,on_hand_qty').lt('on_hand_qty', 0).order('on_hand_qty', { ascending: true }).limit(50)
+    setNegStock((neg as any[]) || [])
     setLoading(false)
     sb.auth.getUser().then(({ data: u }) => { if (u.user?.email) setUserEmail(u.user.email) })
   }, [])
@@ -150,6 +153,13 @@ export default function WorkOrdersPage() {
       <h1 className="text-3xl font-bold text-gray-900 mb-4">Work Orders</h1>
 
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — status is editable inline and on each record; notes &amp; comments sync two-way with the Sales / Production boards.</div>
+
+      {negStock.length > 0 && (
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-300 text-[12px] text-amber-800 px-3 py-2">
+          <span className="font-semibold">⚠ {negStock.length} item{negStock.length > 1 ? 's' : ''} negative on-hand</span> — finished goods likely shipped but never booked from production. Open the item’s work order and use “Close &amp; Book FG” to correct it.
+          <div className="mt-1 text-amber-700">{negStock.slice(0, 12).map(n => `${n.sku} (${n.on_hand_qty})`).join(', ')}{negStock.length > 12 ? ', …' : ''}</div>
+        </div>
+      )}
 
       {/* Sales orders currently in production (mirrored from Sales Orders) */}
       <OrdersMirror statuses={['Production Queue', 'In Production']} title="Sales Orders in Production" tagClass="t-orange" emoji="🏭" onRowClick={openForOrder} />
