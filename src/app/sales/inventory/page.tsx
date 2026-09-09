@@ -12,6 +12,7 @@ import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import * as XLSX from 'xlsx'
 import Comments from '@/components/Comments'
+import { uomOptions, normalizeUom, describeLadder } from '@/lib/uom'
 
 interface Product {
   id: string
@@ -86,7 +87,7 @@ function classOf(p: { category: string | null }): string {
 const isFinished = (p: { category: string | null }) => classOf(p) === CLASS_FINISHED
 // Which class values (as stored in `category`) count as finished, for the editor toggle.
 const FINISHED_CATEGORY_VALUES = ['Finished Goods', 'Finished Products', 'Bags', 'Wraps', 'Molded Fiber']
-const UOM_OPTIONS = ['EA','PKS','LBS','ROLLS','CASE','M','FT','OZ','GAL','KG','SET','Other']
+const ADD_NEW_UOM = '__add_new_uom__'
 
 const fmt$ = (n: number | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
@@ -279,8 +280,17 @@ const EditPanel = memo(function EditPanel({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Unit of Measure</label>
-              <select value={form.unit_of_measure} onChange={e => setForm(p => ({ ...p, unit_of_measure: e.target.value }))} className={inp + ' cursor-pointer'}>
-                {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+              <select value={normalizeUom(form.unit_of_measure) ?? 'EA'} onChange={e => {
+                const v = e.target.value
+                if (v === ADD_NEW_UOM) {
+                  const entered = normalizeUom(window.prompt('New unit of measure (e.g. TOTE, DRUM, SLEEVE):') || '')
+                  if (entered) setForm(p => ({ ...p, unit_of_measure: entered }))
+                  return
+                }
+                setForm(p => ({ ...p, unit_of_measure: v }))
+              }} className={inp + ' cursor-pointer'}>
+                {uomOptions(form.unit_of_measure).map(u => <option key={u} value={u}>{u}</option>)}
+                <option value={ADD_NEW_UOM}>+ Add new UOM&hellip;</option>
               </select>
             </div>
             <div>
@@ -392,6 +402,26 @@ const EditPanel = memo(function EditPanel({
                 </div>
               ))}
             </div>
+
+            {(() => {
+              const ladder = describeLadder({
+                unit_of_measure: form.unit_of_measure,
+                pieces_per_pack: Number(form.pieces_per_pack) || null,
+                packs_per_case: Number(form.packs_per_case) || null,
+                cases_per_pallet: Number(form.cases_per_pallet) || null,
+                case_qty: Number(form.case_qty) || null,
+              })
+              const base = normalizeUom(form.unit_of_measure) || 'base units'
+              return ladder ? (
+                <p className="mt-3 text-[11px] text-gray-600 bg-[#F5F6FA] border border-[#E4E6EE] rounded-lg px-3 py-2">
+                  <span className="font-semibold text-gray-400 uppercase tracking-wider mr-2">Conversions</span>{ladder}
+                </p>
+              ) : (
+                <p className="mt-3 text-[11px] text-gray-400">
+                  Set Pieces Per Pack and Packs Per Case to convert pack and case quantities into {base}.
+                </p>
+              )
+            })()}
 
             <div className="mt-3">
               <label className="block text-xs text-gray-400 mb-1.5">Special Instructions</label>
@@ -703,7 +733,7 @@ export default function InventoryPage() {
       product_name: form.product_name.trim(),
       product_category: form.product_category || null,
       category: form.category || null,
-      unit_of_measure: form.unit_of_measure || null,
+      unit_of_measure: normalizeUom(form.unit_of_measure),
       on_hand_qty: parseFloat(form.on_hand_qty) || 0,
       reorder_point: parseFloat(form.reorder_point) || 0,
       unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : null,
