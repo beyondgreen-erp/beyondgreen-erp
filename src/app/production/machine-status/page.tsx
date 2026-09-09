@@ -6,11 +6,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ImportExportBar from '@/components/ImportExportBar'
 
-interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean }
+interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean;
+  make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null }
 const STATUSES = ['Running','Idle','Maintenance','Down']
 const SC: Record<string,string> = { Running:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Idle:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', Maintenance:'bg-amber-500/15 text-amber-400 border-amber-500/20', Down:'bg-red-500/15 text-red-400 border-red-500/20' }
 const DOT: Record<string,string> = { Running:'bg-emerald-400', Idle:'bg-gray-500', Maintenance:'bg-amber-400', Down:'bg-red-400' }
-const empty = { name:'', machine_code:'', status:'Idle', location:'', notes:'' }
+const empty = { name:'', machine_code:'', status:'Idle', location:'', notes:'',
+  make:'', model:'', description:'', serial_number:'', equipment_type:'', equipment_group:'' }
 type F = typeof empty
 function dbErr(e:{code?:string;message:string;hint?:string}){console.error(e);return[e.message,e.code&&`(${e.code})`,e.hint&&`Hint: ${e.hint}`].filter(Boolean).join(' — ')}
 
@@ -36,18 +38,23 @@ export default function MachineStatusPage() {
     if(archived&&r.is_active) return false
     if(!search) return true
     const q=search.toLowerCase()
-    return r.name.toLowerCase().includes(q)||r.machine_code.toLowerCase().includes(q)||(r.location||'').toLowerCase().includes(q)||r.status.toLowerCase().includes(q)
+    return [r.name,r.machine_code,r.location,r.status,r.make,r.model,r.serial_number,r.equipment_type,r.equipment_group,r.description]
+      .some(v=>(v||'').toLowerCase().includes(q))
   })
 
   function openAdd(){setEditing(null);setForm(empty);setErr('');setOpen(true)}
-  function openEdit(r:Machine){setEditing(r);setForm({name:r.name,machine_code:r.machine_code,status:r.status,location:r.location??'',notes:r.notes??''});setErr('');setOpen(true)}
+  function openEdit(r:Machine){setEditing(r);setForm({name:r.name,machine_code:r.machine_code,status:r.status,location:r.location??'',notes:r.notes??'',
+    make:r.make??'',model:r.model??'',description:r.description??'',serial_number:r.serial_number??'',equipment_type:r.equipment_type??'',equipment_group:r.equipment_group??''});setErr('');setOpen(true)}
   function close(){setOpen(false);setTimeout(()=>{setEditing(null);setForm(empty)},300)}
   useItemDeepLink(rows, openEdit)
 
   async function save(){
     if(!form.name.trim()||!form.machine_code.trim()){setErr('Machine Name and Code are required.');return}
     setErr('');setSaving(true)
-    const p={name:form.name.trim(),machine_code:form.machine_code.trim(),status:form.status,location:form.location.trim()||null,notes:form.notes.trim()||null}
+    const t=(v:string)=>v.trim()||null
+    const p={name:form.name.trim(),machine_code:form.machine_code.trim(),status:form.status,location:t(form.location),notes:t(form.notes),
+      make:t(form.make),model:t(form.model),description:t(form.description),serial_number:t(form.serial_number),
+      equipment_type:t(form.equipment_type),equipment_group:t(form.equipment_group)}
     const{error}=editing?await sb.from('machines').update({...p,updated_at:new Date().toISOString()}).eq('id',editing.id):await sb.from('machines').insert({...p,is_active:true})
     if(error){setErr(dbErr(error));setSaving(false);return}
     setSaving(false);close();load()
@@ -71,7 +78,13 @@ export default function MachineStatusPage() {
             { header: 'Name', dbKey: 'name', example: 'Injection Molder 1', required: true },
             { header: 'Machine Code', dbKey: 'machine_code', example: 'IM-01', required: true },
             { header: 'Status', dbKey: 'status', example: 'Idle' },
+            { header: 'Department', dbKey: 'equipment_group', example: 'MOLDING' },
+            { header: 'Equipment Type', dbKey: 'equipment_type', example: 'Injection Molding' },
             { header: 'Location', dbKey: 'location', example: 'Bay A' },
+            { header: 'Make', dbKey: 'make', example: 'Hwamda' },
+            { header: 'Model', dbKey: 'model', example: 'HMD270M8-SPV' },
+            { header: 'Serial Number', dbKey: 'serial_number', example: 'WM029AA' },
+            { header: 'Description', dbKey: 'description', example: 'Molding M/C' },
             { header: 'Notes', dbKey: 'notes', example: '' },
           ]} onImportDone={load} />
           <button onClick={openAdd} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Machine</button>
@@ -87,12 +100,15 @@ export default function MachineStatusPage() {
       <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto">
         {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
         :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived machines.':'No machines yet.'}</p></div>
-        :<table className="w-full min-w-[600px] text-sm"><thead><tr className="border-b border-[#E4E6EE]">{['Machine Name','Code','Status','Location','Notes'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
+        :<table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b border-[#E4E6EE]">{['Machine Name','Code','Status','Department','Type','Location','Serial No.','Notes'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
         <tbody>{filtered.map((r,i)=><tr key={r.id} onClick={()=>openEdit(r)} className={`border-b border-[#E4E6EE]/60 last:border-0 cursor-pointer hover:bg-[#F9FAFB] transition-colors ${i%2===0?'':'bg-[#F5F6FA]/10'}`}>
           <td className="px-5 py-3.5 text-[#1A1D2E] font-medium">{r.name}</td>
           <td className="px-5 py-3.5 text-gray-400 font-mono text-xs">{r.machine_code}</td>
           <td className="px-5 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border flex items-center gap-1.5 w-fit ${SC[r.status]||SC.Idle}`}><span className={`w-1.5 h-1.5 rounded-full ${DOT[r.status]}`}/>{r.status}</span></td>
+          <td className="px-5 py-3.5 text-gray-500 text-xs">{r.equipment_group||'—'}</td>
+          <td className="px-5 py-3.5 text-gray-500 text-xs">{r.equipment_type||'—'}</td>
           <td className="px-5 py-3.5 text-gray-400">{r.location||'—'}</td>
+          <td className="px-5 py-3.5 text-gray-400 font-mono text-xs" title={[r.make,r.model].filter(Boolean).join(' ')||undefined}>{r.serial_number||'—'}</td>
           <td className="px-5 py-3.5 text-gray-500 text-xs truncate max-w-xs">{r.notes||'—'}</td>
         </tr>)}</tbody></table>}
       </div>
@@ -103,7 +119,20 @@ export default function MachineStatusPage() {
           <div><label className="block text-xs text-gray-400 mb-1.5">Machine Name <span className="text-red-400">*</span></label><input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} className={inp}/></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Machine Code <span className="text-red-400">*</span></label><input value={form.machine_code} onChange={e=>setForm(p=>({...p,machine_code:e.target.value}))} className={inp}/></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} className={inp+' cursor-pointer'}>{STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="block text-xs text-gray-400 mb-1.5">Department</label><input value={form.equipment_group} onChange={e=>setForm(p=>({...p,equipment_group:e.target.value}))} placeholder="e.g. MOLDING" className={inp}/></div>
+            <div><label className="block text-xs text-gray-400 mb-1.5">Equipment Type</label><input value={form.equipment_type} onChange={e=>setForm(p=>({...p,equipment_type:e.target.value}))} placeholder="e.g. Injection Molding" className={inp}/></div>
+          </div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Location</label><input value={form.location} onChange={e=>setForm(p=>({...p,location:e.target.value}))} className={inp}/></div>
+          <div className="bg-[#F5F6FA] rounded-xl border border-[#E4E6EE] p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Equipment Details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs text-gray-400 mb-1.5">Make</label><input value={form.make} onChange={e=>setForm(p=>({...p,make:e.target.value}))} placeholder="e.g. Hwamda" className={inp}/></div>
+              <div><label className="block text-xs text-gray-400 mb-1.5">Model</label><input value={form.model} onChange={e=>setForm(p=>({...p,model:e.target.value}))} placeholder="e.g. HMD270M8-SPV" className={inp}/></div>
+            </div>
+            <div><label className="block text-xs text-gray-400 mb-1.5">Serial Number</label><input value={form.serial_number} onChange={e=>setForm(p=>({...p,serial_number:e.target.value}))} className={inp+' font-mono'}/></div>
+            <div><label className="block text-xs text-gray-400 mb-1.5">Description</label><input value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="e.g. 180 TN Molding Machine" className={inp}/></div>
+          </div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Notes</label><textarea rows={3} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} className={inp+' resize-none'}/></div>
         </div>
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
