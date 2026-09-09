@@ -12,11 +12,15 @@ const sb = createSupabaseBrowserClient()
 
 const STATUS_OPTIONS = ['Queued', 'In Progress', 'QC', 'QC Passed', 'Complete', 'On Hold', 'Cancelled'] as const
 const DONE_STATUSES = ['QC Passed', 'Complete']
+const IDLE_AFTER = ['QC Passed', 'Complete', 'Cancelled', 'On Hold']
+
+interface Machine { id: string; name: string; machine_code: string; status: string; equipment_group: string | null }
 
 interface WO {
   id: string
   wo_number: string | number
   sales_order_id: string | null
+  machine_id: string | null
   status: string
   notes: string | null
   created_at: string
@@ -41,6 +45,7 @@ export default function WorkOrdersPage() {
   const [fgMoves, setFgMoves] = useState<{ created_at: string; qty: number; uom: string | null; created_by: string | null }[]>([])
   const [booking, setBooking] = useState(false)
   const [negStock, setNegStock] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null }[]>([])
+  const [machines, setMachines] = useState<Machine[]>([])
   const fmtN = (n: any) => (n === null || n === undefined || n === '') ? '\u2014' : Number(n).toLocaleString()
   const fgBooked = fgMoves.reduce((s, m) => s + Number(m.qty || 0), 0)
 
@@ -53,6 +58,8 @@ export default function WorkOrdersPage() {
     setOrders((data as WO[]) || [])
     const { data: neg } = await sb.from('products').select('sku,product_name,on_hand_qty').lt('on_hand_qty', 0).order('on_hand_qty', { ascending: true }).limit(50)
     setNegStock((neg as any[]) || [])
+    const { data: mach } = await sb.from('machines').select('id,name,machine_code,status,equipment_group').eq('is_active', true).order('equipment_group').order('name')
+    setMachines((mach as Machine[]) || [])
     setLoading(false)
     sb.auth.getUser().then(({ data: u }) => { if (u.user?.email) setUserEmail(u.user.email) })
   }, [])
@@ -90,6 +97,19 @@ export default function WorkOrdersPage() {
     if (wo) setDetail(wo)
   }, [orders])
 
+  // Ultron: the work order records which machine runs it.
+  async function setMachine(wo: WO, machineId: string) {
+    const mid = machineId || null
+    setOrders(os => os.map(o => (o.id === wo.id ? { ...o, machine_id: mid } : o)))
+    setDetail(d => (d && d.id === wo.id ? { ...d, machine_id: mid } : d))
+    await sb.from('work_orders').update({ machine_id: mid, updated_at: new Date().toISOString() }).eq('id', wo.id)
+    // A machine picked up mid-run should show as running straight away.
+    if (mid && wo.status === 'In Progress') {
+      await sb.from('machines').update({ status: 'Running', updated_at: new Date().toISOString() }).eq('id', mid)
+      setMachines(ms => ms.map(m => (m.id === mid ? { ...m, status: 'Running' } : m)))
+    }
+  }
+
   async function setStatus(wo: WO, status: string) {
     if (!status || status === wo.status) return
     setOrders(os => os.map(o => (o.id === wo.id ? { ...o, status } : o)))
@@ -98,6 +118,15 @@ export default function WorkOrdersPage() {
     // Ultron: keep the linked Sales Order in step — advance it when the work order is done.
     if (DONE_STATUSES.includes(status) && wo.sales_order_id) {
       try { await checkOrderReadyToShip(wo.sales_order_id) } catch { /* non-blocking */ }
+    }
+    // Ultron: and keep Machine Status honest — a machine is Running only while its work order is.
+    const mid = wo.machine_id
+    if (mid) {
+      const ms = status === 'In Progress' ? 'Running' : IDLE_AFTER.includes(status) ? 'Idle' : null
+      if (ms) {
+        await sb.from('machines').update({ status: ms, updated_at: new Date().toISOString() }).eq('id', mid)
+        setMachines(list => list.map(m => (m.id === mid ? { ...m, status: ms } : m)))
+      }
     }
   }
 
@@ -189,6 +218,7 @@ export default function WorkOrdersPage() {
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusClass(wo.status)}`}>{wo.status}</span>
                 </div>
                 <p className="text-sm text-gray-500">SO: {wo.sales_orders?.order_number ?? '—'} &middot; {wo.sales_orders?.customers?.company_name ?? '—'}</p>
+                <p className="text-xs text-gray-400 mt-0.5">Machine: {machines.find(m => m.id === wo.machine_id)?.name ?? <span className="text-amber-600">not assigned</span>}</p>
                 {wo.notes && <p className="text-xs text-gray-400 mt-1 truncate max-w-2xl">{wo.notes}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
@@ -217,6 +247,26 @@ export default function WorkOrdersPage() {
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Status</label>
                 <StatusSelect wo={detail} full />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Machine</label>
+                <select
+                  value={detail.machine_id ?? ''}
+                  onChange={e => setMachine(detail, e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">— Not assigned —</option>
+                  {Array.from(new Set(machines.map(m => m.equipment_group ?? 'Other'))).map(g => (
+                    <optgroup key={g} label={g}>
+                      {machines.filter(m => (m.equipment_group ?? 'Other') === g).map(m => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1.5">
+                  Setting this work order to In Progress marks the machine Running on Machine Status; closing it sets the machine back to Idle.
+                </p>
               </div>
               {detail.notes && (
                 <div>
