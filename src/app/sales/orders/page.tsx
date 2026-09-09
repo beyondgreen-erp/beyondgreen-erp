@@ -621,10 +621,10 @@ function EditPanel({
           {editing && form.status === 'Awaiting BOM Components' && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
               <p className="text-xs font-semibold text-amber-800 mb-1">⏳ Awaiting BOM Components</p>
-              <p className="text-xs text-amber-700 mb-2">Components for this order are on the Purchase Order Request board.</p>
-              <a href={`/sales/purchase-orders?q=${encodeURIComponent(editing.po_number || editing.order_number || '')}`}
+              <p className="text-xs text-amber-700 mb-2">Components for this order are purchased on the Purchase Order Request board. Tag each request with this order number so they show up filtered here.</p>
+              <a href={`/sales/purchase-orders?order=${encodeURIComponent(editing.order_number || '')}`}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 underline hover:text-amber-900">
-                View ordered items on the Purchase Order Request board →
+                View this order&apos;s items on the Purchase Order Request board →
               </a>
             </div>
           )}
