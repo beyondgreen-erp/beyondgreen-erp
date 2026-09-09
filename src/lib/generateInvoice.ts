@@ -26,6 +26,8 @@ export interface InvoiceData {
   payment_terms?: string | null
   po_number?: string | null
   notes?: string | null
+  carrier?: string | null
+  tracking_number?: string | null
 }
 
 export interface InvoiceCustomer {
@@ -126,6 +128,8 @@ export function generateInvoicePDF(
     ['PO Number:', invoice.po_number ?? '—'],
     ['Sales Order:', orderNumber ?? '—'],
     ['Payment Terms:', invoice.payment_terms ?? 'Net 30'],
+    ...(invoice.carrier ? [['Carrier:', invoice.carrier]] : []),
+    ...(invoice.tracking_number ? [['Tracking #:', invoice.tracking_number]] : []),
   ]
   let dy = y
   for (const [label, val] of details) {
