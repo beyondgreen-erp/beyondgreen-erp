@@ -58,7 +58,7 @@ interface Product {
   notes: string | null
 }
 
-const PRODUCT_TABS = ['All','BAGS','CUTLERY','STRAW-CUPS','RAW MATERIAL','ADDITIVES','WIP','PACKAGING','PRINT PLATE','MOLDING','COMPOSTER']
+const PRODUCT_TABS = ['All','BAGS','CUTLERY','STRAW-CUPS','RAW MATERIAL','ADDITIVES','WIP','PACKAGING','PRINT PLATE','MOLDING','COMPOSTER','ROLLS']
 const PRODUCT_TAB_OPTIONS = PRODUCT_TABS.slice(1)
 const CATEGORY_OPTIONS = ['Finished Goods','Raw Material','Component','Packaging','Mold','WIP','Additives','Print Plates','Composter Components']
 
@@ -243,9 +243,18 @@ const EditPanel = memo(function EditPanel({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Tab / Category</label>
-              <select value={form.product_category} onChange={e => setForm(p => ({ ...p, product_category: e.target.value }))} className={inp + ' cursor-pointer'}>
+              <select value={form.product_category} onChange={e => {
+                const v = e.target.value
+                if (v === '__new__') {
+                  const t = (window.prompt('New category name:') || '').trim().toUpperCase()
+                  if (t) setForm(p => ({ ...p, product_category: t }))
+                  return
+                }
+                setForm(p => ({ ...p, product_category: v }))
+              }} className={inp + ' cursor-pointer'}>
                 <option value="">— None —</option>
-                {PRODUCT_TAB_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                {Array.from(new Set([...PRODUCT_TAB_OPTIONS, ...(form.product_category ? [form.product_category] : [])])).map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="__new__">+ Add new category…</option>
               </select>
             </div>
             <div>
