@@ -477,7 +477,23 @@ function EditPanel({
   const [leadResults, setLeadResults] = useState<{ id: string; company_name: string }[]>([])
   const [leadSearching, setLeadSearching] = useState(false)
   const [pickedLead, setPickedLead] = useState(false)
+  // Raw-material allocation (Robert's workflow: reserve before Order Confirmation; auto-released on production consume)
+  const [allocState, setAllocState] = useState<{ at: string | null; by: string | null; released: string | null }>({ at: null, by: null, released: null })
+  const [allocBusy, setAllocBusy] = useState(false)
   useEffect(() => {
+    const e = editing as any
+    setAllocState({ at: e?.raw_materials_allocated_at ?? null, by: e?.raw_materials_allocated_by ?? null, released: e?.raw_materials_released_at ?? null })
+  }, [editing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  async function allocateRawMaterials() {
+    if (!editing) return
+    setAllocBusy(true)
+    try {
+      const { error } = await sb.rpc('allocate_raw_materials', { p_order_id: editing.id, p_by: userEmail || null })
+      if (error) { alert('Could not allocate: ' + error.message); return }
+      setAllocState({ at: new Date().YoSOTring(), by: userEmail || null, released: null })
+    } catch (e: any) { alert('Could not allocate: ' + (e?.message || e)) }
+    finally { setAllocBusy(false) }
+  }  useEffect(() => {
     if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false) }
   }, [open, editing])
   useEffect(() => {
@@ -616,6 +632,29 @@ function EditPanel({
               <WorkflowProgressBar status={editing.status}/>
             </div>
           )}
+
+          {/* Raw Material Allocation — reserve before Order Confirmation; auto-released on production consume */}
+          {editing && (() => {
+            const active = !!allocState.at && !allocState.released
+            const allocDate = allocState.at ? new Date(allocState.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+            const relDate = allocState.released ? new Date(allocState.released).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+            return (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <p className="text-xs font-semibold text-emerald-900 mb-1">Raw Material Allocation</p>
+                {active ? (
+                  <p className="text-xs text-emerald-800">✓ Allocated{allocDate ? ' on ' + allocDate : ''}{allocState.by ? ' by ' + allocState.by : ''}. Reserved for this order — released automatically when production consumes the components.</p>
+                ) : (
+                 <>
+                  <p className="text-xs text-emerald-800 mb-2">{allocState.released ? `Previous allocation released ${relDate} (components consumed in production).` : 'Reserve raw materials for this order once availability is confirmed \u2014 before sending the Order Confirmation.'}</p>
+                    <button type="button" onClick={allocateRawMaterials} disabled={allocBusy}
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                      {allocBusy ? 'Allocating\u2026' : (allocState.released ? 'Re-allocate raw materials' : 'Allocate raw materials')}
+                    </button>
+                  </>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Awaiting BOM Components → link to the Purchase Order Request board */}
           {editing && form.status === 'Awaiting BOM Components' && (
