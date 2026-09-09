@@ -51,6 +51,8 @@ interface Shipment {
   bol_number: string | null
   total_value: number | null
   sales_order_id: string | null
+  so_number?: string | null
+  so_notes?: string | null
   broker_portal_client: string | null
   broker_cost: number | null
   broker_commission_basis: string | null
@@ -129,6 +131,15 @@ export default function ShipmentsPage() {
         all.push(...batch)
         if (batch.length < 1000) break
       }
+      const soIds = Array.from(new Set(all.map(s => s.sales_order_id).filter(Boolean))) as string[]
+      if (soIds.length) {
+        const soMap: Record<string, { order_number: string | null; notes: string | null }> = {}
+        for (let i = 0; i < soIds.length; i += 500) {
+          const { data: sos } = await sb.from('sales_orders').select('id, order_number, notes').in('id', soIds.slice(i, i + 500))
+          for (const so of ((sos as { id: string; order_number: string | null; notes: string | null }[]) || [])) soMap[so.id] = { order_number: so.order_number, notes: so.notes }
+        }
+        for (const s of all) { const m = s.sales_order_id ? soMap[s.sales_order_id] : null; if (m) { s.so_number = m.order_number; s.so_notes = m.notes } }
+      }
       setRows(all); setLoading(false)
     })()
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
@@ -159,7 +170,7 @@ export default function ShipmentsPage() {
     let r = rows
     if (search) {
       const q = search.toLowerCase()
-      r = r.filter(s => (s.customer_name || '').toLowerCase().includes(q) || (s.tracking_number || '').toLowerCase().includes(q) || (s.po_number || '').toLowerCase().includes(q))
+      r = r.filter(s => (s.customer_name || '').toLowerCase().includes(q) || (s.tracking_number || '').toLowerCase().includes(q) || (s.po_number || '').toLowerCase().includes(q) || (s.so_number || '').toLowerCase().includes(q) || (s.so_notes || '').toLowerCase().includes(q))
     }
     if (filterMonth !== 'all') r = r.filter(s => s.month_group === filterMonth)
     if (filterCarrier !== 'all') r = r.filter(s => s.carrier === filterCarrier)
