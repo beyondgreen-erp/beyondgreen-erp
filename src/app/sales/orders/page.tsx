@@ -1071,7 +1071,7 @@ function EditPanel({
           {editing && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] text-gray-400">Customer email:</span>
-              <button type="button" onClick={onSendAck} disabled={emailBusy !== null} title="Send the Order Acknowledgement email + PDF to the customer (copy to info@byndgrn.com)" className="text-xs px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors">{emailBusy === 'ack' ? 'Sending…' : '\uD83D\uDCE7 Send Acknowledgement'}</button>
+              <button type="button" onClick={onSendAck} disabled={emailBusy !== null} title="Send the Order Acknowledgement email + PDF to the customer (copy to Rudy@beyondgreenbiotech.com)" className="text-xs px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors">{emailBusy === 'ack' ? 'Sending…' : '\uD83D\uDCE7 Send Acknowledgement'}</button>
               <button type="button" onClick={onOpenSOConfirm} disabled={emailBusy !== null || !canSendSO} title={canSendSO ? 'Send the Sales Order Confirmation (with confirmation pop-up)' : 'Add a customer, both addresses, payment terms and a line item first'} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors">{emailBusy === 'so' ? 'Sending…' : '\uD83D\uDCE7 Send SO Confirmation'}</button>
             </div>
           )}
@@ -1546,13 +1546,13 @@ export default function OrdersPage() {
         + `<p>This order is under review. We will contact you if there are any questions or issues with your order request.</p>`
         + `<p>Thank you,<br/>beyondGREEN</p></div>`
       const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        to, reply_to: 'accounting@byndgrn.com',
+        to, bcc: 'Rudy@beyondgreenbiotech.com', reply_to: 'accounting@byndgrn.com',
         subject: `beyondGREEN \u2014 Order Received  |  PO ${pdfOrder.po_number || '\u2014'}  |  Order ${pdfOrder.order_number}`,
         html, attachments: [{ filename: `beyondGREEN-Order-Acknowledgement-${pdfOrder.order_number}.pdf`, content: b64 }],
       }) })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Send failed')
-      alert('\u2713 Order Acknowledgement sent to ' + to + ' (a copy also goes to info@byndgrn.com).')
+      alert('\u2713 Order Acknowledgement sent to ' + to + ' (a copy also goes to Rudy@beyondgreenbiotech.com).')
     } catch (e: any) { alert('Could not send acknowledgement: ' + (e?.message || e)) }
     setEmailBusy(null)
   }
@@ -1577,13 +1577,13 @@ export default function OrdersPage() {
         + `<p>Please review the attached confirmation and reply to this email to confirm.</p>`
         + `<p>Thank you,<br/>beyondGREEN biotech, Inc.<br/><span style="color:#6B7280">1202 E. Wakeham Ave., Santa Ana, CA 92705 \u00B7 finance@beyondgreenbiotech.com</span></p></div>`
       const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        to, reply_to: 'finance@beyondgreenbiotech.com',
+        to, bcc: 'Rudy@beyondgreenbiotech.com', reply_to: 'finance@beyondgreenbiotech.com',
         subject: `beyondGREEN \u2014 Sales Order Confirmation ${pdfOrder.order_number}  |  PO ${pdfOrder.po_number || '\u2014'}`,
         html, attachments: [{ filename: `Sales-Order-Confirmation-${pdfOrder.order_number}.pdf`, content: b64 }],
       }) })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Send failed')
-      alert('\u2713 Sales Order Confirmation sent to ' + to + ' (a copy also goes to info@byndgrn.com).')
+      alert('\u2713 Sales Order Confirmation sent to ' + to + ' (a copy also goes to Rudy@beyondgreenbiotech.com).')
     } catch (e: any) { alert('Could not send SO confirmation: ' + (e?.message || e)) }
     setEmailBusy(null); setConfirmSOOpen(false)
   }
@@ -2462,7 +2462,7 @@ export default function OrdersPage() {
             <p className="text-sm font-semibold text-[#1A1D2E] mb-2">Send Sales Order Confirmation?</p>
             <div className="text-sm text-gray-600 space-y-1 mb-4">
               <p>To: <b>{form.customer_email || '(no email on order)'}</b></p>
-              <p>Copy to: <b>info@byndgrn.com</b></p>
+              <p>Copy to: <b>Rudy@beyondgreenbiotech.com</b></p>
               <p>Attachment: <b>Sales Order Confirmation (PDF)</b> for order {form.order_number}</p>
               <p className="text-xs text-amber-600">Please double-check the recipient and details before sending.</p>
             </div>
