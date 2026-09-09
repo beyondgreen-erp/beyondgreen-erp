@@ -936,6 +936,7 @@ export default function ShippingQueuePage() {
     // (Shipped) shipment. Best-effort: a ledger/stock hiccup must never block the shipment.
     const isShipped = extra.delivery_status === 'Shipped' || extra.status === 'Shipped'
     if (isShipped && targetId) {
+      const negWarn: string[] = []
       for (const r of plan) {
         const qty = Number(r.shippedUnits || 0)
         if (!r.sku || qty <= 0) continue
@@ -954,10 +955,13 @@ export default function ShippingQueuePage() {
           if (pid) {
             const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle()
             const cur = Number((pr as any)?.on_hand_qty || 0)
-            await sb.from('products').update({ on_hand_qty: cur - qty }).eq('id', pid)
+            const nu = cur - qty
+            if (nu < 0) negWarn.push(`${r.sku} (now ${nu})`)
+            await sb.from('products').update({ on_hand_qty: nu }).eq('id', pid)
           }
         } catch { /* ledger posting is best-effort */ }
       }
+      if (negWarn.length) { try { alert('\u26a0 Heads up \u2014 these items went negative on-hand after this shipment: ' + negWarn.join(', ') + '. That usually means produced finished goods were never booked into inventory. Book them in Production \u2192 Work Orders \u2192 \u201cClose & Book FG\u201d.') } catch { /* */ } }
     }
   }
   async function confirmMove(keepOpen = false) {
