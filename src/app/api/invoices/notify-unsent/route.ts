@@ -94,7 +94,7 @@ export async function POST(req: Request) {
           const res = await resend.emails.send({
             from: 'beyondGREEN ERP <erp@beyondgreenbiotech.com>',
             to: FINANCE_EMAIL,
-            bcc: ['info@byndgrn.com'],
+            bcc: ['Rudy@beyondgreenbiotech.com'],
             subject: `New Bill — ${customerName} — ${inv.invoice_number_display} — Action Required`,
             html: emailHtml(inv, customerName),
           })
