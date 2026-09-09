@@ -424,7 +424,7 @@ export default function InvoicesPage() {
   function downloadPDF() {
     if (!sel) return
     const customer = sel.customer_id ? { company_name: getCustomerName(sel), email: null, phone: null, billing_address: null, contact_name: null } : null
-    generateInvoicePDF(sel, customer, lineItems.map(l => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price, uom: l.uom, line_total: l.line_total })), getOrderNumber(sel))
+    generateInvoicePDF({ ...sel, carrier: shipInfo?.carrier ?? null, tracking_number: shipInfo?.tracking_number ?? null } as any, customer, lineItems.map(l => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price, uom: l.uom, line_total: l.line_total })), getOrderNumber(sel))
   }
 
   async function importShipments() {
