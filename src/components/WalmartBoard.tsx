@@ -20,7 +20,7 @@ interface WOrder {
   order_date: string | null; ship_due_date: string | null; load_number: string | null; facility: string | null
   srp: number | null; units: number | null; pallets: string | null; work_order: string | null; lot: string | null
   po_number: string | null; ship_to: string | null; ship_from: string | null; bol_date: string | null; bol2: string | null
-  carrier: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
+  carrier: string | null; scac: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
   updated_at: string | null; created_at: string | null; sales_order_id: string | null
@@ -83,6 +83,7 @@ const FIELDS: { key: keyof WOrder; label: string; kind: FKind; wide?: boolean }[
   { key: 'po_number', label: 'PO #', kind: 'text' },
   { key: 'load_number', label: 'Load #', kind: 'text' },
   { key: 'carrier', label: 'Carrier', kind: 'text' },
+  { key: 'scac', label: 'SCAC', kind: 'text' },
   { key: 'bol2', label: 'BOL #', kind: 'text' },
   { key: 'bol_date', label: 'BOL Date', kind: 'date' },
   { key: 'trailer_no', label: 'Trailer No', kind: 'text' },
@@ -91,7 +92,9 @@ const FIELDS: { key: keyof WOrder; label: string; kind: FKind; wide?: boolean }[
   { key: 'units', label: 'Units', kind: 'num' },
   { key: 'pallets', label: 'Pallets', kind: 'text' },
   { key: 'qty', label: 'Qty (PLT)', kind: 'num' },
+  { key: 'pkg_type', label: 'Pkg Type', kind: 'text' },
   { key: 'qty2', label: 'Qty 2 (CS)', kind: 'num' },
+  { key: 'pkg_type2', label: 'Pkg Type 2', kind: 'text' },
   { key: 'weight', label: 'Weight (lbs)', kind: 'num' },
   { key: 'total_value', label: 'Total Value', kind: 'money' },
   { key: 'work_order', label: 'Work Order #', kind: 'text' },
