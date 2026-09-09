@@ -114,6 +114,8 @@ export default function WalmartBoard() {
   const [pallets, setPallets] = useState<Record<string, Pallet[]>>({})
   const [palletItems, setPalletItems] = useState<Record<string, PalletItem[]>>({})
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [fileCounts, setFileCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -468,7 +470,8 @@ export default function WalmartBoard() {
       shipFromName: SHIP_FROM_NAME, shipFromAddress: order.ship_from || SHIP_FROM_ADDR,
       shipToName: ((order.ship_to || 'Walmart').split(/[,\n]/)[0] || 'Walmart').trim(),
       shipToAddress: order.ship_to || '',
-      carrierName: order.carrier || undefined, trailerNo: order.trailer_no || undefined, sealNumber: order.seal_number || undefined,
+      carrierName: order.carrier || undefined, scac: order.scac || undefined,
+      trailerNo: order.trailer_no || undefined, sealNumber: order.seal_number || undefined,
       freightTerms: 'Prepaid', totalPallets, totalCases, totalWeight: Number(order.weight) || 0,
       declaredValue: Number(order.total_value) || undefined,
       poNote: order.po_number ? ('PO ' + order.po_number) : undefined,
@@ -478,14 +481,16 @@ export default function WalmartBoard() {
     doc.save(bolName)
     try {
       const blob = doc.output('blob') as Blob
-      const target = order.sales_order_id ? 'sales_order' : 'walmart_order'
-      const rid = order.sales_order_id ?? order.id
-      const path = `walmart/${rid}/bol-${Date.now()}.pdf`
+      const path = `walmart/${order.id}/bol-${Date.now()}.pdf`
       const { error: upErr } = await sb.storage.from('erp-files').upload(path, blob, { upsert: true, contentType: 'application/pdf' })
       if (!upErr) {
         const { data: pub } = sb.storage.from('erp-files').getPublicUrl(path)
-        await sb.from('file_attachments').insert({ record_type: target, record_id: rid, file_name: bolName, file_size: (blob as any).size ?? null, file_type: 'application/pdf', storage_path: path, uploaded_by: userEmail })
+        const meta = { file_name: bolName, file_size: (blob as any).size ?? null, file_type: 'application/pdf', storage_path: path, uploaded_by: userEmail }
+        const targets: { record_type: string; record_id: string }[] = [{ record_type: 'walmart_order', record_id: order.id }]
+        if (order.sales_order_id) targets.push({ record_type: 'sales_order', record_id: order.sales_order_id })
+        await sb.from('file_attachments').insert(targets.map(t => ({ ...t, ...meta })))
         if (order.sales_order_id) await sb.from('sales_orders').update({ bol: pub.publicUrl }).eq('id', order.sales_order_id)
+        setFileCounts(fc => ({ ...fc, [order.id]: (fc[order.id] || 0) + 1 }))
       }
     } catch { /* non-blocking */ }
   }
@@ -557,6 +562,29 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
   }
 
   // ── Drag & drop between groups ─────────────────────────────────────────────
+  // Bulk edit — apply one change to every ticked PO instead of opening each in turn.
+  const toggleSel = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const setGroupSel = (ids: string[], on: boolean) => setSelected(s => {
+    const n = new Set(s); ids.forEach(id => (on ? n.add(id) : n.delete(id))); return n
+  })
+
+  async function bulkApply(patch: Record<string, any>) {
+    const ids = Array.from(selected)
+    if (!ids.length) return
+    const label = Object.entries(patch).map(([k, v]) => `${k.replace(/_/g, ' ')} = ${v}`).join(', ')
+    if (!confirm(`Update ${ids.length} order${ids.length > 1 ? 's' : ''}?\n\n${label}`)) return
+    setBulkBusy(true)
+    const full: Record<string, any> = { ...patch, updated_at: new Date().toISOString() }
+    // Status drives the group, so keep them in lock-step exactly as a single edit does.
+    if (patch.status) full.group_name = groupForStatus(patch.status)
+    setRows(rs => rs.map(r => (selected.has(r.id) ? { ...r, ...full } : r)))
+    const { error } = await sb.from('walmart_board_orders').update(full).in('id', ids)
+    setBulkBusy(false)
+    if (error) { alert('Bulk update failed: ' + error.message); await load(); return }
+    setSelected(new Set())
+    await load()
+  }
+
   async function moveToGroup(id: string, targetGroup: string) {
     const r = rows.find(x => x.id === id); if (!r) return
     if ((r.group_name || 'Walmart Orders') === targetGroup) return
@@ -709,6 +737,26 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
         <button onClick={openNew} className="mon-btn">+ New Walmart order</button>
       </div>
 
+      {selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-[#3B6FE0]/30 bg-[#3B6FE0]/8 px-3 py-2">
+          <span className="text-[12px] font-semibold text-[#1A1D2E]">{selected.size} selected</span>
+          <select disabled={bulkBusy} defaultValue="" onChange={e => { const v = e.target.value; e.target.value = ''; if (v) bulkApply({ status: v }) }}
+            className="text-[12px] border border-[#E4E6EE] rounded-lg px-2 py-1.5 bg-white cursor-pointer">
+            <option value="">Set status…</option>
+            {STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <input disabled={bulkBusy} placeholder="Set carrier…" onKeyDown={e => { if (e.key === 'Enter') { const v = (e.target as HTMLInputElement).value.trim(); if (v) { bulkApply({ carrier: v }); (e.target as HTMLInputElement).value = '' } } }}
+            className="text-[12px] border border-[#E4E6EE] rounded-lg px-2 py-1.5 bg-white w-[130px]" />
+          <input disabled={bulkBusy} placeholder="Set SCAC…" onKeyDown={e => { if (e.key === 'Enter') { const v = (e.target as HTMLInputElement).value.trim(); if (v) { bulkApply({ scac: v.toUpperCase() }); (e.target as HTMLInputElement).value = '' } } }}
+            className="text-[12px] border border-[#E4E6EE] rounded-lg px-2 py-1.5 bg-white w-[110px] font-mono" />
+          <label className="text-[11px] text-gray-500 flex items-center gap-1.5">Ship due
+            <input disabled={bulkBusy} type="date" onChange={e => { const v = e.target.value; if (v) { bulkApply({ ship_due_date: v }); e.target.value = '' } }}
+              className="text-[12px] border border-[#E4E6EE] rounded-lg px-2 py-1.5 bg-white" />
+          </label>
+          <button onClick={() => setSelected(new Set())} className="ml-auto text-[12px] text-gray-500 hover:text-gray-800 px-2 py-1.5">Clear</button>
+          <span className="text-[11px] text-gray-400 w-full">Carrier and SCAC apply on Enter. Changing status moves the orders into the matching group.</span>
+        </div>
+      )}
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — every Walmart order mirrors into the Order Pipeline and flows across Production, Shipping &amp; Invoices; status, comments, files, BOL &amp; packing list stay in sync.</div>
 
       {/* Requirements roll-up */}
@@ -804,17 +852,23 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                     <table className="w-full text-sm min-w-[1040px]">
                       <thead>
                         <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
-                          <th className="text-left font-semibold px-4 py-2 min-w-[180px]">Order</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[190px]">Status</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[110px]">Order Date</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[110px]">PO #</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[100px]">Load #</th>
-                          <th className="text-left font-semibold px-3 py-2 min-w-[220px]">Ship To</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[110px]">Ship Due</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[100px]">Carrier</th>
-                          <th className="text-right font-semibold px-3 py-2 w-[110px]">Total Value</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[70px]">Files</th>
-                          <th className="text-left font-semibold px-3 py-2 w-[80px]">Comments</th>
+                          <th className="px-2 py-1.5 w-[34px]">
+                            <input type="checkbox" title="Select all in this group"
+                              checked={gr.length > 0 && gr.every(x => selected.has(x.id))}
+                              onChange={e => setGroupSel(gr.map(x => x.id), e.target.checked)}
+                              className="cursor-pointer align-middle" />
+                          </th>
+                          <th className="text-left font-semibold px-4 py-1.5 min-w-[180px]">Order</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[190px]">Status</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[110px]">Order Date</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[110px]">PO #</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[100px]">Load #</th>
+                          <th className="text-left font-semibold px-3 py-1.5 min-w-[220px]">Ship To</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[110px]">Ship Due</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[100px]">Carrier</th>
+                          <th className="text-right font-semibold px-3 py-1.5 w-[110px]">Total Value</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[70px]">Files</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[80px]">Comments</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EAECF2]">
@@ -827,21 +881,24 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                               onDragStart={e => { setDraggedId(r.id); e.dataTransfer.effectAllowed = 'move' }}
                               onDragEnd={() => { setDraggedId(null); setDragOver(null) }}
                               className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'} ${dragging ? 'opacity-40' : ''}`} onClick={() => openDetail(r)}>
-                              <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E]"><span className="text-gray-300 mr-1.5 cursor-grab" title="Drag to another group">⠿</span>{r.name}</td>
-                              <td className="px-3 py-2.5"><span className="text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: sc.bg, color: sc.fg }}>{r.status || '—'}</span></td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.order_date)}</td>
-                              <td className="px-3 py-2.5 text-[13px] font-mono text-gray-600">{r.po_number || '—'}</td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{r.load_number || '—'}</td>
-                              <td className="px-3 py-2.5 text-[12px] text-gray-500 truncate max-w-[260px]">{r.ship_to || '—'}</td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{r.carrier || '—'}</td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-700 text-right font-semibold">{(() => { const t = orderTotal(r); return t != null ? fmt$(t) : '—' })()}</td>
-                              <td className="px-3 py-2.5">{nf2 ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nf2}</span> : <span className="text-gray-300">—</span>}</td>
-                              <td className="px-3 py-2.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
+                              <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                                <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} className="cursor-pointer align-middle" />
+                              </td>
+                              <td className="px-4 py-1.5 text-[13px] font-semibold text-[#1A1D2E]"><span className="text-gray-300 mr-1.5 cursor-grab" title="Drag to another group">⠿</span>{r.name}</td>
+                              <td className="px-3 py-1.5"><span className="text-[11px] font-semibold rounded-full px-2 py-0.5 inline-block" style={{ background: sc.bg, color: sc.fg }}>{r.status || '—'}</span></td>
+                              <td className="px-3 py-1.5 text-[13px] text-gray-600">{fmtD(r.order_date)}</td>
+                              <td className="px-3 py-1.5 text-[13px] font-mono text-gray-600">{r.po_number || '—'}</td>
+                              <td className="px-3 py-1.5 text-[13px] text-gray-600">{r.load_number || '—'}</td>
+                              <td className="px-3 py-1.5 text-[12px] text-gray-500 truncate max-w-[260px]">{r.ship_to || '—'}</td>
+                              <td className="px-3 py-1.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
+                              <td className="px-3 py-1.5 text-[13px] text-gray-600">{r.carrier || '—'}</td>
+                              <td className="px-3 py-1.5 text-[13px] text-gray-700 text-right font-semibold">{(() => { const t = orderTotal(r); return t != null ? fmt$(t) : '—' })()}</td>
+                              <td className="px-3 py-1.5">{nf2 ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nf2}</span> : <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-1.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
                             </tr>
                           )
                         })}
-                        {gr.length === 0 && <tr><td colSpan={11} className="px-4 py-4 text-center text-gray-400 text-xs italic">{draggedId ? 'Drop here to move the order into this group' : 'No orders'}</td></tr>}
+                        {gr.length === 0 && <tr><td colSpan={12} className="px-4 py-4 text-center text-gray-400 text-xs italic">{draggedId ? 'Drop here to move the order into this group' : 'No orders'}</td></tr>}
                       </tbody>
                     </table>
                   </div>

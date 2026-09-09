@@ -13,6 +13,7 @@ interface Comment {
   is_edited: boolean
   created_at: string
   updated_at: string
+  parent_id?: string | null
   attachments?: { name: string; url: string }[]
 }
 
@@ -70,6 +71,26 @@ function renderContent(text: string) {
 export default function Comments({ recordId, recordType, currentUserEmail, title = 'Comments' }: Props) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [comments, setComments] = useState<Comment[]>([])
+  const [replyTo, setReplyTo] = useState<Comment | null>(null)
+  // Roots in their existing order, each followed by its replies oldest-first.
+  const threaded = (() => {
+    const roots = comments.filter(c => !c.parent_id)
+    const byParent = new Map<string, Comment[]>()
+    for (const c of comments) {
+      if (!c.parent_id) continue
+      const list = byParent.get(c.parent_id) ?? []
+      list.push(c); byParent.set(c.parent_id, list)
+    }
+    // A reply whose parent was deleted would otherwise vanish — keep it as a root.
+    const seen = new Set(roots.map(r => r.id))
+    const orphans = comments.filter(c => c.parent_id && !seen.has(c.parent_id))
+    const out: Comment[] = []
+    for (const r of [...roots, ...orphans]) {
+      out.push(r)
+      for (const child of (byParent.get(r.id) ?? [])) out.push(child)
+    }
+    return out
+  })()
   const [profiles, setProfiles] = useState<Record<string, TeamMember>>({})
   const [team, setTeam] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
@@ -254,6 +275,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
         author_email: authorEmail,
         content: body.trim(),
         attachments: uploaded,
+        parent_id: replyTo?.id ?? null,
       }).select('id').single()
       if (error) { alert('Could not post comment: ' + error.message + '\n\nYour text has been kept — please try again.'); return }
 
@@ -280,6 +302,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
 
       setBody('')
       setPendingFiles([])
+      setReplyTo(null)
       fetchComments()
     } finally {
       setPosting(false)
@@ -341,7 +364,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
         ) : comments.length === 0 ? (
           <p className="text-xs italic py-2" style={{ color: '#9CA3AF' }}>No comments yet.</p>
         ) : (
-          comments.map(c => {
+          threaded.map(c => {
             const p = profileFor(c.author_email)
             const displayName = p?.full_name || c.author_email.split('@')[0]
             const isOwn = c.author_email === currentUserEmail
@@ -350,7 +373,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             const initials = p?.avatar_initials || avatarInitials(displayName)
 
             return (
-              <div key={c.id} id={`comment-${c.id}`} className={`flex gap-2.5 scroll-mt-24 rounded-lg transition-colors ${flashId === c.id ? 'ring-2 ring-amber-400 bg-amber-50 -mx-1 px-1 py-1' : ''}`}>
+              <div key={c.id} id={`comment-${c.id}`} style={c.parent_id ? { marginLeft: 30, borderLeft: '2px solid #E4E6EE', paddingLeft: 10 } : undefined} className={`flex gap-2.5 scroll-mt-24 rounded-lg transition-colors ${flashId === c.id ? 'ring-2 ring-amber-400 bg-amber-50 -mx-1 px-1 py-1' : ''}`}>
                 {/* Avatar */}
                 <UserAvatar email={c.author_email} initials={initials} color={p?.avatar_color || '#374151'} size={28} className="mt-0.5" />
 
@@ -421,6 +444,17 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                           ))}
                         </div>
                       )}
+                      <div className="flex gap-3 mt-1">
+                        {!c.parent_id && (
+                          <button
+                            onClick={() => { setReplyTo(c); textareaRef.current?.focus() }}
+                            className="text-[10px] transition-colors hover:underline"
+                            style={{ color: '#3B6FE0' }}
+                          >
+                            Reply
+                          </button>
+                        )}
+                      </div>
                       {isOwn && (
                         <div className="flex gap-3 mt-1">
                           <button
@@ -467,6 +501,12 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             })()}
 
             <div className="flex-1 relative">
+              {replyTo && (
+                <div className="flex items-center gap-2 mb-1.5 text-[11px] rounded-lg px-2.5 py-1.5" style={{ background: '#EEF3FF', color: '#3B6FE0' }}>
+                  <span>Replying to <strong>{(profileFor(replyTo.author_email)?.full_name) || replyTo.author_email.split('@')[0]}</strong></span>
+                  <button onClick={() => setReplyTo(null)} className="ml-auto hover:underline" style={{ color: '#6B7280' }}>Cancel</button>
+                </div>
+              )}
               <textarea
                 ref={textareaRef}
                 value={body}

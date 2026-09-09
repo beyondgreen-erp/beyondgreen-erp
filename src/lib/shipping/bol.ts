@@ -53,6 +53,27 @@ function rect(doc: jsPDF, x: number, y: number, w: number, h: number) { doc.setD
 function bold(doc: jsPDF, s: string, x: number, y: number, size = 7) { doc.setFont('helvetica', 'bold'); doc.setFontSize(size); doc.text(s, x, y) }
 function norm(doc: jsPDF, s: string, x: number, y: number, size = 8) { doc.setFont('helvetica', 'normal'); doc.setFontSize(size); doc.text(s, x, y) }
 
+/**
+ * Draw a name + address block wrapped to `width`, stopping at `maxY` so it can
+ * never spill into the neighbouring cell. Returns the y position after the block.
+ */
+function addrLines(doc: jsPDF, name: string, address: string, x: number, y: number, width: number, maxY: number) {
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+  for (const w of doc.splitTextToSize(name || '', width) as string[]) {
+    if (y > maxY) return y
+    doc.text(w, x, y); y += 10
+  }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+  for (const raw of (address || '').split('\n')) {
+    if (!raw.trim()) continue
+    for (const w of doc.splitTextToSize(raw, width) as string[]) {
+      if (y > maxY) return y
+      doc.text(w, x, y); y += 9.5
+    }
+  }
+  return y
+}
+
 function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null) {
   const M = 24
   const pageW = doc.internal.pageSize.getWidth()
@@ -79,14 +100,12 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   // Left: Ship From / Ship To
   let ly = headTop + 12
   bold(doc, 'Ship From:', lx + 4, ly, 7.5); ly += 12
-  bold(doc, d.shipFromName, lx + 4, ly, 8.5); ly += 11
-  d.shipFromAddress.split('\n').forEach(l => { if (l.trim()) { norm(doc, l, lx + 4, ly, 8); ly += 10 } })
+  ly = addrLines(doc, d.shipFromName, d.shipFromAddress, lx + 4, ly, colW - 10, headTop + headH / 2 - 2)
   ly = headTop + headH / 2
   line(doc, lx, ly, lx + colW, ly)
   ly += 12
   bold(doc, 'Ship To:', lx + 4, ly, 7.5); ly += 12
-  bold(doc, d.shipToName, lx + 4, ly, 8.5); ly += 11
-  d.shipToAddress.split('\n').forEach(l => { if (l.trim()) { norm(doc, l, lx + 4, ly, 8); ly += 10 } })
+  ly = addrLines(doc, d.shipToName, d.shipToAddress, lx + 4, ly, colW - 10, headTop + headH - 2)
 
   // Right: date/bol/carrier + special instructions
   let ry = headTop + 12
