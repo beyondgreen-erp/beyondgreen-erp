@@ -87,7 +87,7 @@ interface Product { id: string; sku: string; product_name: string; unit_cost: nu
 interface Customer { id: string; company_name: string }
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const SECTIONS = ['Walmart','Chewy','Make To Stock','Private Label','Straw Orders','Customer DropShip','Injection Molding','Paper Products','Outsourced']
+const SECTIONS = ['Chewy','Make To Stock','Private Label','Straw Orders','Customer DropShip','Injection Molding','Paper Products','Outsourced']
 const SECTION_TABS = ['All', ...SECTIONS]
 const SECTION_COLORS: Record<string,string> = { 'Walmart':'#0071CE','Chewy':'#1C49C2','Make To Stock':'#037f4c','Private Label':'#784bd1','Straw Orders':'#ff6d3b','Customer DropShip':'#216edf','Injection Molding':'#bb3354','Paper Products':'#cab641','Outsourced':'#7e3b8a' }
 const STATUSES = [
@@ -1235,7 +1235,7 @@ export default function OrdersPage() {
     ])
     if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) { setUserEmail(data.user.email); sb.from('erp_user_roles').select('role').eq('email', data.user.email).maybeSingle().then(({ data: r }) => setUserRole((r as any)?.role || '')) } }) }
     if (oErr) setLoadError('Failed to load orders: ' + oErr.message)
-    else if (o) setOrders(o as SalesOrder[])
+    else if (o) setOrders((o as SalesOrder[]).filter(so => (so.order_section ?? '') !== 'Walmart'))  // Walmart orders live on the dedicated Walmart Orders tab; excluded here to avoid duplication
     if (c) setCustomers(c as Customer[])
     if (p) setProducts(p as Product[])
     if (fl) {
