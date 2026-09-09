@@ -641,6 +641,22 @@ export default function QuotationsPage() {
     }
   }
 
+  async function doRevertToQuote(quote: Quote) {
+    if (!confirm(`Revert ${quote.quote_number} back to an editable quote?\n\nThis sets the quote back to Accepted and removes its linked sales order \u2014 but only if that order has no shipments, invoices, or work orders yet. You can then edit and re-convert it.`)) return
+    setSaving(true)
+    try {
+      const { error } = await supabase.rpc('revert_quote_conversion', { p_quote_id: quote.id })
+      if (error) { alert(error.message.replace(/^ORDER_IN_USE:\s*/, '')); return }
+      setConfirmConvert(null)
+      closePanel()
+      fetchQuotes()
+    } catch (e: any) {
+      alert('Revert failed: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function bulkDelete() {
     if (!confirm(`Delete ${selected.size} quotations?`)) return
     setDeleting(true)
@@ -1372,6 +1388,19 @@ export default function QuotationsPage() {
                 >
                   <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
                   <span>Convert to SO</span>
+                </button>
+              )}
+
+              {editing && editing.status === 'Converted' && (
+                <button
+                  onClick={() => doRevertToQuote(editing)}
+                  disabled={saving}
+                  className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap transition-colors hover:opacity-90 flex items-center gap-1.5 disabled:opacity-50"
+                  style={{ background: '#FEF3C7', color: '#B45309' }}
+                  title="Revert this converted quote back to an editable Accepted quote (removes the linked sales order if it has no shipments, invoices, or work orders)"
+                >
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 010 10h-3m-7-10l4-4m-4 4l4 4" /></svg>
+                  <span>{saving ? 'Reverting\u2026' : 'Revert to Quote'}</span>
                 </button>
               )}
 
