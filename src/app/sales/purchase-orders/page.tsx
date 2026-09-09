@@ -680,8 +680,8 @@ th{background:#eef5f0}
                                 <input type="date" value={it.date_ordered ?? ''} onChange={e => updateDetailItem(idx, 'date_ordered', e.target.value)} className={inp} />
                               </div>
                               <div>
-                                <label className={lbl}>Total Received</label>
-                                <input value={it.total_received ?? ''} onChange={e => updateDetailItem(idx, 'total_received', e.target.value)} className={inp + ' text-right'} />
+                                <label className={lbl + ' text-emerald-600 font-semibold'}>Total Received</label>
+                                <input inputMode="decimal" placeholder="Enter qty received" value={it.total_received ?? ''} onChange={e => updateDetailItem(idx, 'total_received', e.target.value)} className={inpBig + ' text-right font-semibold text-emerald-700 border-emerald-400 bg-emerald-50/50 focus:border-emerald-500'} />
                               </div>
                               <div>
                                 <label className={lbl}>Date Received</label>
