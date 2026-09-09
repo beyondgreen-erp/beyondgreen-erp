@@ -37,6 +37,11 @@ export default function WorkOrdersPage() {
   const [loading, setLoading] = useState(true)
   const [userEmail, setUserEmail] = useState('')
   const [detail, setDetail] = useState<WO | null>(null)
+  const [woProduct, setWoProduct] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null; unit_of_measure: string | null } | null>(null)
+  const [fgMoves, setFgMoves] = useState<{ created_at: string; qty: number; uom: string | null; created_by: string | null }[]>([])
+  const [booking, setBooking] = useState(false)
+  const fmtN = (n: any) => (n === null || n === undefined || n === '') ? '\u2014' : Number(n).toLocaleString()
+  const fgBooked = fgMoves.reduce((s, m) => s + Number(m.qty || 0), 0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -50,6 +55,20 @@ export default function WorkOrdersPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Load the linked finished-goods product + any FG already booked from this work order.
+  useEffect(() => {
+    if (!detail) { setWoProduct(null); setFgMoves([]); return }
+    const pid = (detail as any).product_id as string | null
+    ;(async () => {
+      if (pid) {
+        const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty,unit_of_measure').eq('id', pid).maybeSingle()
+        setWoProduct((pr as any) || null)
+      } else setWoProduct(null)
+      const { data: mv } = await sb.from('inventory_movements').select('created_at,qty,uom,created_by').eq('ref_table', 'work_orders').eq('ref_id', detail.id).eq('movement_type', 'produce').order('created_at')
+      setFgMoves((mv as any[]) || [])
+    })()
+  }, [detail])
 
   const openDetail = useCallback((wo: WO) => setDetail(wo), [])
   useItemDeepLink(orders, openDetail)
@@ -77,6 +96,32 @@ export default function WorkOrdersPage() {
     if (DONE_STATUSES.includes(status) && wo.sales_order_id) {
       try { await checkOrderReadyToShip(wo.sales_order_id) } catch { /* non-blocking */ }
     }
+  }
+
+  // Explicit \u201cClose & Book FG\u201d \u2014 books produced finished goods into inventory with a ledger entry (idempotent per booking).
+  async function bookFG() {
+    if (!detail) return
+    const pid = (detail as any).product_id
+    if (!pid) { alert('No finished-goods product is linked to this work order, so there is nothing to book. Link a product on the order first.'); return }
+    const remaining = Math.max(0, Number((detail as any).qty_ordered || 0) - fgBooked)
+    const suggested = remaining || Number((detail as any).qty_ordered || 0) || ''
+    const input = window.prompt('Quantity of finished goods to book into inventory for WO-' + detail.wo_number + ':', String(suggested))
+    if (input == null) return
+    const qty = Number(input)
+    if (!qty || qty <= 0) { alert('Enter a quantity greater than zero.'); return }
+    setBooking(true)
+    try {
+      const { data, error } = await sb.rpc('post_wo_fg', { p_wo_id: detail.id, p_qty: qty, p_user: userEmail || null })
+      if (error) { alert('Could not book finished goods: ' + error.message); return }
+      const r: any = data
+      alert('\u2713 Booked ' + qty + ' into inventory for ' + (r?.sku || 'item') + '. On-hand is now ' + (r?.on_hand ?? '\u2014') + '.')
+      const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty,unit_of_measure').eq('id', pid).maybeSingle()
+      setWoProduct((pr as any) || null)
+      const { data: mv } = await sb.from('inventory_movements').select('created_at,qty,uom,created_by').eq('ref_table', 'work_orders').eq('ref_id', detail.id).eq('movement_type', 'produce').order('created_at')
+      setFgMoves((mv as any[]) || [])
+      load()
+    } catch (e: any) { alert('Could not book finished goods: ' + (e?.message || e)) }
+    finally { setBooking(false) }
   }
 
   const q = orders.filter(o => o.status === 'Queued')
@@ -169,6 +214,23 @@ export default function WorkOrdersPage() {
                   <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{detail.notes}</p>
                 </div>
               )}
+              <div className="border-t border-gray-100 pt-4">
+                <label className="block text-xs text-gray-400 mb-1.5">Finished Goods \u2192 Inventory</label>
+                {(detail as any).product_id ? (
+                  <div className="text-sm text-gray-700 space-y-1">
+                    <p><span className="font-mono text-emerald-700">{woProduct?.sku ?? '\u2014'}</span>{woProduct?.product_name ? ' \u00b7 ' + woProduct.product_name : ''}</p>
+                    <p className="text-xs text-gray-500">Ordered {fmtN((detail as any).qty_ordered)} \u00b7 Booked to inventory {fmtN(fgBooked)} \u00b7 On hand {fmtN(woProduct?.on_hand_qty)}</p>
+                    {fgMoves.length > 0 && (
+                      <ul className="text-xs text-gray-500 mt-1 space-y-0.5">
+                        {fgMoves.map((m, i) => (<li key={i}>+{fmtN(m.qty)} {m.uom || ''} \u00b7 {new Date(m.created_at).toLocaleDateString()}{m.created_by ? ' \u00b7 ' + m.created_by : ''}</li>))}
+                      </ul>
+                    )}
+                    <button onClick={bookFG} disabled={booking} className="mt-2 px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">{booking ? 'Booking\u2026' : 'Close & Book FG'}</button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-600">No finished-goods product is linked to this work order, so FG can\u2019t be booked to inventory. Link a product on the order first.</p>
+                )}
+              </div>
               <div className="border-t border-gray-100 pt-4">
                 <FileUpload supabase={sb} recordType="work_order" recordId={detail.id} currentUserEmail={userEmail} />
               </div>
