@@ -738,7 +738,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
       </div>
 
       {selected.size > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-[#3B6FE0]/30 bg-[#3B6FE0]/8 px-3 py-2">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[95vw] flex flex-wrap items-center gap-2 rounded-2xl border border-[#3B6FE0]/40 bg-white shadow-xl px-4 py-3">
           <span className="text-[12px] font-semibold text-[#1A1D2E]">{selected.size} selected</span>
           <select disabled={bulkBusy} defaultValue="" onChange={e => { const v = e.target.value; e.target.value = ''; if (v) bulkApply({ status: v }) }}
             className="text-[12px] border border-[#E4E6EE] rounded-lg px-2 py-1.5 bg-white cursor-pointer">
