@@ -23,7 +23,7 @@ interface WOrder {
   carrier: string | null; scac: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
-  updated_at: string | null; created_at: string | null; sales_order_id: string | null
+  updated_at: string | null; created_at: string | null; sales_order_id: string | null; chep_submitted?: boolean | null; chep_submitted_at?: string | null
 }
 interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null; unit_price: number | null; case_price: number | null; distribution_price: number | null; wholesale_price: number | null }
 interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
@@ -564,6 +564,14 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
   // ── Drag & drop between groups ─────────────────────────────────────────────
   // Bulk edit — apply one change to every ticked PO instead of opening each in turn.
   const toggleSel = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  // CHEP portal upload status per PO — toggled from the board; visible so it's clear which POs are submitted vs pending.
+  const toggleChep = async (r: WOrder) => {
+    const next = !r.chep_submitted
+    const at = next ? new Date().toISOString() : null
+    setRows(rs => rs.map(x => x.id === r.id ? { ...x, chep_submitted: next, chep_submitted_at: at } : x))
+    const { error } = await sb.from('walmart_board_orders').update({ chep_submitted: next, chep_submitted_at: at }).eq('id', r.id)
+    if (error) { alert('Could not update CHEP status: ' + error.message); await load() }
+  }
   const setGroupSel = (ids: string[], on: boolean) => setSelected(s => {
     const n = new Set(s); ids.forEach(id => (on ? n.add(id) : n.delete(id))); return n
   })
@@ -753,6 +761,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
             <input disabled={bulkBusy} type="date" onChange={e => { const v = e.target.value; if (v) { bulkApply({ ship_due_date: v }); e.target.value = '' } }}
               className="text-[12px] border border-[#E4E6EE] rounded-lg px-2 py-1.5 bg-white" />
           </label>
+          <button disabled={bulkBusy} onClick={() => bulkApply({ chep_submitted: true, chep_submitted_at: new Date().toISOString() })} className="text-[12px] border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg px-2 py-1.5">Mark CHEP submitted</button>
           <button onClick={() => setSelected(new Set())} className="ml-auto text-[12px] text-gray-500 hover:text-gray-800 px-2 py-1.5">Clear</button>
           <span className="text-[11px] text-gray-400 w-full">Carrier and SCAC apply on Enter. Changing status moves the orders into the matching group.</span>
         </div>
@@ -866,6 +875,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                           <th className="text-left font-semibold px-3 py-1.5 min-w-[220px]">Ship To</th>
                           <th className="text-left font-semibold px-3 py-1.5 w-[110px]">Ship Due</th>
                           <th className="text-left font-semibold px-3 py-1.5 w-[100px]">Carrier</th>
+                          <th className="text-left font-semibold px-3 py-1.5 w-[90px]">CHEP</th>
                           <th className="text-right font-semibold px-3 py-1.5 w-[110px]">Total Value</th>
                           <th className="text-left font-semibold px-3 py-1.5 w-[70px]">Files</th>
                           <th className="text-left font-semibold px-3 py-1.5 w-[80px]">Comments</th>
@@ -892,13 +902,19 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                               <td className="px-3 py-1.5 text-[12px] text-gray-500 truncate max-w-[260px]">{r.ship_to || '—'}</td>
                               <td className="px-3 py-1.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
                               <td className="px-3 py-1.5 text-[13px] text-gray-600">{r.carrier || '—'}</td>
-                              <td className="px-3 py-1.5 text-[13px] text-gray-700 text-right font-semibold">{(() => { const t = orderTotal(r); return t != null ? fmt$(t) : '—' })()}</td>
+                              <td className="px-3 py-1.5" onClick={e => e.stopPropagation()}>
+                                <button onClick={() => toggleChep(r)} title={r.chep_submitted ? `CHEP submitted${r.chep_submitted_at ? ' ' + fmtD(r.chep_submitted_at) : ''} — click to mark pending` : 'Mark CHEP upload submitted'}
+                                  className={`text-[11px] font-semibold rounded-full px-2 py-0.5 border transition-colors ${r.chep_submitted ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-50 text-gray-400 border-[#E4E6EE] hover:bg-gray-100'}`}>
+                                  {r.chep_submitted ? '✓ CHEP' : 'CHEP ⏳'}
+                              </button>
+                            </td>
+                            <td className="px-3 py-1.5 text-[13px] text-gray-700 text-right font-semibold">{(() => { const t = orderTotal(r); return t != null ? fmt$(t) : '—' })()}</td>
                               <td className="px-3 py-1.5">{nf2 ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nf2}</span> : <span className="text-gray-300">—</span>}</td>
                               <td className="px-3 py-1.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
                             </tr>
                           )
                         })}
-                        {gr.length === 0 && <tr><td colSpan={12} className="px-4 py-4 text-center text-gray-400 text-xs italic">{draggedId ? 'Drop here to move the order into this group' : 'No orders'}</td></tr>}
+                        {gr.length === 0 && <tr><td colSpan={13} className="px-4 py-4 text-center text-gray-400 text-xs italic">{draggedId ? 'Drop here to move the order into this group' : 'No orders'}</td></tr>}
                       </tbody>
                     </table>
                   </div>
