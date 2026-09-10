@@ -154,7 +154,7 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
     doc.text('Package', (xOf[2] + xOf[4]) / 2, y + 8, { align: 'center' })
     doc.text('LTL Only', (xOf[7] + R) / 2, y + 8, { align: 'center' })
     cols.forEach((c, i) => doc.text(c.t, xOf[i] + c.w / 2, y + 18, { align: 'center', maxWidth: c.w - 2 }))
-    cols.forEach((c, i) => { if (i > 0) line(doc, xOf[i], y, xOf[i], y + headerH) })
+    cols.forEach((c, i) => { if (i > 0) { const inner = (i === 1 || i === 3 || i === 8); line(doc, xOf[i], inner ? y + 11 : y, xOf[i], y + headerH) } })
     y += headerH
   }
   drawTableHeader()
