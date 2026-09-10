@@ -9,6 +9,7 @@ import ImportExportBar from '@/components/ImportExportBar'
 interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean;
   make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null }
 const STATUSES = ['Running','Idle','Maintenance','Down']
+interface RunningJob { wo_number: string | number; status: string; customer: string | null; order_number: string | null }
 const SC: Record<string,string> = { Running:'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', Idle:'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]', Maintenance:'bg-amber-500/15 text-amber-400 border-amber-500/20', Down:'bg-red-500/15 text-red-400 border-red-500/20' }
 const DOT: Record<string,string> = { Running:'bg-emerald-400', Idle:'bg-gray-500', Maintenance:'bg-amber-400', Down:'bg-red-400' }
 const empty = { name:'', machine_code:'', status:'Idle', location:'', notes:'',
@@ -19,6 +20,7 @@ function dbErr(e:{code?:string;message:string;hint?:string}){console.error(e);re
 export default function MachineStatusPage() {
   const sb=useMemo(()=>createSupabaseBrowserClient(),[])
   const [rows,setRows]=useState<Machine[]>([])
+  const [jobs,setJobs]=useState<Record<string,RunningJob>>({})
   const [loading,setLoading]=useState(true)
   const [search,setSearch]=useState('')
   const [archived,setArchived]=useState(false)
@@ -30,7 +32,26 @@ export default function MachineStatusPage() {
   const [err,setErr]=useState('')
   const ref=useRef<HTMLDivElement>(null)
 
-  async function load(){setLoading(true);const{data}=await sb.from('machines').select('*').order('name');if(data)setRows(data as Machine[]);setLoading(false)}
+  async function load(){
+    setLoading(true)
+    const{data}=await sb.from('machines').select('*').order('name')
+    if(data)setRows(data as Machine[])
+    const{data:wos}=await sb.from('work_orders')
+      .select('wo_number,status,machine_id,sales_orders!work_orders_sales_order_id_fkey(order_number,customers(company_name))')
+      .not('machine_id','is',null)
+      .order('created_at',{ascending:false})
+    const map:Record<string,RunningJob>={}
+    const CLOSED=['Complete','QC Passed','Cancelled']
+    for(const w of ((wos??[]) as any[])){
+      if(CLOSED.includes(w.status))continue
+      const mid=w.machine_id as string
+      const job:RunningJob={wo_number:w.wo_number,status:w.status,customer:w.sales_orders?.customers?.company_name??null,order_number:w.sales_orders?.order_number??null}
+      // keep the In Progress one if there is one, else the first (newest) seen
+      if(!map[mid]||(job.status==='In Progress'&&map[mid].status!=='In Progress'))map[mid]=job
+    }
+    setJobs(map)
+    setLoading(false)
+  }
   useEffect(()=>{load()},[]) // eslint-disable-line
 
   const filtered=rows.filter(r=>{
@@ -100,7 +121,7 @@ export default function MachineStatusPage() {
       <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto">
         {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
         :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived machines.':'No machines yet.'}</p></div>
-        :<table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b border-[#E4E6EE]">{['Machine Name','Code','Status','Department','Type','Location','Serial No.','Notes'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
+        :<table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b border-[#E4E6EE]">{['Machine Name','Code','Status','Department','Type','Location','Customer','Notes'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
         <tbody>{filtered.map((r,i)=><tr key={r.id} onClick={()=>openEdit(r)} className={`border-b border-[#E4E6EE]/60 last:border-0 cursor-pointer hover:bg-[#F9FAFB] transition-colors ${i%2===0?'':'bg-[#F5F6FA]/10'}`}>
           <td className="px-5 py-3.5 text-[#1A1D2E] font-medium">{r.name}</td>
           <td className="px-5 py-3.5 text-gray-400 font-mono text-xs">{r.machine_code}</td>
@@ -108,7 +129,19 @@ export default function MachineStatusPage() {
           <td className="px-5 py-3.5 text-gray-500 text-xs">{r.equipment_group||'—'}</td>
           <td className="px-5 py-3.5 text-gray-500 text-xs">{r.equipment_type||'—'}</td>
           <td className="px-5 py-3.5 text-gray-400">{r.location||'—'}</td>
-          <td className="px-5 py-3.5 text-gray-400 font-mono text-xs" title={[r.make,r.model].filter(Boolean).join(' ')||undefined}>{r.serial_number||'—'}</td>
+          <td className="px-5 py-3.5 text-xs" title={r.serial_number ? `Serial ${r.serial_number}` : undefined}>{(() => {
+            const j = jobs[r.id]
+            if (!j) return <span className="text-gray-300">—</span>
+            // 18 of 357 sales orders have no customer linked; fall back to the order number
+            // so the column always says which job is on the machine.
+            const label = j.customer || j.order_number || `WO-${j.wo_number}`
+            return (
+              <div className="leading-tight">
+                <span className="text-[#1A1D2E] font-medium">{label}</span>
+                <span className="block text-[10px] text-gray-400">WO-{j.wo_number}{j.status !== 'In Progress' ? ` · ${j.status}` : ''}</span>
+              </div>
+            )
+          })()}</td>
           <td className="px-5 py-3.5 text-gray-500 text-xs truncate max-w-xs">{r.notes||'—'}</td>
         </tr>)}</tbody></table>}
       </div>
