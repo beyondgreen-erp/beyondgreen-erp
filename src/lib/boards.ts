@@ -48,6 +48,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode', nav_group: 'Production', href: '/production/lots', sort_order: 5 },
   { board_key: '/production/machine-status', label: 'Machine Status', icon: 'ti-settings-cog', nav_group: 'Production', href: '/production/machine-status', sort_order: 6 },
   { board_key: '/production/capacity-plan', label: 'Capacity Plan', icon: 'ti-chart-bar', nav_group: 'Production', href: '/production/capacity-plan', sort_order: 7 },
+  { board_key: '/production/rates', label: 'Production Rates', icon: 'ti-gauge', nav_group: 'Production', href: '/production/rates', sort_order: 8 },
   { board_key: '/sales/inventory', label: 'Products & Inventory', icon: 'ti-box', nav_group: 'Inventory', href: '/sales/inventory', sort_order: 0 },
   { board_key: '/operations/private-label-stock', label: 'Warehouse Stock', icon: 'ti-tag', nav_group: 'Inventory', href: '/operations/private-label-stock', sort_order: 1 },
   { board_key: '/imports', label: 'Import Tracker', icon: 'ti-ship', nav_group: 'Inventory', href: '/imports', sort_order: 2 },

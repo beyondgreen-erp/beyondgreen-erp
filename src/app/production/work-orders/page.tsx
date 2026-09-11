@@ -7,6 +7,7 @@ import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 import { checkOrderReadyToShip } from '@/lib/orderFlow'
 import ExportButton from '@/components/ExportButton'
+import RunEntry from '@/components/RunEntry'
 
 const sb = createSupabaseBrowserClient()
 
@@ -266,6 +267,14 @@ export default function WorkOrdersPage() {
                 </select>
                 <p className="text-[11px] text-gray-400 mt-1.5">
                   Setting this work order to In Progress marks the machine Running on Machine Status; closing it sets the machine back to Idle.
+                </p>
+              </div>
+              <div className="border-t border-gray-100 pt-4">
+                <label className="block text-xs text-gray-400 mb-2">Production Steps &amp; Actual Run Time</label>
+                <RunEntry workOrderId={detail.id} productId={(detail as any).product_id} userEmail={userEmail} />
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Run time is captured from the status buttons above. If a job was not clocked at the
+                  time, enter the actual hours by hand — typed hours win, and the rate is learned either way.
                 </p>
               </div>
               {detail.notes && (

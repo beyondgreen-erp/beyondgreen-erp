@@ -46,6 +46,8 @@ interface Product {
   print_color: string | null
   pieces_per_pack: number | null
   packs_per_case: number | null
+  bag_length_in: number | null
+  bag_width_in: number | null
   case_size: string | null
   case_weight: string | null
   cases_per_pallet: number | null
@@ -125,6 +127,8 @@ const emptyForm = {
   print_color: '',
   pieces_per_pack: '',
   packs_per_case: '',
+  bag_length_in: '',
+  bag_width_in: '',
   case_size: '',
   case_weight: '',
   cases_per_pallet: '',
@@ -389,6 +393,8 @@ const EditPanel = memo(function EditPanel({
                 ['Print Color', 'print_color'],
                 ['Pieces Per Pack', 'pieces_per_pack'],
                 ['Packs Per Case', 'packs_per_case'],
+                ['Bag Length (in)', 'bag_length_in'],
+                ['Bag Width (in)', 'bag_width_in'],
                 ['Case Size', 'case_size'],
                 ['Case Weight', 'case_weight'],
                 ['Cases Per Pallet', 'cases_per_pallet'],
@@ -703,6 +709,8 @@ export default function InventoryPage() {
       print_color: r.print_color ?? '',
       pieces_per_pack: r.pieces_per_pack != null ? String(r.pieces_per_pack) : '',
       packs_per_case: r.packs_per_case != null ? String(r.packs_per_case) : '',
+      bag_length_in: r.bag_length_in != null ? String(r.bag_length_in) : '',
+      bag_width_in: r.bag_width_in != null ? String(r.bag_width_in) : '',
       case_size: r.case_size ?? '',
       case_weight: r.case_weight ?? '',
       cases_per_pallet: r.cases_per_pallet != null ? String(r.cases_per_pallet) : '',
@@ -755,6 +763,8 @@ export default function InventoryPage() {
       print_color: form.print_color.trim() || null,
       pieces_per_pack: form.pieces_per_pack ? parseInt(form.pieces_per_pack) : null,
       packs_per_case: form.packs_per_case ? parseInt(form.packs_per_case) : null,
+      bag_length_in: form.bag_length_in ? parseFloat(form.bag_length_in) : null,
+      bag_width_in: form.bag_width_in ? parseFloat(form.bag_width_in) : null,
       case_size: form.case_size.trim() || null,
       case_weight: form.case_weight.trim() || null,
       cases_per_pallet: form.cases_per_pallet ? parseInt(form.cases_per_pallet) : null,
