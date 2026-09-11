@@ -131,7 +131,7 @@ export default function WorkOrdersPage() {
     }
   }
 
-  // Explicit \u201cClose & Book FG\u201d \u2014 books produced finished goods into inventory with a ledger entry (idempotent per booking).
+  // Explicit “Close & Book FG” — books produced finished goods into inventory with a ledger entry (idempotent per booking).
   async function bookFG() {
     if (!detail) return
     const pid = (detail as any).product_id
@@ -284,14 +284,14 @@ export default function WorkOrdersPage() {
                 </div>
               )}
               <div className="border-t border-gray-100 pt-4">
-                <label className="block text-xs text-gray-400 mb-1.5">Finished Goods \u2192 Inventory</label>
+                <label className="block text-xs text-gray-400 mb-1.5">Finished Goods → Inventory</label>
                 {(detail as any).product_id ? (
                   <div className="text-sm text-gray-700 space-y-1">
                     <p><span className="font-mono text-emerald-700">{woProduct?.sku ?? '\u2014'}</span>{woProduct?.product_name ? ' \u00b7 ' + woProduct.product_name : ''}</p>
-                    <p className="text-xs text-gray-500">Ordered {fmtN((detail as any).qty_ordered)} \u00b7 Booked to inventory {fmtN(fgBooked)} \u00b7 On hand {fmtN(woProduct?.on_hand_qty)}</p>
+                    <p className="text-xs text-gray-500">Ordered {fmtN((detail as any).qty_ordered)} · Booked to inventory {fmtN(fgBooked)} · On hand {fmtN(woProduct?.on_hand_qty)}</p>
                     {fgMoves.length > 0 && (
                       <ul className="text-xs text-gray-500 mt-1 space-y-0.5">
-                        {fgMoves.map((m, i) => (<li key={i}>+{fmtN(m.qty)} {m.uom || ''} \u00b7 {new Date(m.created_at).toLocaleDateString()}{m.created_by ? ' \u00b7 ' + m.created_by : ''}</li>))}
+                        {fgMoves.map((m, i) => (<li key={i}>+{fmtN(m.qty)} {m.uom || ''} · {new Date(m.created_at).toLocaleDateString()}{m.created_by ? ' \u00b7 ' + m.created_by : ''}</li>))}
                       </ul>
                     )}
                     <button onClick={bookFG} disabled={booking} className="mt-2 px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">{booking ? 'Booking\u2026' : 'Close & Book FG'}</button>
