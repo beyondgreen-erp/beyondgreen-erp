@@ -456,12 +456,17 @@ export default function WalmartBoard() {
 
   async function genBOL(order: WOrder) {
     const ls = lines[order.id] || []
-    const totalCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
-    const totalPallets = palletCountFor(order)
+    const derivedCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
+    const derivedPallets = palletCountFor(order)
+    // What the board says wins; the derived counts are the fallback.
+    const totalPallets = Number(order.qty) || derivedPallets
+    const totalCases = Number(order.qty2) || derivedCases
+    const handlingType = (order.pkg_type || '').trim() || 'Pallet'
+    const packageType = (order.pkg_type2 || '').trim() || 'Case'
     const commodity = order.commodity_description || DEFAULT_COMMODITY
     const bolLines: BolLine[] = [{
-      handlingQty: totalPallets || undefined, handlingType: 'Pallet',
-      packageQty: totalCases || undefined, packageType: 'Case',
+      handlingQty: totalPallets || undefined, handlingType,
+      packageQty: totalCases || undefined, packageType,
       weight: Number(order.weight) || undefined, commodityDescription: commodity, kind: 'line',
     }]
     const doc = buildBOL({
@@ -502,8 +507,8 @@ export default function WalmartBoard() {
       const per = Number(l.qty_per_case) || UNITS_PER_SRP
       return { sku: l.part_number || '', description: skuInfo(l.part_number)?.product_name || undefined, caseCount: q, unitsInCase: per, units: q * per, uom: l.uom || 'SRP', orderedUnits: q, shippedUnits: q }
     })
-    const totalCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
-    const totalPallets = palletCountFor(order)
+    const totalCases = Number(order.qty2) || ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
+    const totalPallets = Number(order.qty) || palletCountFor(order)
     const pls = (pallets[order.id] || []).map(p => ({
       number: p.pallet_number,
       lines: (palletItems[p.id] || []).map(it => ({ sku: it.sku, cases: Number(it.qty) || 0, units: (Number(it.qty) || 0) * UNITS_PER_SRP })),
