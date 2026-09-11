@@ -463,6 +463,11 @@ export default function WalmartBoard() {
     const totalCases = Number(order.qty2) || derivedCases
     const handlingType = (order.pkg_type || '').trim() || 'Pallet'
     const packageType = (order.pkg_type2 || '').trim() || 'Case'
+    // The BOL Date column on the board is the date on the document. Printing today's date
+    // instead means a BOL raised ahead of pickup carries the wrong date every time.
+    const bolDate = order.bol_date
+      ? new Date(String(order.bol_date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     const commodity = order.commodity_description || DEFAULT_COMMODITY
     const bolLines: BolLine[] = [{
       handlingQty: totalPallets || undefined, handlingType,
@@ -471,7 +476,7 @@ export default function WalmartBoard() {
     }]
     const doc = buildBOL({
       bolNumber: order.bol2 || ('BOL-' + (order.po_number || new Date().toISOString().slice(0, 10))),
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      date: bolDate,
       shipFromName: SHIP_FROM_NAME, shipFromAddress: order.ship_from || SHIP_FROM_ADDR,
       shipToName: ((order.ship_to || 'Walmart').split(/[,\n]/)[0] || 'Walmart').trim(),
       shipToAddress: order.ship_to || '',

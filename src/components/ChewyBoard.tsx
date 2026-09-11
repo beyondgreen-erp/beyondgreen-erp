@@ -20,7 +20,7 @@ interface WOrder {
   order_date: string | null; ship_due_date: string | null; load_number: string | null; facility: string | null
   srp: number | null; units: number | null; pallets: string | null; work_order: string | null; lot: string | null
   po_number: string | null; ship_to: string | null; ship_from: string | null; bol_date: string | null; bol2: string | null
-  carrier: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
+  carrier: string | null; scac: string | null; trailer_no: string | null; seal_number: string | null; special_instructions: string | null
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
   updated_at: string | null; created_at: string | null
@@ -82,6 +82,7 @@ const FIELDS: { key: keyof WOrder; label: string; kind: FKind; wide?: boolean }[
   { key: 'po_number', label: 'PO #', kind: 'text' },
   { key: 'load_number', label: 'Load #', kind: 'text' },
   { key: 'carrier', label: 'Carrier', kind: 'text' },
+  { key: 'scac', label: 'SCAC', kind: 'text' },
   { key: 'bol2', label: 'BOL #', kind: 'text' },
   { key: 'bol_date', label: 'BOL Date', kind: 'date' },
   { key: 'trailer_no', label: 'Trailer No', kind: 'text' },
@@ -90,7 +91,9 @@ const FIELDS: { key: keyof WOrder; label: string; kind: FKind; wide?: boolean }[
   { key: 'units', label: 'Units', kind: 'num' },
   { key: 'pallets', label: 'Pallets', kind: 'text' },
   { key: 'qty', label: 'Qty (PLT)', kind: 'num' },
+  { key: 'pkg_type', label: 'Pkg Type', kind: 'text' },
   { key: 'qty2', label: 'Qty 2 (CS)', kind: 'num' },
+  { key: 'pkg_type2', label: 'Pkg Type 2', kind: 'text' },
   { key: 'weight', label: 'Weight (lbs)', kind: 'num' },
   { key: 'total_value', label: 'Total Value', kind: 'money' },
   { key: 'work_order', label: 'Work Order #', kind: 'text' },
@@ -412,21 +415,32 @@ export default function ChewyBoard() {
 
   function genBOL(order: WOrder) {
     const ls = lines[order.id] || []
-    const totalCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
-    const totalPallets = palletCountFor(order)
+    const derivedCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
+    const derivedPallets = palletCountFor(order)
+    // What the board says wins; the derived counts are the fallback.
+    const totalPallets = Number(order.qty) || derivedPallets
+    const totalCases = Number(order.qty2) || derivedCases
+    const handlingType = (order.pkg_type || '').trim() || 'Pallet'
+    const packageType = (order.pkg_type2 || '').trim() || 'Case'
+    // The BOL Date column on the board is the date on the document. Printing today's date
+    // instead means a BOL raised ahead of pickup carries the wrong date every time.
+    const bolDate = order.bol_date
+      ? new Date(String(order.bol_date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     const commodity = order.commodity_description || DEFAULT_COMMODITY
     const bolLines: BolLine[] = [{
-      handlingQty: totalPallets || undefined, handlingType: 'Pallet',
-      packageQty: totalCases || undefined, packageType: 'Case',
+      handlingQty: totalPallets || undefined, handlingType,
+      packageQty: totalCases || undefined, packageType,
       weight: Number(order.weight) || undefined, commodityDescription: commodity, kind: 'line',
     }]
     const doc = buildBOL({
       bolNumber: order.bol2 || ('BOL-' + (order.po_number || new Date().toISOString().slice(0, 10))),
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      date: bolDate,
       shipFromName: SHIP_FROM_NAME, shipFromAddress: order.ship_from || SHIP_FROM_ADDR,
       shipToName: ((order.ship_to || 'Chewy').split(/[,\n]/)[0] || 'Chewy').trim(),
       shipToAddress: order.ship_to || '',
-      carrierName: order.carrier || undefined, trailerNo: order.trailer_no || undefined, sealNumber: order.seal_number || undefined,
+      carrierName: order.carrier || undefined, scac: order.scac || undefined,
+      trailerNo: order.trailer_no || undefined, sealNumber: order.seal_number || undefined,
       freightTerms: 'Prepaid', totalPallets, totalCases, totalWeight: Number(order.weight) || 0,
       declaredValue: Number(order.total_value) || undefined,
       poNote: order.po_number ? ('PO ' + order.po_number) : undefined,
@@ -442,8 +456,8 @@ export default function ChewyBoard() {
       const per = Number(l.qty_per_case) || UNITS_PER_SRP
       return { sku: l.part_number || '', description: skuInfo(l.part_number)?.product_name || undefined, caseCount: q, unitsInCase: per, units: q * per, uom: l.uom || 'SRP', orderedUnits: q, shippedUnits: q }
     })
-    const totalCases = ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
-    const totalPallets = palletCountFor(order)
+    const totalCases = Number(order.qty2) || ls.reduce((a, l) => a + (Number(l.qty) || 0), 0)
+    const totalPallets = Number(order.qty) || palletCountFor(order)
     const pls = (pallets[order.id] || []).map(p => ({
       number: p.pallet_number,
       lines: (palletItems[p.id] || []).map(it => ({ sku: it.sku, cases: Number(it.qty) || 0, units: (Number(it.qty) || 0) * UNITS_PER_SRP })),
