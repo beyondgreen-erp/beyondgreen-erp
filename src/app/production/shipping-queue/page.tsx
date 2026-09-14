@@ -947,7 +947,7 @@ export default function ShippingQueuePage() {
             pid = (pf?.[0] as any)?.id ?? null
           }
           await sb.from('inventory_movements').insert({
-            product_id: pid, sku: r.sku, movement_type: 'ship', qty, uom: r.uom || null,
+            product_id: pid, sku: r.sku, movement_type: 'ship', qty: -qty, uom: r.uom || null,
             ref_table: 'shipments', ref_id: targetId,
             note: `Shipped on ${o.order_number || 'order'}${o.po_number ? ' / PO ' + o.po_number : ''} → ${st.name || 'customer'}`,
             created_by: userEmail || 'system',
