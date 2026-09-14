@@ -520,6 +520,10 @@ const EditPanel = memo(function EditPanel({
 export default function InventoryPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Product[]>([])
+  // Products whose unit of measure needs a person to settle it: either ordered in EA
+  // against a different stocking unit, or stocked in EA while carrying pack/case figures.
+  const [uomFlags, setUomFlags] = useState<Record<string, { fix: string; ea_line_count: number; units_seen: string | null; ea_on_orders: boolean }>>({})
+  const [onlyUomFlagged, setOnlyUomFlagged] = useState(false)
   useItemDeepLink(rows, openEdit)
   const [bomMap, setBomMap] = useState<Record<string, number>>({})
   const [allocMap, setAllocMap] = useState<Record<string, { qty: number; orders: number }>>({})
@@ -551,15 +555,17 @@ export default function InventoryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }, { data: mal }] = await Promise.all([
+    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }, { data: mal }, { data: uf }] = await Promise.all([
       sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('product_bom').select('finished_good_sku'),
       sb.from('product_zones').select('product_id'),
       sb.from('v_component_allocation_totals').select('component_sku, allocated_qty, open_orders'),
       sb.rpc('inventory_last_received'),
       sb.from('v_manual_allocation_totals').select('sku, allocated_qty'),
+      sb.from('product_uom_flags').select('sku, fix, ea_line_count, units_seen, ea_on_orders'),
     ])
     { const m: Record<string, string> = {}; for (const r of (lr as any[]) || []) { if (r.sku) m[r.sku] = r.last_received } setLastRecv(m) }
+    { const m: Record<string, any> = {}; for (const r of (uf as any[]) || []) { if (r.sku) m[r.sku] = r } setUomFlags(m) }
     if (pErr) { setLoadError(`Failed to load: ${pErr.message}`) }
     else if (p) { setRows(p as Product[]) }
     if (b) {
@@ -603,14 +609,15 @@ export default function InventoryPage() {
 
   // Search on top of tab pool
   const filtered = useMemo(() => {
+    const pool = onlyUomFlagged ? tabPool.filter(r => uomFlags[r.sku]) : tabPool
     const q = search.toLowerCase().trim()
-    if (!q) return tabPool
-    const exact  = tabPool.filter(r => r.sku.toLowerCase() === q)
-    const starts = tabPool.filter(r => r.sku.toLowerCase().startsWith(q) && r.sku.toLowerCase() !== q)
-    const contains = tabPool.filter(r => r.sku.toLowerCase().includes(q) && !r.sku.toLowerCase().startsWith(q))
-    const name   = tabPool.filter(r => (r.product_name ?? '').toLowerCase().includes(q) && !r.sku.toLowerCase().includes(q))
+    if (!q) return pool
+    const exact  = pool.filter(r => r.sku.toLowerCase() === q)
+    const starts = pool.filter(r => r.sku.toLowerCase().startsWith(q) && r.sku.toLowerCase() !== q)
+    const contains = pool.filter(r => r.sku.toLowerCase().includes(q) && !r.sku.toLowerCase().startsWith(q))
+    const name   = pool.filter(r => (r.product_name ?? '').toLowerCase().includes(q) && !r.sku.toLowerCase().includes(q))
     return [...exact, ...starts, ...contains, ...name]
-  }, [tabPool, search])
+  }, [tabPool, search, onlyUomFlagged, uomFlags])
 
   function exportInventory(list: Product[], scope: string) {
     const header = ['SKU','Product','Category','UOM','On Hand','Allocated','Available','Unit Cost','Inventory Value','UPC']
@@ -887,6 +894,15 @@ export default function InventoryPage() {
             className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
         </div>
         <span className="text-xs text-gray-400">{filtered.length} shown</span>
+        {Object.keys(uomFlags).length > 0 && (
+          <button onClick={() => setOnlyUomFlagged(v => !v)}
+            title="Products whose unit of measure and conversion still need setting"
+            className={`px-2.5 py-1.5 rounded-md text-[13px] font-medium border transition-colors ${onlyUomFlagged
+              ? 'bg-amber-500 text-white border-amber-500'
+              : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'}`}>
+            UOM to fix ({Object.keys(uomFlags).length})
+          </button>
+        )}
         <button onClick={() => exportInventory(filtered, tabFilter === 'All' ? 'All' : tabFilter)} className="px-2.5 py-1.5 rounded-md text-[13px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200">Export</button>
         <div className="flex items-center gap-1.5 ml-auto text-xs">
           <button onClick={() => setCollapsed(Object.fromEntries(PRODUCT_TAB_OPTIONS.concat('Uncategorized').map(g => [g, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
@@ -977,7 +993,18 @@ export default function InventoryPage() {
                                 <td className="px-3 py-3"><div className="flex items-center gap-2"><button title={zonedSet.has(p.id)?'Storage zone set — click to edit':'No storage zone — click to set'} onClick={e=>{e.stopPropagation(); setZoneProduct(p)}} className={`shrink-0 rounded-full ${zonedSet.has(p.id)?'':'animate-pulse'}`} style={{width:11,height:11,border:'none',cursor:'pointer',background:zonedSet.has(p.id)?'#10b981':'#3B82F6',boxShadow:zonedSet.has(p.id)?'none':'0 0 0 3px rgba(59,130,246,0.35)'}}/><span className="font-mono font-semibold text-[13px] text-[#0F7A4E] truncate block max-w-[130px] cursor-pointer" onClick={()=>openEdit(p)}>{p.sku}</span></div></td>
                                 <td className={`px-3 py-3 cursor-pointer text-[#1A1D2E] font-medium ${isDisc ? 'line-through text-gray-400' : ''}`} onClick={()=>openEdit(p)}><span className="block truncate max-w-[320px]">{p.product_name}</span>{lastRecv[p.sku] && <span className="block text-[10px] text-gray-400 font-normal mt-0.5">Rcvd {fmtDT(lastRecv[p.sku])}</span>}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{p.category ? <span className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-[#EEF2FB] text-[#3A4A6B] border border-[#DCE3F2] truncate inline-block max-w-[118px] align-middle">{p.category}</span> : <span className="text-gray-300">-</span>}</td>
-                                <td className="px-3 py-3 text-gray-500 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{p.unit_of_measure ?? '-'}</td>
+                                <td className="px-3 py-3 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{(() => {
+                                  const f = uomFlags[p.sku]
+                                  if (!f) return <span className="text-gray-500">{p.unit_of_measure ?? '-'}</span>
+                                  return (
+                                    <span className="inline-flex items-center gap-1" title={f.fix + (f.units_seen ? ` · Ordered in: ${f.units_seen}` : '')}>
+                                      <span className="text-gray-500">{p.unit_of_measure ?? '-'}</span>
+                                      <span className="px-1 rounded bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-semibold">
+                                        {f.ea_on_orders ? `EA \u00d7${f.ea_line_count}` : 'EA?'}
+                                      </span>
+                                    </span>
+                                  )
+                                })()}</td>
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
                                 <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{(() => {
                                   const a = allocMap[p.sku]?.qty || 0
