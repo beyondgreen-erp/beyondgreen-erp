@@ -98,6 +98,11 @@ const fmtV = (n: number) =>
 
 const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 
+// Fields the stock maths reads. Anything wrong in one of these moves the wrong
+// quantity of stock, so they are marked out from the descriptive fields around them.
+const inpCalc = 'w-full bg-white border-2 border-blue-400 text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
+const lblCalc = 'block text-xs font-semibold text-blue-700 mb-1.5'
+
 const emptyForm = {
   sku: '',
   our_part_number: '',
@@ -185,6 +190,18 @@ const EditPanel = memo(function EditPanel({
       setForm(p => ({ ...p, gtin_image_url: data.publicUrl }))
     } finally { setGtinUploading(false) }
   }
+  // What the conversion panel needs to describe itself.
+  const baseUom = normalizeUom(form.unit_of_measure) || 'EA'
+  const ladderLine = describeLadder({
+    unit_of_measure: form.unit_of_measure,
+    pieces_per_pack: Number(form.pieces_per_pack) || null,
+    packs_per_case: Number(form.packs_per_case) || null,
+    cases_per_pallet: Number(form.cases_per_pallet) || null,
+    case_qty: Number(form.case_qty) || null,
+  })
+  const zeroRung = ['pieces_per_pack', 'packs_per_case', 'cases_per_pallet']
+    .some(k => String((form as any)[k] ?? '').trim() === '0')
+
   const [productUploading, setProductUploading] = useState(false)
   async function uploadProductImage(file: File) {
     setProductUploading(true)
@@ -283,7 +300,7 @@ const EditPanel = memo(function EditPanel({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Unit of Measure</label>
+              <label className={lblCalc}>Unit of Measure <span className="text-blue-400 font-normal">· stocking unit</span></label>
               <select value={normalizeUom(form.unit_of_measure) ?? 'EA'} onChange={e => {
                 const v = e.target.value
                 if (v === ADD_NEW_UOM) {
@@ -292,7 +309,7 @@ const EditPanel = memo(function EditPanel({
                   return
                 }
                 setForm(p => ({ ...p, unit_of_measure: v }))
-              }} className={inp + ' cursor-pointer'}>
+              }} className={inpCalc + ' cursor-pointer'}>
                 {uomOptions(form.unit_of_measure).map(u => <option key={u} value={u}>{u}</option>)}
                 <option value={ADD_NEW_UOM}>+ Add new UOM&hellip;</option>
               </select>
@@ -308,8 +325,8 @@ const EditPanel = memo(function EditPanel({
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Stock & Cost</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">On Hand Qty</label>
-                <input type="number" min="0" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inp}/>
+                <label className={lblCalc}>On Hand Qty <span className="text-blue-400 font-normal">· counted in {baseUom}</span></label>
+                <input type="number" min="0" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inpCalc}/>
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Reorder Point</label>
@@ -317,8 +334,8 @@ const EditPanel = memo(function EditPanel({
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Unit Cost ($)</label>
-              <input type="number" min="0" step="0.0001" value={form.unit_cost} onChange={e => setForm(p => ({ ...p, unit_cost: e.target.value }))} className={inp}/>
+              <label className={lblCalc}>Unit Cost <span className="text-blue-400 font-normal">· $ per one {baseUom}</span></label>
+              <input type="number" min="0" step="0.0001" value={form.unit_cost} onChange={e => setForm(p => ({ ...p, unit_cost: e.target.value }))} className={inpCalc}/>
               {liveValue > 0 && (
                 <p className="text-xs text-emerald-400 mt-1 font-medium">
                   Inventory Value: {fmtV(liveValue)}
@@ -327,15 +344,79 @@ const EditPanel = memo(function EditPanel({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">UPC / GTIN</label>
-              <input value={form.upc_gtin} onChange={e => setForm(p => ({ ...p, upc_gtin: e.target.value }))} className={inp}/>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">UPC / GTIN</label>
+            <input value={form.upc_gtin} onChange={e => setForm(p => ({ ...p, upc_gtin: e.target.value }))} className={inp}/>
+          </div>
+
+
+          {/* Every field the stock conversion reads, in one place and marked in blue.
+              A case with no inner pack is still a case: Packs Per Case is 1, and the
+              pieces all sit on Pieces Per Pack. Zero is never the answer — it would
+              make a case hold nothing. */}
+          <div className="bg-[#EEF4FF] rounded-xl border-2 border-blue-400 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Pack &amp; Case Conversion</p>
+                <p className="text-[11px] text-blue-900/70 mt-1">
+                  Everything outlined in blue feeds the stock maths. These three turn an order in
+                  packs, cases or pallets into {baseUom} when inventory is deducted.
+                </p>
+              </div>
+              <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold border ${ladderLine ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                {ladderLine ? 'Complete' : 'Incomplete'}
+              </span>
             </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Case Qty</label>
-              <input type="number" min="0" value={form.case_qty} onChange={e => setForm(p => ({ ...p, case_qty: e.target.value }))} className={inp}/>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className={lblCalc}>Pieces Per Pack</label>
+                <input type="number" min="1" value={form.pieces_per_pack}
+                  onChange={e => setForm(p => ({ ...p, pieces_per_pack: e.target.value }))} className={inpCalc}/>
+              </div>
+              <div>
+                <label className={lblCalc}>Packs Per Case</label>
+                <input type="number" min="1" value={form.packs_per_case}
+                  onChange={e => setForm(p => ({ ...p, packs_per_case: e.target.value }))} className={inpCalc}/>
+              </div>
+              <div>
+                <label className={lblCalc}>Cases Per Pallet</label>
+                <input type="number" min="1" value={form.cases_per_pallet}
+                  onChange={e => setForm(p => ({ ...p, cases_per_pallet: e.target.value }))} className={inpCalc}/>
+              </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-3 items-end">
+              <div>
+                <label className={lblCalc}>Case Qty <span className="text-blue-400 font-normal">· pieces in a case</span></label>
+                <input type="number" min="0" value={form.case_qty}
+                  onChange={e => setForm(p => ({ ...p, case_qty: e.target.value }))} className={inpCalc}/>
+              </div>
+              <button type="button" onClick={() => setForm(p => ({
+                ...p,
+                packs_per_case: '1',
+                pieces_per_pack: p.pieces_per_pack.trim() || p.case_qty.trim(),
+              }))}
+                className="h-[42px] text-xs px-3 rounded-lg border-2 border-blue-400 bg-white text-blue-700 font-medium hover:bg-blue-50">
+                No inner pack — case holds loose pieces
+              </button>
+            </div>
+
+            {zeroRung && (
+              <p className="text-[11px] text-red-700 bg-red-50 border border-red-300 rounded-lg px-3 py-2">
+                A pack or case set to <strong>0</strong> holds nothing, so every conversion through it
+                comes out as zero. Use <strong>1</strong> when there is no inner pack.
+              </p>
+            )}
+
+            <p className="text-[11px] text-blue-900 bg-white border border-blue-300 rounded-lg px-3 py-2">
+              <span className="font-semibold uppercase tracking-wider text-blue-700 mr-2">Reads as</span>
+              {ladderLine || `Not set — an order in CASE or PKS will not convert into ${baseUom}.`}
+            </p>
+            <p className="text-[11px] text-blue-900/60">
+              Loose pieces in a case: Pieces Per Pack = the case count, Packs Per Case = 1.
+              With an inner pack: Pieces Per Pack = pieces in one pack, Packs Per Case = packs in one case.
+            </p>
           </div>
 
           <div>
@@ -391,13 +472,10 @@ const EditPanel = memo(function EditPanel({
                 ['Product Thickness', 'product_thickness'],
                 ['Product Color', 'product_color'],
                 ['Print Color', 'print_color'],
-                ['Pieces Per Pack', 'pieces_per_pack'],
-                ['Packs Per Case', 'packs_per_case'],
                 ['Bag Length (in)', 'bag_length_in'],
                 ['Bag Width (in)', 'bag_width_in'],
                 ['Case Size', 'case_size'],
                 ['Case Weight', 'case_weight'],
-                ['Cases Per Pallet', 'cases_per_pallet'],
                 ['Pallet Ti x Hi', 'pallet_ti_hi'],
                 ['Pallet Weight', 'pallet_weight'],
               ] as const).map(([label, key]) => (
@@ -408,26 +486,6 @@ const EditPanel = memo(function EditPanel({
                 </div>
               ))}
             </div>
-
-            {(() => {
-              const ladder = describeLadder({
-                unit_of_measure: form.unit_of_measure,
-                pieces_per_pack: Number(form.pieces_per_pack) || null,
-                packs_per_case: Number(form.packs_per_case) || null,
-                cases_per_pallet: Number(form.cases_per_pallet) || null,
-                case_qty: Number(form.case_qty) || null,
-              })
-              const base = normalizeUom(form.unit_of_measure) || 'base units'
-              return ladder ? (
-                <p className="mt-3 text-[11px] text-gray-600 bg-[#F5F6FA] border border-[#E4E6EE] rounded-lg px-3 py-2">
-                  <span className="font-semibold text-gray-400 uppercase tracking-wider mr-2">Conversions</span>{ladder}
-                </p>
-              ) : (
-                <p className="mt-3 text-[11px] text-gray-400">
-                  Set Pieces Per Pack and Packs Per Case to convert pack and case quantities into {base}.
-                </p>
-              )
-            })()}
 
             <div className="mt-3">
               <label className="block text-xs text-gray-400 mb-1.5">Special Instructions</label>
@@ -740,6 +798,12 @@ export default function InventoryPage() {
 
   async function save() {
     if (!form.sku.trim() || !form.product_name.trim()) { setErr('SKU and Product Name are required.'); return }
+    // Zero on a rung is not "unset" — it is a conversion that multiplies stock by nothing.
+    if (['pieces_per_pack', 'packs_per_case', 'cases_per_pallet']
+      .some(k => String((form as any)[k] ?? '').trim() === '0')) {
+      setErr('Pieces Per Pack, Packs Per Case and Cases Per Pallet cannot be 0 — a container that holds nothing makes every conversion come out as zero. Use 1 where there is no inner pack.')
+      return
+    }
     setErr(''); setSaving(true)
     const payload: Record<string, any> = {
       sku: form.sku.trim(),
