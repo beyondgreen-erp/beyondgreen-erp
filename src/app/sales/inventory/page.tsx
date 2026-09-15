@@ -582,6 +582,11 @@ export default function InventoryPage() {
   // against a different stocking unit, or stocked in EA while carrying pack/case figures.
   const [uomFlags, setUomFlags] = useState<Record<string, { fix: string; ea_line_count: number; units_seen: string | null; ea_on_orders: boolean }>>({})
   const [onlyUomFlagged, setOnlyUomFlagged] = useState(false)
+  // Conversion worklist import. Held here rather than in a page of its own so the
+  // person fixing the flagged rows and the person loading the sheet are in one place.
+  const [uomImport, setUomImport] = useState<any | null>(null)
+  const [uomBusy, setUomBusy] = useState(false)
+  const [uomFile, setUomFile] = useState<File | null>(null)
   useItemDeepLink(rows, openEdit)
   const [bomMap, setBomMap] = useState<Record<string, number>>({})
   const [allocMap, setAllocMap] = useState<Record<string, { qty: number; orders: number }>>({})
@@ -676,6 +681,22 @@ export default function InventoryPage() {
     const name   = pool.filter(r => (r.product_name ?? '').toLowerCase().includes(q) && !r.sku.toLowerCase().includes(q))
     return [...exact, ...starts, ...contains, ...name]
   }, [tabPool, search, onlyUomFlagged, uomFlags])
+
+  async function postUomSheet(file: File, commit: boolean) {
+    setUomBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/import/uom-conversions' + (commit ? '?commit=1' : ''), { method: 'POST', body: fd })
+      const json = await res.json()
+      setUomImport(json)
+      if (commit && !json.error) { setUomFile(null); load() }
+    } catch (e: any) {
+      setUomImport({ error: String(e) })
+    } finally {
+      setUomBusy(false)
+    }
+  }
 
   function exportInventory(list: Product[], scope: string) {
     const header = ['SKU','Product','Category','UOM','On Hand','Allocated','Available','Unit Cost','Inventory Value','UPC']
@@ -968,11 +989,125 @@ export default function InventoryPage() {
           </button>
         )}
         <button onClick={() => exportInventory(filtered, tabFilter === 'All' ? 'All' : tabFilter)} className="px-2.5 py-1.5 rounded-md text-[13px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200">Export</button>
+        <label className="px-2.5 py-1.5 rounded-md text-[13px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer"
+          title="Load the filled-in Pack & Case Conversion worklist. Shows what would change before anything is written.">
+          Import UOM sheet
+          <input type="file" accept=".xlsx,.xls" className="hidden" disabled={uomBusy}
+            onChange={e => { const f = e.target.files?.[0]; if (f) { setUomFile(f); postUomSheet(f, false) } e.target.value = '' }} />
+        </label>
         <div className="flex items-center gap-1.5 ml-auto text-xs">
           <button onClick={() => setCollapsed(Object.fromEntries(PRODUCT_TAB_OPTIONS.concat('Uncategorized').map(g => [g, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
           <button onClick={() => setCollapsed({})} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
         </div>
       </div>
+
+
+      {(uomBusy || uomImport) && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => !uomBusy && setUomImport(null)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-xl border border-[#E4E6EE] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-[#E4E6EE] flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-[#1A1D2E]">Pack &amp; Case Conversion import</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {uomImport?.committed ? 'Applied.' : 'Nothing has been written yet — this is what the sheet would change.'}
+                </p>
+              </div>
+              <button onClick={() => setUomImport(null)} disabled={uomBusy} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-sm">
+              {uomBusy && <p className="text-gray-500">Reading the sheet&hellip;</p>}
+
+              {uomImport?.error && (
+                <p className="text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{String(uomImport.error)}</p>
+              )}
+
+              {uomImport && !uomImport.error && (
+                <>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[['Rows read', uomImport.rows_read], ['With entries', uomImport.rows_with_entries],
+                      ['Will change', uomImport.will_update], ['Already correct', uomImport.unchanged]].map(([l, v]) => (
+                      <div key={String(l)} className="rounded-lg border border-[#E4E6EE] bg-[#F5F6FA] px-3 py-2">
+                        <p className="text-[10px] uppercase tracking-wider text-gray-400">{l}</p>
+                        <p className="text-lg font-semibold text-[#1A1D2E]">{Number(v ?? 0).toLocaleString('en-US')}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!!Object.keys(uomImport.by_field ?? {}).length && (
+                    <p className="text-[12px] text-gray-600">
+                      <span className="font-semibold text-gray-400 uppercase tracking-wider mr-2 text-[10px]">Fields</span>
+                      {Object.entries(uomImport.by_field).map(([f, n]) => `${f.replace(/_/g, ' ')} ${n}`).join('  ·  ')}
+                    </p>
+                  )}
+
+                  {!!uomImport.rejected?.length && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                      <p className="text-[12px] font-semibold text-red-800 mb-1">{uomImport.rejected.length} value(s) refused — these rows are skipped, the rest still apply</p>
+                      <ul className="text-[11px] text-red-700 space-y-0.5 max-h-32 overflow-y-auto">
+                        {uomImport.rejected.slice(0, 40).map((r: any, i: number) => (
+                          <li key={i}>Row {r.row} · {r.sku} · {r.field}: {r.reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {!!uomImport.unknown_skus?.length && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-[12px] font-semibold text-amber-800 mb-1">{uomImport.unknown_skus.length} SKU(s) are not in the catalogue — nothing is created for these</p>
+                      <p className="text-[11px] text-amber-800">{uomImport.unknown_skus.slice(0, 25).map((u: any) => u.sku).join(', ')}</p>
+                    </div>
+                  )}
+
+                  {!!uomImport.changes?.length && (
+                    <div className="rounded-lg border border-[#E4E6EE]">
+                      <table className="w-full text-[11px]">
+                        <thead className="bg-[#F5F6FA] text-gray-400 uppercase tracking-wider text-[10px]">
+                          <tr><th className="text-left px-2 py-1.5">SKU</th><th className="text-left px-2 py-1.5">Change</th></tr>
+                        </thead>
+                        <tbody>
+                          {uomImport.changes.slice(0, 200).map((c: any) => (
+                            <tr key={c.sku} className="border-t border-[#E4E6EE]">
+                              <td className="px-2 py-1.5 font-mono text-[#0F7A4E]">{c.sku}</td>
+                              <td className="px-2 py-1.5 text-gray-600">
+                                {Object.entries(c.changes).map(([f, v]: any) => `${f.replace(/_/g, ' ')}: ${v.from ?? 'blank'} → ${v.to}`).join(' · ')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {!!uomImport.errors?.length && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                      {uomImport.errors.map((e: string, i: number) => <p key={i}>{e}</p>)}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="px-5 py-3 border-t border-[#E4E6EE] flex items-center justify-between">
+              <p className="text-[11px] text-gray-400">
+                Only the unit, the three conversion figures and the cost are written. Quantities, names and categories are never touched.
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setUomImport(null)} disabled={uomBusy}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Close</button>
+                {uomImport && !uomImport.error && !uomImport.committed && uomImport.will_update > 0 && (
+                  <button onClick={() => uomFile && postUomSheet(uomFile, true)} disabled={uomBusy || !uomFile}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-blue-300 text-white font-medium">
+                    {uomBusy ? 'Applying…' : `Apply ${uomImport.will_update} change(s)`}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grouped record board */}
       {loading ? (
