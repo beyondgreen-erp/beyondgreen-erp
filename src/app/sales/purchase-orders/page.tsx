@@ -202,6 +202,15 @@ export default function PurchasingRequestsPage() {
     setPosting(false)
     alert('Inventory posting result:\n\n' + msgs.join('\n'))
   }
+  async function moveGroup(id: string, key: string) {
+    const g = GROUPS.find(x => x.key === key); if (!g) return
+    setRows((rs: any[]) => rs.map(r => r.id === id ? { ...r, group_key: key, group_title: g.title } : r))
+    setDetail((d: any) => (d && d.id === id ? { ...d, group_key: key, group_title: g.title } : d))
+    setEditForm((ff: any) => ({ ...ff, group_key: key }))
+    const { error } = await sb.from('purchasing_requests').update({ group_key: key, group_title: g.title }).eq('id', id)
+    if (error) alert('Could not move to that group: ' + error.message)
+  }
+
   async function deleteDetail() {
     if (!detail) return
     if (!confirm(`Delete purchase order "${detail.name || detail.po_number || 'this record'}"?\n\nIt will be moved to the Recycle Bin \u2014 you can restore it from there if needed.`)) return
@@ -715,6 +724,12 @@ th{background:#eef5f0}
                   <select value={editForm.location ?? ''} onChange={e => setEditForm((ff: any) => ({ ...ff, location: e.target.value }))} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#3B6FE0]">
                     <option value="">—</option>
                     {LOCATION_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Group</p>
+                  <select value={editForm.group_key ?? ''} onChange={e => moveGroup(detail.id, e.target.value)} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 bg-white cursor-pointer focus:outline-none focus:border-[#3B6FE0]">
+                    {GROUPS.map(g => <option key={g.key} value={g.key}>{g.title}</option>)}
                   </select>
                 </div>
                 {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['order_ref','Order # (Sales Order)','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
