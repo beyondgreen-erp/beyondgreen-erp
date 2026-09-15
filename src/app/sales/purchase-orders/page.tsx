@@ -42,6 +42,14 @@ type LineItem = {
   qty: string
   addToInventory: boolean
 }
+/** "Box" · "Box + 1 more item" · "Box + 4 more items" — recomputed whenever lines change. */
+function requestName(names: string[]): string {
+  const list = names.map(n => String(n ?? '').trim()).filter(Boolean)
+  if (!list.length) return ''
+  if (list.length === 1) return list[0]
+  const n = list.length - 1
+  return `${list[0]} + ${n} more item${n === 1 ? '' : 's'}`
+}
 function newKey() {
   return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
@@ -111,7 +119,7 @@ export default function PurchasingRequestsPage() {
       sb.from('purchasing_requests').select('*').eq('is_active', true).order('position', { nullsFirst: false }),
       sb.from('purchasing_request_items').select('*').order('position', { nullsFirst: false }),
       sb.from('comments').select('record_id').eq('record_type', 'purchasing_request'),
-      sb.from('products').select('id,sku,product_name,unit_cost,vendor_id').order('product_name', { ascending: true }),
+      sb.from('products').select('id,sku,product_name,unit_cost,vendor_id,unit_of_measure').order('product_name', { ascending: true }),
       sb.from('vendors').select('id,company_name,is_active').order('company_name', { ascending: true }),
     ])
     setRows(o || []); setItems(it || [])
@@ -139,9 +147,39 @@ export default function PurchasingRequestsPage() {
     setDeletedItemIds([])
   }, [detail?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','order_ref','supplier','supplier_pn','po_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
-  const ITEM_KEYS = ['part_number','description','qty_ordered','date_ordered','total_received','date_received','balance'] as const
+  const ITEM_KEYS = ['part_number','description','qty_ordered','date_ordered','total_received','date_received','balance','product_id'] as const
   function updateDetailItem(idx: number, key: string, val: string) { setEditItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: val } : x)) }
-  function addDetailLine() { setEditItems(arr => [...arr, { _new: true, part_number: '', description: '', qty_ordered: '', date_ordered: null, total_received: '', date_received: null, balance: '' }]) }
+  function addDetailLine() { setEditItems(arr => [...arr, { _new: true, part_number: '', description: '', qty_ordered: '', date_ordered: null, total_received: '', date_received: null, balance: '', product_id: null }]) }
+  // Picking a product on a line fills in what people were copying from the inventory board.
+  function pickDetailProduct(idx: number, p: any) {
+    setEditItems(arr => arr.map((x, i) => i === idx
+      ? { ...x, product_id: p.id, part_number: p.sku || '', description: p.product_name || '', name: x.name || p.product_name || null }
+      : x))
+  }
+  // A SKU on a line that is not in the catalogue can be added to it without leaving the order.
+  async function createProductFromLine(idx: number) {
+    const it = editItems[idx]
+    const sku = String(it?.part_number ?? '').trim()
+    if (!sku) { alert('Enter a part number / SKU on the line first.'); return }
+    const name = String(it?.description ?? '').trim() || sku
+    if (!confirm(`Add "${sku}" to the Inventory board as "${name}"?`)) return
+    const { data, error } = await sb.from('products')
+      .insert({ sku, product_name: name, vendor_id: editForm.vendor_id || null, is_active: true, category: 'Uncategorized' })
+      .select('id, sku, product_name, unit_of_measure, vendor_id, unit_cost').single()
+    if (error) { alert('Could not add it to inventory: ' + error.message); return }
+    setProducts(ps => [...ps, data])
+    pickDetailProduct(idx, data)
+  }
+  async function createVendorFromDetail() {
+    const nm = window.prompt('New vendor / supplier name:')?.trim()
+    if (!nm) return
+    const { data, error } = await sb.from('vendors')
+      .insert({ company_name: nm, is_active: true, notes: 'Added from a purchase order' })
+      .select('id, company_name, is_active').single()
+    if (error) { alert('Could not add the vendor: ' + error.message); return }
+    setVendors(vs => [...vs, data])
+    setEditForm((ff: any) => ({ ...ff, vendor_id: data.id, supplier: data.company_name }))
+  }
   function removeDetailItem(idx: number) { setEditItems(arr => { const it = arr[idx]; if (it?.id && !it._new) setDeletedItemIds(d => [...d, it.id]); return arr.filter((_, i) => i !== idx) }) }
   const numOf = (v: any) => { const n = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n }
   // Option A: post a PO's received quantities into the same inventory ledger the Scan
@@ -180,6 +218,7 @@ export default function PurchasingRequestsPage() {
     setSavingDetail(true)
     const patch: any = {}
     for (const k of DETAIL_KEYS) { const v = editForm[k]; patch[k] = (v === '' || v === undefined) ? null : v }
+    patch.vendor_id = editForm.vendor_id || null
     // Balance is always Ordered − Received, never a stale free-text value.
     if (numOf(editForm.qty_ordered)) patch.balance = String(Math.max(0, numOf(editForm.qty_ordered) - numOf(editForm.qty_received)))
     const { error } = await sb.from('purchasing_requests').update(patch).eq('id', detail.id)
@@ -191,7 +230,12 @@ export default function PurchasingRequestsPage() {
     for (let idx = 0; idx < editItems.length; idx++) {
       const it = editItems[idx]; const rowp: any = { position: idx }
       for (const k of ITEM_KEYS) { const v = it[k]; rowp[k] = (v === '' || v === undefined) ? null : v }
-      rowp.name = (it.name && String(it.name).trim()) || rowp.description || rowp.part_number || null
+      // A line added before the inventory lookup existed was named after its part number,
+      // because that was all it had. Once it points at a product the product's name wins,
+      // otherwise the order keeps reading "99181212" where it should say what the thing is.
+      rowp.name = rowp.product_id
+        ? (rowp.description || (it.name && String(it.name).trim()) || rowp.part_number || null)
+        : ((it.name && String(it.name).trim()) || rowp.description || rowp.part_number || null)
       if (numOf(it.qty_ordered)) rowp.balance = String(Math.max(0, numOf(it.qty_ordered) - numOf(it.total_received)))
       let res
       if (it.id && !it._new) res = await sb.from('purchasing_request_items').update(rowp).eq('id', it.id)
@@ -205,6 +249,19 @@ export default function PurchasingRequestsPage() {
     for (const it of ((fresh || []) as any[])) {
       if (String(it.part_number ?? '').trim() && numOf(it.total_received) > 0) {
         try { await sb.rpc('post_line_receipt', { p_item_id: it.id, p_user: userEmail || null }) } catch { /* non-blocking */ }
+      }
+    }
+    // The title was written once at creation and never revisited, so an order with six lines
+    // still read "+ 1 more item" and looked as though nothing had been added.
+    const freshNames = ((fresh || []) as any[])
+      .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
+      .map(x => String(x.name ?? x.description ?? x.part_number ?? '').trim())
+      .filter(Boolean)
+    if (freshNames.length) {
+      const nm = requestName(freshNames)
+      if (nm && nm !== detail.name) {
+        const { error: nameErr } = await sb.from('purchasing_requests').update({ name: nm }).eq('id', detail.id)
+        if (!nameErr) patch.name = nm
       }
     }
     setEditItems((fresh || []).map((x: any) => ({ ...x }))); setDeletedItemIds([])
@@ -319,7 +376,9 @@ th{background:#eef5f0}
   function addItem() { setForm(f => ({ ...f, items: [...f.items, blankItem()] })) }
   function removeItem(key: string) { setForm(f => ({ ...f, items: f.items.length > 1 ? f.items.filter(it => it.key !== key) : f.items })) }
   function pickProduct(key: string, p: any) {
-    updateItem(key, { productId: p.id, itemName: p.product_name || '', partNumber: p.sku || '' })
+    // The product's name IS its description as far as a PO line is concerned — that is
+    // exactly what people were opening the inventory board to copy across by hand.
+    updateItem(key, { productId: p.id, itemName: p.product_name || '', partNumber: p.sku || '', description: p.product_name || '' })
   }
 
   async function createRequest() {
@@ -333,8 +392,25 @@ th{background:#eef5f0}
         description: it.description.trim(),
         qty: it.qty.trim(),
       }
-    }).filter(r => r.name)
-    if (resolved.length === 0) { setCreateError('Add at least one item — choose from inventory or enter a new item name.'); return }
+    })
+    // A line used to be dropped without a word when it had no name, so someone could fill in
+    // a part number and a quantity, save, and find the item simply gone. Say so instead.
+    const started = resolved.filter(r => r.name || r.partNumber || r.qty || r.description)
+    const nameless = started.filter(r => !r.name)
+    if (nameless.length) {
+      setCreateError(nameless.length === 1
+        ? 'One item has no name. Pick it from inventory, or enter an Item name — a part number on its own is not enough.'
+        : `${nameless.length} items have no name. Pick them from inventory, or enter an Item name for each.`)
+      return
+    }
+    const resolvedOk = started
+    if (resolvedOk.length === 0) { setCreateError('Add at least one item — choose from inventory or enter a new item name.'); return }
+    // Adding to inventory needs a SKU. This used to be skipped in silence.
+    const missingSku = resolvedOk.filter(r => r.it.mode === 'new' && r.it.addToInventory && !r.partNumber)
+    if (missingSku.length) {
+      setCreateError(`Enter a Part # / SKU for ${missingSku.map(r => `"${r.name}"`).join(', ')}, or untick "Also add this item to the Inventory board".`)
+      return
+    }
 
     const vendorName = form.vendorName.trim()
     if (form.vendorMode === 'new' && !vendorName) { setCreateError('Enter the new vendor / supplier name, or switch to "Existing vendor".'); return }
@@ -352,14 +428,22 @@ th{background:#eef5f0}
       vendorId = data?.id || null
     }
 
-    // 2) New items → optionally add each to the Inventory board (needs a part number for the SKU)
-    for (const r of resolved) {
+    // 2) New items → add each to the Inventory board, and keep the id so the PO line
+    //    points at the real product rather than matching on text later.
+    const newProductIds: Record<string, string> = {}
+    for (const r of resolvedOk) {
       if (r.it.mode === 'new' && r.it.addToInventory && r.partNumber) {
-        const { error } = await sb.from('products').insert({
+        const { data, error } = await sb.from('products').insert({
           sku: r.partNumber, product_name: r.name, vendor_id: vendorId, is_active: true, category: 'Uncategorized',
-        })
-        if (error && error.code !== '23505') { // ignore duplicate-SKU conflicts, otherwise surface
+        }).select('id').single()
+        if (error && error.code === '23505') {
+          // That SKU is already in inventory — link to it rather than making a second one.
+          const { data: ex } = await sb.from('products').select('id').ilike('sku', r.partNumber).maybeSingle()
+          if (ex?.id) newProductIds[r.it.key] = ex.id
+        } else if (error) {
           setCreateError('Inventory item: ' + supabaseError(error)); setSaving(false); return
+        } else if (data?.id) {
+          newProductIds[r.it.key] = data.id
         }
       }
     }
@@ -370,8 +454,8 @@ th{background:#eef5f0}
     const group = GROUPS.find(g => g.key === form.group_key) || GROUPS[1]
     const posBase = Math.max(0, ...rows.filter(r => r.group_key === group.key).map(r => Number(r.position) || 0)) + 1
     const reqId = newKey()
-    const first = resolved[0]
-    const headerName = resolved.length === 1 ? first.name : `${first.name} + ${resolved.length - 1} more item${resolved.length - 1 === 1 ? '' : 's'}`
+    const first = resolvedOk[0]
+    const headerName = requestName(resolvedOk.map(r => r.name))
     const { error: reqErr } = await sb.from('purchasing_requests').insert({
       id: reqId,
       name: headerName,
@@ -386,22 +470,24 @@ th{background:#eef5f0}
       customer_project: form.customer_project.trim() || null,
       order_ref: form.order_ref.trim() || null,
       supplier: vendorName || null,
-      supplier_pn: resolved.length === 1 ? (first.partNumber || null) : null,
+      vendor_id: vendorId,
+      supplier_pn: resolvedOk.length === 1 ? (first.partNumber || null) : null,
       po_date: poDate,
-      qty_ordered: resolved.length === 1 ? (first.qty || null) : null,
+      qty_ordered: resolvedOk.length === 1 ? (first.qty || null) : null,
     })
     if (reqErr) { setCreateError(supabaseError(reqErr)); setSaving(false); return }
 
     // 4) One line item per resolved item
-    const lineRows = resolved.map((r, i) => ({
+    const lineRows = resolvedOk.map((r, i) => ({
       id: newKey(),
       parent_id: reqId,
       name: r.name,
       part_number: r.partNumber || null,
-      description: r.description || null,
+      description: r.description || r.name || null,
       qty_ordered: r.qty || null,
       date_ordered: poDate,
       position: i,
+      product_id: r.it.productId || newProductIds[r.it.key] || null,
     }))
     const { error: itemsErr } = await sb.from('purchasing_request_items').insert(lineRows)
     if (itemsErr) { setCreateError('Items: ' + supabaseError(itemsErr)); setSaving(false); return }
@@ -527,7 +613,14 @@ th{background:#eef5f0}
                         </div>
                       </div>
                       {it.mode === 'search' ? (
-                        <ProductPicker products={products} selectedId={it.productId} onPick={(p) => pickProduct(it.key, p)} onClear={() => updateItem(it.key, { productId: '', itemName: '', partNumber: '' })} />
+                        <>
+                          <ProductPicker products={products} selectedId={it.productId} onPick={(p) => pickProduct(it.key, p)} onClear={() => updateItem(it.key, { productId: '', itemName: '', partNumber: '', description: '' })} />
+                          {it.productId && (
+                            <div className="mt-3">
+                              <TextField label="Description" value={it.description} onChange={v => updateItem(it.key, { description: v })} placeholder="Pulled from inventory — edit if this order needs something different" />
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <TextField label="Item name" required value={it.itemName} onChange={v => updateItem(it.key, { itemName: v })} placeholder="e.g. 18x12x12 Kraft Box" />
@@ -627,8 +720,28 @@ th{background:#eef5f0}
                 {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['order_ref','Order # (Sales Order)','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
                   <div key={k}>
                     <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>
-                    {k === 'balance'
+    {k === 'balance'
                       ? <input readOnly title="Auto: Ordered − Received" value={numOf(editForm.qty_ordered) ? String(Math.max(0, numOf(editForm.qty_ordered) - numOf(editForm.qty_received))) : (editForm[k] ?? '')} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-700" />
+                      : k === 'supplier'
+                      ? <div>
+                          <input list="po-vendor-list" value={editForm.supplier ?? ''}
+                            onChange={e => {
+                              const v = e.target.value
+                              const match = vendors.find(x => String(x.company_name).toLowerCase() === v.trim().toLowerCase())
+                              setEditForm((ff: any) => ({ ...ff, supplier: v, vendor_id: match?.id ?? null }))
+                            }}
+                            placeholder="Start typing a vendor…"
+                            className={`w-full text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0] ${editForm.vendor_id ? 'border-emerald-300 bg-emerald-50/40' : 'border-[#E4E6EE]'}`} />
+                          <datalist id="po-vendor-list">{vendors.map(v => <option key={v.id} value={v.company_name} />)}</datalist>
+                          <p className="text-[10px] mt-0.5">
+                            {editForm.vendor_id
+                              ? <span className="text-emerald-600">Linked to the vendor record</span>
+                              : <>
+                                  <span className="text-amber-600">Not a vendor record yet</span>
+                                  {String(editForm.supplier ?? '').trim() && <button onClick={createVendorFromDetail} className="ml-1.5 text-[#3B6FE0] hover:underline font-semibold">＋ Add vendor</button>}
+                                </>}
+                          </p>
+                        </div>
                       : <input type={type} value={editForm[k] ?? ''} onChange={e => setEditForm((ff: any) => ({ ...ff, [k]: e.target.value }))} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0]" />}
                   </div>
                 ))}
@@ -639,6 +752,7 @@ th{background:#eef5f0}
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Order Details</p>
                   <button onClick={addDetailLine} className="text-xs font-semibold text-[#3B6FE0] hover:text-[#2f5bc0]">+ Add line</button>
                 </div>
+                <datalist id="po-product-list">{products.map(p => <option key={p.id} value={p.sku}>{p.product_name}</option>)}</datalist>
                 {(() => {
                   const shorts = editItems.filter((it: any) => numOf(it.total_received) > 0 && numOf(it.total_received) < numOf(it.qty_ordered))
                   if (!shorts.length) return null
@@ -663,7 +777,21 @@ th{background:#eef5f0}
                             <div className="grid gap-2.5" style={{ gridTemplateColumns: '220px minmax(0, 1fr)' }}>
                               <div>
                                 <label className={lbl}>P/N &middot; SKU</label>
-                                <input value={it.part_number ?? ''} onChange={e => updateDetailItem(idx, 'part_number', e.target.value)} placeholder="SKU / part #" className={inpBig + ' font-mono font-semibold text-emerald-700'} />
+                                <input list="po-product-list" value={it.part_number ?? ''}
+                                  onChange={e => {
+                                    const v = e.target.value
+                                    const hit = products.find(p => String(p.sku ?? '').toLowerCase() === v.trim().toLowerCase())
+                                    if (hit) pickDetailProduct(idx, hit)
+                                    else setEditItems(arr => arr.map((x, i) => i === idx ? { ...x, part_number: v, product_id: null } : x))
+                                  }}
+                                  placeholder="SKU / part #" className={inpBig + ' font-mono font-semibold text-emerald-700'} />
+                                <p className="text-[10px] mt-0.5">
+                                  {it.product_id
+                                    ? <span className="text-emerald-600">Linked to inventory</span>
+                                    : String(it.part_number ?? '').trim()
+                                      ? <><span className="text-amber-600">Not in inventory</span><button onClick={() => createProductFromLine(idx)} className="ml-1.5 text-[#3B6FE0] hover:underline font-semibold">＋ Add item</button></>
+                                      : <span className="text-gray-300">Type or pick a SKU</span>}
+                                </p>
                               </div>
                               <div>
                                 <label className={lbl}>Description</label>
