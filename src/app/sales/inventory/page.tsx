@@ -653,9 +653,17 @@ export default function InventoryPage() {
     const willOpen = !activityOpen[p.id]
     setActivityOpen(o => ({ ...o, [p.id]: willOpen }))
     if (willOpen) {
-      // Always re-fetch so a just-made manual entry shows immediately (no stale cache).
-      const { data } = await sb.rpc('sku_activity', { p_sku: p.sku, p_limit: 25 })
-      setActivityData(d => ({ ...d, [p.id]: (data as any[]) || [] }))
+      // Mark this row as loading (undefined) so we never flash "no movements" mid-fetch.
+      setActivityData(d => ({ ...d, [p.id]: undefined as any }))
+      // The first RPC call for a row can transiently return an error/empty; retry a few
+      // times before concluding there are none, so real entries always appear.
+      let rows: any[] | null = null
+      for (let attempt = 0; attempt < 3 && (rows === null || rows.length === 0); attempt++) {
+        if (attempt) await new Promise(res => setTimeout(res, 200))
+        const { data, error } = await sb.rpc('sku_activity', { p_sku: p.sku, p_limit: 25 })
+        rows = error ? rows : ((data as any[]) || [])
+      }
+      setActivityData(d => ({ ...d, [p.id]: rows || [] }))
     }
   }
   const fmtDT = (v: any) => { if (!v) return '—'; const d = new Date(v); return isNaN(+d) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }) }
@@ -1182,7 +1190,7 @@ export default function InventoryPage() {
                             const isImport = p.is_import === true
                             // Only finished products (that aren't imported) need a BOM.
                             const needsBom = isFG && !isImport && bomCount === 0
-                            const acts = activityData[p.id] || []
+                            const acts = activityData[p.id]
                             return (
                               <Fragment key={p.id}>
                               <tr id={'item-'+p.id}
@@ -1234,7 +1242,7 @@ export default function InventoryPage() {
                                 <tr className="bg-[#F7FBF9]">
                                   <td colSpan={12} className="px-6 py-3">
                                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-2">Activity · {p.sku}</p>
-                                    {acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
+                                    {acts === undefined ? <p className="text-xs text-gray-400 italic">Loading movements…</p> : acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
                                       <table className="w-full text-xs">
                                         <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400 text-left"><th className="py-1 pr-4">Date</th><th className="py-1 pr-4">Type</th><th className="py-1 pr-4 text-right">Qty</th><th className="py-1 pr-4">UOM</th><th className="py-1 pr-4">Bags</th><th className="py-1 pr-4">Lot</th><th className="py-1 pr-4">Source</th><th className="py-1 pr-4">By</th></tr></thead>
                                         <tbody>
