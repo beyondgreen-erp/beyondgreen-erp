@@ -25,6 +25,9 @@ interface Product {
   product_location: string | null
   unit_of_measure: string | null
   on_hand_qty: number
+  qty_updated_at: string | null
+  qty_updated_by: string | null
+  qty_updated_source: string | null
   reorder_point: number | null
   unit_cost: number | null
   bom_cost: number | null
@@ -668,6 +671,36 @@ export default function InventoryPage() {
   }
   const fmtDT = (v: any) => { if (!v) return '—'; const d = new Date(v); return isNaN(+d) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }) }
 
+  /**
+   * When this item's on-hand quantity last moved, and whether a person typed it or
+   * the system moved it — so the figure can be trusted without asking anyone.
+   *
+   * Amber is a hand-entered number; green is a shipment, receipt, production run or
+   * FBA move. Grey means the quantity changed but nothing recorded how.
+   */
+  function qtyStamp(p: Product) {
+    if (!p.qty_updated_at) return <span className="text-gray-300 text-xs">—</span>
+    const d = new Date(p.qty_updated_at)
+    if (isNaN(+d)) return <span className="text-gray-300 text-xs">—</span>
+    const src = p.qty_updated_source || 'system'
+    const tone = src === 'manual'
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : src === 'auto'
+        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        : 'bg-gray-50 text-gray-500 border-[#E4E6EE]'
+    const label = src === 'manual' ? 'Manual entry' : src === 'auto' ? 'Automatic' : 'Source not recorded'
+    const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+    const ago = days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
+    return (
+      <span
+        title={`${label}${p.qty_updated_by ? ` by ${p.qty_updated_by}` : ''} — ${d.toLocaleString()} (${ago}). Open Activity for the full history.`}
+        className={`inline-block whitespace-nowrap px-1.5 py-0.5 rounded border text-[11px] font-medium ${tone}`}>
+        {d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+        <span className="opacity-70">{' '}{d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+      </span>
+    )
+  }
+
   useEffect(() => {
     load()
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
@@ -707,17 +740,21 @@ export default function InventoryPage() {
   }
 
   function exportInventory(list: Product[], scope: string) {
-    const header = ['SKU','Product','Category','UOM','On Hand','Allocated','Available','Unit Cost','Inventory Value','UPC']
+    const header = ['SKU','Product','Category','UOM','On Hand','Qty Last Updated','Updated How','Updated By','Allocated','Available','Unit Cost','Inventory Value','UPC']
     const data = list.map(p => {
       const a = allocMap[p.sku]?.qty || 0
       const ma = manualAlloc[String(p.sku).toUpperCase()] || 0
       const alloc = a + ma
       const oh = p.on_hand_qty ?? 0
       const uc = p.unit_cost ?? 0
-      return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh, alloc, oh - alloc, uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
+      const stampedAt = p.qty_updated_at ? new Date(p.qty_updated_at) : null
+      const how = p.qty_updated_source === 'manual' ? 'Manual' : p.qty_updated_source === 'auto' ? 'Auto' : ''
+      return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh,
+              stampedAt && !isNaN(+stampedAt) ? stampedAt.toLocaleString() : '', how, p.qty_updated_by ?? '',
+              alloc, oh - alloc, uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
     })
     const ws = XLSX.utils.aoa_to_sheet([header, ...data])
-    ws['!cols'] = [{wch:20},{wch:50},{wch:18},{wch:8},{wch:11},{wch:11},{wch:11},{wch:12},{wch:15},{wch:16}]
+    ws['!cols'] = [{wch:20},{wch:50},{wch:18},{wch:8},{wch:11},{wch:20},{wch:12},{wch:26},{wch:11},{wch:11},{wch:12},{wch:15},{wch:16}]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Inventory')
     XLSX.writeFile(wb, `beyondGREEN_Inventory_${scope}_${new Date().toISOString().slice(0,10)}.xlsx`)
@@ -1149,6 +1186,16 @@ export default function InventoryPage() {
                 )
               })}
             </div>
+            <p className="text-[11px] text-gray-400 mb-3 flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-gray-500">Last Updated:</span>
+              <span className="px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 font-medium">Automatic</span>
+              <span>shipment, receipt, production or FBA</span>
+              <span className="text-gray-300">·</span>
+              <span className="px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200 font-medium">Manual</span>
+              <span>someone typed the number</span>
+              <span className="text-gray-300">·</span>
+              <span>hover for who and when, or open Activity for the full history</span>
+            </p>
             {shownKeys.map(cat => {
               const items = gmap[cat]; const isCol = effectiveClass === 'All' ? collapsed[cat] : false; const color = COLORS[cat] || '#9699A6'
               const gVal = items.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
@@ -1170,7 +1217,7 @@ export default function InventoryPage() {
                             <th className="text-left font-semibold px-3 py-2.5 min-w-[200px]">Product</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[130px]">Type</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[64px]">UOM</th>
-                            <th className="text-right font-semibold px-3 py-2.5 w-[84px]">On Hand</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[84px]">On Hand</th><th className="text-left font-semibold px-3 py-2.5 w-[132px]">Last Updated</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[104px]">Alloc / Avail</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[92px]">Unit Cost</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[110px]">Inv. Value</th>
@@ -1213,6 +1260,7 @@ export default function InventoryPage() {
                                   )
                                 })()}</td>
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
+                                <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{qtyStamp(p)}</td>
                                 <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{(() => {
                                   const a = allocMap[p.sku]?.qty || 0
                                   const ma = manualAlloc[String(p.sku).toUpperCase()] || 0
@@ -1240,7 +1288,7 @@ export default function InventoryPage() {
                               </tr>
                               {activityOpen[p.id] && (
                                 <tr className="bg-[#F7FBF9]">
-                                  <td colSpan={12} className="px-6 py-3">
+                                  <td colSpan={13} className="px-6 py-3">
                                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-2">Activity · {p.sku}</p>
                                     {acts === undefined ? <p className="text-xs text-gray-400 italic">Loading movements…</p> : acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
                                       <table className="w-full text-xs">
@@ -1254,7 +1302,15 @@ export default function InventoryPage() {
                                               <td className="py-1.5 pr-4 text-gray-500">{a.uom || '—'}</td>
                                               <td className="py-1.5 pr-4 text-gray-500">{a.pack_qty ?? '—'}</td>
                                               <td className="py-1.5 pr-4 text-gray-500 font-mono">{a.lot_number || '—'}</td>
-                                              <td className="py-1.5 pr-4 text-gray-500">{a.ref_table || '—'}</td>
+                                              <td className="py-1.5 pr-4 text-gray-500">{(() => {
+                                                const manual = ['manual','cycle_count','opening_balance'].includes(String(a.ref_table || ''))
+                                                return (
+                                                  <span className="inline-flex items-center gap-1">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${manual ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{manual ? 'Manual' : 'Auto'}</span>
+                                                    <span>{a.ref_table || '—'}</span>
+                                                  </span>
+                                                )
+                                              })()}</td>
                                               <td className="py-1.5 pr-4 text-gray-500 truncate max-w-[160px]">{a.created_by || '—'}</td>
                                             </tr>
                                           ))}

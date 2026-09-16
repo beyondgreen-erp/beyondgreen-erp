@@ -197,13 +197,23 @@ export async function completeWorkOrder(
     })
   } catch { /* lot_codes table optional */ }
 
-  // Update inventory
+  // Update inventory. Closing a lot was the one stock-writing path that moved the
+  // quantity without recording a movement, so the item's Activity showed nothing and
+  // the on-hand figure appeared to change by itself.
   if (sku) {
-    const { data: prod } = await sb.from('products').select('on_hand_qty').eq('sku', sku).maybeSingle()
+    const { data: prod } = await sb.from('products').select('id, on_hand_qty, unit_of_measure').eq('sku', sku).maybeSingle()
     if (prod) {
       await sb.from('products')
         .update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + qtyProduced })
         .eq('sku', sku)
+      try {
+        await sb.from('inventory_movements').insert({
+          product_id: (prod as any).id, sku, movement_type: 'produce', qty: qtyProduced,
+          uom: (prod as any).unit_of_measure || null, lot_number: lotNumber,
+          ref_table: 'production', ref_id: workOrderId,
+          note: `Lot ${lotNumber} closed`, created_by: null,
+        })
+      } catch { /* never block the lot close on activity logging */ }
     }
   }
 
