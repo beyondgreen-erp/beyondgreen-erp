@@ -2259,10 +2259,10 @@ export default function OrdersPage() {
 
       {/* View toggle + board grouping */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
-          <button onClick={() => setView('board')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'board' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>All Orders</button>
-          <button onClick={() => setView('walmart')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'walmart' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Walmart Orders</button>
-          <button onClick={() => setView('chewy')} className={"px-3 py-1.5 rounded-md text-xs font-medium transition-colors " + (view === 'chewy' ? 'bg-white text-[#1A1D2E] shadow-sm' : 'text-gray-500')}>Chewy Orders</button>
+        <div className="flex items-center gap-1.5 bg-[#F0F2F7] rounded-xl p-1.5 w-fit">
+          <button onClick={() => setView('board')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'board' ? { background: '#0F7A4E', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#DDF3E8', color: '#0F7A4E' }}>All Orders</button>
+          <button onClick={() => setView('walmart')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'walmart' ? { background: '#0071CE', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#E1EFFB', color: '#0071CE' }}>Walmart Orders</button>
+          <button onClick={() => setView('chewy')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'chewy' ? { background: '#1C49C2', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#E5EAF9', color: '#1C49C2' }}>Chewy Orders</button>
         </div>
         {view === 'board' && (
           <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
