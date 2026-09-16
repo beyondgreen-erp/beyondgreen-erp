@@ -160,12 +160,27 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     const cid = new URLSearchParams(window.location.search).get('comment')
     if (!cid || !comments.some(c => String(c.id) === cid)) return
     deepLinkDone.current = true
-    requestAnimationFrame(() => {
+    setFlashId(cid)
+    // One scroll is not enough. The thread sits inside a record drawer that is still
+    // growing as line items, files and avatars load, so the comment moves after the
+    // scroll and ends up below the fold — which is how a "go straight to the message
+    // you were tagged in" link still leaves you scrolling. Re-aim until it is really
+    // on screen, then stop, and give up after a couple of seconds either way.
+    let tries = 0
+    let timer: ReturnType<typeof setTimeout>
+    const settle = () => {
       const el = document.getElementById('comment-' + cid)
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      setFlashId(cid)
-      setTimeout(() => setFlashId(null), 2800)
-    })
+      if (el) {
+        const r = el.getBoundingClientRect()
+        const onScreen = r.top >= 0 && r.bottom <= window.innerHeight
+        if (!onScreen) el.scrollIntoView({ behavior: tries === 0 ? 'auto' : 'smooth', block: 'center' })
+        else if (tries > 1) return
+      }
+      if (++tries < 10) timer = setTimeout(settle, 250)
+    }
+    settle()
+    const clear = setTimeout(() => setFlashId(null), 4500)
+    return () => { clearTimeout(timer); clearTimeout(clear) }
   }, [loading, comments])
 
   // Filtered mention suggestions
