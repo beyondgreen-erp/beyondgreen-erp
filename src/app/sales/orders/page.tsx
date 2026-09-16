@@ -20,6 +20,7 @@ import { generateOrderPDF, generateAcknowledgementPDF, generatePackingSlip, type
 import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
 import { orderDisplayName } from '@/lib/orderName'
+import { conversionFactor, normalizeUom, uomOptions } from '@/lib/uom'
 
 // Shipment log shown on the order itself: every partial that has gone out, what it
 // carried, and its documents. The order is not complete until the balance is zero.
@@ -332,6 +333,10 @@ interface OrderLine {
   quantity_shipped: number | null
   qty_per_case: number | null
   unit_of_measure: string | null
+  uom_factor: number | null
+  uom_factor_override: boolean | null
+  qty_base: number | null
+  partial_ack: boolean | null
   unit_price: number
   packaging: string | null
   production_status: string | null
@@ -339,7 +344,7 @@ interface OrderLine {
   line_number: number | null
 }
 
-interface Product { id: string; sku: string; product_name: string; unit_cost: number | null; wholesale_price: number | null; msrp: number | null; unit_of_measure: string | null; our_part_number: string | null; supplier_part_number: string | null }
+interface Product { id: string; sku: string; product_name: string; unit_cost: number | null; wholesale_price: number | null; msrp: number | null; unit_of_measure: string | null; our_part_number: string | null; supplier_part_number: string | null; pieces_per_pack?: number | null; packs_per_case?: number | null; cases_per_pallet?: number | null; case_qty?: number | null }
 interface Customer { id: string; company_name: string }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -458,7 +463,7 @@ function SkuAssign({ lineId, onAssigned }: { lineId: string; onAssigned: (sku: s
   useEffect(() => {
     if (q.length < 1) { setResults([]); return }
     const t = setTimeout(async () => {
-      const { data } = await sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
+      const { data } = await sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number,pieces_per_pack,packs_per_case,cases_per_pallet,case_qty').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
       setResults((data ?? []) as Product[])
       setOpen(true)
     }, 200)
@@ -549,7 +554,14 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
             <td className="px-2 py-2.5 text-gray-500 text-xs max-w-[180px] truncate">{line.description ?? line.added_details ?? '—'}</td>
             <td className="px-2 py-2.5 text-gray-500 text-xs font-semibold">{qty}</td>
             <td className={`px-2 py-2.5 text-xs font-medium ${pct === 100 ? 'text-emerald-400' : pct > 0 ? 'text-blue-400' : 'text-gray-600'}`}>{done}</td>
-            <td className="px-2 py-2.5 text-gray-500 text-xs">{line.unit_of_measure ?? '—'}</td>
+            <td className="px-2 py-2.5 text-gray-500 text-xs whitespace-nowrap">
+              {line.unit_of_measure ?? '—'}
+              {line.qty_base != null && Number(line.uom_factor) !== 1 && (
+                <span className="block text-[10px] text-gray-400">= {Number(line.qty_base).toLocaleString('en-US')} base</span>
+              )}
+              {line.uom_factor_override && <span className="ml-1 text-[10px] px-1 rounded bg-purple-50 text-purple-700 border border-purple-200">override</span>}
+              {line.partial_ack && <span className="ml-1 text-[10px] px-1 rounded bg-amber-50 text-amber-700 border border-amber-200">partial</span>}
+            </td>
             <td className="px-2 py-2.5 text-gray-500 text-xs">{line.packaging ?? '—'}</td>
             <td className="px-2 py-2.5">
               {line.production_status && (
@@ -613,6 +625,110 @@ interface EditLineState {
   added_details: string
   sku_flagged: boolean
   product_id: string | null
+  /** Blank = use the catalogue ladder. A value here is a one-off, line-only conversion. */
+  uom_factor: string
+  /** Someone confirmed this line is a deliberate partial/broken case. */
+  partial_ack: boolean
+}
+
+/**
+ * What one unit of `uom` is worth on this line, and whether the ERP actually knows.
+ *
+ * The catalogue ladder answers it for every SKU the worklist covers. An override
+ * typed on the line wins, because a one-off repack for one customer must never
+ * rewrite the product everyone else orders against.
+ */
+function lineConversion(prod: Product | undefined, line: { unit_of_measure: string; uom_factor: string; quantity: string }) {
+  const typed = Number(String(line.uom_factor).trim())
+  const overridden = String(line.uom_factor).trim() !== '' && Number.isFinite(typed) && typed > 0
+  const base = normalizeUom(prod?.unit_of_measure) ?? null
+  const want = normalizeUom(line.unit_of_measure) ?? base
+  const cat = prod ? conversionFactor(prod, want) : { factor: 1, known: false, note: 'No product linked — nothing to convert against.' }
+  const factor = overridden ? typed : cat.factor
+  const known = overridden ? true : cat.known
+  const qty = Number(line.quantity) || 0
+  const qtyBase = qty * factor
+  // A partial is either a fractional order quantity (2.5 CASE) or a quantity that
+  // does not land on a whole stocking unit. Both mean someone opens a case.
+  const partial = known && factor !== 1 && (!Number.isInteger(qty) || !Number.isInteger(qtyBase))
+  const whole = factor > 0 ? Math.floor(qtyBase / factor) : 0
+  const remainder = qtyBase - whole * factor
+  return {
+    base: base ?? 'EA', want: want ?? 'EA', factor, known, overridden, qty, qtyBase, partial, whole, remainder,
+    note: overridden ? `Line override: 1 ${want ?? 'EA'} = ${typed.toLocaleString('en-US')} ${base ?? 'EA'}` : cat.note,
+  }
+}
+
+/**
+ * Unit of measure on an order line.
+ *
+ * Was a free-text box, which is how "20 EA" ended up meaning two different things
+ * on two different orders for the same SKU. Now the list is the product's own
+ * ladder, the conversion is shown as you pick, a partial case has to be
+ * acknowledged before the order saves, and a one-off conversion is typed on the
+ * line and logged rather than edited into the catalogue.
+ */
+function UomCell({ line, prod, onChange }: {
+  line: EditLineState
+  prod: Product | undefined
+  onChange: (patch: Partial<EditLineState>) => void
+}) {
+  const [showOverride, setShowOverride] = useState(false)
+  const c = lineConversion(prod, line)
+  const opts = uomOptions(prod?.unit_of_measure, line.unit_of_measure)
+  const n = (v: number) => (Number.isInteger(v) ? v.toLocaleString('en-US') : v.toFixed(2))
+
+  return (
+    <div className="col-span-2">
+      <div className="flex gap-1.5">
+        <select value={normalizeUom(line.unit_of_measure) ?? ''} onChange={e => onChange({ unit_of_measure: e.target.value, partial_ack: false })}
+          className="flex-1 bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition">
+          <option value="">UOM</option>
+          {opts.map(u => (
+            <option key={u} value={u}>{u}{normalizeUom(prod?.unit_of_measure) === u ? ' (stocking unit)' : ''}</option>
+          ))}
+        </select>
+        <button type="button" onClick={() => setShowOverride(v => !v)}
+          title="Use a different conversion for this line only. The product is not changed."
+          className={`px-2 rounded text-[11px] font-medium border transition-colors ${c.overridden
+            ? 'bg-purple-50 text-purple-700 border-purple-200'
+            : 'bg-[#F5F6FA] text-gray-500 border-[#E4E6EE] hover:text-gray-700'}`}>
+          {c.overridden ? 'override' : '1:1?'}
+        </button>
+      </div>
+
+      {(showOverride || c.overridden) && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-600 bg-purple-50/60 border border-purple-200 rounded px-2 py-1.5">
+          <span>1 {c.want} =</span>
+          <input value={line.uom_factor} onChange={e => onChange({ uom_factor: e.target.value, partial_ack: false })} inputMode="decimal"
+            placeholder={c.known ? n(c.factor) : '?'}
+            className="w-20 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-400"/>
+          <span>{c.base}</span>
+          {c.overridden && (
+            <button type="button" onClick={() => onChange({ uom_factor: '', partial_ack: false })} className="ml-auto text-purple-600 hover:text-purple-800 underline">use catalogue</button>
+          )}
+        </div>
+      )}
+
+      {line.unit_of_measure && (
+        <p className={`mt-1 text-[11px] leading-tight ${c.known ? 'text-gray-500' : 'text-amber-700'}`}>
+          {c.known
+            ? <>{n(c.qty)} {c.want} = <span className="font-semibold text-[#1A1D2E]">{n(c.qtyBase)} {c.base}</span> · {c.note}</>
+            : <>⚠ {c.note} Stock will move 1:1 until it is set.</>}
+        </p>
+      )}
+
+      {c.partial && (
+        <label className="mt-1.5 flex items-start gap-1.5 text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded px-2 py-1.5 cursor-pointer">
+          <input type="checkbox" checked={line.partial_ack} onChange={e => onChange({ partial_ack: e.target.checked })} className="mt-0.5 accent-amber-600"/>
+          <span>
+            <span className="font-semibold">Broken case.</span>{' '}
+            {n(c.whole)} full {c.want} + {n(c.remainder)} {c.base} loose. Tick to confirm this is intended.
+          </span>
+        </label>
+      )}
+    </div>
+  )
 }
 
 function PriceHint({ sku }: { sku: string }) {
@@ -812,7 +928,7 @@ function EditPanel({
   function discardDraft() { try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ } setDraftAvail(null) }
 
   function addLine(preset?: Partial<EditLineState>) {
-    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', our_part_number: '', supplier_part_number: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, ...preset }])
+    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', our_part_number: '', supplier_part_number: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, uom_factor: '', partial_ack: false, ...preset }])
   }
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch } : l)) }
@@ -1263,11 +1379,17 @@ function EditPanel({
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {([['quantity','Qty'],['completed_qty','Done'],['unit_of_measure','UOM'],['packaging','Packaging']] as const).map(([key, label]) => (
-                      <input key={key} value={(line as any)[key]} onChange={e => updateLine(line._key, { [key]: e.target.value })}
+                  <div className="grid grid-cols-4 gap-2 items-start">
+                    {([['quantity','Qty'],['completed_qty','Done']] as const).map(([key, label]) => (
+                      <input key={key} value={(line as any)[key]} onChange={e => updateLine(line._key, { [key]: e.target.value, ...(key === 'quantity' ? { partial_ack: false } : {}) })}
                         placeholder={label} className="bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     ))}
+                    <input value={line.packaging} onChange={e => updateLine(line._key, { packaging: e.target.value })}
+                      placeholder="Packaging" className="col-span-2 bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 items-start">
+                    <UomCell line={line} prod={products.find(p => p.id === line.product_id) ?? products.find(p => p.sku === line.sku)}
+                      onChange={patch => updateLine(line._key, patch)} />
                   </div>
                   <div className="grid grid-cols-2 gap-2 items-center">
                     <div className="relative">
@@ -1539,7 +1661,7 @@ export default function OrdersPage() {
     const [{ data: o, error: oErr }, { data: c }, { data: p }, { data: fl }, { data: wo }, { data: sh }, { data: pc }] = await Promise.all([
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone,city,state)').eq('archived', false).eq('is_active', true).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
-      sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number').eq('is_active', true).order('sku'),
+      sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number,pieces_per_pack,packs_per_case,cases_per_pallet,case_qty').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
       sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
@@ -1914,6 +2036,8 @@ export default function OrdersPage() {
       added_details: l.added_details ?? '',
       sku_flagged: l.sku_flagged ?? false,
       product_id: l.product_id ?? null,
+      uom_factor: l.uom_factor_override && l.uom_factor != null ? String(l.uom_factor) : '',
+      partial_ack: !!l.partial_ack,
     })))
     setEditingOrder(order)
     setForm({
@@ -1955,6 +2079,21 @@ export default function OrdersPage() {
   async function save() {
     if (saving) return
     if (!editingOrder && !form.notes.trim() && !form.order_number.trim()) { setErr('Enter an order name or SO#.'); return }
+
+    // A quantity that does not land on a whole case is a real thing customers ask
+    // for, but it changes what production runs and what the warehouse picks. It may
+    // be saved — it may not be saved by accident.
+    const unconfirmed = editLines.filter(l => {
+      if (!l.sku && !l.description) return false
+      const prod = products.find(p => p.id === l.product_id) ?? products.find(p => p.sku === l.sku)
+      const c = lineConversion(prod, l)
+      return c.partial && !l.partial_ack
+    })
+    if (unconfirmed.length) {
+      setErr(`Confirm the broken case on ${unconfirmed.map(l => l.sku || l.description).join(', ')} before saving — tick the amber box on the line.`)
+      return
+    }
+
     setErr(''); setSaving(true)
 
     let soNum = form.order_number.trim()
@@ -2096,8 +2235,15 @@ export default function OrdersPage() {
         line_number: i + 1,
         discount_pct: 0,
       }
+      const conv = lineConversion(prod, line)
       const extLine: Record<string,any> = {
         completed_qty: parseFloat(line.completed_qty) || 0,
+        // The conversion actually used, frozen onto the line. Stock and production read
+        // qty_base; re-pricing a SKU's ladder later must not silently restate old orders.
+        uom_factor: conv.known ? conv.factor : null,
+        uom_factor_override: conv.overridden,
+        qty_base: conv.known ? conv.qtyBase : null,
+        partial_ack: !!line.partial_ack,
         our_part_number: line.our_part_number.trim() || null,
         supplier_part_number: line.supplier_part_number.trim() || null,
         packaging: line.packaging || null,
@@ -2108,6 +2254,24 @@ export default function OrdersPage() {
       const lRes = await sb.from('sales_order_lines').insert({ ...baseLine, ...extLine })
       if (lRes.error?.message?.includes('column')) {
         await sb.from('sales_order_lines').insert(baseLine)
+      }
+    }
+
+    // Anything that departs from the catalogue ladder goes in the order's activity log,
+    // named and attributed, so a conversion nobody can explain later is not possible.
+    if (orderId) {
+      for (const line of editLines) {
+        if (!line.sku && !line.description) continue
+        const prod = products.find(p => p.id === line.product_id) ?? products.find(p => p.sku === line.sku)
+        const c = lineConversion(prod, line)
+        const label = line.sku || line.description
+        if (c.overridden) {
+          const cat = prod ? conversionFactor(prod, c.want) : null
+          try { await logActivity(orderId, userEmail, `UOM override on ${label}: 1 ${c.want} = ${c.factor.toLocaleString('en-US')} ${c.base}${cat?.known ? ` (catalogue says ${cat.factor.toLocaleString('en-US')})` : ' (catalogue has no conversion)'}. This line only — the product was not changed.`) } catch { /* best-effort */ }
+        }
+        if (c.partial && line.partial_ack) {
+          try { await logActivity(orderId, userEmail, `Broken case confirmed on ${label}: ${c.qty} ${c.want} = ${c.qtyBase.toLocaleString('en-US')} ${c.base} (${Math.floor(c.whole).toLocaleString('en-US')} full ${c.want} + ${c.remainder.toLocaleString('en-US')} ${c.base} loose).`) } catch { /* best-effort */ }
+        }
       }
     }
 
