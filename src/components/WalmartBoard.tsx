@@ -41,7 +41,6 @@ const GROUPS = [
   { key: 'Building Order', color: '#FDAB3D' },
   { key: 'Ready for Shipment', color: '#00A84F' },
   { key: 'Prepped & Ready for Dispatch', color: '#A25DDC' },
-  { key: 'Shipped', color: '#037F4C' },
   { key: 'Cancelled', color: '#E2445C' },
 ]
 // One shared status vocabulary with the Sales Order board.
@@ -437,6 +436,7 @@ export default function WalmartBoard() {
       ship_date: now.toISOString().slice(0, 10), order_date: order.order_date || null,
       total_value: order.total_value ?? (linesTotalOf(lines[order.id] || []) || null),
       ship_to_address: order.ship_to || null, bol_number: order.bol2 || null,
+      sales_order_id: order.sales_order_id || null,
       delivery_status: 'Shipped', status: 'Shipped',
       month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
     }
@@ -712,9 +712,9 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
     return isNaN(ms) ? 0 : ms
   }
   const groupRows = (key: string) => rows
-    .filter(r => (r.group_name || 'Walmart Orders') === key && match(r))
+    .filter(r => (r.group_name || 'Walmart Orders') === key && (r.status || '').toLowerCase() !== 'shipped' && (r.group_name || '') !== 'Shipped' && match(r))
     .sort((a, b) => shipSortKey(b) - shipSortKey(a))
-  const extra = Array.from(new Set(rows.map(r => r.group_name || 'Walmart Orders').filter(k => k && !GROUPS.some(g => g.key === k))))
+  const extra = Array.from(new Set(rows.map(r => r.group_name || 'Walmart Orders').filter(k => k && k !== 'Shipped' && !GROUPS.some(g => g.key === k))))
   const allGroups = [...GROUPS, ...extra.map(k => ({ key: k, color: '#9699A6' }))]
   const shown = allGroups.reduce((a, g) => a + groupRows(g.key).length, 0)
 
