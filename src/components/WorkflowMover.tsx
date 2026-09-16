@@ -274,8 +274,12 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
               await sb.from('work_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', recordId)
               const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced, wo_number').eq('id', recordId).maybeSingle()
               if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
-                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
-                if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
+                const { data: prod } = await sb.from('products').select('sku, on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
+                if (prod) {
+                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
+                  // Log the finished-good production so it appears in the item's Activity feed.
+                  try { await sb.from('inventory_movements').insert({ product_id: (wo as any).product_id, sku: (prod as any).sku, movement_type: 'produce', qty: (wo as any).qty_produced, uom: null, ref_table: 'work_orders', ref_id: recordId, created_by: email, note: `Produced via WO-${(wo as any).wo_number}` }) } catch { /* best-effort */ }
+                }
                 // Consume the BOM components for what was produced (deduct on-hand + ledger).
                 try { await sb.rpc('consume_bom_for_production', { p_product_id: (wo as any).product_id, p_qty: (wo as any).qty_produced, p_by: email }) } catch { /* best-effort */ }
               }
@@ -296,8 +300,12 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
               await sb.from('work_orders').update({ status: 'Complete', updated_at: new Date().toISOString() }).eq('id', recordId)
               const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced, wo_number').eq('id', recordId).maybeSingle()
               if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
-                const { data: prod } = await sb.from('products').select('on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
-                if (prod) await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
+                const { data: prod } = await sb.from('products').select('sku, on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
+                if (prod) {
+                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
+                  // Log the finished-good production so it appears in the item's Activity feed.
+                  try { await sb.from('inventory_movements').insert({ product_id: (wo as any).product_id, sku: (prod as any).sku, movement_type: 'produce', qty: (wo as any).qty_produced, uom: null, ref_table: 'work_orders', ref_id: recordId, created_by: email, note: `Produced via WO-${(wo as any).wo_number}` }) } catch { /* best-effort */ }
+                }
                 // Consume the BOM components for what was produced (deduct on-hand + ledger).
                 try { await sb.rpc('consume_bom_for_production', { p_product_id: (wo as any).product_id, p_qty: (wo as any).qty_produced, p_by: email }) } catch { /* best-effort */ }
               }
