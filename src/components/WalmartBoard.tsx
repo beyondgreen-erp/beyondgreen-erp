@@ -850,44 +850,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
       )}
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — every Walmart order mirrors into the Order Pipeline and flows across Production, Shipping &amp; Invoices; status, comments, files, BOL &amp; packing list stay in sync.</div>
 
-      {/* Requirements roll-up */}
-      {!loading && req.perPo.length > 0 && (
-        <div className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm mb-4 overflow-hidden">
-          <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none bg-[#0F172A]" onClick={() => setShowReq(s => !s)}>
-            <span className="text-[10px] text-white" style={{ display: 'inline-block', transform: showReq ? 'rotate(90deg)' : 'none' }}>&#9654;</span>
-            <span className="font-bold text-sm text-white">📊 Production Requirements</span>
-            <span className="text-[11px] text-white/60 ml-auto">BOM components needed per active PO · shipped POs drop off</span>
-          </div>
-          {showReq && (
-            <div className="p-3">
-              <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
-                <table className="w-full text-sm min-w-[560px]">
-                  <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400">
-                    <th className="text-left px-3 py-2">PO</th>
-                    <th className="text-left px-3 py-2">Component</th>
-                    <th className="text-right px-3 py-2">Qty Needed</th>
-                    <th className="text-right px-3 py-2">On Hand</th>
-                    <th className="text-right px-3 py-2">Short</th>
-                  </tr></thead>
-                  <tbody>
-                    {req.perPo.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-xs">No BOM components mapped for active POs.</td></tr>}
-                    {req.perPo.map((r, i) => (
-                      <tr key={r.po + r.sku + i} className="border-t border-[#F0F2F6] hover:bg-[#F8FAFC]">
-                        <td className="px-3 py-2 font-semibold text-[#0F172A] whitespace-nowrap" title={r.poName}>{r.po}</td>
-                        <td className="px-3 py-2 font-mono text-gray-700" title={r.name || ''}>{r.sku}</td>
-                        <td className="px-3 py-2 text-right text-gray-700">{fmtN(r.need)}</td>
-                        <td className="px-3 py-2 text-right text-gray-600">{isNaN(r.onHand) ? '—' : fmtN(r.onHand)}</td>
-                        <td className="px-3 py-2 text-right">{r.short == null ? <span className="text-gray-300">n/a</span> : r.short <= 0 ? <span className="text-[11px] font-semibold text-emerald-600">OK</span> : <span className="text-[11px] font-semibold text-red-500">short {fmtN(r.short)}</span>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-2 px-1">On Hand is the shared inventory pool; Short accounts for stock already claimed by earlier-shipping POs.</p>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Production Requirements now live on Business Reports → Walmart PO Requirements tab */}
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <input placeholder="Search name, PO#, ship-to, status, load#…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1 min-w-[240px] max-w-md bg-white border border-[#E4E6EE] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
