@@ -8,6 +8,11 @@ interface Props {
   onChange: (val: string) => void
   page: string
   className?: string
+  /** The record being edited. Without it the notification has nothing more specific
+   *  than the board to link to, and the reader lands on a list and has to hunt. */
+  recordId?: string | null
+  /** Defaults to `page`; pass one when the board's own record type differs. */
+  recordType?: string
 }
 
 export interface TagInputHandle {
@@ -16,7 +21,7 @@ export interface TagInputHandle {
 
 interface TeamUser { email: string; full_name: string; department: string | null; avatar_color: string; avatar_initials: string | null }
 
-const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, onChange, page, className }, ref) {
+const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, onChange, page, className, recordId, recordType }, ref) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [users, setUsers] = useState<TeamUser[]>([])
   const [showDrop, setShowDrop] = useState(false)
@@ -51,7 +56,8 @@ const TagInput = forwardRef<TagInputHandle, Props>(function TagInput({ value, on
           body: value,
           authorName: me?.full_name || senderEmail.split('@')[0],
           authorEmail: senderEmail,
-          recordType: page,
+          recordType: recordType || page,
+          recordId: recordId || undefined,
           recordUrl: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       }).catch(() => {})

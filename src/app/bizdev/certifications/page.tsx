@@ -154,7 +154,7 @@ export default function CertificationsPage() {
           <div><label className="block text-xs text-gray-400 mb-1.5">Responsible Person</label><input value={form.responsible_person} onChange={e=>setForm(p=>({...p,responsible_person:e.target.value}))} className={inp}/></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Linked Customer</label><select value={form.customer_id} onChange={e=>setForm(p=>({...p,customer_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{customers.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}</select></div>
           <div><label className="block text-xs text-gray-400 mb-1.5">Linked Vendor</label><select value={form.vendor_id} onChange={e=>setForm(p=>({...p,vendor_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.company_name}</option>)}</select></div>
-          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Certifications" className={inp+' resize-none'}/>
+          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Certifications" recordType="certification" recordId={editing?.id} className={inp+' resize-none'}/>
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><LinkedTasks recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>

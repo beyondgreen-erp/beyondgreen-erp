@@ -319,7 +319,7 @@ export default function DocumentsPage() {
             <div><label className="block text-xs text-gray-400 mb-1.5">Sales Order</label><select value={form.order_id} onChange={e=>setForm(p=>({...p,order_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_number||'Order'}</option>)}</select></div>
             <div><label className="block text-xs text-gray-400 mb-1.5">Certification</label><select value={form.certification_id} onChange={e=>setForm(p=>({...p,certification_id:e.target.value}))} className={inp+' cursor-pointer'}><option value="">— None —</option>{certs.map(c=><option key={c.id} value={c.id}>{c.cert_name||'Certification'}</option>)}</select></div>
           </div>
-          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Documents" className={inp+' resize-none'}/>
+          <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Documents" recordType="document" recordId={editing?.id} className={inp+' resize-none'}/>
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="documents" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <DocAI documentId={editing.id}/>

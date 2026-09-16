@@ -1395,7 +1395,14 @@ export default function OrdersPage() {
     const target = (orders as any[]).find((x) => x && x.id === openId)
     if (target) { deepLinkOpenedRef.current = openId; openEdit(target) }
   }, [orders]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [view, setView] = useState<'board'|'table'|'walmart'|'chewy'>('board')
+  // ?view=walmart|chewy opens the right tab. A mention on a Walmart order links here,
+  // and without this the pipeline opens on Sales Orders — that board never renders the
+  // Walmart row, so its own deep link cannot find it and the reader sees a bare list.
+  const [view, setView] = useState<'board'|'table'|'walmart'|'chewy'>(() => {
+    if (typeof window === 'undefined') return 'board'
+    const v = new URLSearchParams(window.location.search).get('view')
+    return (v === 'walmart' || v === 'chewy' || v === 'table') ? v : 'board'
+  })
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')

@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import { useItemDeepLink } from '@/components/useItemDeepLink'
 
 const TYPES = ['Sick', 'Vacation', 'Personal', 'Bereavement', 'Jury Duty', 'Unpaid Leave', 'Work From Home', 'Other']
 const TYPE_COLORS: Record<string, string> = {
@@ -205,6 +206,7 @@ export default function TimeOffPage() {
   const pendingN = rows.filter(r => (r.status || 'Pending') === 'Pending').length
 
   function openDetail(r: Req) { setEditing(false); setDetail(r) }
+  useItemDeepLink(rows, (r) => openDetail(r as Req))
   function closeDetail() { setDetail(null); setEditing(false) }
 
   function startEdit() {

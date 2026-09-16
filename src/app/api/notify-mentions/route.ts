@@ -133,6 +133,10 @@ export async function POST(req: Request) {
 
     const pageLabel = recordType ? (recordType.charAt(0).toUpperCase() + recordType.slice(1).replace(/_/g, ' ')) : 'ERP'
     // Build a deep link straight to the tagged item (?item=<id>) so the record board opens it.
+    // Any record type missing from this map falls back to the sender's own page URL,
+    // which for a board is the bare board — the reader lands on a list of a hundred
+    // rows with no idea which one they were tagged in. Walmart orders were the worst
+    // of these: the highest-volume mention on the system and never once deep-linked.
     const RECORD_PATHS: Record<string, string> = {
       vault_item: '/bizdev/vault',
       sample_submission: '/operations/samples', sample_submissions: '/operations/samples',
@@ -145,10 +149,26 @@ export async function POST(req: Request) {
       lead: '/sales/leads', leads: '/sales/leads',
       product: '/sales/inventory', products: '/sales/inventory',
       purchasing_request: '/sales/purchase-orders', purchasing_requests: '/sales/purchase-orders',
+      // The Walmart and Chewy boards are tabs inside the order pipeline, so the link
+      // has to name the tab as well as the row or the board opens on Sales Orders and
+      // the row is not even rendered.
+      walmart_order: '/sales/orders?view=walmart', walmart_board_order: '/sales/orders?view=walmart',
+      walmart_board_orders: '/sales/orders?view=walmart',
+      chewy_order: '/sales/orders?view=chewy', chewy_board_order: '/sales/orders?view=chewy',
+      task: '/bizdev/tasks', tasks: '/bizdev/tasks',
+      vendor: '/sales/vendors', vendors: '/sales/vendors', Vendors: '/sales/vendors',
+      certification: '/bizdev/certifications', certifications: '/bizdev/certifications', Certifications: '/bizdev/certifications',
+      document: '/bizdev/documents', documents: '/bizdev/documents', Documents: '/bizdev/documents',
+      work_order: '/production/work-orders', work_orders: '/production/work-orders',
+      time_off_request: '/hr/time-off', time_off_requests: '/hr/time-off',
+      inventory_movement: '/warehouse/scan-activity', inventory_movements: '/warehouse/scan-activity',
+      pl_stock_order: '/warehouse/private-label-stock',
     }
-    const boardPath = recordType ? RECORD_PATHS[recordType] : undefined
+    // Custom boards live at /board/<key> and carry their own ids.
+    const customBoardPath = recordType?.startsWith('board:') ? `/board/${recordType.slice(6)}` : undefined
+    const boardPath = customBoardPath ?? (recordType ? RECORD_PATHS[recordType] : undefined)
     const contextUrl = (boardPath && recordId)
-      ? `${SITE_URL}${boardPath}?item=${recordId}${commentId ? `&comment=${commentId}` : ''}`
+      ? `${SITE_URL}${boardPath}${boardPath.includes('?') ? '&' : '?'}item=${recordId}${commentId ? `&comment=${commentId}` : ''}`
       : (recordUrl || `${SITE_URL}/${recordType || ''}`)
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
     const recordName = await lookupRecordName(sb, recordType, recordId)
