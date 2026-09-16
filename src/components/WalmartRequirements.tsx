@@ -1,6 +1,6 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface WOrder { id: string; name: string | null; po_number: string | null; status: string | null; group_name: string | null; ship_due_date: string | null }
@@ -20,24 +20,24 @@ export default function WalmartRequirements() {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>({})
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true)
-      const [{ data: o }, { data: l }, { data: p }, { data: b }] = await Promise.all([
-        sb.from('walmart_board_orders').select('id, name, po_number, status, group_name, ship_due_date').eq('archived', false),
-        sb.from('walmart_board_lines').select('order_id, part_number, qty'),
-        sb.from('products').select('sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams'),
-        sb.from('product_bom').select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level'),
-      ])
-      setOrders((o as WOrder[]) || [])
-      const lm: Record<string, WLine[]> = {}
-      for (const r of (l as WLine[]) || []) { (lm[r.order_id] ||= []).push(r) }
-      setLines(lm)
-      setProducts((p as Prod[]) || [])
-      setBom((b as Bom[]) || [])
-      setLoading(false)
-    })()
+  const load = useCallback(async () => {
+    setLoading(true)
+    const [{ data: o }, { data: l }, { data: p }, { data: b }] = await Promise.all([
+      sb.from('walmart_board_orders').select('id, name, po_number, status, group_name, ship_due_date').eq('archived', false),
+      sb.from('walmart_board_lines').select('order_id, part_number, qty'),
+      sb.from('products').select('sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams'),
+      sb.from('product_bom').select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level'),
+    ])
+    setOrders((o as WOrder[]) || [])
+    const lm: Record<string, WLine[]> = {}
+    for (const r of (l as WLine[]) || []) { (lm[r.order_id] ||= []).push(r) }
+    setLines(lm)
+    setProducts((p as Prod[]) || [])
+    setBom((b as Bom[]) || [])
+    setLoading(false)
   }, [sb])
+
+  useEffect(() => { load() }, [load])
 
   const productBySku = useMemo(() => {
     const m: Record<string, Prod> = {}
@@ -108,9 +108,12 @@ export default function WalmartRequirements() {
           <h2 className="text-lg font-bold text-[#1A1D2E]">Walmart PO Requirements</h2>
           <p className="text-xs text-gray-500 mt-0.5">{loading ? 'Loading…' : `${groups.length} PO${groups.length === 1 ? '' : 's'}`} · click a PO to see its BOM components · shipped POs drop off</p>
         </div>
-        <div className="relative">
-          <i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-          <input placeholder="Search PO or component…" value={q} onChange={e => setQ(e.target.value)} className="pl-9 pr-4 py-2 text-sm bg-white border border-[#E4E6EE] rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <div className="flex items-center gap-2">
+          <button onClick={() => load()} disabled={loading} title="Reload latest Walmart PO data" className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-[#F5F6FA] disabled:opacity-50 transition-colors"><i className={'ti ti-refresh' + (loading ? ' animate-spin' : '')} />Refresh</button>
+          <div className="relative">
+            <i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+            <input placeholder="Search PO or component…" value={q} onChange={e => setQ(e.target.value)} className="pl-9 pr-4 py-2 text-sm bg-white border border-[#E4E6EE] rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
         </div>
       </div>
       <div>
