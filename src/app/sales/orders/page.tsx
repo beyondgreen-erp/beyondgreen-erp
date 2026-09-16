@@ -1543,7 +1543,16 @@ export default function OrdersPage() {
     ])
     if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) { setUserEmail(data.user.email); sb.from('erp_user_roles').select('role').eq('email', data.user.email).maybeSingle().then(({ data: r }) => setUserRole((r as any)?.role || '')) } }) }
     if (oErr) setLoadError('Failed to load orders: ' + oErr.message)
-    else if (o) setOrders((o as SalesOrder[]).filter(so => (so.order_section ?? '') !== 'Walmart' && (so.order_section ?? '') !== 'Chewy'))  // Walmart & Chewy orders live on their own dedicated tabs; excluded here to avoid duplication
+    else if (o) setOrders((o as SalesOrder[]).filter(so => {
+      // Walmart & Chewy orders live on their own dedicated tabs; keep them out of All Orders.
+      // Match by customer name OR section, because some Walmart orders have no section and
+      // some Chewy orders are tagged "Make To Stock".
+      const sec = so.order_section ?? ''
+      const cust = (so.customer?.company_name ?? '').trim().toLowerCase()
+      const isWalmart = sec === 'Walmart' || cust === 'walmart'
+      const isChewy = sec === 'Chewy' || cust === 'chewy'
+      return !isWalmart && !isChewy
+    }))
     if (c) setCustomers(c as Customer[])
     if (p) setProducts(p as Product[])
     if (fl) {
