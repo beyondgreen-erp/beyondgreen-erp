@@ -32,6 +32,18 @@ const PO_REQUIRED_OPTIONS = ['Yes', 'No', 'Unsure']
 const statusColor = (s: string | null) => (s && STATUS_COLORS[s]) || '#c4c4c4'
 const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
 
+/**
+ * Is an expected dock date already past with nothing received against it?
+ *
+ * A date that slips by unnoticed is the same as no date at all for anyone trying to
+ * plan a production run, so the board marks it rather than leaving it to be spotted.
+ */
+function dockOverdue(estimated: string | null, received: string | null): boolean {
+  if (!estimated || received) return false
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return new Date(String(estimated).slice(0, 10) + 'T00:00:00') < today
+}
+
 type LineItem = {
   key: string
   mode: 'search' | 'new'
@@ -67,6 +79,7 @@ const emptyCreate = {
   customer_project: '',
   order_ref: '',
   po_date: '',
+  estimated_dock_date: '',
   // vendor
   vendorMode: 'search' as 'search' | 'new',
   vendorId: '',
@@ -146,7 +159,7 @@ export default function PurchasingRequestsPage() {
     setEditItems(detail ? items.filter(i => i.parent_id === detail.id).sort((a, b) => (a.position || 0) - (b.position || 0)).map(x => ({ ...x })) : [])
     setDeletedItemIds([])
   }, [detail?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','order_ref','supplier','supplier_pn','po_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
+  const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','order_ref','supplier','supplier_pn','po_date','estimated_dock_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
   const ITEM_KEYS = ['part_number','description','qty_ordered','date_ordered','total_received','date_received','balance','product_id'] as const
   function updateDetailItem(idx: number, key: string, val: string) { setEditItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: val } : x)) }
   function addDetailLine() { setEditItems(arr => [...arr, { _new: true, part_number: '', description: '', qty_ordered: '', date_ordered: null, total_received: '', date_received: null, balance: '', product_id: null }]) }
@@ -482,6 +495,7 @@ th{background:#eef5f0}
       vendor_id: vendorId,
       supplier_pn: resolvedOk.length === 1 ? (first.partNumber || null) : null,
       po_date: poDate,
+      estimated_dock_date: form.estimated_dock_date || null,
       qty_ordered: resolvedOk.length === 1 ? (first.qty || null) : null,
     })
     if (reqErr) { setCreateError(supabaseError(reqErr)); setSaving(false); return }
@@ -551,6 +565,7 @@ th{background:#eef5f0}
                         <th className="text-left px-3 py-2 font-semibold w-[110px]">PO #</th>
                         <th className="text-left px-3 py-2 font-semibold w-[140px]">Supplier</th>
                         <th className="text-left px-3 py-2 font-semibold w-[100px]">PO Date</th>
+                        <th className="text-left px-3 py-2 font-semibold w-[110px]">Est. Dock Date</th>
                         <th className="text-left px-3 py-2 font-semibold w-[110px]">Receiving Date</th>
                         <th className="text-left px-3 py-2 font-semibold w-[70px]">Details</th>
                         <th className="text-left px-3 py-2 font-semibold w-[70px]">Files</th>
@@ -576,6 +591,13 @@ th{background:#eef5f0}
                             <td className="px-3 py-2.5 text-gray-600">{r.po_number || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{r.supplier || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{fmtDate(r.po_date) || '—'}</td>
+                            <td className="px-3 py-2.5">
+                              {r.estimated_dock_date
+                                ? (dockOverdue(r.estimated_dock_date, r.date_received)
+                                    ? <span title="Past the expected dock date with nothing received yet" className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">{fmtDate(r.estimated_dock_date)}</span>
+                                    : <span className="text-gray-600">{fmtDate(r.estimated_dock_date)}</span>)
+                                : <span className="text-gray-300">—</span>}
+                            </td>
                             <td className="px-3 py-2.5 text-gray-600">{fmtDate(r.date_received) || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600">{its.length ? `${its.length} item${its.length > 1 ? 's' : ''}` : '—'}</td>
                             <td className="px-3 py-2.5">{nFiles ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nFiles}</span> : <span className="text-gray-300">—</span>}</td>
@@ -583,7 +605,7 @@ th{background:#eef5f0}
                           </tr>
                         )
                       })}
-                      {gr.length === 0 && <tr><td colSpan={11} className="px-4 py-6 text-center text-gray-400 text-sm">No requests</td></tr>}
+                      {gr.length === 0 && <tr><td colSpan={12} className="px-4 py-6 text-center text-gray-400 text-sm">No requests</td></tr>}
                     </tbody>
                   </table>
               )}
@@ -678,7 +700,9 @@ th{background:#eef5f0}
                   <TextField label="Customer / Project" value={form.customer_project} onChange={v => setForm(f => ({ ...f, customer_project: v }))} />
                   <TextField label="Order # (Sales Order)" value={form.order_ref} onChange={v => setForm(f => ({ ...f, order_ref: v }))} />
                   <TextField label="PO Date" type="date" value={form.po_date} onChange={v => setForm(f => ({ ...f, po_date: v }))} />
+                  <TextField label="Est. Dock Date" type="date" value={form.estimated_dock_date} onChange={v => setForm(f => ({ ...f, estimated_dock_date: v }))} />
                 </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">Est. Dock Date is when the goods are expected to arrive — production schedules off it. Receiving Date is filled in later, when they actually land.</p>
               </div>
 
               {createError && (
@@ -732,7 +756,7 @@ th{background:#eef5f0}
                     {GROUPS.map(g => <option key={g.key} value={g.key}>{g.title}</option>)}
                   </select>
                 </div>
-                {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['order_ref','Order # (Sales Order)','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
+                {([['person_requesting','Requested By','text'],['po_required','PO Required?','text'],['po_number','PO Number','text'],['customer_project','Customer / Project','text'],['order_ref','Order # (Sales Order)','text'],['supplier','Supplier','text'],['supplier_pn','Supplier P/N','text'],['po_date','PO Date','date'],['estimated_dock_date','Est. Dock Date','date'],['qty_ordered','Qty Ordered','text'],['date_received','Date Received','date'],['qty_received','Qty Received','text'],['balance','Balance','text'],['pkgs_received',"# of Pkgs Rec'd",'text'],['condition_received',"Condition Rec'd",'text'],['received_by','Received By','text'],['batch_lot','Batch / Lot No.','text']] as const).map(([k,label,type]) => (
                   <div key={k}>
                     <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>
     {k === 'balance'
@@ -755,6 +779,17 @@ th{background:#eef5f0}
                                   <span className="text-amber-600">Not a vendor record yet</span>
                                   {String(editForm.supplier ?? '').trim() && <button onClick={createVendorFromDetail} className="ml-1.5 text-[#3B6FE0] hover:underline font-semibold">＋ Add vendor</button>}
                                 </>}
+                          </p>
+                        </div>
+                      : k === 'estimated_dock_date'
+                      ? <div>
+                          <input type="date" value={editForm.estimated_dock_date ?? ''}
+                            onChange={e => setEditForm((ff: any) => ({ ...ff, estimated_dock_date: e.target.value }))}
+                            className={`w-full text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0] ${dockOverdue(editForm.estimated_dock_date ?? null, editForm.date_received ?? null) ? 'border-amber-300 bg-amber-50/50' : 'border-[#E4E6EE]'}`} />
+                          <p className="text-[10px] mt-0.5 text-gray-400">
+                            {dockOverdue(editForm.estimated_dock_date ?? null, editForm.date_received ?? null)
+                              ? <span className="text-amber-600 font-semibold">Past due — nothing received yet</span>
+                              : 'When it is expected on the dock. Production schedules off this.'}
                           </p>
                         </div>
                       : <input type={type} value={editForm[k] ?? ''} onChange={e => setEditForm((ff: any) => ({ ...ff, [k]: e.target.value }))} className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#3B6FE0]" />}
