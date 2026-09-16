@@ -39,6 +39,8 @@ interface PlanRow {
   boxes: BoxSpec[]
   // When true (default), one size/weight applies to every case (no per-box entry).
   sameBox?: boolean
+  // Manually-added line (order had no line items, e.g. a Faire/manual order).
+  manual?: boolean
 }
 // Build the per-case box list from a shipped quantity and units-per-case.
 // Full cases hold `upc`; the last case holds the remainder. Existing box
@@ -303,6 +305,19 @@ export default function ShippingQueuePage() {
 
   // Editing packing after the BOL was reviewed/finalized invalidates it (labels must come from a fresh BOL).
   function invalidateBol() { if (finalized) setFinalized(false); if (bolForm) setBolForm(null) }
+
+  // Manual override: add a line to ship an order that has no line items (Faire / manual orders).
+  function addManualLine() {
+    setPlan(p => [...p, {
+      sku: '', description: '', units: 1, unitsPerCase: 1, cases: 1,
+      caseWeightLb: 0, gramsPerUnit: 0, upc: null, customerPart: null, gtinImageUrl: null,
+      uom: 'ea', packaging: '', done: 0, productId: null, shippedUnits: 1,
+      boxes: makeBoxes(1, 1, undefined, 0), sameBox: true, manual: true,
+    }])
+    invalidateBol()
+  }
+  function setDesc(i: number, v: string) { setPlan(p => p.map((r, idx) => idx === i ? { ...r, description: v } : r)); invalidateBol() }
+  function setSku(i: number, v: string) { setPlan(p => p.map((r, idx) => idx === i ? { ...r, sku: v } : r)); invalidateBol() }
 
   function removeLine(i: number) {
     const sku = plan[i]?.sku
@@ -1202,7 +1217,7 @@ export default function ShippingQueuePage() {
                     {o?.shipping_address && <div className="text-xs text-gray-500 mb-3 whitespace-pre-line"><span className="text-gray-400">Address: </span>{st.addr}</div>}
                     {o?.additional_comments && <div className="text-xs bg-amber-50 border-l-4 border-amber-300 p-2 mb-3 whitespace-pre-line"><b>Notes:</b> {o.additional_comments}</div>}
 
-                    {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? <p className="text-xs text-gray-400">No line items found on this order.</p> : (
+                    {busy === 'load' ? <p className="text-xs text-gray-400">Loading order…</p> : plan.length === 0 ? (<div className="text-xs text-gray-400 py-1">No line items on this order. <button onClick={addManualLine} className="ml-1 text-[#0086C0] font-semibold hover:underline">+ Add a line manually</button> to ship it.</div>) : (
                       <>
                         {/* Ship Full / Ship Partial */}
                         <div className="rounded-xl border border-gray-200 bg-white p-3 mb-3 shadow-sm flex flex-wrap items-center gap-3">
@@ -1228,6 +1243,7 @@ export default function ShippingQueuePage() {
                           <div className="flex items-center gap-2 mb-2">
                             <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">✎</span>
                             <span className="text-sm font-semibold text-[#1A1D2E]">Line items</span>
+                            <button onClick={addManualLine} className="text-[11px] font-semibold text-[#0086C0] hover:underline">+ Add line</button>
                             <span className="ml-auto text-[11px] text-gray-400">Set UOM, units per case, and the qty shipped — the boxes below fill automatically. Give each case its own size &amp; weight.</span>
                           </div>
                           <div className="space-y-2">
@@ -1239,8 +1255,15 @@ export default function ShippingQueuePage() {
                                 <div key={i} className="rounded-lg border border-gray-200 bg-gray-50/60 p-3">
                                   <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
                                     <div className="min-w-0 mr-1">
-                                      <div className="font-mono text-[12px] text-[#1A1D2E] whitespace-nowrap">{r.sku}{r.upc ? '' : ' ⚠'}</div>
-                                      <div className="text-[11px] text-gray-500 max-w-[240px] truncate" title={r.description}>{r.description || '—'}</div>
+                                      {r.manual ? (
+                                        <div className="space-y-1">
+                                          <input value={r.sku} onChange={e => setSku(i, e.target.value)} placeholder="SKU (optional)" className="w-[130px] font-mono text-[12px] rounded border border-gray-300 px-1.5 py-0.5" />
+                                          <input value={r.description} onChange={e => setDesc(i, e.target.value)} placeholder="Item description" className="w-[230px] text-[11px] rounded border border-gray-300 px-1.5 py-0.5" />
+                                        </div>
+                                      ) : (<>
+                                        <div className="font-mono text-[12px] text-[#1A1D2E] whitespace-nowrap">{r.sku}{r.upc ? '' : ' ⚠'}</div>
+                                        <div className="text-[11px] text-gray-500 max-w-[240px] truncate" title={r.description}>{r.description || '—'}</div>
+                                      </>)}
                                     </div>
                                     <div className="w-[84px]"><label className={lbl}>UOM</label><input list="uom-options" value={r.uom} onChange={e => setUom(i, e.target.value)} className="w-full rounded border border-gray-300 px-1.5 py-1 text-xs" /></div>
                                     <div className="w-[70px]"><label className={lbl}>Units / Case</label><input type="number" min={1} value={r.unitsPerCase} onChange={e => setUnitsPerCase(i, parseInt(e.target.value) || 1)} className={nf} /></div>
