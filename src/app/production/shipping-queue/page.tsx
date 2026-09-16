@@ -78,7 +78,7 @@ const DEFAULT_L = 48, DEFAULT_W = 40
 function newConfig(id: number): PalletConfig {
   return { id, count: 1, lengthIn: DEFAULT_L, widthIn: DEFAULT_W, heightIn: 0, weightLb: 0, freightClass: '', nmfc: '', stackable: false, notes: '', contents: [{ sku: '', casesPerPallet: 0 }] }
 }
-interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string }
+interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; ship_to_address?: string | null; carrier_name?: string | null; scac?: string | null; freight_terms?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string; created_at?: string | null }
 
 // Editable BOL form state (mirrors BolData + editable commodity lines)
 interface BolLineForm { palletId: number; handlingQty: number; packageQty: number; weight: number; commodityDescription: string; nmfcNumber: string; freightClass: string }
@@ -157,10 +157,18 @@ export default function ShippingQueuePage() {
     setLoading(false)
   }, [])
 
+  // Every BOL that has been raised and not yet pulled into a Master BOL, newest first.
+  // This used to filter on status = 'Draft', which nothing has written since the BOL
+  // review step started marking them 'Final' — so the merge list sat empty no matter
+  // how many BOLs were generated.
   const loadBols = useCallback(async () => {
-    const { data } = await sb.from('bols').select('id, bol_number, po_number, ship_to_name, pallet_qty, case_qty, weight, declared_value, commodity_description, status')
-      .eq('status', 'Draft').order('created_at', { ascending: false })
-    setBols((data as BolRow[]) || [])
+    const [{ data }, { data: linked }] = await Promise.all([
+      sb.from('bols').select('id, bol_number, po_number, ship_to_name, ship_to_address, carrier_name, scac, freight_terms, pallet_qty, case_qty, weight, declared_value, commodity_description, status, created_at')
+        .order('created_at', { ascending: false }).limit(60),
+      sb.from('master_bol_bols').select('bol_id'),
+    ])
+    const merged = new Set(((linked as { bol_id: string }[]) || []).map(r => r.bol_id))
+    setBols(((data as BolRow[]) || []).filter(b => !merged.has(b.id)))
   }, [])
 
   useEffect(() => { load(); loadBols() }, [load, loadBols])
@@ -1040,10 +1048,25 @@ export default function ShippingQueuePage() {
     const totalWeight = +(chosen.reduce((a, b) => a + (b.weight || 0), 0)).toFixed(2)
     const declared = +(chosen.reduce((a, b) => a + (b.declared_value || 0), 0)).toFixed(2)
     const masterNumber = `Master-${Date.now().toString().slice(-8)}`
+    // Carry the carrier, SCAC and ship-to through from the BOLs being merged. These
+    // used to be hardcoded blank, so a Master BOL printed with no carrier and no SCAC
+    // however carefully they had been entered on the individual BOLs.
+    const distinct = (vals: (string | null | undefined)[]) =>
+      [...new Set(vals.map(v => String(v ?? '').trim()).filter(Boolean))]
+    const one = (vals: (string | null | undefined)[], mixed = '') => {
+      const u = distinct(vals)
+      return u.length === 1 ? u[0] : (u.length ? mixed : '')
+    }
+    const carrierName = one(chosen.map(b => b.carrier_name), 'Multiple carriers - see attached BOLs')
+    const scac = one(chosen.map(b => b.scac))
+    const shipToName = one(chosen.map(b => b.ship_to_name), 'Consolidation') || 'Consolidation'
+    const shipToAddress = one(chosen.map(b => b.ship_to_address))
     const data: BolData = {
       isMaster: true, bolNumber: masterNumber, date: new Date().toLocaleDateString(), shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR,
-      shipToName: chosen[0].ship_to_name || 'Consolidation', shipToAddress: '', carrierName: '', scac: '', freightTerms: '3rd Party',
-      specialInstructions: [], totalPallets, totalCases, totalWeight, declaredValue: declared,
+      shipToName, shipToAddress, carrierName, scac,
+      freightTerms: one(chosen.map(b => b.freight_terms)) || '3rd Party',
+      specialInstructions: [`Covers ${chosen.length} BOLs: ${chosen.map(b => b.bol_number).join(', ')}`],
+      totalPallets, totalCases, totalWeight, declaredValue: declared,
     }
     const logo = await loadImageDataUrl('/bG-logo-clean.png')
     buildMasterBOL(data, lines, logo).save(`${masterNumber}.pdf`)
@@ -1052,7 +1075,7 @@ export default function ShippingQueuePage() {
       total_pallets: totalPallets, total_cases: totalCases, total_weight: totalWeight, declared_value: declared, status: 'Draft',
     }).select().single()
     if (mb) await sb.from('master_bol_bols').insert(chosen.map(b => ({ master_bol_id: mb.id, bol_id: b.id })))
-    setBusy(''); setSel({})
+    setBusy(''); setSel({}); loadBols()
   }
 
   const btn = 'text-xs font-semibold px-3 py-2 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
@@ -1098,15 +1121,16 @@ export default function ShippingQueuePage() {
 
       {showMaster && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-sm font-semibold mb-2">Generated BOLs — select to merge</p>
-          {bols.length === 0 ? <p className="text-xs text-gray-400">No draft BOLs yet.</p> : (
+          <p className="text-sm font-semibold mb-0.5">Generated BOLs — select to merge</p>
+          <p className="text-[11px] text-gray-400 mb-2">Every BOL raised here or on the Walmart board that has not been merged yet, newest first. Tick at least two.</p>
+          {bols.length === 0 ? <p className="text-xs text-gray-400">No BOLs waiting to be merged. Generate one from a Walmart PO or from the BOL step below.</p> : (
             <div className="space-y-1">
               {bols.map(b => (
                 <label key={b.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-100">
                   <input type="checkbox" checked={!!sel[b.id]} onChange={e => setSel(s => ({ ...s, [b.id]: e.target.checked }))} />
                   <span className="font-mono font-semibold w-40 truncate">{b.bol_number}</span>
-                  <span className="flex-1 text-gray-500 truncate">PO {b.po_number || '—'} · {b.ship_to_name}</span>
-                  <span className="text-gray-500">{b.pallet_qty} PLT · {b.case_qty} CS · {b.weight} lb</span>
+                  <span className="flex-1 text-gray-500 truncate">PO {b.po_number || '—'} · {b.ship_to_name}{b.carrier_name ? ' · ' + b.carrier_name : ''}</span>
+                  <span className="text-gray-500 whitespace-nowrap">{b.pallet_qty} PLT · {b.case_qty} CS · {b.weight} lb</span>
                 </label>
               ))}
               <button onClick={mergeMaster} disabled={busy === 'master'} className={`${btn} bg-emerald-600 text-white border-emerald-600 mt-3`}>{busy === 'master' ? 'Merging…' : 'Generate Master BOL'}</button>

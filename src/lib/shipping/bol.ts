@@ -54,6 +54,27 @@ function bold(doc: jsPDF, s: string, x: number, y: number, size = 7) { doc.setFo
 function norm(doc: jsPDF, s: string, x: number, y: number, size = 8) { doc.setFont('helvetica', 'normal'); doc.setFontSize(size); doc.text(s, x, y) }
 
 /**
+ * Draw a single-line value that must stay inside its cell.
+ *
+ * The header fields sit at fixed positions with no room to wrap, so a long value
+ * — a carrier's full legal name is the one that bites — used to run straight off
+ * the right edge of the page and print a BOL nobody could use. Shrink it to fit
+ * instead, and only clip once it is too long to read at any size.
+ */
+function fit(doc: jsPDF, s: string, x: number, y: number, maxW: number, size = 8) {
+  const text = String(s ?? '').trim()
+  if (!text) return
+  doc.setFont('helvetica', 'normal')
+  let sz = size
+  doc.setFontSize(sz)
+  while (sz > 5.5 && doc.getTextWidth(text) > maxW) { sz -= 0.25; doc.setFontSize(sz) }
+  if (doc.getTextWidth(text) <= maxW) { doc.text(text, x, y); return }
+  let t = text
+  while (t.length > 1 && doc.getTextWidth(t + '...') > maxW) t = t.slice(0, -1)
+  doc.text(t + '...', x, y)
+}
+
+/**
  * Draw a name + address block wrapped to `width`, stopping at `maxY` so it can
  * never spill into the neighbouring cell. Returns the y position after the block.
  */
@@ -109,13 +130,14 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
 
   // Right: date/bol/carrier + special instructions
   let ry = headTop + 12
-  bold(doc, 'Date:', rx + 4, ry, 7.5); norm(doc, d.date, rx + 40, ry); ry += 13
-  bold(doc, 'BOL No:', rx + 4, ry, 7.5); norm(doc, d.bolNumber, rx + 48, ry); ry += 13
-  bold(doc, 'Carrier:', rx + 4, ry, 7.5); norm(doc, d.carrierName || '', rx + 48, ry); ry += 12
-  bold(doc, 'SCAC:', rx + 4, ry, 7.5); norm(doc, d.scac || '', rx + 40, ry)
-  bold(doc, 'Pro No:', rx + colW / 2, ry, 7.5); norm(doc, d.proNumber || '', rx + colW / 2 + 42, ry); ry += 12
-  bold(doc, 'Trailer:', rx + 4, ry, 7.5); norm(doc, d.trailerNo || '', rx + 44, ry)
-  bold(doc, 'Seal:', rx + colW / 2, ry, 7.5); norm(doc, d.sealNumber || '', rx + colW / 2 + 32, ry); ry += 8
+  const half = colW / 2
+  bold(doc, 'Date:', rx + 4, ry, 7.5); fit(doc, d.date, rx + 40, ry, colW - 46); ry += 13
+  bold(doc, 'BOL No:', rx + 4, ry, 7.5); fit(doc, d.bolNumber, rx + 48, ry, colW - 54); ry += 13
+  bold(doc, 'Carrier:', rx + 4, ry, 7.5); fit(doc, d.carrierName || '', rx + 48, ry, colW - 54); ry += 12
+  bold(doc, 'SCAC:', rx + 4, ry, 7.5); fit(doc, d.scac || '', rx + 40, ry, half - 46)
+  bold(doc, 'Pro No:', rx + half, ry, 7.5); fit(doc, d.proNumber || '', rx + half + 42, ry, half - 48); ry += 12
+  bold(doc, 'Trailer:', rx + 4, ry, 7.5); fit(doc, d.trailerNo || '', rx + 44, ry, half - 50)
+  bold(doc, 'Seal:', rx + half, ry, 7.5); fit(doc, d.sealNumber || '', rx + half + 32, ry, half - 38); ry += 8
   const rmid = headTop + headH / 2
   line(doc, rx, rmid, rx + colW, rmid)
   ry = rmid + 12

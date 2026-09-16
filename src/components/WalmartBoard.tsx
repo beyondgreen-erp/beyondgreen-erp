@@ -70,6 +70,13 @@ function statusForGroup(group: string): string | null {
 }
 
 const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+// Date columns hold a plain date; audit stamps like chep_submitted_at hold a full
+// timestamp. Feeding one to the other's formatter is what printed "Invalid Date".
+const fmtDT = (t: string | null) => {
+  if (!t) return ''
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
 const fmt$ = (n: number | null) => (n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 const fmtN = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString())
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c])
@@ -474,11 +481,13 @@ export default function WalmartBoard() {
       packageQty: totalCases || undefined, packageType,
       weight: Number(order.weight) || undefined, commodityDescription: commodity, kind: 'line',
     }]
+    const bolNumber = order.bol2 || ('BOL-' + (order.po_number || new Date().toISOString().slice(0, 10)))
+    const shipToName = ((order.ship_to || 'Walmart').split(/[,\n]/)[0] || 'Walmart').trim()
     const doc = buildBOL({
-      bolNumber: order.bol2 || ('BOL-' + (order.po_number || new Date().toISOString().slice(0, 10))),
+      bolNumber,
       date: bolDate,
       shipFromName: SHIP_FROM_NAME, shipFromAddress: order.ship_from || SHIP_FROM_ADDR,
-      shipToName: ((order.ship_to || 'Walmart').split(/[,\n]/)[0] || 'Walmart').trim(),
+      shipToName,
       shipToAddress: order.ship_to || '',
       carrierName: order.carrier || undefined, scac: order.scac || undefined,
       trailerNo: order.trailer_no || undefined, sealNumber: order.seal_number || undefined,
@@ -502,6 +511,27 @@ export default function WalmartBoard() {
         if (order.sales_order_id) await sb.from('sales_orders').update({ bol: pub.publicUrl }).eq('id', order.sales_order_id)
         setFileCounts(fc => ({ ...fc, [order.id]: (fc[order.id] || 0) + 1 }))
       }
+    } catch { /* non-blocking */ }
+    // Register the BOL so it can be picked up on the Shipping Queue and merged into a
+    // Master BOL. Without this a BOL raised here existed only as a PDF, and the merge
+    // list stayed empty however many were generated. Keyed on the order, so regenerating
+    // updates the same entry rather than filling the list with duplicates.
+    try {
+      await sb.from('bols').upsert({
+        walmart_order_id: order.id,
+        bol_number: bolNumber,
+        sales_order_id: order.sales_order_id || null,
+        carrier_name: order.carrier || null,
+        scac: order.scac || null,
+        ship_from_name: SHIP_FROM_NAME, ship_from_address: order.ship_from || SHIP_FROM_ADDR,
+        ship_to_name: shipToName, ship_to_address: order.ship_to || null,
+        po_number: order.po_number || null, load_number: order.load_number || null,
+        trailer_no: order.trailer_no || null, seal_number: order.seal_number || null,
+        pallet_qty: totalPallets || 0, case_qty: totalCases || 0,
+        weight: Number(order.weight) || 0, declared_value: Number(order.total_value) || 0,
+        freight_terms: 'Prepaid', special_instructions: order.special_instructions || null,
+        commodity_description: commodity, status: 'Draft',
+      }, { onConflict: 'walmart_order_id' })
     } catch { /* non-blocking */ }
   }
 
@@ -913,7 +943,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                               <td className="px-3 py-1.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
                               <td className="px-3 py-1.5 text-[13px] text-gray-600">{r.carrier || '—'}</td>
                               <td className="px-3 py-1.5" onClick={e => e.stopPropagation()}>
-                                <button onClick={() => toggleChep(r)} title={r.chep_submitted ? `CHEP submitted${r.chep_submitted_at ? ' ' + fmtD(r.chep_submitted_at) : ''} — click to mark pending` : 'Mark CHEP upload submitted'}
+                                <button onClick={() => toggleChep(r)} title={r.chep_submitted ? `CHEP submitted${fmtDT(r.chep_submitted_at ?? null) ? ' ' + fmtDT(r.chep_submitted_at ?? null) : ''} — click to mark pending` : 'Mark CHEP upload submitted'}
                                   className={`text-[11px] font-semibold rounded-full px-2 py-0.5 border transition-colors ${r.chep_submitted ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-50 text-gray-400 border-[#E4E6EE] hover:bg-gray-100'}`}>
                                   {r.chep_submitted ? '✓ CHEP' : 'CHEP ⏳'}
                               </button>
