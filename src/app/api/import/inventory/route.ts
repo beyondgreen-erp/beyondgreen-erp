@@ -139,27 +139,73 @@ function parseXlsx(buffer: ArrayBuffer): ProductRow[] {
 }
 
 async function upsertBatch(sb: ReturnType<typeof getSb>, rows: ProductRow[]) {
-  const payload = rows.map(r => ({
-    sku: r.sku!,
-    product_name: r.product_name!,
-    category: r.category,
-    unit_of_measure: r.unit_of_measure,
-    on_hand_qty: r.on_hand_qty ?? 0,
-    unit_cost: r.unit_cost,
-    pack_price: r.pack_price,
-    reorder_point: r.reorder_point ?? 0,
-    location: r.location,
-    is_active: r.is_active,
-    is_discontinued: r.is_discontinued,
-    external_id: r.external_id,
-    modification_log: r.modification_log,
-  }))
+  const skus = rows.map(r => r.sku!).filter(Boolean)
+
+  // Existing on-hand for these SKUs, so we can log the delta and preserve stock
+  // when an import row leaves the stock cell blank (rather than zeroing it).
+  const prevMap = new Map<string, { id: string; on_hand_qty: number }>()
+  if (skus.length) {
+    const { data: existing } = await sb.from('products').select('id, sku, on_hand_qty').in('sku', skus)
+    for (const p of (existing as any[]) || []) prevMap.set(p.sku, { id: p.id, on_hand_qty: Number(p.on_hand_qty ?? 0) })
+  }
+
+  // Only touch on-hand at all when this import actually carries stock figures.
+  const hasStock = rows.some(r => r.on_hand_qty != null)
+
+  const payload = rows.map(r => {
+    const base: Record<string, any> = {
+      sku: r.sku!,
+      product_name: r.product_name!,
+      category: r.category,
+      unit_of_measure: r.unit_of_measure,
+      unit_cost: r.unit_cost,
+      pack_price: r.pack_price,
+      reorder_point: r.reorder_point ?? 0,
+      location: r.location,
+      is_active: r.is_active,
+      is_discontinued: r.is_discontinued,
+      external_id: r.external_id,
+      modification_log: r.modification_log,
+    }
+    if (hasStock) {
+      // Blank stock cell keeps the current on-hand instead of resetting it to 0.
+      base.on_hand_qty = r.on_hand_qty != null ? r.on_hand_qty : (prevMap.get(r.sku!)?.on_hand_qty ?? 0)
+    }
+    return base
+  })
 
   const { error } = await sb.from('products').upsert(payload, {
     onConflict: 'sku',
     ignoreDuplicates: false,
   })
-  return error
+  if (error) return error
+
+  // Log every on-hand change so imported adjustments show in each item's Activity feed.
+  if (hasStock) {
+    const { data: after } = await sb.from('products').select('id, sku, on_hand_qty, unit_of_measure').in('sku', skus)
+    const nowMap = new Map<string, any>()
+    for (const p of (after as any[]) || []) nowMap.set(p.sku, p)
+    const moves: any[] = []
+    for (const r of rows) {
+      if (r.on_hand_qty == null) continue
+      const oldQty = prevMap.get(r.sku!)?.on_hand_qty ?? 0
+      const delta = r.on_hand_qty - oldQty
+      if (delta === 0) continue
+      const cur = nowMap.get(r.sku!)
+      moves.push({
+        product_id: cur?.id ?? prevMap.get(r.sku!)?.id ?? null,
+        sku: r.sku!,
+        movement_type: 'adjust',
+        qty: delta,
+        uom: r.unit_of_measure ?? cur?.unit_of_measure ?? null,
+        ref_table: 'import',
+        note: prevMap.has(r.sku!) ? `Inventory import (${oldQty} \u2192 ${r.on_hand_qty})` : `Initial stock via import (${r.on_hand_qty})`,
+        created_by: 'import',
+      })
+    }
+    if (moves.length) { try { await sb.from('inventory_movements').insert(moves) } catch { /* logging is best-effort */ } }
+  }
+  return null
 }
 
 // POST: accepts multipart form-data with file OR JSON body with records array
