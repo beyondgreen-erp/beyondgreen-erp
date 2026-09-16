@@ -19,7 +19,6 @@ import { statusColor } from '@/lib/statusColors'
 import { generateOrderPDF, generateAcknowledgementPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
 import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
-import ChewyBoard from '@/components/ChewyBoard'
 import { orderDisplayName } from '@/lib/orderName'
 
 // Shipment log shown on the order itself: every partial that has gone out, what it
@@ -384,6 +383,11 @@ function portalCustomerOptions(portals: PortalClient[]): { customer_id: string; 
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+function isChewyOrder(o: SalesOrder): boolean {
+  const sec = o.order_section ?? ''
+  const cust = (o.customer?.company_name ?? '').trim().toLowerCase()
+  return sec === 'Chewy' || cust === 'chewy'
+}
 function orderCustomerName(o: SalesOrder): string {
   const typed = (o.notes ?? '').trim()
   if (typed) return typed.split('|')[0].trim()
@@ -1544,14 +1548,13 @@ export default function OrdersPage() {
     if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) { setUserEmail(data.user.email); sb.from('erp_user_roles').select('role').eq('email', data.user.email).maybeSingle().then(({ data: r }) => setUserRole((r as any)?.role || '')) } }) }
     if (oErr) setLoadError('Failed to load orders: ' + oErr.message)
     else if (o) setOrders((o as SalesOrder[]).filter(so => {
-      // Walmart & Chewy orders live on their own dedicated tabs; keep them out of All Orders.
-      // Match by customer name OR section, because some Walmart orders have no section and
-      // some Chewy orders are tagged "Make To Stock".
+      // Walmart orders live on the dedicated Walmart board (its own table), so keep them out of
+      // this list entirely. Chewy orders stay in the list (they have no separate table) and are
+      // shown on the Chewy Orders tab while being excluded from All Orders at render time.
       const sec = so.order_section ?? ''
       const cust = (so.customer?.company_name ?? '').trim().toLowerCase()
       const isWalmart = sec === 'Walmart' || cust === 'walmart'
-      const isChewy = sec === 'Chewy' || cust === 'chewy'
-      return !isWalmart && !isChewy
+      return !isWalmart
     }))
     if (c) setCustomers(c as Customer[])
     if (p) setProducts(p as Product[])
@@ -1617,7 +1620,7 @@ export default function OrdersPage() {
 
   // Stats reflect the SAME set shown on the board/table: active (non-completed) orders that match the current search/filter.
   const stats = useMemo(() => {
-    const active = orders.filter(o => !isCompleted(o) && orderMatches(o))
+    const active = orders.filter(o => !isCompleted(o) && !isChewyOrder(o) && orderMatches(o))
     const inProd = active.filter(o => o.status === 'In Production').length
     const ready  = active.filter(o => o.status === 'Ready to Ship' || o.status === 'Ready at Will Call').length
     const onHold = active.filter(o => o.status === 'On Hold').length
@@ -2283,19 +2286,23 @@ export default function OrdersPage() {
       </div>
 
       {view === 'walmart' && <WalmartBoard />}
-      {view === 'chewy' && <ChewyBoard />}
 
-      {view === 'board' && (() => {
+      {(view === 'board' || view === 'chewy') && (() => {
+        // Chewy orders have no separate board table, so the Chewy Orders tab renders them here
+        // (grouped by status) in the same format as All Orders; All Orders excludes them.
+        const chewyView = view === 'chewy'
+        const gb = chewyView ? 'status' : groupBy
+        const src = chewyView ? orders.filter(isChewyOrder) : orders.filter(o => !isChewyOrder(o))
         // Include any status present on active orders that isn't in the canonical list,
         // so no order can ever hide from the status board (defensive against stray statuses).
-        const extraStatuses = groupBy === 'status'
-          ? [...new Set(orders.filter(o => !isCompleted(o) && o.status && !STATUSES.includes(o.status)).map(o => o.status as string))]
+        const extraStatuses = gb === 'status'
+          ? [...new Set(src.filter(o => !isCompleted(o) && o.status && !STATUSES.includes(o.status)).map(o => o.status as string))]
           : []
-        const baseGroups = groupBy === 'status' ? [...STATUSES, ...extraStatuses] : SECTIONS
+        const baseGroups = gb === 'status' ? [...STATUSES, ...extraStatuses] : SECTIONS
         const groupData = baseGroups.map(grp => {
-          const items = (groupBy === 'status'
-            ? orders.filter(o => o.status === grp && !isCompleted(o) && orderMatches(o))
-            : orders.filter(o => (o.order_section || 'Make To Stock') === grp && !isCompleted(o) && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
+          const items = (gb === 'status'
+            ? src.filter(o => o.status === grp && !isCompleted(o) && orderMatches(o))
+            : src.filter(o => (o.order_section || 'Make To Stock') === grp && !isCompleted(o) && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
           return { grp, items }
         }).filter(g => showEmpty || g.items.length > 0)
         return (
@@ -2303,11 +2310,11 @@ export default function OrdersPage() {
           {groupData.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">No orders match your filters.</p>}
           {groupData.map(({ grp, items }) => {
             const isColl = collapsed[grp]
-            const color = groupBy === 'status' ? statusColor(grp).solid : (SECTION_COLORS[grp] || statusColor(grp).solid)
+            const color = gb === 'status' ? statusColor(grp).solid : (SECTION_COLORS[grp] || statusColor(grp).solid)
             const groupTotal = items.reduce((s, o) => s + orderValue(o), 0)
             const dropInto = (idx: number) => {
               const id = dragId.current; dragId.current = null; if (!id) return
-              if (groupBy === 'status') { const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp) }
+              if (gb === 'status') { const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp) }
               else { moveOrder(id, grp, idx) }
             }
             return (
