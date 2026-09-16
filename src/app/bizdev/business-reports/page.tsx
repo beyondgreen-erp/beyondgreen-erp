@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
+import WalmartRequirements from '@/components/WalmartRequirements'
 
 interface ExRow {
   id: string
@@ -59,6 +60,7 @@ export default function BusinessReportsPage() {
   const [uploadRecord, setUploadRecord] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const [tab, setTab] = useState<'exceptions' | 'walmart'>('exceptions')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -147,7 +149,14 @@ export default function BusinessReportsPage() {
         <p className="text-gray-500 text-sm">Reports and analytics for beyondGREEN operations.</p>
       </div>
 
-      {/* Exception Reports report */}
+      <div className="flex items-center gap-1.5 bg-[#EEF0F4] rounded-xl p-1.5 w-fit mb-4">
+        <button onClick={() => setTab('exceptions')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'exceptions' ? { background: '#4F46E5', color: '#fff' } : { color: '#4F46E5' }}>Exception Report</button>
+        <button onClick={() => setTab('walmart')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'walmart' ? { background: '#0071CE', color: '#fff' } : { color: '#0071CE' }}>Walmart PO Requirements</button>
+      </div>
+
+      {tab === 'walmart' && <WalmartRequirements />}
+
+      {tab === 'exceptions' && (
       <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-[#E4E6EE]">
           <div>
@@ -259,6 +268,7 @@ export default function BusinessReportsPage() {
             </table>}
         </div>
       </div>
+      )}
     </div>
   )
 }
