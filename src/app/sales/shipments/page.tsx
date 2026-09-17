@@ -474,7 +474,7 @@ export default function ShipmentsPage() {
                               return (
                                 <tr key={s.id} id={'item-' + s.id} className={`hover:bg-[#F2F6FF] transition-colors ${ms.isSelected(s.id) ? 'bg-blue-500/5' : ''}`}>
                                   <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(s.id)} onChange={() => ms.toggle(s.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer" /></td>
-                                  <td className="px-4 py-2.5 text-[#1A1D2E] font-semibold max-w-[200px] truncate cursor-pointer" onClick={() => openEdit(s)}>{s.customer_name || '—'}</td>
+                                  <td className="px-4 py-2.5 text-[#1A1D2E] font-semibold max-w-[200px] truncate cursor-pointer" onClick={() => openEdit(s)} title={s.so_notes || s.customer_name || ''}>{s.so_notes || s.customer_name || '—'}</td>
                                   <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtD(s.ship_date)}</td>
                                   <td className="px-3 py-2.5 text-[#1A1D2E] font-semibold whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{s.total_value != null ? fmtC(s.total_value) : '—'}</td>
                                   <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtC(s.ship_cost)}</td>
@@ -637,7 +637,7 @@ export default function ShipmentsPage() {
             onClick={e => e.stopPropagation()}>
             <div className="mon-modal-head shrink-0">
               <div className="min-w-0">
-                <h2 className="text-base truncate max-w-xs">{editing?.customer_name || 'Shipment'}</h2>
+                <h2 className="text-base truncate max-w-xs">{editing?.so_notes || editing?.customer_name || 'Shipment'}</h2>
                 <p className="text-white/80 text-xs mt-0.5">{editing?.month_group}</p>
                 {editing && (() => { const c = statusColor(editing.delivery_status); return (
                   <span className="mon-pill mt-2" style={{ background: c.bg, color: c.fg }}>
