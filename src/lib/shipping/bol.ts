@@ -337,7 +337,17 @@ export function buildPackingList(
   // Per-SKU summary table.
   // Ordered / Shipped are counted in each line's own UOM (e.g. Packs); "Total Cases"
   // is the derived number of shipping boxes (shipped ÷ units-per-case).
-  const cols = [
+  // When the shipment is packed box-by-box, per-SKU "cases" and per-SKU box sizes are
+  // meaningless (a SKU can be split across boxes) — the real packing is the "Box contents"
+  // section below. So drop those columns and count physical boxes instead of derived cases.
+  const boxMode = !!(boxes && boxes.length)
+  const cols = boxMode ? [
+    { t: 'SKU', w: 68, a: 'l' as const },
+    { t: 'Description', w: 0, a: 'l' as const },
+    { t: 'UOM', w: 52, a: 'l' as const },
+    { t: 'Ordered', w: 64, a: 'r' as const },
+    { t: 'Shipped', w: 64, a: 'r' as const },
+  ] : [
     { t: 'SKU', w: 68, a: 'l' as const },
     { t: 'Description', w: 0, a: 'l' as const },
     { t: 'UOM', w: 44, a: 'l' as const },
@@ -369,7 +379,10 @@ export function buildPackingList(
     const bw = c.boxWeight || 0
     // Freight shipments have no box sizes — leave the box columns blank (not "mixed").
     const rowHasDims = !!(c.boxDims && String(c.boxDims).trim()) || !!(c.boxes && c.boxes.some(b => b.dims && String(b.dims).trim()))
-    const cells = [
+    const cells = boxMode ? [
+      c.sku, c.description || '', c.uom || 'Case',
+      String(Math.round(ord)), String(Math.round(shipped)),
+    ] : [
       c.sku, c.description || '', c.uom || 'Case',
       String(Math.round(ord)), String(Math.round(shipped)), String(c.caseCount),
       !rowHasDims ? '' : (mixed ? 'mixed' : (c.boxDims || '')),
@@ -391,9 +404,10 @@ export function buildPackingList(
   y += 15
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 22, 34)
   const totalCases = cases.reduce((a, c) => a + (c.caseCount || 0), 0)
+  const boxCount = boxes ? boxes.length : 0
   const totalsParts = [
     totals.pallets > 0 ? `${totals.pallets} pallet${totals.pallets === 1 ? '' : 's'}` : '',
-    `${totalCases} total case${totalCases === 1 ? '' : 's'}`,
+    boxMode ? `${boxCount} box${boxCount === 1 ? '' : 'es'}` : `${totalCases} total case${totalCases === 1 ? '' : 's'}`,
     totals.weight > 0 ? `${Math.round(totals.weight)} lb` : '',
   ].filter(Boolean)
   doc.text(`Totals:   ${totalsParts.join('    ')}`, M, y)
