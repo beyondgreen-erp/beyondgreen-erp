@@ -44,10 +44,11 @@ const n = (v: any) => {
   const x = Number(String(v ?? '').replace(/[^0-9.\-]/g, ''))
   return isFinite(x) ? x : 0
 }
-const pct = (v: any) => {
-  const x = n(v)
-  return x > 1 ? x / 100 : x
-}
+// The field is labelled Percentage and the sheets are filled in as 70, 30, 5, 1 — so it is
+// always out of a hundred. An earlier version treated a value of 1 or less as already a
+// fraction, which read a 1% colour masterbatch as 100% and asked for the whole batch
+// weight in colour.
+const pct = (v: any) => n(v) / 100
 const IN_TO_M = 0.0254
 const G_TO_LB = 1 / 453.59237
 
