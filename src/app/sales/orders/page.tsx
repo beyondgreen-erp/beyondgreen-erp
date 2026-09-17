@@ -629,6 +629,13 @@ interface EditLineState {
   uom_factor: string
   /** Someone confirmed this line is a deliberate partial/broken case. */
   partial_ack: boolean
+  /**
+   * Edited in this session. Only a line someone actually touched can block the
+   * save: 103 lines already on the books were entered as EA against a product
+   * stocked in packs, and a rep changing a ship date should not be stopped by a
+   * line they never opened. Those still show the warning.
+   */
+  touched?: boolean
 }
 
 /**
@@ -928,10 +935,10 @@ function EditPanel({
   function discardDraft() { try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ } setDraftAvail(null) }
 
   function addLine(preset?: Partial<EditLineState>) {
-    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', our_part_number: '', supplier_part_number: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, uom_factor: '', partial_ack: false, ...preset }])
+    setEditLines(ls => [...ls, { _key: Math.random().toString(36).slice(2), sku: '', our_part_number: '', supplier_part_number: '', description: '', quantity: '1', completed_qty: '0', unit_of_measure: '', unit_price: '', packaging: '', production_status: '', added_details: '', sku_flagged: false, product_id: null, uom_factor: '', partial_ack: false, touched: true, ...preset }])
   }
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
-  function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch } : l)) }
+  function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch, touched: true } : l)) }
   // Auto-calculate the order total from the line items (qty × unit price).
   const linesTotal = editLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0)
   const autoTotalRef = useRef<string>('')
@@ -2038,6 +2045,7 @@ export default function OrdersPage() {
       product_id: l.product_id ?? null,
       uom_factor: l.uom_factor_override && l.uom_factor != null ? String(l.uom_factor) : '',
       partial_ack: !!l.partial_ack,
+      touched: false,
     })))
     setEditingOrder(order)
     setForm({
@@ -2087,7 +2095,7 @@ export default function OrdersPage() {
       if (!l.sku && !l.description) return false
       const prod = products.find(p => p.id === l.product_id) ?? products.find(p => p.sku === l.sku)
       const c = lineConversion(prod, l)
-      return c.partial && !l.partial_ack
+      return c.partial && !l.partial_ack && l.touched !== false
     })
     if (unconfirmed.length) {
       setErr(`Confirm the broken case on ${unconfirmed.map(l => l.sku || l.description).join(', ')} before saving — tick the amber box on the line.`)
