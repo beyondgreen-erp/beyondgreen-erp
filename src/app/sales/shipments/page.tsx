@@ -13,6 +13,7 @@ import OrdersMirror from '@/components/OrdersMirror'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
+import { normalizeUom } from '@/lib/uom'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -849,7 +850,7 @@ export default function ShipmentsPage() {
                             <div key={l.id} className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 text-xs gap-3">
                               <div className="min-w-0 truncate"><span className="font-mono text-[#1A1D2E]">{l.sku || '—'}</span> <span className="text-gray-500">{l.description || ''}</span></div>
                               <div className="flex items-center gap-3 shrink-0">
-                                <span className="text-gray-400">Qty {l.quantity ?? l.qty ?? '—'}</span>
+                                <span className="text-gray-400">Qty {l.quantity ?? l.qty ?? '—'}{normalizeUom(l.unit_of_measure) ? ' ' + normalizeUom(l.unit_of_measure) : ''}</span>
                                 <span className={linked ? 'text-emerald-600' : 'text-amber-600'} title={linked ? 'Linked to Inventory' : 'Not linked to an Inventory SKU'}>{linked ? '● Inventory' : '○ Unlinked'}</span>
                               </div>
                             </div>
