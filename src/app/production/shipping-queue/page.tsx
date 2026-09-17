@@ -108,7 +108,7 @@ interface BoxConfig {
 function newBoxConfig(id: number): BoxConfig {
   return { id, count: 1, lengthIn: 0, widthIn: 0, heightIn: 0, weightLb: 0, contents: [{ sku: '', units: 0 }] }
 }
-interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; ship_to_address?: string | null; carrier_name?: string | null; scac?: string | null; freight_terms?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string; created_at?: string | null }
+interface BolRow { id: string; bol_number: string; po_number?: string | null; load_number?: string | null; ship_to_name?: string | null; ship_to_address?: string | null; carrier_name?: string | null; scac?: string | null; freight_terms?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string; created_at?: string | null }
 
 // Editable BOL form state (mirrors BolData + editable commodity lines)
 interface BolLineForm { palletId: number; handlingQty: number; packageQty: number; weight: number; commodityDescription: string; nmfcNumber: string; freightClass: string }
@@ -154,6 +154,20 @@ export default function ShippingQueuePage() {
     const chosen = bols.filter(b => sel[b.id])
     if (chosen.length < 2) { alert('Select at least two BOLs to merge.'); return }
     setShowMasterForm(true)
+  }
+  const [selectedLoad, setSelectedLoad] = useState('')
+  const loadOptions = useMemo(() => {
+    const m = new Map<string, number>()
+    bols.forEach(b => { const l = (b.load_number || '').trim(); if (l) m.set(l, (m.get(l) || 0) + 1) })
+    return Array.from(m.entries()).map(([load, count]) => ({ load, count })).sort((a, b) => b.count - a.count || a.load.localeCompare(b.load))
+  }, [bols])
+  function selectByLoad(load: string) {
+    setSelectedLoad(load)
+    if (!load) { setSel({}); return }
+    const next: Record<string, boolean> = {}
+    bols.forEach(b => { if ((b.load_number || '').trim() === load) next[b.id] = true })
+    setSel(next)
+    setMasterForm(fm => ({ ...fm, loadNumber: load }))
   }
   const [userEmail, setUserEmail] = useState('')
   // Search / filter
@@ -202,7 +216,7 @@ export default function ShippingQueuePage() {
   // how many BOLs were generated.
   const loadBols = useCallback(async () => {
     const [{ data }, { data: linked }] = await Promise.all([
-      sb.from('bols').select('id, bol_number, po_number, ship_to_name, ship_to_address, carrier_name, scac, freight_terms, pallet_qty, case_qty, weight, declared_value, commodity_description, status, created_at')
+      sb.from('bols').select('id, bol_number, po_number, load_number, ship_to_name, ship_to_address, carrier_name, scac, freight_terms, pallet_qty, case_qty, weight, declared_value, commodity_description, status, created_at')
         .order('created_at', { ascending: false }).limit(60),
       sb.from('master_bol_bols').select('bol_id'),
     ])
@@ -1278,7 +1292,18 @@ export default function ShippingQueuePage() {
       {showMaster && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-sm font-semibold mb-0.5">Generated BOLs — select to merge</p>
-          <p className="text-[11px] text-gray-400 mb-2">Every BOL raised here or on the Walmart board that has not been merged yet, newest first. Tick at least two.</p>
+          <p className="text-[11px] text-gray-400 mb-2">Pick a <b>Load ID</b> to pull every BOL on that load automatically, or tick BOLs individually below. Merge needs at least two.</p>
+          {loadOptions.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
+              <span className="text-xs font-semibold text-indigo-700">Load ID</span>
+              <select value={selectedLoad} onChange={e => selectByLoad(e.target.value)} className={inp + ' font-normal max-w-xs'}>
+                <option value="">Select a Load ID to auto-pull its BOLs</option>
+                {loadOptions.map(o => <option key={o.load} value={o.load}>{o.load} ({o.count} BOL{o.count === 1 ? '' : 's'})</option>)}
+              </select>
+              {selectedLoad && <button onClick={() => selectByLoad('')} className="text-[11px] text-indigo-600 underline">clear</button>}
+              <span className="ml-auto text-[11px] text-gray-500">{bols.filter(b => sel[b.id]).length} selected</span>
+            </div>
+          )}
           {bols.length === 0 ? <p className="text-xs text-gray-400">No BOLs waiting to be merged. Generate one from a Walmart PO or from the BOL step below.</p> : (
             <div className="space-y-1">
               {bols.map(b => (
