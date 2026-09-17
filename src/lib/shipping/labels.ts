@@ -10,6 +10,9 @@ export interface CaseLabel {
   gtinImageDataUrl?: string | null   // uploaded GTIN barcode image (data URL); used instead of generating one
 }
 export interface PalletLabel { palletNumber: number; totalPallets: number; sscc?: string | null; caseCount: number; weight?: number; skus?: string[]; dims?: string }
+// A parcel box label: one physical box (may hold several SKUs — a mixed box).
+export interface BoxLabelLine { sku: string; description?: string; units: number; upcGtin?: string | null; gtinImageDataUrl?: string | null }
+export interface BoxLabel { boxNumber: number; totalBoxes: number; dims?: string; weightLb?: number; lines: BoxLabelLine[] }
 
 const SHIP_FROM = ['BEYONDGREEN BIOTECH, INC.', '1202 E. WAKEHAM AVE.,', 'SANTA ANA, CA 92705']
 const digitsOnly = (s: string) => (s || '').replace(/[^0-9]/g, '')
@@ -109,6 +112,55 @@ export function buildCaseLabels(order: LabelOrder, cases: CaseLabel[]): jsPDF {
     }
     y += bh + 0.34
     ctext(doc, `VENDOR PART # ${c.vendorPartNumber || c.sku}`, cx, y, 12.5, 'bold', maxW, 0.2)
+  })
+  return doc
+}
+
+// One 4x6 label per physical box. Lists the box contents (mixed boxes supported); a
+// single-SKU box also gets that SKU's barcode so it still scans at receiving.
+export function buildBoxLabels(order: LabelOrder, boxes: BoxLabel[]): jsPDF {
+  const W = 4, H = 6
+  const doc = new jsPDF({ unit: 'in', format: [W, H], orientation: 'portrait' })
+  const cx = W / 2, maxW = W - 0.4, LX = 0.22
+  boxes.forEach((b, idx) => {
+    if (idx > 0) doc.addPage([W, H], 'portrait')
+    let y = 0.32
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(0, 0, 0)
+    SHIP_FROM.forEach(l => { doc.text(l, cx, y, { align: 'center' }); y += 0.17 })
+    y += 0.13
+    y = ctext(doc, 'SHIP TO:', cx, y, 12, 'bold', maxW, 0.22)
+    y = ctext(doc, order.shipToName.toUpperCase(), cx, y, 12.5, 'bold', maxW, 0.22)
+    y = ctext(doc, order.shipToAddress.replace(/\n/g, ', '), cx, y, 10.5, 'normal', maxW, 0.19)
+    y += 0.1
+    y = ctext(doc, `PO# ${order.poNumber || '-'}`, cx, y, 20, 'bold', maxW, 0.3)
+    y += 0.02
+    y = ctext(doc, `Box ${b.boxNumber} of ${b.totalBoxes}`, cx, y, 18, 'bold', maxW, 0.3)
+    const meta = [b.dims, b.weightLb ? `${Math.round(b.weightLb)} lb` : ''].filter(Boolean).join('    \u00b7    ')
+    if (meta) y = ctext(doc, meta, cx, y, 11, 'normal', maxW, 0.2)
+    y += 0.06
+    doc.setDrawColor(200); doc.setLineWidth(0.02); doc.line(LX, y, W - LX, y); y += 0.2
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(90, 90, 90)
+    doc.text('CONTENTS', LX, y); y += 0.22; doc.setTextColor(0, 0, 0)
+    b.lines.forEach(l => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+      doc.text(`${l.units} \u00d7 ${l.sku}`, LX, y); y += 0.2
+      if (l.description) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+        const dl = doc.splitTextToSize(l.description, maxW - 0.1) as string[]
+        dl.slice(0, 2).forEach(d => { doc.text(d, LX + 0.1, y); y += 0.16 })
+      }
+      y += 0.05
+    })
+    // Single-SKU box: print that SKU's barcode at the bottom if we have one.
+    const single = b.lines.length === 1 ? b.lines[0] : null
+    const primary = single ? (single.gtinImageDataUrl || barcodeDataUrl(single.upcGtin || '')) : null
+    if (primary) {
+      const bw = 2.7, bh = 1.0
+      const by = Math.min(y + 0.08, H - bh - 0.4)
+      doc.setDrawColor(0); doc.setLineWidth(0.03)
+      doc.rect(cx - bw / 2 - 0.12, by, bw + 0.24, bh + 0.18)
+      try { doc.addImage(primary, 'PNG', cx - bw / 2, by + 0.09, bw, bh) } catch { /* unsupported image */ }
+    }
   })
   return doc
 }
