@@ -279,6 +279,11 @@ export interface PackListPallet {
   number: number; dims?: string; weight?: number
   lines: { sku: string; description?: string; cases: number; units: number }[]
 }
+// A single physical parcel box holding one or more items (mixed contents), like a pallet but by units.
+export interface PackListBox {
+  number: number; dims?: string; weight?: number
+  lines: { sku: string; description?: string; units: number }[]
+}
 
 export function buildPackingList(
   order: { poNumber: string; orderNumber: string; shipToName: string; shipToAddress: string; date: string; shipFromName?: string; shipFromAddress?: string; partialCaption?: string },
@@ -286,6 +291,7 @@ export function buildPackingList(
   totals: { pallets: number; cases: number; weight: number },
   logo: string | null,
   pallets?: PackListPallet[],
+  boxes?: PackListBox[],
 ): jsPDF {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' })
   const M = 36
@@ -463,6 +469,41 @@ export function buildPackingList(
         const label = `${l.cases} × ${l.sku}${l.description ? ' — ' + l.description : ''}`
         const wrapped = doc.splitTextToSize(label, palLabelW) as string[]
         const rowH = Math.max(13, wrapped.length * PAL_LH + 2)
+        if (y + rowH > bottom) { doc.addPage(); y = M; drawBand(true) }
+        doc.text(wrapped, M + 12, y + 8)
+        doc.text(`${l.units} units`, R - 4, y + 8, { align: 'right' })
+        y += rowH
+      })
+    })
+  }
+
+  // Per-box breakdown (parcel shipments packed box-by-box). Mirrors the pallet detail,
+  // but counts units and can hold multiple SKUs in one box.
+  if (boxes && boxes.length) {
+    y += 20; need(30)
+    doc.setDrawColor(225); doc.line(M, y, R, y); y += 15
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20, 22, 34)
+    doc.text('Box contents', M, y); y += 6
+    const BOX_UNITS_W = 74
+    const BOX_LH = 11
+    const boxLabelW = tableW - 12 - BOX_UNITS_W - 6
+    boxes.forEach(b => {
+      const drawBand = (contd: boolean) => {
+        need(34)
+        y += 12
+        doc.setFillColor(238, 242, 246); doc.rect(M, y - 9, tableW, 16, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 32, 44)
+        const meta = [b.dims, b.weight ? `${Math.round(b.weight)} lb` : ''].filter(Boolean).join('  \u00b7  ')
+        doc.text(`Box ${b.number}${contd ? ' (cont.)' : ''}`, M + 4, y + 2)
+        if (meta && !contd) doc.text(meta, R - 4, y + 2, { align: 'right' })
+        y += 15
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 64, 78)
+      }
+      drawBand(false)
+      b.lines.forEach(l => {
+        const label = `${l.sku}${l.description ? ' \u2014 ' + l.description : ''}`
+        const wrapped = doc.splitTextToSize(label, boxLabelW) as string[]
+        const rowH = Math.max(13, wrapped.length * BOX_LH + 2)
         if (y + rowH > bottom) { doc.addPage(); y = M; drawBand(true) }
         doc.text(wrapped, M + 12, y + 8)
         doc.text(`${l.units} units`, R - 4, y + 8, { align: 'right' })
