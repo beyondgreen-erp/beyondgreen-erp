@@ -105,6 +105,16 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
   const [mentionStart, setMentionStart] = useState(0)
   const [mentionIdx, setMentionIdx] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  /**
+   * Realtime channel name, unique to this mount.
+   *
+   * Two comment panels can be open on the same record at once — the Activity Log on an
+   * expanded order row and the one inside that order's edit drawer. `channel(name)` hands
+   * back the channel it already holds for a name, so the second panel was calling `.on()`
+   * on a channel that had already subscribed. That throws, nothing catches it, and the
+   * whole page goes to "Application error" rather than one panel failing quietly.
+   */
+  const channelKey = useRef(Math.random().toString(36).slice(2))
   const editRef = useRef<HTMLTextAreaElement>(null)
   const [flashId, setFlashId] = useState<string | null>(null)
   const deepLinkDone = useRef(false)
@@ -141,7 +151,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     loadTeam()
 
     const channel = sb
-      .channel(`comments:${recordType}:${recordId}`)
+      .channel(`comments:${recordType}:${recordId}:${channelKey.current}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
