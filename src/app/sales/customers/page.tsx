@@ -135,7 +135,7 @@ export default function CustomersPage() {
   const [stageFilter, setStageFilter] = useState('all')
   const [showArchived, setShowArchived] = useState(false)
   const [formCopied, setFormCopied] = useState(false)
-  const NEW_CUSTOMER_FORM_URL = 'https://tdhqucirvetvjpfsmnfb.supabase.co/storage/v1/object/public/public-forms/new-customer.html'
+  const NEW_CUSTOMER_FORM_URL = 'https://beyondgreen-erp.vercel.app/forms/new-customer.html'
   const [showMerged, setShowMerged] = useState(false)
   const [viewMode, setViewMode] = useState<'table'|'pipeline'>('table')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
