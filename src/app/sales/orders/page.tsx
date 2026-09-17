@@ -1360,7 +1360,24 @@ function EditPanel({
                       <input value={skuDropdown === i ? skuQ : (line.sku || '')}
                         onFocus={() => { setSkuDropdown(i); setSkuQ(line.sku || '') }}
                         onBlur={() => setTimeout(() => setSkuDropdown(null), 200)}
-                        onChange={e => { setSkuQ(e.target.value); updateLine(line._key, { sku: e.target.value, sku_flagged: !e.target.value }) }}
+                        onChange={e => {
+                          const v = e.target.value
+                          setSkuQ(v)
+                          // Typing over a linked line used to leave it pointing at the old
+                          // product: the dot stayed green, the ladder stayed the old one, and
+                          // the line saved against the wrong SKU entirely. Only the stale
+                          // description gave it away. Drop the link the moment the text stops
+                          // matching the product it was linked to, so the conversion follows
+                          // the SKU on screen. Left alone when the linked product is not in
+                          // the loaded list (inactive), where a mismatch cannot be proven.
+                          const linked = products.find(p => p.id === line.product_id)
+                          const drifted = !!linked && linked.sku.trim().toLowerCase() !== v.trim().toLowerCase()
+                          updateLine(line._key, {
+                            sku: v,
+                            sku_flagged: !v,
+                            ...(drifted ? { product_id: null, uom_factor: '', partial_ack: false } : {}),
+                          })
+                        }}
                         placeholder="SKU"
                         className={`w-full bg-white border ${line.sku_flagged ? 'border-amber-500/40' : 'border-[#E4E6EE]'} text-emerald-400 placeholder-gray-600 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500 transition`}/>
                       {line.product_id
