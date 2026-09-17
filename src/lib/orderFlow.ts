@@ -408,24 +408,62 @@ export async function shipOrder(
   const orderRef = (order as any)?.order_number ?? orderId.slice(0, 8)
   const shippedSummary = toShip.map(l => `${l.qtyToShip}× ${l.sku || l.description || ''}`.trim()).join(', ')
 
+  // Value of THIS shipment only — not the order's. The Daily Ship Report and billing
+  // both read it, and it has to be known before the shipment row is written.
+  const shippedValue = toShip.reduce((sum, l) => sum + l.qtyToShip * (l.unit_price ?? 0), 0)
+
   // 1. Shipment record
+  //
+  // This row is what the order's Shipment Log lists, and what the packing list counts to
+  // work out which partial it is printing. Both look the shipment up by sales_order_id.
+  // That column was never set, so every shipment was orphaned: the log stayed empty, and
+  // "prior shipments" counted 0 every time, which is why every packing list came out as
+  // PARTIAL SHIPMENT #1.
   const { data: shipment, error: shipErr } = await sb.from('shipments').insert({
+    sales_order_id: orderId,
+    order_id: orderId,
     customer_name: customerName,
+    customer_email: (order as any)?.customer_email ?? (order as any)?.customers?.email ?? null,
+    ship_to_address: (order as any)?.shipping_address ?? null,
     po_number: orderRef,
     order_date: (order as any)?.order_date ?? null,
     ship_date: shipDate,
     carrier: shipDetails?.carrier ?? null,
     tracking_number: shipDetails?.trackingNumber ?? null,
     delivery_status: 'Shipped',
+    total_value: shippedValue,
     notes: `Shipment for ${orderRef}: ${shippedSummary}${shipDetails?.notes ? ' — ' + shipDetails.notes : ''}`,
   }).select('id').maybeSingle()
   if (shipErr) console.error('shipment insert error:', shipErr.message)
+  const shipmentId = (shipment as any)?.id as string | undefined
+
+  // 1b. What actually went in this shipment.
+  //
+  // Without these rows the log can say a shipment happened but not what was in it, which
+  // is the difference between a tracker and a record. Best-effort: a failure here must not
+  // cost the stock movement and invoice below.
+  if (shipmentId) {
+    const lineRows = toShip.map(l => ({
+      shipment_id: shipmentId,
+      order_line_id: l.id,
+      sku: l.sku ?? null,
+      product_name: l.description ?? null,
+      qty_shipped: l.qtyToShip,
+    }))
+    const { error: slErr } = await sb.from('shipment_lines').insert(lineRows)
+    if (slErr) console.error('shipment_lines insert error:', slErr.message)
+  }
 
   // 2. Increment quantity_shipped + deduct inventory (shipped qty only)
   const inventoryChanges: { sku: string; qty: number; prevQty: number }[] = []
   for (const l of toShip) {
     const newShipped = (l.quantity_shipped ?? 0) + l.qtyToShip
-    await sb.from('sales_order_lines').update({ quantity_shipped: newShipped }).eq('id', l.id)
+    // completed_qty is what the order form shows as "Done" and what the Partially Shipped
+    // banner totals. It was never advanced on a shipment, so both read zero however much
+    // had gone out. Worse, saving the order writes quantity_shipped back FROM the Done box,
+    // so an untouched save after a partial used to reset the shipped quantity to zero.
+    // Keeping the two in step is what makes the figure survive an edit.
+    await sb.from('sales_order_lines').update({ quantity_shipped: newShipped, completed_qty: newShipped }).eq('id', l.id)
     if (l.sku) {
       const { data: prod } = await sb.from('products').select('id, on_hand_qty, unit_of_measure').eq('sku', l.sku).maybeSingle()
       if (prod) {
@@ -438,7 +476,6 @@ export async function shipOrder(
   }
 
   // 3. Partial invoice for the shipped value only
-  const shippedValue = toShip.reduce((sum, l) => sum + l.qtyToShip * (l.unit_price ?? 0), 0)
   const invNum = 'INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5)
   const { data: invoice, error: invErr } = await sb.from('invoices').insert({
     invoice_number: invNum, invoice_number_display: invNum, invoice_type: 'invoice',
@@ -463,6 +500,8 @@ export async function shipOrder(
   const fullyShipped = (allLines ?? []).length > 0 && (allLines as any[]).every(l => (l.quantity_shipped ?? 0) >= (l.quantity ?? 0))
   const newStatus = fullyShipped ? 'Shipped' : 'Partially Shipped'
   await sb.from('sales_orders').update({ status: newStatus, ship_date: shipDate, updated_at: new Date().toISOString() }).eq('id', orderId)
+  // The log badges a shipment Final or Partial from this.
+  if (shipmentId) await sb.from('shipments').update({ status: fullyShipped ? 'Shipped' : 'Partially Shipped' }).eq('id', shipmentId)
   if (fullyShipped) {
     await sb.from('shipping_queue').delete().eq('order_id', orderId)
   } else {
@@ -565,7 +604,11 @@ export async function undoFlow(undoData: any): Promise<FlowResult> {
     for (const sl of (undoData.shippedLines ?? [])) {
       if (!sl.id) continue
       const { data: ln } = await sb.from('sales_order_lines').select('quantity_shipped').eq('id', sl.id).maybeSingle()
-      if (ln) await sb.from('sales_order_lines').update({ quantity_shipped: Math.max(0, ((ln as any).quantity_shipped ?? 0) - (sl.qty ?? 0)) }).eq('id', sl.id)
+      if (ln) {
+        const back = Math.max(0, ((ln as any).quantity_shipped ?? 0) - (sl.qty ?? 0))
+        // Both, or the Done box would keep claiming the undone units.
+        await sb.from('sales_order_lines').update({ quantity_shipped: back, completed_qty: back }).eq('id', sl.id)
+      }
     }
 
     return { success: true, message: 'Ship undone — inventory restored, invoice voided' }

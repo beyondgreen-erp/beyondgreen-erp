@@ -34,6 +34,10 @@ interface PlanRow {
   caseWeightLb: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
   gtinImageUrl: string | null; uom: string; packaging: string; done: number
   productId: string | null
+  // The sales_order_line this row came from, and its price. Both are needed to record
+  // what went in the shipment and what that shipment was worth.
+  lineId: string | null
+  unitPrice: number
   // Actual quantity shipped this shipment (in the UOM) — never more than ordered.
   shippedUnits: number
   // Session-only per-case boxes (size in inches, weight in lb). boxes.length === cases.
@@ -264,6 +268,7 @@ export default function ShippingQueuePage() {
         upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
         uom: normalizeUom(l.unit_of_measure) || normalizeUom(prod?.unit_of_measure) || 'Case', packaging: l.packaging || '', done,
         productId: l.product_id || null,
+        lineId: l.id || null, unitPrice: Number(l.unit_price) || 0,
         shippedUnits: shipped, boxes,
       }
     })
@@ -327,7 +332,7 @@ export default function ShippingQueuePage() {
     setPlan(p => [...p, {
       sku: '', description: '', units: 1, unitsPerCase: 1, cases: 1,
       caseWeightLb: 0, gramsPerUnit: 0, upc: null, customerPart: null, gtinImageUrl: null,
-      uom: 'ea', packaging: '', done: 0, productId: null, shippedUnits: 1,
+      uom: 'ea', packaging: '', done: 0, productId: null, lineId: null, unitPrice: 0, shippedUnits: 1,
       boxes: makeBoxes(1, 1, undefined, 0), sameBox: true, manual: true,
     }])
     invalidateBol()
@@ -1030,6 +1035,10 @@ export default function ShippingQueuePage() {
   async function createShipment(extra: Record<string, unknown>) {
     if (!activeItem || !o) return
     const now = new Date()
+    // What THIS shipment is worth — the units going out now at their line price, not the
+    // whole order's total. The Daily Ship Report and billing both read it, and on a partial
+    // the order total overstates every shipment.
+    const shipmentValue = plan.reduce((sum, r) => sum + (Number(r.shippedUnits) || 0) * (Number(r.unitPrice) || 0), 0)
     // NOTE: shipped_at is a generated column (= ship_date) — do NOT insert it (Postgres rejects it).
     const { error: shipErr } = await sb.from('shipments').insert({
       id: coShipId || undefined, sales_order_id: activeItem.sales_order_id, order_id: activeItem.sales_order_id,
@@ -1037,13 +1046,24 @@ export default function ShippingQueuePage() {
       carrier: (shipCarrier || o.carrier) || null, tracking_number: (shipTracking || o.tracking_number) || null,
       ship_cost: shipCost ? parseFloat(shipCost) : null, broker_cost: shipBrokerCost ? parseFloat(shipBrokerCost) : null,
       ship_date: now.toISOString().slice(0, 10), order_date: o.order_date || null,
-      total_value: o.total_amount ?? o.total ?? o.total_value ?? null, ship_to_address: st.addr || null,
+      total_value: shipmentValue, ship_to_address: st.addr || null,
       bol_number: bolForm?.bolNumber || null, packing_slip_url: coSlipUrl || null, pod_file_url: coBolUrl || null,
       month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
       ...extra,
     })
     if (shipErr) throw new Error(shipErr.message)
     const targetId = coShipId || (extra.id as string)
+    if (targetId) {
+      // What actually went in this shipment. Without these rows the Shipment Log can say a
+      // shipment happened but not what was in it.
+      const lineRows = plan
+        .filter(r => (Number(r.shippedUnits) || 0) > 0)
+        .map(r => ({ shipment_id: targetId, order_line_id: r.lineId, sku: r.sku || null, product_name: r.description || null, qty_shipped: Number(r.shippedUnits) || 0 }))
+      if (lineRows.length) {
+        const { error: slErr } = await sb.from('shipment_lines').insert(lineRows)
+        if (slErr) console.error('shipment_lines insert error:', slErr.message)
+      }
+    }
     if (targetId) {
       // Consolidate the order's comments + attachments onto the shipment (handle both singular/plural record_type conventions)
       await sb.from('comments').update({ record_type: 'shipment', record_id: targetId }).in('record_type', ['sales_order', 'sales_orders']).eq('record_id', activeItem.sales_order_id)
