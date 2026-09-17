@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 import { statusColor } from '@/lib/statusColors'
-import { buildCaseLabels, buildPalletLabels, missingUpcSkus, loadBarcodePng, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
+import { buildCaseLabels, buildBoxLabels, buildPalletLabels, missingUpcSkus, loadBarcodePng, type CaseLabel, type PalletLabel, type BoxLabel } from '@/lib/shipping/labels'
 import { generatePickTickets, type PickTicketPallet } from '@/lib/labelGenerator'
 import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase, type PackListBox } from '@/lib/shipping/bol'
 
@@ -721,6 +721,18 @@ export default function ShippingQueuePage() {
         if (png) map[u] = png
       } catch { /* leave unmapped → barcode fallback */ }
     }))
+    // Box-packed parcel → one label per physical box (contents listed; single-SKU boxes still get a barcode).
+    if (parcel && boxConfigs.length > 0) {
+      const bySku = new Map(plan.map(r => [r.sku, r]))
+      const boxLabels: BoxLabel[] = expandedBoxes.map(b => ({
+        boxNumber: b.number, totalBoxes: expandedBoxes.length,
+        dims: dimsStr(b.lengthIn, b.widthIn, b.heightIn) || undefined,
+        weightLb: b.weightLb || undefined,
+        lines: b.lines.map(l => { const r = bySku.get(l.sku); return { sku: l.sku, description: l.description, units: l.units, upcGtin: r?.upc || null, gtinImageDataUrl: r?.gtinImageUrl ? (map[r.gtinImageUrl] || null) : null } }),
+      }))
+      buildBoxLabels({ poNumber: bolForm?.poNumber || o?.po_number || '', shipToName: st.name, shipToAddress: st.addr }, boxLabels).save(`box-labels-${o?.order_number || 'order'}.pdf`)
+      setBusy(''); markDoc('caseLabels'); return
+    }
     const cases: CaseLabel[] = []
     // Number cases continuously across the WHOLE order (1..grandTotal),
     // grouped by SKU so each case keeps its own part number + UPC.
@@ -1630,7 +1642,7 @@ export default function ShippingQueuePage() {
                             </div>
                           )}
                           <div className="flex flex-wrap gap-2">
-                            <button onClick={genCaseLabels} disabled={busy === 'labels' || plan.length === 0} title={plan.length === 0 ? 'Configure packing first' : ''} className={`${btn} bg-white border-gray-300`}>🏷️ Case Labels</button>
+                            <button onClick={genCaseLabels} disabled={busy === 'labels' || plan.length === 0} title={plan.length === 0 ? 'Configure packing first' : ''} className={`${btn} bg-white border-gray-300`}>🏷️ {parcel && boxConfigs.length > 0 ? 'Box Labels' : 'Case Labels'}</button>
                             <button onClick={genPalletLabels} disabled={!labelsUnlocked} title={!labelsUnlocked ? 'Unlocks after the BOL is finalized' : ''} className={`${btn} bg-white border-gray-300`}>📦 Pallet Labels</button>
                             <button onClick={genPackingList} className={`${btn} bg-white border-gray-300`}>📋 Packing List</button>
                             <button onClick={genPickTickets} className={`${btn} bg-emerald-600 text-white border-emerald-600`} title="Save pallets & print a scannable pick ticket per pallet">🎫 Pick Tickets</button>
