@@ -134,6 +134,8 @@ export default function CustomersPage() {
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
   const [showArchived, setShowArchived] = useState(false)
+  const [formCopied, setFormCopied] = useState(false)
+  const NEW_CUSTOMER_FORM_URL = 'https://tdhqucirvetvjpfsmnfb.supabase.co/storage/v1/object/public/public-forms/new-customer.html'
   const [showMerged, setShowMerged] = useState(false)
   const [viewMode, setViewMode] = useState<'table'|'pipeline'>('table')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
@@ -743,6 +745,13 @@ export default function CustomersPage() {
           <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${showArchived?'archived':'active'} customer${filtered.length!==1?'s':''}`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => { try { navigator.clipboard.writeText(NEW_CUSTOMER_FORM_URL) } catch { /* */ } setFormCopied(true); setTimeout(() => setFormCopied(false), 2500); window.open(NEW_CUSTOMER_FORM_URL, '_blank', 'noopener') }}
+            title="Copy the customer-facing Credit Application + Onboarding form link, and open a preview. Share this link with new customers."
+            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+            {formCopied ? 'Link copied!' : 'Share New-Customer Form'}
+          </button>
           {selectedArr.length >= 2 && (
             <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-[#1A1D2E] font-medium transition-colors">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
