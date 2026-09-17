@@ -4,6 +4,7 @@
 export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { queuesByMachine, fmtClock, woLabel, type SchedulableWO } from '@/lib/productionSchedule'
 
 interface Plan { id: string; plan_date: string; share_token: string; title: string | null; status: string; notes: string | null }
 interface Line { id: string; plan_id: string; machine_code: string; product: string | null; operator: string | null; status: string; sort_order: number }
@@ -42,6 +43,8 @@ export default function DailyPlanPage() {
   const [plans, setPlans] = useState<Plan[]>([])
   const [linesByPlan, setLinesByPlan] = useState<Record<string, Line[]>>({})
   const [statByLine, setStatByLine] = useState<Record<string, Stat>>({})
+  const [woByDate, setWoByDate] = useState<Record<string, SchedulableWO[]>>({})
+  const [machineNames, setMachineNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [toast, setToast] = useState('')
@@ -58,6 +61,32 @@ export default function DailyPlanPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    // The plan for a day is no longer typed out — it is whatever work orders are scheduled
+    // for that day, in the order they run on each machine. A day that has scheduled work
+    // gets its plan record created here, so the operator link exists without anyone
+    // remembering to make one.
+    const [{ data: wos }, { data: mach }] = await Promise.all([
+      sb.from('work_orders')
+        .select('id,wo_code,wo_number,group_name,form_type,item_part_number,qty_ordered,uom,status,machine_id,scheduled_date,scheduled_start,scheduled_hours,assigned_operator,spec')
+        .not('scheduled_date', 'is', null),
+      sb.from('machines').select('id,machine_code,name'),
+    ])
+    const woList = ((wos as SchedulableWO[]) || [])
+    const mNames: Record<string, string> = {}
+    ;((mach as any[]) || []).forEach(m => { mNames[m.id] = m.machine_code || m.name })
+    setMachineNames(mNames)
+    const byDate: Record<string, SchedulableWO[]> = {}
+    woList.forEach(w => { if (w.scheduled_date) (byDate[w.scheduled_date] ||= []).push(w) })
+    setWoByDate(byDate)
+    const woDates = Object.keys(byDate)
+    if (woDates.length) {
+      const { data: have } = await sb.from('production_day_plans').select('plan_date').in('plan_date', woDates)
+      const known = new Set(((have as any[]) || []).map(r => r.plan_date))
+      const missing = woDates.filter(d => !known.has(d))
+      if (missing.length) {
+        await sb.from('production_day_plans').insert(missing.map(d => ({ plan_date: d, title: `Production Plan ${d}` })))
+      }
+    }
     const { data: pl } = await sb.from('production_day_plans').select('*').order('plan_date', { ascending: false }).limit(60)
     const planList = (pl as Plan[]) || []
     setPlans(planList)
@@ -145,7 +174,7 @@ export default function DailyPlanPage() {
       </div>
 
       <div className="bg-[#F0FBF5] border border-[#CDE9DA] rounded-lg px-4 py-2.5 mb-4 text-[13px] text-[#0F5132]">
-        Create a plan (paste your WhatsApp &ldquo;Production Plan&rdquo; text), then <strong>Copy operator link</strong> and drop it in the WhatsApp group. Each operator taps their machine and logs output, running/down status, and a note every 2 hours — the actuals show up here live.
+        Schedule a work order for a day on the <a href="/production/work-orders" className="underline font-semibold">Work Orders</a> board and it appears here automatically, on its machine, in running order, with its operator and times. You can still paste a WhatsApp plan or add machines by hand below. Then <strong>Copy operator link</strong> and drop it in the WhatsApp group — each operator taps their machine and logs output, running/down status and a note every 2 hours.
       </div>
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : plans.length === 0 ? (
@@ -164,7 +193,10 @@ export default function DailyPlanPage() {
                 <div className="flex items-center gap-3 px-4 py-3 border-b border-[#EEF0F4] bg-[#F8FAFF] flex-wrap">
                   <button onClick={() => setCollapsed(c => ({ ...c, [p.id]: !c[p.id] }))} className="text-gray-400 text-xs">{isColl ? '▸' : '▾'}</button>
                   <p className="text-sm font-bold text-[#1A1D2E]">{fmtDate(p.plan_date)}</p>
-                  <span className="text-[11px] text-gray-500">{lines.length} machines · {loggedCount} reporting</span>
+                  <span className="text-[11px] text-gray-500">
+                    {(woByDate[p.plan_date] || []).length > 0 && <>{(woByDate[p.plan_date] || []).length} work order{(woByDate[p.plan_date] || []).length === 1 ? '' : 's'} · </>}
+                    {lines.length} machines · {loggedCount} reporting
+                  </span>
                   <div className="ml-auto flex items-center gap-2">
                     <button onClick={() => copyLink(p)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#037f4c] text-white font-semibold hover:opacity-90">Copy operator link</button>
                     <a href={publicUrl(p.share_token)} target="_blank" rel="noreferrer" className="text-[11px] px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Open ↗</a>
@@ -172,6 +204,56 @@ export default function DailyPlanPage() {
                   </div>
                 </div>
                 {!isColl && (<>
+                  {(() => {
+                    const wos = woByDate[p.plan_date] || []
+                    if (!wos.length) return null
+                    const queues = queuesByMachine(wos)
+                    return (
+                      <div className="px-4 py-3 border-b border-[#EEF0F4] bg-[#FBFDFF]">
+                        <p className="text-[10px] font-bold uppercase text-gray-400 mb-2">Scheduled work orders</p>
+                        <div className="space-y-2">
+                          {Object.entries(queues).map(([mid, jobs]) => (
+                            <div key={mid} className="rounded-lg border border-[#E9EDF5] bg-white overflow-hidden">
+                              <div className="px-3 py-1.5 bg-[#F6F8FD] text-[11px] font-bold text-[#1A1D2E]">
+                                {machineNames[mid] || <span className="text-amber-600">No machine assigned</span>}
+                                <span className="ml-2 font-normal text-gray-400">{jobs.length} job{jobs.length === 1 ? '' : 's'}</span>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs min-w-[720px]">
+                                  <tbody>
+                                    {jobs.map(j => (
+                                      <tr key={j.wo.id} className="border-t border-[#EEF0F4]">
+                                        <td className="px-3 py-2 whitespace-nowrap font-semibold text-[#1A1D2E]">
+                                          {j.startMins === null
+                                            ? <span className="text-amber-600">no start time</span>
+                                            : <>{fmtClock(j.startMins)} <span className="text-gray-300">→</span> {fmtClock(j.endMins)}</>}
+                                          {j.overlapsPrevious && <span className="ml-2 text-red-600 font-normal">overlaps</span>}
+                                        </td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                          <a href={`/production/work-orders?item=${j.wo.id}`} className="font-semibold text-[#037f4c] hover:underline">{woLabel(j.wo)}</a>
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-700">
+                                          {j.wo.item_part_number || '—'}
+                                          {j.wo.qty_ordered != null ? ` · ${Number(j.wo.qty_ordered).toLocaleString()} ${j.wo.uom || ''}` : ''}
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                                          {j.wo.assigned_operator || <span className="text-amber-600">no operator</span>}
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{j.wo.group_name || '—'}</td>
+                                        <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                                          {j.next ? <>then <span className="font-medium text-gray-700">{woLabel(j.next.wo)}</span> at {fmtClock(j.next.startMins)}</> : <span className="text-gray-300">last job on this machine</span>}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[720px]">
                       <thead><tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">

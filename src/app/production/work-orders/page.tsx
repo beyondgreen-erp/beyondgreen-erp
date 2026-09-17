@@ -9,6 +9,7 @@ import { checkOrderReadyToShip } from '@/lib/orderFlow'
 import ExportButton from '@/components/ExportButton'
 import RunEntry from '@/components/RunEntry'
 import { GROUPS, FORMS, formFor, groupByName, nextWoCode, computeAll, type GroupDef, type Field, type FormDef } from '@/lib/workOrderForms'
+import { buildMachineQueue, runHours, hoursAreCalculated, toMinutes, fmtClock, woLabel, tomorrowISO, type SchedulableWO } from '@/lib/productionSchedule'
 
 const sb = createSupabaseBrowserClient()
 
@@ -56,8 +57,14 @@ interface WO {
   status: string
   notes: string | null
   created_at: string
+  scheduled_date: string | null
+  scheduled_start: string | null
+  scheduled_hours: number | null
+  assigned_operator: string | null
   sales_orders?: { order_number: string; customers?: { company_name: string } } | null
 }
+
+interface Employee { id: string; name: string; department: string | null }
 
 interface SoLine {
   id: string
@@ -74,6 +81,7 @@ interface SoLine {
 export default function WorkOrdersPage() {
   const [orders, setOrders] = useState<WO[]>([])
   const [machines, setMachines] = useState<Machine[]>([])
+  const [employees, setEmployees] = useState<Employee[]>([])
   const [soLines, setSoLines] = useState<SoLine[]>([])
   const [loading, setLoading] = useState(true)
   const [userEmail, setUserEmail] = useState('')
@@ -95,14 +103,18 @@ export default function WorkOrdersPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: wos }, { data: mach }] = await Promise.all([
+    const [{ data: wos }, { data: mach }, { data: emps }] = await Promise.all([
       sb.from('work_orders')
         .select('*, sales_orders!work_orders_sales_order_id_fkey(order_number, customers(company_name))')
         .order('created_at', { ascending: false }),
       sb.from('machines').select('id,name,machine_code,status,equipment_group').eq('is_active', true).order('name'),
+      // Whoever could be put on a machine. Floor staff first; everyone else is still
+      // pickable, because a supervisor covering a run is normal.
+      sb.from('employees').select('id,name,department').eq('status', 'Active').is('end_date', null).order('name'),
     ])
     setOrders((wos as WO[]) || [])
     setMachines((mach as Machine[]) || [])
+    setEmployees((emps as Employee[]) || [])
     setLoading(false)
     sb.auth.getUser().then(({ data: u }) => { if (u.user?.email) setUserEmail(u.user.email) })
   }, [])
@@ -272,6 +284,13 @@ export default function WorkOrdersPage() {
     } finally { setSaving(false) }
   }
 
+  async function patchWO(wo: WO, patch: Record<string, any>) {
+    const full = { ...patch, updated_at: new Date().toISOString() }
+    setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...full } as WO : o)))
+    setDetail(d => (d && d.id === wo.id ? { ...d, ...full } as WO : d))
+    await sb.from('work_orders').update(full).eq('id', wo.id)
+  }
+
   async function deleteWorkOrder(wo: WO) {
     if (!window.confirm(`Delete work order ${wo.wo_code || 'WO-' + wo.wo_number}? This cannot be undone.`)) return
     const { error } = await sb.from('work_orders').delete().eq('id', wo.id)
@@ -402,6 +421,16 @@ export default function WorkOrdersPage() {
                 {STATUS_LABEL[wo.status] ?? wo.status}
                 {wo.sales_orders?.order_number ? ` · SO ${wo.sales_orders.order_number}` : ''}
               </p>
+              {wo.scheduled_date && (() => {
+                const s = toMinutes(wo.scheduled_start)
+                const h = runHours(wo as unknown as SchedulableWO)
+                const when = s === null ? wo.scheduled_date : `${wo.scheduled_date} · ${fmtClock(s)}${h !== null ? ` → ${fmtClock(Math.round(s + h * 60))}` : ''}`
+                return (
+                  <p className="text-[11px] text-emerald-700 truncate">
+                    🗓 {when}{wo.assigned_operator ? ` · ${wo.assigned_operator}` : ''}
+                  </p>
+                )
+              })()}
             </button>
           ))}
         </div>
@@ -554,6 +583,120 @@ export default function WorkOrdersPage() {
               <p className="text-[11px] text-gray-400 -mt-3">
                 Setting a work order to In Production marks its machine Running on Machine Status; closing it sets the machine back to Idle.
               </p>
+
+              {/* Scheduling — what puts this job on the Daily Production Plan */}
+              <div className="border-t border-gray-100 pt-4">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-2">Scheduling</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                      <span>Production day</span>
+                      <button
+                        type="button"
+                        onClick={() => patchWO(detail, { scheduled_date: tomorrowISO() })}
+                        className="text-emerald-600 hover:text-emerald-700 font-medium"
+                      >Tomorrow</button>
+                    </label>
+                    <input
+                      type="date"
+                      value={detail.scheduled_date ?? ''}
+                      onChange={e => patchWO(detail, { scheduled_date: e.target.value || null })}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Start time</label>
+                    <input
+                      type="time"
+                      value={(detail.scheduled_start ?? '').slice(0, 5)}
+                      onChange={e => patchWO(detail, { scheduled_start: e.target.value || null })}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Operator</label>
+                    <select
+                      value={detail.assigned_operator ?? ''}
+                      onChange={e => patchWO(detail, { assigned_operator: e.target.value || null })}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="">— Not assigned —</option>
+                      <optgroup label="Manufacturing & floor">
+                        {employees.filter(e => !e.department || e.department === 'Manufacturing' || e.department === 'Warehouse Operations').map(e => (
+                          <option key={e.id} value={e.name}>{e.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Everyone else">
+                        {employees.filter(e => e.department && e.department !== 'Manufacturing' && e.department !== 'Warehouse Operations').map(e => (
+                          <option key={e.id} value={e.name}>{e.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Run hours</label>
+                    {hoursAreCalculated(detail as unknown as SchedulableWO) ? (
+                      <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 font-medium">
+                        {Number(detail.spec?.calc_production_hours).toFixed(2)}
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        step="0.25"
+                        value={detail.scheduled_hours ?? ''}
+                        onChange={e => patchWO(detail, { scheduled_hours: e.target.value === '' ? null : Number(e.target.value) })}
+                        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    )}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs text-gray-400 mb-1">Runs</label>
+                    <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700">
+                      {(() => {
+                        const s = toMinutes(detail.scheduled_start)
+                        const h = runHours(detail as unknown as SchedulableWO)
+                        if (s === null) return 'Set a start time to place this job on the plan'
+                        if (h === null) return `${fmtClock(s)} — finish unknown until run hours are known`
+                        return `${fmtClock(s)} → ${fmtClock(Math.round(s + h * 60))}`
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-gray-400 mt-2">
+                  {hoursAreCalculated(detail as unknown as SchedulableWO)
+                    ? 'Run hours come from this sheet’s production calculator, so changing the quantity moves the finish time and everything queued behind it.'
+                    : 'This sheet has no production calculator, so enter the run hours by hand.'}
+                  {' '}A work order with a production day appears on the Daily Production Plan for that day.
+                </p>
+
+                {detail.scheduled_date && detail.machine_id && (() => {
+                  const sameMachine = orders.filter(o => o.machine_id === detail.machine_id && o.scheduled_date === detail.scheduled_date)
+                  const queue = buildMachineQueue(sameMachine as unknown as SchedulableWO[])
+                  const me = queue.findIndex(j => j.wo.id === detail.id)
+                  const next = me >= 0 ? queue[me].next : undefined
+                  const mName = machineName(detail.machine_id)
+                  return (
+                    <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
+                      <p className="text-[11px] text-gray-500">
+                        {mName} on {detail.scheduled_date} — {queue.length} job{queue.length === 1 ? '' : 's'} queued.
+                      </p>
+                      {next ? (
+                        <p className="text-xs text-gray-700 mt-1">
+                          Next on this machine: <span className="font-semibold">{woLabel(next.wo)}</span>
+                          {next.wo.item_part_number ? ` · ${next.wo.item_part_number}` : ''} at {fmtClock(next.startMins)}
+                          {next.overlapsPrevious && <span className="text-red-600"> — starts before this job finishes</span>}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500 mt-1">Nothing queued behind this job.</p>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
 
               {form.docCode === 'awaiting printed form' && (
                 <div className="rounded-lg bg-amber-50 border border-amber-200 text-[12px] text-amber-800 px-3 py-2">
