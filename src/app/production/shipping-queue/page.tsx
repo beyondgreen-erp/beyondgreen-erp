@@ -15,12 +15,24 @@ const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
 const SHIPPABLE = ['In Production', 'Ready to Ship', 'Prepped & Ready for Dispatch', 'Ready at Will Call', 'Partially Shipped']
 const DOC_LABELS: Record<string, string> = { bol: 'BOL', packingList: 'Packing List', palletLabels: 'Pallet Labels', caseLabels: 'Case Labels' }
 
+// Mirrors orderCustomerName() on the order pipeline board: prefer a typed customer
+// name stashed in notes, then the linked customer record, and only fall back to the
+// bare order number if neither is set — otherwise cards here show as numbers even
+// when the pipeline board shows a real name for the same order.
+function orderDisplayName(o?: OrderInfo | null): string {
+  if (!o) return '—'
+  const typed = (o.notes ?? '').trim()
+  if (typed) return typed.split('|')[0].trim()
+  if (o.customers?.company_name) return o.customers.company_name
+  return o.order_number ?? '—'
+}
+
 interface OrderInfo {
   order_number: string; po_number?: string | null; shipping_address?: string | null
   total?: number | null; total_amount?: number | null; total_value?: number | null; customer_id?: string
   status?: string | null; order_date?: string | null; required_ship_date?: string | null
   carrier?: string | null; tracking_number?: string | null; additional_comments?: string | null
-  ship_prep?: Record<string, boolean> | null
+  ship_prep?: Record<string, boolean> | null; notes?: string | null
   customers?: { company_name: string; shipping_address?: string | null }
 }
 interface QueueItem { id: string; sales_order_id: string; status: string; sales_orders?: OrderInfo }
@@ -172,7 +184,7 @@ export default function ShippingQueuePage() {
   const load = useCallback(async () => {
     setLoading(true)
     const { data } = await sb.from('sales_orders')
-      .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, ship_prep, customers(company_name, shipping_address)')
+      .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, ship_prep, notes, customers(company_name, shipping_address)')
       .in('status', SHIPPABLE).eq('archived', false).order('required_ship_date', { ascending: true, nullsFirst: false })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = (data as any[]) || []
@@ -1347,8 +1359,8 @@ export default function ShippingQueuePage() {
               <div key={item.id} className="rounded-xl border border-gray-200 bg-white shadow-sm mon-row">
                 <button onClick={() => openOrder(item)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#1A1D2E] truncate">{io?.order_number || '—'}</p>
-                    <p className="text-xs text-gray-500 truncate">{io?.customers?.company_name || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
+                    <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderDisplayName(io)}</p>
+                    <p className="text-xs text-gray-500 truncate">{io?.order_number || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
                   </div>
                   <span className="hidden sm:inline-flex">{(() => { const c = statusColor(item.status); return (
                     <span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{item.status}</span>
@@ -1362,8 +1374,8 @@ export default function ShippingQueuePage() {
                    <div className="mon-modal" style={{ maxWidth: 1000 }} onClick={e => e.stopPropagation()}>
                     <div className="mon-modal-head">
                       <div className="min-w-0">
-                        <h2 className="text-lg truncate">{io?.order_number || 'Order'}</h2>
-                        <p className="text-white/80 text-xs mt-0.5 truncate">{io?.customers?.company_name || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
+                        <h2 className="text-lg truncate">{orderDisplayName(io)}</h2>
+                        <p className="text-white/80 text-xs mt-0.5 truncate">{io?.order_number || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
                         {(() => { const c = statusColor(item.status); return (
                           <span className="mon-pill mt-2" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{item.status}</span>
                         ) })()}
