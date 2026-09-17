@@ -6,6 +6,7 @@ import { statusColor } from '@/lib/statusColors'
 import { buildCaseLabels, buildBoxLabels, buildPalletLabels, missingUpcSkus, loadBarcodePng, type CaseLabel, type PalletLabel, type BoxLabel } from '@/lib/shipping/labels'
 import { generatePickTickets, type PickTicketPallet } from '@/lib/labelGenerator'
 import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase, type PackListBox } from '@/lib/shipping/bol'
+import { normalizeUom } from '@/lib/uom'
 
 const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
@@ -225,7 +226,7 @@ export default function ShippingQueuePage() {
     const pids = [...new Set(ls.map((l: any) => l.product_id).filter(Boolean))]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prodMap: Record<string, any> = {}
-    const PROD_COLS = 'id, sku, case_qty, weight_per_unit_grams, upc_gtin, gtin_image_url, customer_part_number, product_name'
+    const PROD_COLS = 'id, sku, case_qty, weight_per_unit_grams, upc_gtin, gtin_image_url, customer_part_number, product_name, unit_of_measure'
     if (pids.length) {
       const { data: prods } = await sb.from('products').select(PROD_COLS).in('id', pids)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -261,7 +262,7 @@ export default function ShippingQueuePage() {
         units, unitsPerCase: upc || 1, cases: boxes.length,
         caseWeightLb: perCaseWt, gramsPerUnit: gpu,
         upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
-        uom: l.unit_of_measure || 'Case', packaging: l.packaging || '', done,
+        uom: normalizeUom(l.unit_of_measure) || normalizeUom(prod?.unit_of_measure) || 'Case', packaging: l.packaging || '', done,
         productId: l.product_id || null,
         shippedUnits: shipped, boxes,
       }
