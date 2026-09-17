@@ -386,7 +386,10 @@ export default function WalmartBoard() {
         const sid = (data as any)?.sales_order_id as string | undefined
         if (sid && poStoragePath) {
           const { data: pub } = sb.storage.from('erp-files').getPublicUrl(poStoragePath)
-          await sb.from('file_attachments').insert({ record_type: 'sales_order', record_id: sid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
+          // Attach once, to the record the operator is on. The files_fanout trigger copies
+          // it to the linked sales order (and any other sibling) by storage_path. Attaching
+          // to both here is why the PO landed on the Walmart order twice: the trigger put it
+          // there the moment the sales-order row went in, then this code added it again.
           await sb.from('file_attachments').insert({ record_type: 'walmart_order', record_id: oid, file_name: poFileName || 'Walmart PO.pdf', file_type: 'application/pdf', storage_path: poStoragePath, uploaded_by: userEmail })
           await sb.from('sales_orders').update({ purchase_order_url: pub.publicUrl }).eq('id', sid)
         }
@@ -505,9 +508,9 @@ export default function WalmartBoard() {
       if (!upErr) {
         const { data: pub } = sb.storage.from('erp-files').getPublicUrl(path)
         const meta = { file_name: bolName, file_size: (blob as any).size ?? null, file_type: 'application/pdf', storage_path: path, uploaded_by: userEmail }
-        const targets: { record_type: string; record_id: string }[] = [{ record_type: 'walmart_order', record_id: order.id }]
-        if (order.sales_order_id) targets.push({ record_type: 'sales_order', record_id: order.sales_order_id })
-        await sb.from('file_attachments').insert(targets.map(t => ({ ...t, ...meta })))
+        // One row only — files_fanout mirrors it onto the sales order, the shipment and the
+        // invoice. Listing the sales order here as well put a second copy on both records.
+        await sb.from('file_attachments').insert({ record_type: 'walmart_order', record_id: order.id, ...meta })
         if (order.sales_order_id) await sb.from('sales_orders').update({ bol: pub.publicUrl }).eq('id', order.sales_order_id)
         setFileCounts(fc => ({ ...fc, [order.id]: (fc[order.id] || 0) + 1 }))
       }
