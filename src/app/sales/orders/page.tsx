@@ -2244,13 +2244,19 @@ export default function OrdersPage() {
         discount_pct: 0,
       }
       const conv = lineConversion(prod, line)
+      // Only record a conversion somebody stands behind. A line already on the books that
+      // says 12 EA against a product stocked in packs converts, arithmetically, to 0.12
+      // packs — and "12" almost certainly meant twelve packs. Writing that number would be
+      // worse than writing nothing, because anything downstream would believe it. So the
+      // conversion is stored when the line was edited in this session, or when it is one
+      // for one and cannot be wrong; otherwise it stays null and behaviour is unchanged.
+      const trusted = line.touched !== false || conv.factor === 1
       const extLine: Record<string,any> = {
         completed_qty: parseFloat(line.completed_qty) || 0,
-        // The conversion actually used, frozen onto the line. Stock and production read
-        // qty_base; re-pricing a SKU's ladder later must not silently restate old orders.
-        uom_factor: conv.known ? conv.factor : null,
+        // Frozen onto the line: re-pricing a SKU's ladder later must not restate old orders.
+        uom_factor: trusted && conv.known ? conv.factor : null,
         uom_factor_override: conv.overridden,
-        qty_base: conv.known ? conv.qtyBase : null,
+        qty_base: trusted && conv.known ? conv.qtyBase : null,
         partial_ack: !!line.partial_ack,
         our_part_number: line.our_part_number.trim() || null,
         supplier_part_number: line.supplier_part_number.trim() || null,
