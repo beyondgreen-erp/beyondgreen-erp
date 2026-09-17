@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
 import WalmartRequirements from '@/components/WalmartRequirements'
+import ChewyRequirements from '@/components/ChewyRequirements'
 
 interface ExRow {
   id: string
@@ -60,7 +61,7 @@ export default function BusinessReportsPage() {
   const [uploadRecord, setUploadRecord] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [userEmail, setUserEmail] = useState('')
-  const [tab, setTab] = useState<'exceptions' | 'walmart'>('exceptions')
+  const [tab, setTab] = useState<'exceptions' | 'walmart' | 'chewy'>('exceptions')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -152,9 +153,12 @@ export default function BusinessReportsPage() {
       <div className="flex items-center gap-1.5 bg-[#EEF0F4] rounded-xl p-1.5 w-fit mb-4">
         <button onClick={() => setTab('exceptions')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'exceptions' ? { background: '#4F46E5', color: '#fff' } : { color: '#4F46E5' }}>Exception Report</button>
         <button onClick={() => setTab('walmart')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'walmart' ? { background: '#0071CE', color: '#fff' } : { color: '#0071CE' }}>Walmart PO Requirements</button>
+        <button onClick={() => setTab('chewy')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'chewy' ? { background: '#1C49C2', color: '#fff' } : { color: '#1C49C2' }}>Chewy PO Requirements</button>
       </div>
 
       {tab === 'walmart' && <WalmartRequirements />}
+
+      {tab === 'chewy' && <ChewyRequirements />}
 
       {tab === 'exceptions' && (
       <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
