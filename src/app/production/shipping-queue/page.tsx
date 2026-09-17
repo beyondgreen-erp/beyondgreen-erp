@@ -136,6 +136,13 @@ export default function ShippingQueuePage() {
   const [bols, setBols] = useState<BolRow[]>([])
   const [sel, setSel] = useState<Record<string, boolean>>({})
   const [showMaster, setShowMaster] = useState(false)
+  const [showMasterForm, setShowMasterForm] = useState(false)
+  const [masterForm, setMasterForm] = useState({ shipToAddress: '', locationCode: '', puNumber: '', loadNumber: '', puDate: '', puTime: '', freightTerms: 'Collect', notes: '' })
+  function openMasterForm() {
+    const chosen = bols.filter(b => sel[b.id])
+    if (chosen.length < 2) { alert('Select at least two BOLs to merge.'); return }
+    setShowMasterForm(true)
+  }
   const [userEmail, setUserEmail] = useState('')
   // Search / filter
   const [query, setQuery] = useState('')
@@ -1177,7 +1184,7 @@ export default function ShippingQueuePage() {
     const totalCases = chosen.reduce((a, b) => a + (b.case_qty || 0), 0)
     const totalWeight = +(chosen.reduce((a, b) => a + (b.weight || 0), 0)).toFixed(2)
     const declared = +(chosen.reduce((a, b) => a + (b.declared_value || 0), 0)).toFixed(2)
-    const masterNumber = `Master-${Date.now().toString().slice(-8)}`
+    const masterNumber = masterForm.loadNumber.trim() ? `Master-${masterForm.loadNumber.trim()}` : `Master-${Date.now().toString().slice(-8)}`
     // Carry the carrier, SCAC and ship-to through from the BOLs being merged. These
     // used to be hardcoded blank, so a Master BOL printed with no carrier and no SCAC
     // however carefully they had been entered on the individual BOLs.
@@ -1190,12 +1197,19 @@ export default function ShippingQueuePage() {
     const carrierName = one(chosen.map(b => b.carrier_name), 'Multiple carriers - see attached BOLs')
     const scac = one(chosen.map(b => b.scac))
     const shipToName = one(chosen.map(b => b.ship_to_name), 'Consolidation') || 'Consolidation'
-    const shipToAddress = one(chosen.map(b => b.ship_to_address))
+    const shipToAddress = masterForm.shipToAddress.trim() || one(chosen.map(b => b.ship_to_address))
+    const si: string[] = []
+    if (masterForm.puNumber.trim()) si.push(`PU# ${masterForm.puNumber.trim()}`)
+    if (masterForm.loadNumber.trim()) si.push(`Load# ${masterForm.loadNumber.trim()}`)
+    if (masterForm.puDate.trim() || masterForm.puTime.trim()) si.push(`PU Date: ${masterForm.puDate.trim() || '—'}${masterForm.puTime.trim() ? '   PU Time: ' + masterForm.puTime.trim() : ''}`)
+    si.push(`Total Quantity: ${totalCases} cases · ${totalPallets} pallets · ${Math.round(totalWeight)} lb`)
+    if (masterForm.notes.trim()) si.push(masterForm.notes.trim())
+    si.push(`Covers ${chosen.length} BOLs: ${chosen.map(b => b.bol_number).join(', ')}`)
     const data: BolData = {
       isMaster: true, bolNumber: masterNumber, date: new Date().toLocaleDateString(), shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR,
-      shipToName, shipToAddress, carrierName, scac,
-      freightTerms: one(chosen.map(b => b.freight_terms)) || '3rd Party',
-      specialInstructions: [`Covers ${chosen.length} BOLs: ${chosen.map(b => b.bol_number).join(', ')}`],
+      shipToName, shipToAddress, locationCode: masterForm.locationCode.trim() || undefined, carrierName, scac,
+      freightTerms: masterForm.freightTerms || 'Collect',
+      specialInstructions: si,
       totalPallets, totalCases, totalWeight, declaredValue: declared,
     }
     const logo = await loadImageDataUrl('/bG-logo-clean.png')
@@ -1205,7 +1219,7 @@ export default function ShippingQueuePage() {
       total_pallets: totalPallets, total_cases: totalCases, total_weight: totalWeight, declared_value: declared, status: 'Draft',
     }).select().single()
     if (mb) await sb.from('master_bol_bols').insert(chosen.map(b => ({ master_bol_id: mb.id, bol_id: b.id })))
-    setBusy(''); setSel({}); loadBols()
+    setBusy(''); setSel({}); setShowMasterForm(false); loadBols()
   }
 
   const btn = 'text-xs font-semibold px-3 py-2 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
@@ -1263,9 +1277,51 @@ export default function ShippingQueuePage() {
                   <span className="text-gray-500 whitespace-nowrap">{b.pallet_qty} PLT · {b.case_qty} CS · {b.weight} lb</span>
                 </label>
               ))}
-              <button onClick={mergeMaster} disabled={busy === 'master'} className={`${btn} bg-emerald-600 text-white border-emerald-600 mt-3`}>{busy === 'master' ? 'Merging…' : 'Generate Master BOL'}</button>
+              <button onClick={openMasterForm} disabled={busy === 'master'} className={`${btn} bg-emerald-600 text-white border-emerald-600 mt-3`}>Generate Master BOL</button>
             </div>
           )}
+        </div>
+      )}
+
+      {showMasterForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setShowMasterForm(false)}>
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+            <p className="text-base font-bold mb-1">Master BOL details</p>
+            <p className="text-[11px] text-gray-400 mb-4">Complete these before generating. Freight terms default to Collect.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="col-span-2 text-xs font-semibold text-gray-600">Ship To Address
+                <textarea value={masterForm.shipToAddress} onChange={e => setMasterForm(f => ({ ...f, shipToAddress: e.target.value }))} rows={2} className={inp + ' mt-1 font-normal'} placeholder="3485 Wineville Rd, Jurupa Valley CA 91752" />
+              </label>
+              <label className="text-xs font-semibold text-gray-600">Location Code
+                <input value={masterForm.locationCode} onChange={e => setMasterForm(f => ({ ...f, locationCode: e.target.value }))} className={inp + ' mt-1 font-normal'} placeholder="6909" />
+              </label>
+              <label className="text-xs font-semibold text-gray-600">Freight Charge Terms
+                <select value={masterForm.freightTerms} onChange={e => setMasterForm(f => ({ ...f, freightTerms: e.target.value }))} className={inp + ' mt-1 font-normal'}>
+                  <option>Collect</option><option>Prepaid</option><option>Third Party</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-gray-600">PU#
+                <input value={masterForm.puNumber} onChange={e => setMasterForm(f => ({ ...f, puNumber: e.target.value }))} className={inp + ' mt-1 font-normal'} />
+              </label>
+              <label className="text-xs font-semibold text-gray-600">Load#
+                <input value={masterForm.loadNumber} onChange={e => setMasterForm(f => ({ ...f, loadNumber: e.target.value }))} className={inp + ' mt-1 font-normal'} placeholder="93927564" />
+              </label>
+              <label className="text-xs font-semibold text-gray-600">PU Date
+                <input value={masterForm.puDate} onChange={e => setMasterForm(f => ({ ...f, puDate: e.target.value }))} className={inp + ' mt-1 font-normal'} placeholder="9/17/26" />
+              </label>
+              <label className="text-xs font-semibold text-gray-600">PU Time
+                <input value={masterForm.puTime} onChange={e => setMasterForm(f => ({ ...f, puTime: e.target.value }))} className={inp + ' mt-1 font-normal'} placeholder="11:00" />
+              </label>
+              <label className="col-span-2 text-xs font-semibold text-gray-600">Additional Special Instructions (optional)
+                <input value={masterForm.notes} onChange={e => setMasterForm(f => ({ ...f, notes: e.target.value }))} className={inp + ' mt-1 font-normal'} />
+              </label>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-2">The BOL number will be <b>Master-{masterForm.loadNumber.trim() || '########'}</b>. Total Quantity is added automatically.</p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setShowMasterForm(false)} className={`${btn} bg-white text-gray-600 border-gray-300`}>Cancel</button>
+              <button onClick={mergeMaster} disabled={busy === 'master'} className={`${btn} bg-emerald-600 text-white border-emerald-600`}>{busy === 'master' ? 'Generating…' : 'Generate Master BOL'}</button>
+            </div>
+          </div>
         </div>
       )}
 
