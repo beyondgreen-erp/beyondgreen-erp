@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>beyondGREEN &mdash; New Customer Forms</title>
+<style>
+  :root{--g:#1f7a4d;--g2:#2E9E63;--ink:#1a1d2e;--mut:#5a606e;--line:#e3e6ec;--bg:#f5f7f9}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:860px;margin:0 auto;padding:24px 16px 64px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 1px 3px rgba(16,24,40,.06);overflow:hidden}
+  .head{background:linear-gradient(135deg,var(--g),var(--g2));color:#fff;padding:22px 26px}
+  .head h1{margin:0;font-size:20px}
+  .head p{margin:6px 0 0;opacity:.9;font-size:13px}
+  .tabs{display:flex;border-bottom:1px solid var(--line);background:#fafbfc}
+  .tab{flex:1;padding:14px 10px;text-align:center;font-weight:600;font-size:14px;color:var(--mut);cursor:pointer;border:none;background:none;border-bottom:3px solid transparent}
+  .tab.active{color:var(--g);border-bottom-color:var(--g)}
+  .tab .n{display:inline-flex;width:20px;height:20px;border-radius:50%;background:#e7f2ec;color:var(--g);font-size:12px;align-items:center;justify-content:center;margin-right:6px}
+  .pane{display:none;padding:22px 26px}
+  .pane.active{display:block}
+  h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--g);margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h2:first-child{margin-top:0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+  .grid.one{grid-template-columns:1fr}
+  .f{display:flex;flex-direction:column;gap:4px}
+  .f.full{grid-column:1/-1}
+  label{font-size:12px;font-weight:600;color:var(--mut)}
+  label .req{color:#d14343}
+  input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],select,textarea{padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;width:100%}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2);box-shadow:0 0 0 3px rgba(46,158,99,.12)}
+  .radio{display:flex;flex-wrap:wrap;gap:14px;padding-top:4px}
+  .radio label{font-weight:500;color:var(--ink);display:flex;gap:6px;align-items:center}
+  .note{font-size:12px;color:var(--mut);margin:2px 0 0}
+  .ref{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+  .foot{padding:20px 26px;border-top:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .btn{background:var(--g);color:#fff;border:none;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer}
+  .btn:disabled{opacity:.6;cursor:default}
+  .ghost{background:#eef2f5;color:var(--ink);font-weight:600}
+  .msg{font-size:13px}
+  .msg.err{color:#d14343}
+  .ok{text-align:center;padding:50px 26px}
+  .ok .big{font-size:40px}
+  .ok h2{border:none;color:var(--g);justify-content:center;font-size:20px;text-transform:none;letter-spacing:0}
+  .secnote{font-size:12px;color:var(--mut);background:#f3f7f4;border:1px solid #e0ece5;border-radius:8px;padding:8px 10px;margin-bottom:12px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+</style></head>
+<body><div class="wrap">
+<div class="card" id="cardMain">
+  <div class="head">
+    <h1>beyondGREEN Biotech &mdash; New Customer Setup</h1>
+    <p>Please complete <b>both</b> tabs: the Credit Application and the New Customer Onboarding form. Your information is transmitted securely.</p>
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="credit"><span class="n">1</span>Credit Application</button>
+    <button class="tab" data-tab="onb"><span class="n">2</span>Customer Onboarding</button>
+  </div>
+  <form id="intake" novalidate>
+    <div class="pane active" id="pane-credit">
+      <h2>Company</h2>
+      <div class="grid">
+        <div class="f full"><label>Company Name <span class="req">*</span></label><input type="text" name="c_company_name"></div>
+        <div class="f full"><label>Billing Address <span class="req">*</span></label><input type="text" name="c_billing_address"></div>
+        <div class="f full"><label>City / State / Zip <span class="req">*</span></label><input type="text" name="c_city_state_zip"></div>
+        <div class="f"><label>Phone <span class="req">*</span></label><input type="tel" name="c_phone"></div>
+        <div class="f"><label>Fax</label><input type="tel" name="c_fax"></div>
+        <div class="f full"><label>Email for Invoices / Statements <span class="req">*</span></label><input type="email" name="c_invoice_email"></div>
+      </div>
+      <h2>Business Information</h2>
+      <div class="grid">
+        <div class="f full"><label>Type of Business <span class="req">*</span></label>
+          <div class="radio">
+            <label><input type="radio" name="c_business_type" value="Corporation">Corporation</label>
+            <label><input type="radio" name="c_business_type" value="Partnership">Partnership</label>
+            <label><input type="radio" name="c_business_type" value="Sole Proprietor">Sole Proprietor</label>
+            <label><input type="radio" name="c_business_type" value="LLC">LLC</label>
+          </div>
+        </div>
+        <div class="f"><label>Years in Business</label><input type="text" name="c_years_in_business"></div>
+        <div class="f"><label>Federal Tax ID / EIN <span class="req">*</span></label><input type="text" name="c_ein"></div>
+        <div class="f"><label>Resale / Tax Exempt #</label><input type="text" name="c_resale_tax_exempt"></div>
+      </div>
+      <h2>Bank Information</h2>
+      <div class="grid">
+        <div class="f full"><label>Bank Name <span class="req">*</span></label><input type="text" name="c_bank_name"></div>
+        <div class="f"><label>Bank Contact Person</label><input type="text" name="c_bank_contact"></div>
+        <div class="f"><label>Bank Phone Number</label><input type="tel" name="c_bank_phone"></div>
+        <div class="f"><label>Account #</label><input type="text" name="c_bank_account" autocomplete="off"></div>
+        <div class="f"><label>Routing #</label><input type="text" name="c_bank_routing" autocomplete="off"></div>
+      </div>
+      <h2>Trade References</h2>
+      <div class="secnote">Provide up to three trade references.</div>
+      <div class="ref"><div class="grid"><div class="f full"><label>Company Name</label><input type="text" name="c_tr1_company"></div><div class="f"><label>Contact Person</label><input type="text" name="c_tr1_contact"></div><div class="f"><label>Phone / Email</label><input type="text" name="c_tr1_phone"></div></div></div>
+      <div class="ref"><div class="grid"><div class="f full"><label>Company Name</label><input type="text" name="c_tr2_company"></div><div class="f"><label>Contact Person</label><input type="text" name="c_tr2_contact"></div><div class="f"><label>Phone / Email</label><input type="text" name="c_tr2_phone"></div></div></div>
+      <div class="ref"><div class="grid"><div class="f full"><label>Company Name</label><input type="text" name="c_tr3_company"></div><div class="f"><label>Contact Person</label><input type="text" name="c_tr3_contact"></div><div class="f"><label>Phone / Email</label><input type="text" name="c_tr3_phone"></div></div></div>
+      <h2>Requested Credit Terms</h2>
+      <div class="grid one"><div class="f"><label>Requested Payment Terms <span class="req">*</span></label><input type="text" name="c_requested_terms" placeholder="e.g., Net 30"></div></div>
+      <h2>Authorization &amp; Agreement</h2>
+      <div class="secnote">By signing, the undersigned certifies the information is true and correct, authorizes beyondGREEN Biotech Inc. to contact the trade and bank references to verify creditworthiness, agrees to the established credit terms if approved, and understands that late payments may result in suspension of credit privileges and/or finance charges.</div>
+      <div class="grid">
+        <div class="f"><label>Authorized Signer (type full name) <span class="req">*</span></label><input type="text" name="c_signer_name"></div>
+        <div class="f"><label>Title</label><input type="text" name="c_signer_title"></div>
+        <div class="f"><label>Date <span class="req">*</span></label><input type="date" name="c_signer_date"></div>
+      </div>
+    </div>
+    <div class="pane" id="pane-onb">
+      <h2>Section 1 &mdash; General Company Information</h2>
+      <div class="grid">
+        <div class="f full"><label>Name of Customer / Company <span class="req">*</span></label><input type="text" name="o_company_name"></div>
+        <div class="f full"><label>Bill-to Address <span class="req">*</span></label><input type="text" name="o_bill_to_address"></div>
+        <div class="f"><label>City <span class="req">*</span></label><input type="text" name="o_city"></div>
+        <div class="f"><label>State <span class="req">*</span></label><input type="text" name="o_state"></div>
+        <div class="f"><label>Zip <span class="req">*</span></label><input type="text" name="o_zip"></div>
+        <div class="f"><label>Country</label><input type="text" name="o_country"></div>
+        <div class="f full"><label>Ship-to Address</label><input type="text" name="o_ship_to_address"><div class="note"><label style="font-weight:500"><input type="checkbox" name="o_ship_same"> Same as billing</label></div></div>
+      </div>
+      <h2>Section 2 &mdash; Contact Information</h2>
+      <div class="grid">
+        <div class="f"><label>Primary Contact Name <span class="req">*</span></label><input type="text" name="o_primary_contact_name"></div>
+        <div class="f"><label>Title / Position</label><input type="text" name="o_contact_title"></div>
+        <div class="f"><label>Phone Number <span class="req">*</span></label><input type="tel" name="o_contact_phone"></div>
+        <div class="f"><label>Email Address <span class="req">*</span></label><input type="email" name="o_contact_email"></div>
+        <div class="f"><label>Accounts Payable Contact (if different)</label><input type="text" name="o_ap_contact_name"></div>
+        <div class="f"><label>Accounts Payable Email</label><input type="email" name="o_ap_email"></div>
+      </div>
+      <h2>Section 3 &mdash; Banking &amp; Payment</h2>
+      <div class="grid">
+        <div class="f full"><label>Preferred Payment Method</label>
+          <div class="radio">
+            <label><input type="radio" name="o_payment_method" value="Credit Card">Credit Card</label>
+            <label><input type="radio" name="o_payment_method" value="ACH">ACH</label>
+            <label><input type="radio" name="o_payment_method" value="Check">Check</label>
+          </div>
+        </div>
+        <div class="f"><label>Payment Terms <span class="req">*</span></label><input type="text" name="o_payment_terms" placeholder="e.g., Net 30"></div>
+      </div>
+      <h2>Section 4 &mdash; Goods / Services <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mut)">(office use &mdash; optional)</span></h2>
+      <div class="grid">
+        <div class="f full"><label>Reason</label><div class="radio"><label><input type="radio" name="o_reason" value="Resale">Resale</label><label><input type="radio" name="o_reason" value="For own use">For own use</label></div></div>
+        <div class="f"><label>Order Quantity</label><input type="text" name="o_order_qty"></div>
+        <div class="f"><label>Order Date</label><input type="date" name="o_order_date"></div>
+        <div class="f"><label>Estimated Ship Date</label><input type="date" name="o_est_ship_date"></div>
+        <div class="f"><label>Item No / Part Number</label><input type="text" name="o_item_no"></div>
+        <div class="f full"><label>Description of Purchase</label><input type="text" name="o_purchase_desc" placeholder="e.g., molding / bags / straws / private label"></div>
+        <div class="f full"><label>If private label, provide detailed description</label><textarea name="o_private_label_desc" rows="2"></textarea></div>
+        <div class="f"><label>Rate / Price</label><input type="text" name="o_rate_price"></div>
+        <div class="f"><label>Unit of Measure</label><input type="text" name="o_uom"></div>
+        <div class="f"><label>Ship Via</label><input type="text" name="o_ship_via"></div>
+      </div>
+      <h2>Declaration</h2>
+      <div class="secnote">I hereby confirm that the information provided is accurate and complete to the best of my knowledge.</div>
+      <div class="grid">
+        <div class="f"><label>Full Name (type to sign) <span class="req">*</span></label><input type="text" name="o_decl_full_name"></div>
+        <div class="f"><label>Title</label><input type="text" name="o_decl_title"></div>
+        <div class="f"><label>Date <span class="req">*</span></label><input type="date" name="o_decl_date"></div>
+      </div>
+    </div>
+    <div class="foot">
+      <button type="button" class="btn ghost" id="nextBtn">Next: Onboarding &rarr;</button>
+      <button type="submit" class="btn" id="submitBtn">Submit both forms</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </form>
+</div>
+</div>
+<script>
+(function(){
+  var FN='https://tdhqucirvetvjpfsmnfb.supabase.co/functions/v1/customer-intake';
+  var tabs=document.querySelectorAll('.tab');
+  function show(t){
+    tabs.forEach(function(x){x.classList.toggle('active',x.getAttribute('data-tab')===t)});
+    document.getElementById('pane-credit').classList.toggle('active',t==='credit');
+    document.getElementById('pane-onb').classList.toggle('active',t==='onb');
+    document.getElementById('nextBtn').style.display = t==='credit' ? '' : 'none';
+    window.scrollTo(0,0);
+  }
+  tabs.forEach(function(x){x.addEventListener('click',function(){show(x.getAttribute('data-tab'))})});
+  document.getElementById('nextBtn').addEventListener('click',function(){show('onb')});
+  var REQ=[['c_company_name','credit','Company Name'],['c_billing_address','credit','Billing Address'],['c_city_state_zip','credit','City / State / Zip'],['c_phone','credit','Phone'],['c_invoice_email','credit','Invoice Email'],['c_business_type','credit','Type of Business'],['c_ein','credit','Federal Tax ID / EIN'],['c_bank_name','credit','Bank Name'],['c_requested_terms','credit','Requested Payment Terms'],['c_signer_name','credit','Authorized Signer'],['c_signer_date','credit','Credit Application Date'],['o_company_name','onb','Customer / Company Name'],['o_bill_to_address','onb','Bill-to Address'],['o_city','onb','City'],['o_state','onb','State'],['o_zip','onb','Zip'],['o_primary_contact_name','onb','Primary Contact Name'],['o_contact_phone','onb','Contact Phone'],['o_contact_email','onb','Contact Email'],['o_payment_terms','onb','Payment Terms'],['o_decl_full_name','onb','Declaration Full Name'],['o_decl_date','onb','Declaration Date']];
+  function fieldVal(n){var els=document.getElementsByName(n);if(!els.length)return '';if(els[0].type==='radio'){for(var i=0;i<els.length;i++){if(els[i].checked)return els[i].value;}return '';}return (els[0].value||'').trim();}
+  function collect(){var data={c:{},o:{}};document.querySelectorAll('#intake [name]').forEach(function(el){var n=el.getAttribute('name');var b=n.charAt(0);var key=n.slice(2);var bucket=b==='c'?data.c:data.o;if(el.type==='radio'){if(el.checked)bucket[key]=el.value;}else if(el.type==='checkbox'){bucket[key]=el.checked;}else{bucket[key]=(el.value||'').trim();}});return data;}
+  var form=document.getElementById('intake');var msg=document.getElementById('msg');
+  form.addEventListener('submit',function(ev){ev.preventDefault();msg.className='msg';msg.textContent='';var missing=null;for(var i=0;i<REQ.length;i++){if(!fieldVal(REQ[i][0])){missing=REQ[i];break;}}if(missing){show(missing[1]);msg.className='msg err';msg.textContent='Please complete: '+missing[2];var el=document.getElementsByName(missing[0])[0];if(el&&el.focus)el.focus();return;}var data=collect();var payload={customerName:data.c.company_name||data.o.company_name,creditApplication:data.c,onboarding:data.o};var btn=document.getElementById('submitBtn');btn.disabled=true;msg.className='msg';msg.textContent='Submitting...';fetch(FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){document.getElementById('cardMain').innerHTML='<div class="ok"><div class="big">&#9989;</div><h2>Thank you &mdash; your documents were submitted.</h2><p style="color:#5a606e">Our team has been notified and will review your application. You may close this page.</p></div>';window.scrollTo(0,0);}else{btn.disabled=false;msg.className='msg err';msg.textContent=(j&&j.error)||'Something went wrong. Please try again.';}}).catch(function(){btn.disabled=false;msg.className='msg err';msg.textContent='Network error. Please try again.';});});
+})();
+</script>
+</body></html>
