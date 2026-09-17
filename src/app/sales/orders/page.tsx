@@ -861,6 +861,12 @@ function EditPanel({
   const [leadResults, setLeadResults] = useState<{ id: string; company_name: string }[]>([])
   const [leadSearching, setLeadSearching] = useState(false)
   const [pickedLead, setPickedLead] = useState(false)
+  // Order Name auto-fill (Customer | PO) — auto unless the user edits it by hand.
+  const [nameTouched, setNameTouched] = useState(false)
+  // Quick-create a new customer directly from this popup.
+  const [showNewCust, setShowNewCust] = useState(false)
+  const [newCustBusy, setNewCustBusy] = useState(false)
+  const [newCust, setNewCust] = useState({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' })
   // Raw-material allocation (Robert's workflow: reserve before Order Confirmation; auto-released on production consume)
   const [allocState, setAllocState] = useState<{ at: string | null; by: string | null; released: string | null }>({ at: null, by: null, released: null })
   const [allocBusy, setAllocBusy] = useState(false)
@@ -878,7 +884,7 @@ function EditPanel({
     } catch (e: any) { alert('Could not allocate: ' + (e?.message || e)) }
     finally { setAllocBusy(false) }
   }  useEffect(() => {
-    if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false) }
+    if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false); setNameTouched(!!((editing as any)?.notes || '').trim()); setShowNewCust(false); setNewCust({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' }) }
   }, [open, editing])
   useEffect(() => {
     if (custMode !== 'lead') return
@@ -894,7 +900,7 @@ function EditPanel({
   }, [leadQ, custMode, onSearchLeads])
   const custMatches = customers.filter(c => c.company_name.toLowerCase().includes(custQ.toLowerCase())).slice(0, 50)
   async function pickCustomer(c: Customer) {
-    setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name })); setPickedLead(false); setCustOpen(false); setCustQ('')
+    setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name, notes: nameTouched ? p.notes : composeOrderName(c.company_name, p.po_number) })); setPickedLead(false); setCustOpen(false); setCustQ('')
     // Autofill contact + address from the saved customer record (only fills fields left blank).
     const { data: cd } = await sb.from('customers').select('email,phone,billing_address,shipping_address').eq('id', c.id).maybeSingle()
     if (cd) setForm(p => ({
@@ -905,8 +911,33 @@ function EditPanel({
       shipping_address: p.shipping_address || (cd as any).shipping_address || '',
     }))
   }
-  function pickLead(l: { id: string; company_name: string }) { setForm(p => ({ ...p, customer_id: l.id, customer_label: l.company_name })); setPickedLead(true); setLeadQ(''); setLeadResults([]) }
+  function pickLead(l: { id: string; company_name: string }) { setForm(p => ({ ...p, customer_id: l.id, customer_label: l.company_name, notes: nameTouched ? p.notes : composeOrderName(l.company_name, p.po_number) })); setPickedLead(true); setLeadQ(''); setLeadResults([]) }
   function clearLinkedCustomer() { setForm(p => ({ ...p, customer_id: '', customer_label: '' })); setPickedLead(false) }
+  function composeOrderName(label: string, po: string) { return [ (label || '').trim(), (po || '').trim() ].filter(Boolean).join(' | ') }
+  async function saveNewCustomer() {
+    const name = newCust.company_name.trim()
+    if (!name) { alert('Enter a company name for the new customer.'); return }
+    setNewCustBusy(true)
+    try {
+      const { data, error } = await sb.from('customers').insert({
+        company_name: name, email: newCust.email.trim() || null, phone: newCust.phone.trim() || null,
+        billing_address: newCust.billing_address.trim() || null, shipping_address: newCust.shipping_address.trim() || null,
+        board: 'customer', is_active: true,
+      }).select('id,company_name').single()
+      if (error || !data) { alert('Could not create customer: ' + (error?.message || 'unknown error')); return }
+      setForm(p => ({
+        ...p, customer_id: data.id, customer_label: data.company_name,
+        customer_email: p.customer_email || newCust.email.trim(),
+        customer_phone: p.customer_phone || fmtPhone(newCust.phone.trim()),
+        billing_address: p.billing_address || newCust.billing_address.trim(),
+        shipping_address: p.shipping_address || newCust.shipping_address.trim(),
+        notes: nameTouched ? p.notes : composeOrderName(data.company_name, p.po_number),
+      }))
+      setPickedLead(false); setShowNewCust(false)
+      setNewCust({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' })
+    } catch (e: any) { alert('Could not create customer: ' + (e?.message || e)) }
+    finally { setNewCustBusy(false) }
+  }
   const skuMatches = products.filter(p => {
     if (skuQ.length === 0) return false
     const q = skuQ.toLowerCase()
@@ -1074,7 +1105,7 @@ function EditPanel({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Order Name / Customer <span className="text-gray-300">(optional)</span></label>
-                <input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className={inp} placeholder="Customer Name | PO Reference"/>
+                <input value={form.notes} onChange={e => { setNameTouched(true); setForm(p => ({ ...p, notes: e.target.value })) }} className={inp} placeholder="Customer Name | PO Reference"/>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1098,7 +1129,7 @@ function EditPanel({
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">PO # <span className="normal-case text-gray-300">(customer)</span></label>
-                  <input value={form.po_number} onChange={e => setForm(p => ({ ...p, po_number: e.target.value }))} className={inp} placeholder="Customer PO #"/>
+                  <input value={form.po_number} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, po_number: v, notes: nameTouched ? p.notes : composeOrderName(p.customer_label, v) })) }} className={inp} placeholder="Customer PO #"/>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Facility</label>
@@ -1235,6 +1266,24 @@ function EditPanel({
                             {custMatches.length ? custMatches.map(c => (
                               <button type="button" key={c.id} onMouseDown={e => e.preventDefault()} onClick={() => pickCustomer(c)} className="block w-full text-left px-3 py-2 text-sm text-[#1A1D2E] hover:bg-gray-50 truncate">{c.company_name}</button>
                             )) : <div className="px-3 py-2 text-sm text-gray-400">No matching customers</div>}
+                          </div>
+                        )}
+                        {!showNewCust ? (
+                          <button type="button" onClick={() => { setShowNewCust(true); setNewCust(n => ({ ...n, company_name: custQ.trim() })) }} className="text-[11px] font-semibold text-[#00863F] hover:underline mt-1.5">+ Create new customer</button>
+                        ) : (
+                          <div className="mt-2 rounded-lg border border-[#037f4c]/30 bg-[#037f4c]/5 p-3 space-y-2">
+                            <p className="text-xs font-semibold text-[#037f4c]">New customer - added to the Customers board</p>
+                            <input value={newCust.company_name} onChange={e => setNewCust(n => ({ ...n, company_name: e.target.value }))} placeholder="Company name *" className={inp}/>
+                            <div className="grid grid-cols-2 gap-2">
+                              <input type="email" value={newCust.email} onChange={e => setNewCust(n => ({ ...n, email: e.target.value }))} placeholder="Email" className={inp}/>
+                              <input value={newCust.phone} onChange={e => setNewCust(n => ({ ...n, phone: fmtPhone(e.target.value) }))} inputMode="tel" placeholder="Phone" className={inp}/>
+                            </div>
+                            <textarea rows={2} value={newCust.billing_address} onChange={e => setNewCust(n => ({ ...n, billing_address: e.target.value }))} placeholder="Billing address" className={inp + ' resize-none'}/>
+                            <textarea rows={2} value={newCust.shipping_address} onChange={e => setNewCust(n => ({ ...n, shipping_address: e.target.value }))} placeholder="Shipping address" className={inp + ' resize-none'}/>
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={() => setShowNewCust(false)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Cancel</button>
+                              <button type="button" onClick={saveNewCustomer} disabled={newCustBusy} className="text-xs px-3 py-1.5 rounded-lg bg-[#037f4c] text-white font-semibold disabled:opacity-60">{newCustBusy ? 'Creating...' : 'Create & link'}</button>
+                            </div>
                           </div>
                         )}
                       </div>
