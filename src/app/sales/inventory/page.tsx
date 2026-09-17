@@ -242,9 +242,9 @@ const EditPanel = memo(function EditPanel({
             <label className="block text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2">SKU <span className="text-red-400">*</span></label>
             <input value={form.sku}
               onChange={e => setForm(p => ({ ...p, sku: e.target.value.toUpperCase() }))}
-              readOnly={!!editing}
               placeholder="e.g. BG-1001"
-              className={`w-full bg-white border border-emerald-500/30 text-emerald-400 placeholder-gray-600 rounded-lg px-4 py-3 text-lg font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition ${editing ? 'opacity-70 cursor-not-allowed' : ''}`}/>
+              className="w-full bg-white border border-emerald-500/30 text-emerald-400 placeholder-gray-600 rounded-lg px-4 py-3 text-lg font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"/>
+            {editing && <p className="text-[11px] text-gray-400 mt-1.5">Changing the SKU renames it everywhere it&apos;s used (BOMs, orders, invoices, shipments, inventory history, Walmart/Chewy boards). You&apos;ll be asked to confirm on save.</p>}
           </div>
 
           {/* Part numbers */}
@@ -921,6 +921,21 @@ export default function InventoryPage() {
       if (existing && existing.length) {
         setErr(`A product with SKU "${payload.sku}" already exists — edit that item instead of adding a new one.`)
         setSaving(false); return
+      }
+    }
+    // SKU rename on an existing product: cascade the change everywhere the SKU is
+    // referenced (BOMs, orders, invoices, shipments, movements, Walmart/Chewy boards)
+    // so nothing is orphaned. Runs atomically in the DB before the rest of the fields save.
+    if (editing) {
+      const oldSku = String((editing as any).sku || '').trim()
+      const newSku = payload.sku
+      if (oldSku && newSku && newSku.toUpperCase() !== oldSku.toUpperCase()) {
+        if (!confirm(`Rename SKU "${oldSku}" \u2192 "${newSku}"?\n\nThis updates the SKU everywhere it is used (BOMs, orders, invoices, shipments, inventory history, Walmart/Chewy boards). It can't be bulk-undone.`)) { setSaving(false); return }
+        const { error: rErr } = await sb.rpc('rename_sku', { p_old: oldSku, p_new: newSku })
+        if (rErr) {
+          const m = /already used|already exists|unique|duplicate/i.test(rErr.message) ? `SKU "${newSku}" is already used by another product.` : ('Could not rename SKU: ' + rErr.message)
+          setErr(m); setSaving(false); return
+        }
       }
     }
     const { error } = editing
