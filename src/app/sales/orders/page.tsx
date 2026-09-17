@@ -2357,10 +2357,11 @@ export default function OrdersPage() {
 
 
     async function executeDelete(id: string) {
-      await sb.from('work_orders').delete().eq('sales_order_id', id)
-      await sb.from('shipments').delete().eq('sales_order_id', id)
-      await sb.from('sales_order_lines').delete().eq('sales_order_id', id)
-      await sb.from('sales_orders').delete().eq('id', id)
+      // Soft delete (recycle bin) — a hard delete fails on RESTRICT foreign keys
+      // (lines, shipments, QC, lot codes, etc.). is_active=false removes it from the
+      // board and is restorable from the Recycle Bin.
+      const { error } = await sb.from('sales_orders').update({ is_active: false }).eq('id', id)
+      if (error) { alert('Could not delete this order: ' + error.message); return }
       setConfirmDeleteId(null); load()
     }
     async function bulkDelete() {
@@ -2371,10 +2372,8 @@ export default function OrdersPage() {
     async function executeBulkDelete() {
       setDeleting(true)
       const ids = Array.from(ms.selected)
-        await sb.from('work_orders').delete().in('sales_order_id', ids)
-        await sb.from('shipments').delete().in('sales_order_id', ids)
-      await sb.from('sales_order_lines').delete().in('sales_order_id', ids)
-      await sb.from('sales_orders').delete().in('id', ids)
+      const { error } = await sb.from('sales_orders').update({ is_active: false }).in('id', ids)
+      if (error) { setDeleting(false); alert('Could not delete: ' + error.message); return }
       ms.clear(); setDeleting(false); setConfirmBulkDelete(false); load()
     }
 
