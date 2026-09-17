@@ -5,7 +5,7 @@ import Comments from '@/components/Comments'
 import { statusColor } from '@/lib/statusColors'
 import { buildCaseLabels, buildPalletLabels, missingUpcSkus, loadBarcodePng, type CaseLabel, type PalletLabel } from '@/lib/shipping/labels'
 import { generatePickTickets, type PickTicketPallet } from '@/lib/labelGenerator'
-import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase } from '@/lib/shipping/bol'
+import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase, type PackListBox } from '@/lib/shipping/bol'
 
 const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
@@ -80,6 +80,17 @@ const DEFAULT_L = 48, DEFAULT_W = 40
 function newConfig(id: number): PalletConfig {
   return { id, count: 1, lengthIn: DEFAULT_L, widthIn: DEFAULT_W, heightIn: 0, weightLb: 0, freightClass: '', nmfc: '', stackable: false, notes: '', contents: [{ sku: '', casesPerPallet: 0 }] }
 }
+// A parcel box configuration: N identical boxes, each holding one or more items (mixed
+// contents supported) counted in UNITS. Mirrors PalletConfig but for small-parcel packing.
+interface BoxItem { sku: string; units: number }
+interface BoxConfig {
+  id: number; count: number
+  lengthIn: number; widthIn: number; heightIn: number; weightLb: number
+  contents: BoxItem[]
+}
+function newBoxConfig(id: number): BoxConfig {
+  return { id, count: 1, lengthIn: 0, widthIn: 0, heightIn: 0, weightLb: 0, contents: [{ sku: '', units: 0 }] }
+}
 interface BolRow { id: string; bol_number: string; po_number?: string | null; ship_to_name?: string | null; ship_to_address?: string | null; carrier_name?: string | null; scac?: string | null; freight_terms?: string | null; pallet_qty?: number; case_qty?: number; weight?: number; declared_value?: number; commodity_description?: string | null; status?: string; created_at?: string | null }
 
 // Editable BOL form state (mirrors BolData + editable commodity lines)
@@ -112,6 +123,8 @@ export default function ShippingQueuePage() {
   const [plan, setPlan] = useState<PlanRow[]>([])
   const [configs, setConfigs] = useState<PalletConfig[]>([])
   const [cfgDraft, setCfgDraft] = useState<PalletConfig | null>(null)   // config being added/edited in the pop-up
+  const [boxConfigs, setBoxConfigs] = useState<BoxConfig[]>([])          // parcel: boxes packed by units (mixed contents)
+  const [boxDraft, setBoxDraft] = useState<BoxConfig | null>(null)      // box being added/edited in the pop-up
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState('')
   const [missing, setMissing] = useState<string[]>([])
@@ -191,7 +204,7 @@ export default function ShippingQueuePage() {
   }, [load, loadBols])
 
   function resetPackState() {
-    setPlan([]); setConfigs([]); setCfgDraft(null); setParcel(false)
+    setPlan([]); setConfigs([]); setCfgDraft(null); setBoxConfigs([]); setBoxDraft(null); setParcel(false)
     setBolForm(null); setFinalized(false); setMissing([]); setNotes('')
     if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' }
     setPreviewUrl('')
@@ -270,6 +283,7 @@ export default function ShippingQueuePage() {
       const draft: any = (od as any)?.pack_draft
       if (draft && (Array.isArray(draft.configs) || Array.isArray(draft.lines))) {
         if (Array.isArray(draft.configs)) setConfigs(draft.configs as PalletConfig[])
+        if (Array.isArray(draft.boxConfigs)) setBoxConfigs(draft.boxConfigs as BoxConfig[])
         if (typeof draft.parcel === 'boolean') setParcel(draft.parcel)
         if (draft.shipMode === 'partial' || draft.shipMode === 'full') setShipMode(draft.shipMode)
         if (draft.bol) setBolForm(draft.bol)
@@ -285,13 +299,14 @@ export default function ShippingQueuePage() {
   // Save the current pack/ship progress so it can be resumed later.
   async function saveDraft(opts?: { silent?: boolean }) {
     if (!activeItem) return
-    const hasProgress = configs.length > 0 || !!bolForm || parcel
+    const hasProgress = configs.length > 0 || boxConfigs.length > 0 || !!bolForm || parcel
     if (!hasProgress) return
     const draft = {
       savedAt: new Date().toISOString(),
       parcel,
       shipMode,
       configs,
+      boxConfigs,
       lines: plan.map(r => ({ sku: r.sku, cases: r.cases, unitsPerCase: r.unitsPerCase })),
       bol: bolForm,
     }
@@ -494,6 +509,32 @@ export default function ShippingQueuePage() {
   }
   const anyPalletMissingWeight = expanded.some(p => !p.weightLb)
 
+  // ---- Parcel boxes: expand configs, track unit allocation --------------------
+  const assignedUnitsBySku = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const cfg of boxConfigs) for (const c of cfg.contents) m[c.sku] = (m[c.sku] || 0) + Math.max(1, cfg.count) * (c.units || 0)
+    return m
+  }, [boxConfigs])
+  const remainingUnitsForSku = (sku: string, units: number) => units - (assignedUnitsBySku[sku] || 0)
+  const anyUnitsUnallocated = plan.some(r => remainingUnitsForSku(r.sku, r.shippedUnits) !== 0)
+  const expandedBoxes = useMemo(() => {
+    const bySku = new Map(plan.map(r => [r.sku, r]))
+    const out: { number: number; lengthIn: number; widthIn: number; heightIn: number; weightLb: number; lines: { sku: string; description: string; units: number }[] }[] = []
+    let n = 0
+    for (const cfg of boxConfigs) for (let i = 0; i < Math.max(1, cfg.count); i++) {
+      n++
+      out.push({ number: n, lengthIn: cfg.lengthIn, widthIn: cfg.widthIn, heightIn: cfg.heightIn, weightLb: cfg.weightLb,
+        lines: cfg.contents.filter(c => c.sku && (c.units || 0) > 0).map(c => { const r = bySku.get(c.sku); return { sku: c.sku, description: r?.description || c.sku, units: c.units } }) })
+    }
+    return out
+  }, [boxConfigs, plan])
+  const boxTotals = {
+    boxes: expandedBoxes.length,
+    units: expandedBoxes.reduce((a, b) => a + b.lines.reduce((s, l) => s + l.units, 0), 0),
+    weight: Math.round(expandedBoxes.reduce((a, b) => a + (b.weightLb || 0), 0)),
+  }
+  const anyBoxMissingWeight = expandedBoxes.some(b => !b.weightLb)
+
   // Config editor (pop-up) helpers
   function openConfig(cfg?: PalletConfig) {
     const nextId = configs.reduce((m, c) => Math.max(m, c.id), 0) + 1
@@ -511,6 +552,37 @@ export default function ShippingQueuePage() {
   function addContentRow() { setCfgDraft(d => d ? { ...d, contents: [...d.contents, { sku: plan[0]?.sku || '', casesPerPallet: 0 }] } : d) }
   function patchContent(idx: number, patch: Partial<PalletContent>) { setCfgDraft(d => d ? { ...d, contents: d.contents.map((c, i) => i === idx ? { ...c, ...patch } : c) } : d) }
   function removeContentRow(idx: number) { setCfgDraft(d => d ? { ...d, contents: d.contents.filter((_, i) => i !== idx) } : d) }
+
+  // Box editor (pop-up) helpers — parcel equivalents of the pallet config helpers.
+  function openBox(cfg?: BoxConfig) {
+    const nextId = boxConfigs.reduce((m, c) => Math.max(m, c.id), 0) + 1
+    setBoxDraft(cfg ? { ...cfg, contents: cfg.contents.map(c => ({ ...c })) } : newBoxConfig(nextId))
+  }
+  function saveBox() {
+    if (!boxDraft) return
+    const cleaned = { ...boxDraft, count: Math.max(1, boxDraft.count || 1), contents: boxDraft.contents.filter(c => c.sku && (c.units || 0) > 0) }
+    if (!cleaned.contents.length) { alert('Add at least one item with a quantity to this box.'); return }
+    setBoxConfigs(cs => cs.some(c => c.id === cleaned.id) ? cs.map(c => c.id === cleaned.id ? cleaned : c) : [...cs, cleaned])
+    setBoxDraft(null); invalidateBol()
+  }
+  function deleteBox(id: number) { setBoxConfigs(cs => cs.filter(c => c.id !== id)); invalidateBol() }
+  function patchBoxDraft(patch: Partial<BoxConfig>) { setBoxDraft(d => d ? { ...d, ...patch } : d) }
+  function addBoxItem() { setBoxDraft(d => d ? { ...d, contents: [...d.contents, { sku: plan[0]?.sku || '', units: 0 }] } : d) }
+  function patchBoxItem(idx: number, patch: Partial<BoxItem>) { setBoxDraft(d => d ? { ...d, contents: d.contents.map((c, i) => i === idx ? { ...c, ...patch } : c) } : d) }
+  function removeBoxItem(idx: number) { setBoxDraft(d => d ? { ...d, contents: d.contents.filter((_, i) => i !== idx) } : d) }
+  // Auto-pack: one box per SKU holding all of its shipped units. User edits from there.
+  function autoPackBoxes() {
+    let id = 0
+    const next: BoxConfig[] = []
+    for (const r of plan) { if (!r.sku || r.shippedUnits <= 0) continue; next.push({ ...newBoxConfig(++id), contents: [{ sku: r.sku, units: r.shippedUnits }] }) }
+    setBoxConfigs(next); invalidateBol()
+  }
+  // Everything-in-one-box: a single box containing every SKU's full shipped quantity.
+  function packAllInOneBox() {
+    const contents = plan.filter(r => r.sku && r.shippedUnits > 0).map(r => ({ sku: r.sku, units: r.shippedUnits }))
+    if (!contents.length) return
+    setBoxConfigs([{ ...newBoxConfig(1), contents }]); invalidateBol()
+  }
 
   // Auto-pack: one starting configuration per SKU (full pallets + a remainder). User edits from there.
   function autoPack() {
@@ -827,6 +899,15 @@ export default function ShippingQueuePage() {
       lines: p.lines.map(l => ({ sku: l.sku, description: l.description, cases: l.cases, units: l.cases * l.unitsPerCase })),
     }))
   }
+  // Box-by-box contents for the packing list (parcel shipments packed with the box builder).
+  function packListBoxes(): PackListBox[] {
+    return expandedBoxes.map(b => ({
+      number: b.number,
+      dims: dimsStr(b.lengthIn, b.widthIn, b.heightIn) || undefined,
+      weight: b.weightLb,
+      lines: b.lines.map(l => ({ sku: l.sku, description: l.description, units: l.units })),
+    }))
+  }
 
   // Save a public snapshot (packing-slip + BOL inputs) under a per-order token so
   // the pallet-label QR can open just those two documents — no ERP access, no
@@ -856,14 +937,15 @@ export default function ShippingQueuePage() {
     const cases = buildPackListCases()
     const meta = packMeta()
     const plts = packListPallets()
+    const boxes = parcel && boxConfigs.length > 0 ? packListBoxes() : undefined
     const listTotals = plts.length > 0 ? totals : {
       cases: cases.reduce((a, c) => a + (c.caseCount || 0), 0),
       pallets: 0,
-      weight: Math.round(cases.reduce((a, c) => a + (c.weight || 0), 0)),
+      weight: boxes && boxes.length ? boxTotals.weight : Math.round(cases.reduce((a, c) => a + (c.weight || 0), 0)),
     }
     let logo: string | null = null
     try { logo = await loadImageDataUrl('/bG-logo-clean.png') } catch { /* logo optional */ }
-    const doc = buildPackingList(meta, cases, listTotals, logo, plts)
+    const doc = buildPackingList(meta, cases, listTotals, logo, plts, boxes)
     const fileName = `packing-list-${o?.order_number || 'order'}.pdf`
     doc.save(fileName)
     // Persist the generated packing list so it is SAVED with the shipment, not just downloaded.
@@ -1273,7 +1355,7 @@ export default function ShippingQueuePage() {
                                     <button onClick={() => removeLine(i)} className="ml-auto text-gray-300 hover:text-red-500 text-sm self-start" title="Remove this SKU from the shipment">✕</button>
                                   </div>
                                   {over && <div className="text-[11px] text-red-600 mt-1">Shipped can&apos;t exceed ordered — it&apos;s capped automatically.</div>}
-                                  {parcel && (
+                                  {parcel && boxConfigs.length === 0 && (
                                   <div className="mt-2 border-t border-gray-200 pt-2">
                                     <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
                                       <div className="text-[10px] uppercase tracking-wide text-gray-400">Boxes ({r.boxes.length}) — size &amp; weight</div>
@@ -1328,7 +1410,8 @@ export default function ShippingQueuePage() {
                           </datalist>
                         </div>
 
-                        {/* STEP 1 — Build the pallets (freight configurations) */}
+                        {/* STEP 1 — Build the pallets (freight configurations) — freight only */}
+                        {!parcel && (
                         <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">1</span>
@@ -1393,6 +1476,64 @@ export default function ShippingQueuePage() {
                           {anyUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Every SKU should be fully assigned — the chips above turn green when a SKU&apos;s cases are all on pallets.</div>}
                           {!anyUnallocated && anyPalletMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Enter a <b>weight per pallet</b> on each configuration so the BOL and labels are accurate.</div>}
                         </div>
+                        )}
+
+                        {/* STEP 1 (parcel) — Build the boxes: assign items + units to each box, like pallet packing */}
+                        {parcel && (
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-6 h-6 rounded-full bg-violet-50 text-violet-600 text-xs flex items-center justify-center font-semibold shrink-0">1</span>
+                            <span className="text-sm font-semibold text-[#1A1D2E]">Build the boxes</span>
+                            <span className="ml-auto text-xs text-gray-400">{boxTotals.boxes} box{boxTotals.boxes !== 1 ? 'es' : ''} &middot; {boxTotals.units} units &middot; {boxTotals.weight} lb</span>
+                            <button onClick={packAllInOneBox} className={`${btn} bg-emerald-600 text-white border-emerald-600`} title="Put every item into a single box">All in one box</button>
+                            <button onClick={autoPackBoxes} className={`${btn} bg-violet-600 text-white border-violet-600`} title="Give each item its own box">One box per item</button>
+                          </div>
+                          <p className="text-xs text-gray-500 mb-3">Add a box and choose which item(s) go in it &mdash; pick each item and how many units. Put several items in one box for a <b>mixed box</b>. Set &ldquo;# of identical boxes&rdquo; above 1 only when several boxes are packed the same. Everything fits in one box? Tap <b>All in one box</b>.</p>
+
+                          {/* Per-SKU unit allocation tracker */}
+                          <div className="flex flex-wrap gap-1.5 mb-3">
+                            {plan.map((r, i) => {
+                              const rem = remainingUnitsForSku(r.sku, r.shippedUnits)
+                              const done = rem === 0
+                              return (
+                                <span key={i} className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1 ${done ? 'bg-emerald-50 text-emerald-700' : rem > 0 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+                                  <span className="font-mono">{r.sku}</span>
+                                  <span className="font-normal">{r.shippedUnits - rem} / {r.shippedUnits} {r.uom || 'ea'}</span>
+                                  {done ? <span>&#10003;</span> : <span>{rem > 0 ? `${rem} left` : `${-rem} over`}</span>}
+                                </span>
+                              )
+                            })}
+                          </div>
+
+                          {/* Box cards */}
+                          <div className="space-y-2 mb-3">
+                            {boxConfigs.map(cfg => {
+                              const unitsEach = cfg.contents.reduce((a, c) => a + (c.units || 0), 0)
+                              const mixed = cfg.contents.filter(c => (c.units || 0) > 0).length > 1
+                              return (
+                                <div key={cfg.id} className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
+                                  <div className="w-9 h-9 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center font-semibold text-sm shrink-0">&times;{cfg.count}</div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-[#1A1D2E] truncate">
+                                      {cfg.count} box{cfg.count !== 1 ? 'es' : ''} &middot; {dimsStr(cfg.lengthIn, cfg.widthIn, cfg.heightIn) || 'no size'} &middot; {cfg.weightLb || 0} lb ea
+                                      {mixed && <span className="ml-1.5 text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full">mixed</span>}
+                                    </p>
+                                    <p className="text-[11px] text-gray-500 truncate">{cfg.contents.filter(c => (c.units || 0) > 0).map(c => `${c.units} × ${c.sku}`).join('  +  ') || '(empty)'}</p>
+                                  </div>
+                                  <span className="text-[11px] text-gray-400 shrink-0">{cfg.count * unitsEach} units</span>
+                                  <button onClick={() => openBox(cfg)} className="text-gray-400 hover:text-violet-600 shrink-0" title="Edit box">&#9998;</button>
+                                  <button onClick={() => deleteBox(cfg.id)} className="text-gray-300 hover:text-red-500 shrink-0" title="Delete box">&times;</button>
+                                </div>
+                              )
+                            })}
+                          </div>
+
+                          <button onClick={() => openBox()} className={`${btn} w-full justify-center border-dashed border-gray-300 bg-white text-gray-600 hover:border-violet-400 hover:text-violet-600`}>+ Add box &mdash; pick the items</button>
+
+                          {boxConfigs.length > 0 && anyUnitsUnallocated && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Every item should be fully packed &mdash; the chips above turn green when all of a SKU&apos;s units are in a box.</div>}
+                          {boxConfigs.length > 0 && !anyUnitsUnallocated && anyBoxMissingWeight && <div className="text-xs bg-amber-50 border-l-4 border-amber-400 text-amber-800 p-2 mt-3">Enter a <b>weight per box</b> on each box so the packing list is accurate.</div>}
+                        </div>
+                        )}
 
                         {/* STEP 2 — Bill of lading */}
                         <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
@@ -1648,6 +1789,64 @@ export default function ShippingQueuePage() {
                   <div className="flex gap-2">
                     <button onClick={() => setCfgDraft(null)} className="text-sm font-medium text-gray-600 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
                     <button onClick={saveConfig} className="text-sm font-semibold text-white px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700">Save configuration</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Box editor pop-up (parcel) ──────────────────────────────── */}
+      {boxDraft && (() => {
+        const d = boxDraft
+        const unitsEach = d.contents.reduce((a, c) => a + (c.units || 0), 0)
+        const cin = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/40'
+        const lbl = 'block text-[11px] font-medium text-gray-500 mb-1'
+        return (
+          <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-6">
+              <div className="flex items-center justify-between px-5 py-4 text-white rounded-t-2xl bg-violet-600">
+                <h3 className="font-bold text-base">{boxConfigs.some(c => c.id === d.id) ? 'Edit box' : 'New box'}</h3>
+                <button onClick={() => setBoxDraft(null)} className="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <label><span className={lbl}># of identical boxes</span><input type="number" min={1} value={d.count} onChange={e => patchBoxDraft({ count: Math.max(1, Number(e.target.value) || 1) })} className={cin} /></label>
+                  <label><span className={lbl}>Weight / box (lb)</span><input type="number" min={0} value={d.weightLb || ''} placeholder="0" onChange={e => patchBoxDraft({ weightLb: Math.max(0, Number(e.target.value) || 0) })} className={cin} /></label>
+                  <label className="col-span-2"><span className={lbl}>Dimensions L × W × H (in)</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min={0} value={d.lengthIn || ''} placeholder="L" onChange={e => patchBoxDraft({ lengthIn: Number(e.target.value) || 0 })} className={cin} />
+                      <span className="text-gray-400">×</span>
+                      <input type="number" min={0} value={d.widthIn || ''} placeholder="W" onChange={e => patchBoxDraft({ widthIn: Number(e.target.value) || 0 })} className={cin} />
+                      <span className="text-gray-400">×</span>
+                      <input type="number" min={0} value={d.heightIn || ''} placeholder="H" onChange={e => patchBoxDraft({ heightIn: Number(e.target.value) || 0 })} className={cin} />
+                    </div>
+                  </label>
+                </div>
+
+                <div>
+                  <span className={lbl}>What&apos;s in this box <span className="text-gray-400">(add more than one item for a mixed box)</span></span>
+                  <div className="space-y-2">
+                    {d.contents.map((c, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <select value={c.sku} onChange={e => patchBoxItem(idx, { sku: e.target.value })} className={cin + ' flex-1'}>
+                          <option value="">— choose item —</option>
+                          {plan.map(r => <option key={r.sku} value={r.sku}>{r.sku} — {r.description} ({remainingUnitsForSku(r.sku, r.shippedUnits)} left)</option>)}
+                        </select>
+                        <input type="number" min={0} value={c.units || ''} placeholder="units" onChange={e => patchBoxItem(idx, { units: Math.max(0, Number(e.target.value) || 0) })} className={cin + ' w-24 text-right'} />
+                        <button onClick={() => removeBoxItem(idx)} className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addBoxItem} className="mt-2 text-xs font-semibold text-violet-600 hover:underline">+ Add item to this box</button>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                  <span className="text-xs text-gray-500">{d.count} × {unitsEach} = <strong>{d.count * unitsEach} units</strong>{d.weightLb ? `, ${(d.count * d.weightLb).toLocaleString()} lb total` : ''}</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setBoxDraft(null)} className="text-sm font-medium text-gray-600 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">Cancel</button>
+                    <button onClick={saveBox} className="text-sm font-semibold text-white px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700">Save box</button>
                   </div>
                 </div>
               </div>
