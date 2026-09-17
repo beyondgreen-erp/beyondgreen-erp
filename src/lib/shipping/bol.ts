@@ -27,6 +27,7 @@ export interface BolData {
   sealNumber?: string
   proNumber?: string
   freightTerms?: string
+  locationCode?: string
   specialInstructions?: string[]   // list of lines
   totalPallets: number
   totalCases: number
@@ -125,7 +126,9 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   ly = headTop + headH / 2
   line(doc, lx, ly, lx + colW, ly)
   ly += 12
-  bold(doc, 'Ship To:', lx + 4, ly, 7.5); ly += 12
+  bold(doc, 'Ship To:', lx + 4, ly, 7.5)
+  if (d.locationCode) { doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.text('Location No: ' + d.locationCode, lx + colW - 6, ly, { align: 'right' }) }
+  ly += 12
   ly = addrLines(doc, d.shipToName, d.shipToAddress, lx + 4, ly, colW - 10, headTop + headH - 2)
 
   // Right: date/bol/carrier + special instructions
@@ -151,7 +154,14 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   })
 
   y = headTop + headH
-  norm(doc, `Freight Charge Terms: ${d.freightTerms || 'Prepaid'}`, M + 2, y + 10, 7.5)
+  {
+    const ftRaw = (d.freightTerms || 'Collect').toLowerCase()
+    const ftSel = ftRaw.includes('collect') ? 'collect' : (ftRaw.includes('third') || ftRaw.includes('3yd')) ? 'third' : 'prepaid'
+    const cbx = (on: boolean) => on ? '[X]' : '[  ]'
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.text('Freight Charge Terms:', M + 2, y + 10)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`${cbx(ftSel === 'collect')} Collect      ${cbx(ftSel === 'prepaid')} Prepaid      ${cbx(ftSel === 'third')} Third Party`, M + 118, y + 10)
+  }
   y += 16
 
   // Commodity table
@@ -234,7 +244,7 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   y += rowH + 12
 
   // Declared value + note + signatures (keep this block together on a page)
-  if (y + 100 > pageH) { doc.addPage(); y = TOP_Y }
+  if (y + 160 > pageH) { doc.addPage(); y = TOP_Y }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
   doc.text('The agreed or declared value of the property is specifically stated by the shipper to be not exceeding:', M, y, { maxWidth: tableW })
   y += 12
@@ -243,7 +253,12 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   y += 20
   doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5)
   doc.text('NOTE: Liability Limitation for loss or damage in this shipment may be applicable. See 49 U.S.C. 14706(c)(1)(A) and (B).', M, y, { maxWidth: tableW })
-  y += 30
+  y += 20
+  // Trailer Loaded / Freight Counted — checked by hand at the dock (matches the LTL BOL template)
+  bold(doc, 'Trailer Loaded:', M, y, 7); norm(doc, '[  ] By Shipper      [  ] By Driver', M + 68, y, 7)
+  y += 13
+  bold(doc, 'Freight Counted:', M, y, 7); norm(doc, '[  ] By Shipper      [  ] By Driver/pallets said to contain      [  ] By Driver/Pieces', M + 74, y, 7)
+  y += 22
   const sigW = (tableW - 30) / 2
   line(doc, M, y, M + sigW, y); line(doc, R - sigW, y, R, y)
   bold(doc, 'Shipper Signature / Date', M, y + 11, 7)
