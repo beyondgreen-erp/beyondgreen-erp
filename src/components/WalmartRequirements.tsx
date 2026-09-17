@@ -1,7 +1,10 @@
 'use client'
 export const dynamic = 'force-dynamic'
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 interface WOrder { id: string; name: string | null; po_number: string | null; status: string | null; group_name: string | null; ship_due_date: string | null }
 interface WLine { order_id: string; part_number: string | null; qty: number | null }
@@ -101,6 +104,66 @@ export default function WalmartRequirements() {
     return [...m.values()].map(g => ({ ...g, shortCount: g.rows.filter(r => (r.short ?? 0) > 0).length }))
   }, [perPo, q])
 
+  function exportPdf() {
+    const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' })
+    const W = doc.internal.pageSize.getWidth()
+    const M = 40
+    const GREEN: [number, number, number] = [15, 122, 78]
+    const DARK: [number, number, number] = [26, 29, 46]
+    const RED: [number, number, number] = [220, 38, 38]
+    let y = 46
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(GREEN[0], GREEN[1], GREEN[2])
+    doc.text('beyondGREEN', M, y)
+    doc.setTextColor(DARK[0], DARK[1], DARK[2]); doc.setFontSize(13)
+    doc.text('Walmart PO Requirements', M, y + 18)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120, 120, 120)
+    doc.text('Generated ' + new Date().toLocaleString(), M, y + 32)
+    const posWithShort = groups.filter(g => g.shortCount > 0).length
+    const shortLineItems = perPo.filter(r => (r.short ?? 0) > 0).length
+    doc.text(groups.length + ' active POs  \u00b7  ' + shortLineItems + ' short line items across ' + posWithShort + ' POs  \u00b7  shipped POs excluded', M, y + 46)
+    y += 72
+
+    const compShort: Record<string, number> = {}
+    for (const r of perPo) { if ((r.short ?? 0) > 0) compShort[r.sku] = (compShort[r.sku] || 0) + (r.short as number) }
+    const topComp = Object.entries(compShort).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    const poShort = groups.filter(g => g.shortCount > 0).map(g => [g.po, g.shortCount] as [string, number]).sort((a, b) => b[1] - a[1]).slice(0, 10)
+
+    const barChart = (title: string, items: [string, number][], suffix: string) => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(DARK[0], DARK[1], DARK[2])
+      doc.text(title, M, y); y += 14
+      if (items.length === 0) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120, 120, 120); doc.text('None \u2014 all components in stock.', M, y + 4); y += 24; return }
+      const max = Math.max(...items.map(i => i[1]))
+      const labelW = 120, valW = 74, barX = M + labelW, barMax = W - M - labelW - valW - M, rowH = 16
+      doc.setFontSize(8)
+      for (const [label, val] of items) {
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(DARK[0], DARK[1], DARK[2])
+        doc.text(String(label).slice(0, 24), M, y + 9)
+        const w = max > 0 ? Math.max(2, (val / max) * barMax) : 2
+        doc.setFillColor(RED[0], RED[1], RED[2]); doc.rect(barX, y, w, 10, 'F')
+        doc.setTextColor(80, 80, 80); doc.text(val.toLocaleString() + suffix, barX + w + 6, y + 9)
+        y += rowH
+      }
+      y += 14
+    }
+    barChart('Top Component Shortages (units short)', topComp, '')
+    barChart('Short Components by PO', poShort, ' short')
+
+    const bodyRows = perPo.map(r => [r.po, r.sku, (r.name || ''), Math.round(r.need).toLocaleString(), isNaN(r.onHand) ? '\u2014' : Math.round(r.onHand).toLocaleString(), r.short == null ? 'n/a' : (r.short <= 0 ? 'OK' : Math.round(r.short).toLocaleString())])
+    autoTable(doc, {
+      startY: y,
+      head: [['PO', 'Component', 'Description', 'Qty Needed', 'On Hand', 'Short']],
+      body: bodyRows,
+      theme: 'grid',
+      headStyles: { fillColor: DARK, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5, textColor: DARK },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: { 0: { cellWidth: 78 }, 1: { cellWidth: 72 }, 2: { cellWidth: 150 }, 3: { cellWidth: 62, halign: 'right' }, 4: { cellWidth: 62, halign: 'right' }, 5: { cellWidth: 55, halign: 'right', fontStyle: 'bold' } },
+      margin: { left: M, right: M },
+      didParseCell: (data: any) => { if (data.section === 'body' && data.column.index === 5 && data.cell.raw !== 'OK' && data.cell.raw !== 'n/a') { data.cell.styles.textColor = RED } },
+    })
+    doc.save('beyondGREEN_Walmart_PO_Requirements_' + new Date().toISOString().slice(0, 10) + '.pdf')
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-[#E4E6EE]">
@@ -110,6 +173,7 @@ export default function WalmartRequirements() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => load()} disabled={loading} title="Reload latest Walmart PO data" className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-[#F5F6FA] disabled:opacity-50 transition-colors"><i className={'ti ti-refresh' + (loading ? ' animate-spin' : '')} />Refresh</button>
+          <button onClick={exportPdf} disabled={loading || groups.length === 0} title="Download a PDF report with charts" className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg bg-[#0071CE] text-white hover:bg-[#005fa8] disabled:opacity-50 transition-colors"><i className="ti ti-file-type-pdf" />Export PDF</button>
           <div className="relative">
             <i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
             <input placeholder="Search PO or component…" value={q} onChange={e => setQ(e.target.value)} className="pl-9 pr-4 py-2 text-sm bg-white border border-[#E4E6EE] rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
