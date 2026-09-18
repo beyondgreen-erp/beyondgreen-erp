@@ -88,6 +88,10 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 .skeleton { background: #E4E6EE; border-radius: 6px; animation: skeletonPulse 1.5s ease-in-out infinite; }
 @keyframes alertPulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 .alert-pulse { animation: alertPulse 2s infinite; }
+/* A work order waiting on a part number. Blue is reserved for this one thing on that board. */
+@keyframes woBlink { 0%,100% { opacity:1; } 50% { opacity:0.25; } }
+.wo-blink { color:#2563EB; animation: woBlink 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .wo-blink { animation:none; } }
 @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
 .fade-in { animation: fadeIn 0.3s ease forwards; }
 .brand-glow { box-shadow: 0 0 20px rgba(59,111,224,0.2); }

@@ -98,6 +98,23 @@ function FormBody({ form, live, onChange }: { form: FormDef; live: Record<string
 const PLACEHOLDER_PARTS = new Set(['tbd', 'tba', 'n/a', 'na', 'none', 'null', '-', '--', '?', 'x', 'xx', 'test', 'placeholder'])
 const isPlaceholderPart = (v: any) => PLACEHOLDER_PARTS.has(String(v ?? '').trim().toLowerCase())
 
+// Who gets asked when a job reaches the floor without a part number on it.
+const PART_NUMBER_APPROVERS = [
+  'Shea@beyondgreenbiotech.com',
+  'Finance@beyondgreenbiotech.com',
+  'Veejay.patell@byndgrn.com',
+  'Rudyp@beyondgreenbiotech.com',
+]
+
+/**
+ * A work order is short a part number until the one on it matches a SKU on the Inventory
+ * board — a linked product is the thing that makes a completion actually book stock, so a
+ * number that matches nothing is no better than a blank. Blank and placeholders both count
+ * as missing. The job still runs; it just says so until somebody fills it in.
+ */
+const needsPartNumber = (wo: { item_part_number: string | null; product_id: string | null }) =>
+  !wo.product_id || !String(wo.item_part_number ?? '').trim() || isPlaceholderPart(wo.item_part_number)
+
 const DONE_STATUSES = ['QC Passed', 'Complete']
 const IDLE_AFTER = ['QC Passed', 'Complete', 'Cancelled', 'On Hold']
 const OPEN_STATUSES = ['Queued', 'In Progress', 'QC', 'On Hold']
@@ -162,6 +179,7 @@ export default function WorkOrdersPage() {
   const [spec, setSpec] = useState<Record<string, any>>({})
   const [dirty, setDirty] = useState(false)
   const [hoursDraft, setHoursDraft] = useState('')
+  const [requesting, setRequesting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [creatingIn, setCreatingIn] = useState<GroupDef | null>(null)
   const [newMachine, setNewMachine] = useState('')
@@ -275,6 +293,12 @@ export default function WorkOrdersPage() {
     })
     return { map, loose }
   }, [orders, showDone])
+
+  // Open jobs still waiting on a part number. Finished and cancelled ones are left alone —
+  // chasing a number for a job nobody is going to run is noise.
+  const missingPart = useMemo(
+    () => orders.filter(wo => OPEN_STATUSES.includes(wo.status) && needsPartNumber(wo)),
+    [orders])
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -437,6 +461,65 @@ export default function WorkOrdersPage() {
     } finally { setBooking(false) }
   }
 
+  /**
+   * Ask the people who decide part numbers to fill this one in. The request is recorded on
+   * the work order so the floor can see it has already been asked and does not chase it four
+   * times, and so "Ask again" is a deliberate act rather than the only option.
+   */
+  async function requestPartNumber() {
+    if (!detail) return
+    const label = detail.wo_code || `WO-${detail.wo_number}`
+    const so = detail.sales_orders?.order_number
+    const customer = detail.sales_orders?.customers?.company_name
+    if (!window.confirm(`Email Shea, Finance, Veejay and Rudy to ask for the part number on ${label}?`)) return
+    setRequesting(true)
+    try {
+      const rows: [string, string][] = [
+        ['Work order', label],
+        ['Production group', detail.group_name || '—'],
+        ['Machine', machineName(detail.machine_id) || 'not assigned'],
+        ['Quantity', detail.qty_ordered != null ? `${fmtN(detail.qty_ordered)} ${detail.uom || ''}`.trim() : '—'],
+        ['Sales order', so ? `${so}${customer ? ` — ${customer}` : ''}` : '—'],
+        ['Scheduled', detail.scheduled_date || 'not scheduled'],
+        ['Currently reads', String(detail.item_part_number ?? '').trim() || '(blank)'],
+        ['Requested by', userEmail || 'the production floor'],
+      ]
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+          <p><strong>${label}</strong> is on the Work Orders board without a part number.</p>
+          <p>The job can still run, but nothing goes into inventory when it finishes until a part
+             number is on it that matches a SKU on the Inventory board.</p>
+          <table cellpadding="6" cellspacing="0" style="border-collapse:collapse;margin:14px 0">
+            ${rows.map(([k, v]) => `<tr>
+              <td style="border:1px solid #e5e7eb;background:#f9fafb;font-weight:600">${k}</td>
+              <td style="border:1px solid #e5e7eb">${v}</td></tr>`).join('')}
+          </table>
+          <p>Please add the part number and item details on the work order:<br>
+             <a href="https://beyondgreen-erp.vercel.app/production/work-orders?item=${detail.id}">Open ${label}</a></p>
+          <p style="color:#6b7280;font-size:12px">Sent from the beyondGREEN ERP when the floor pressed “Request a part number”.</p>
+        </div>`
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: PART_NUMBER_APPROVERS,
+          reply_to: userEmail || undefined,
+          subject: `Part number needed — ${label}${so ? ` (SO ${so})` : ''}`,
+          html,
+        }),
+      })
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) { alert('Could not send the request: ' + (out?.error || res.statusText)); return }
+      const stamp = { at: new Date().toISOString(), by: userEmail || null }
+      const merged = { ...spec, part_number_request: stamp }
+      await sb.from('work_orders').update({ spec: merged, updated_at: new Date().toISOString() }).eq('id', detail.id)
+      setSpec(merged)
+      setOrders(os => os.map(o => (o.id === detail.id ? { ...o, spec: merged } as WO : o)))
+      setDetail(d => (d ? { ...d, spec: merged } as WO : d))
+      alert(`✓ Asked Shea, Finance, Veejay and Rudy for the part number on ${label}.`)
+    } finally { setRequesting(false) }
+  }
+
   async function refreshFG(productId?: string) {
     if (!detail) return
     const { data: mv } = await sb.from('inventory_movements')
@@ -516,7 +599,9 @@ export default function WorkOrdersPage() {
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-1 truncate">
-                {wo.item_part_number || '—'}
+                {needsPartNumber(wo)
+                  ? <span className="wo-blink font-semibold">◆ Part number needed</span>
+                  : wo.item_part_number}
                 {wo.qty_ordered != null ? ` · ${fmtN(wo.qty_ordered)} ${wo.uom || ''}` : ''}
               </p>
               <p className="text-[11px] text-gray-400 truncate">
@@ -542,16 +627,29 @@ export default function WorkOrdersPage() {
 
   const form = detail ? formFor(detail.group_name, detail.form_type) : null
   const detailGroup = detail ? groupByName(detail.group_name) : null
+  const partRequest = (spec?.part_number_request ?? null) as { at: string; by: string | null } | null
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
+      {/* .wo-blink lives in globals.css. The blue blink is reserved for one thing: a job with
+          no usable part number on it. It stops when the number matches a SKU in Inventory. */}
       <ExportButton rows={orders} name="Work Orders" />
       <p className="text-xs font-semibold text-emerald-600 uppercase tracking-widest mb-1">PRODUCTION</p>
       <h1 className="text-3xl font-bold text-gray-900 mb-1">Work Orders</h1>
       <p className="text-sm text-gray-500 mb-5">
         One tile per production group. <span className="text-green-600 font-medium">Green</span> is running,
-        <span className="text-red-600 font-medium"> red</span> is waiting in queue. Open a work order to fill in its sheet.
+        <span className="text-red-600 font-medium"> red</span> is waiting in queue,
+        <span className="text-blue-600 font-medium"> blinking blue</span> is waiting on a part number.
+        Open a work order to fill in its sheet.
       </p>
+
+      {missingPart.length > 0 && (
+        <div className="mb-4 rounded-lg bg-blue-50 border border-blue-300 text-[12px] text-blue-800 px-3 py-2">
+          <span className="font-semibold wo-blink">◆ {missingPart.length} work order{missingPart.length > 1 ? 's' : ''} without a part number</span>
+          {' '}— these will run, but nothing goes into inventory when they finish until the part number is in and matches a SKU on the Inventory board.
+          Open one and use <span className="font-medium">Request a part number</span> if you do not know it.
+        </div>
+      )}
 
       {negStock.length > 0 && (
         <div className="mb-4 rounded-lg bg-amber-50 border border-amber-300 text-[12px] text-amber-800 px-3 py-2">
@@ -656,6 +754,33 @@ export default function WorkOrdersPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+              {/* Waiting on a part number. The job is not blocked — it says so and offers to ask. */}
+              {needsPartNumber(detail) && (
+                <div className="rounded-lg bg-blue-50 border border-blue-300 px-3 py-3">
+                  <p className="text-[13px] font-semibold wo-blink">◆ This work order has no part number</p>
+                  <p className="text-[12px] text-blue-900 mt-1">
+                    It can still be run and completed, but nothing will go into inventory when it finishes.
+                    Put the SKU in <span className="font-medium">Item Part #</span> below and save — this clears
+                    once it matches a SKU on the Inventory board.
+                  </p>
+                  {partRequest ? (
+                    <p className="text-[12px] text-blue-800 mt-2">
+                      ✓ Requested {new Date(partRequest.at).toLocaleString()}
+                      {partRequest.by ? ` by ${partRequest.by}` : ''} — Shea, Finance, Veejay and Rudy have been asked.
+                      <button onClick={requestPartNumber} disabled={requesting} className="ml-2 underline hover:no-underline disabled:opacity-50">
+                        {requesting ? 'Sending…' : 'Ask again'}
+                      </button>
+                    </p>
+                  ) : (
+                    <button
+                      onClick={requestPartNumber}
+                      disabled={requesting}
+                      className="mt-2 px-3 py-2 text-sm rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-500 disabled:opacity-50"
+                    >{requesting ? 'Sending…' : 'Request a part number'}</button>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">Status</label>
