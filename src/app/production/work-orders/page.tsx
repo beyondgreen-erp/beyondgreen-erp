@@ -47,9 +47,25 @@ function FieldInput({ f, live, onChange }: { f: Field; live: Record<string, any>
       </select>
     )
   }
+  // Numbers are typed into a text box on purpose. A controlled <input type="number"> reports
+  // a half-typed "0." or "1." as an empty string, so React writes that empty string straight
+  // back and the decimal point disappears as you type it — 0.42 becomes 42. Keeping the raw
+  // text and filtering to digits and a point lets a decimal be typed left to right.
+  if (f.type === 'number') {
+    return (
+      <input
+        type="text"
+        inputMode="decimal"
+        value={live[f.key] ?? ''}
+        placeholder={f.placeholder}
+        onChange={e => onChange(f.key, e.target.value.replace(/[^0-9.\-]/g, ''))}
+        className={base}
+      />
+    )
+  }
   return (
     <input
-      type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
+      type={f.type === 'date' ? 'date' : 'text'}
       value={live[f.key] ?? ''}
       placeholder={f.placeholder}
       onChange={e => onChange(f.key, e.target.value)}
@@ -739,12 +755,15 @@ export default function WorkOrdersPage() {
                     ) : (
                       /* Held as text while it is being typed and written once on the way out.
                          Saving per keystroke put the value back through Number(), so "0." came
-                         back as 0 and the decimal point was swallowed — 0.42 ended up as .42. */
+                         back as 0 and the decimal point was swallowed — 0.42 ended up as .42.
+                         It is a text box rather than type=number for the same reason: a number
+                         input reports a half-typed "0." as an empty string, so a controlled one
+                         wipes the decimal point the moment you type it. */
                       <input
-                        type="number"
-                        step="0.25"
+                        type="text"
+                        inputMode="decimal"
                         value={hoursDraft}
-                        onChange={e => setHoursDraft(e.target.value)}
+                        onChange={e => setHoursDraft(e.target.value.replace(/[^0-9.]/g, ''))}
                         onBlur={() => {
                           const v = hoursDraft.trim() === '' ? null : Number(hoursDraft)
                           if (v !== null && !isFinite(v)) { setHoursDraft(detail.scheduled_hours == null ? '' : String(detail.scheduled_hours)); return }
