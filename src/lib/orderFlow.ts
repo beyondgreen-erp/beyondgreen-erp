@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { WORK_ORDER_APPROVERS } from '@/lib/partNumber'
 
 export type OrderStatus =
   | 'Pending' | 'New' | 'Confirmed' | 'Awaiting Production'
@@ -17,6 +18,9 @@ export interface ShortageItem {
   qty_on_hand: number
   qty_short: number
   order_line_id: string
+  /** Carried onto the work order so the finished goods can actually be booked. */
+  product_id?: string | null
+  uom?: string | null
 }
 
 export interface SufficientItem {
@@ -36,23 +40,29 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
   const sb = createSupabaseBrowserClient()
   const { data: lines } = await sb
     .from('sales_order_lines')
-    .select('id, sku, quantity, sku_flagged, description')
+    .select('id, sku, quantity, sku_flagged, description, product_id, unit_of_measure')
     .eq('sales_order_id', orderId)
+
+  const rows = ((lines ?? []) as any[]).filter(l => l.sku && !l.sku_flagged)
+  if (!rows.length) return { shortages: [], sufficient: [], allSufficient: true }
+
+  // One lookup for the whole order rather than one round trip per line.
+  const skus = Array.from(new Set(rows.map(l => String(l.sku).trim())))
+  const { data: prods } = await sb
+    .from('products')
+    .select('id, sku, product_name, on_hand_qty, unit_of_measure')
+    .in('sku', skus)
+  const bySku: Record<string, any> = {}
+  for (const p of (prods ?? []) as any[]) bySku[String(p.sku).trim().toLowerCase()] = p
 
   const shortages: ShortageItem[] = []
   const sufficient: SufficientItem[] = []
 
-  for (const line of (lines ?? []) as any[]) {
-    if (!line.sku || line.sku_flagged) continue
-    const { data: prod } = await sb
-      .from('products')
-      .select('product_name, on_hand_qty')
-      .eq('sku', line.sku)
-      .maybeSingle()
-
-    const onHand: number = (prod as any)?.on_hand_qty ?? 0
-    const required: number = line.quantity ?? 0
-    const productName: string = (prod as any)?.product_name ?? line.description ?? line.sku
+  for (const line of rows) {
+    const prod = bySku[String(line.sku).trim().toLowerCase()]
+    const onHand = Number(prod?.on_hand_qty ?? 0)
+    const required = Number(line.quantity ?? 0)
+    const productName: string = prod?.product_name ?? line.description ?? line.sku
 
     if (onHand < required) {
       shortages.push({
@@ -62,6 +72,8 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
         qty_on_hand: onHand,
         qty_short: required - onHand,
         order_line_id: line.id,
+        product_id: line.product_id ?? prod?.id ?? null,
+        uom: line.unit_of_measure ?? prod?.unit_of_measure ?? null,
       })
     } else {
       sufficient.push({ sku: line.sku, product_name: productName, qty_required: required, qty_on_hand: onHand })
@@ -73,41 +85,124 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
 
 // ─── Create Work Orders for Shortages ────────────────────────────────────────
 
+/**
+ * Raise one work order per short line — one order with two short items gets two work orders,
+ * because they are two different things to make on two different machines.
+ *
+ * Nothing goes straight into the production queue. Each one is created `pending` and waits in
+ * the Waiting for Approval bucket at the top of the Work Orders board until somebody gives it
+ * a production group, a machine and an operator and approves it. The part number, product link
+ * and UOM are carried over from the sales order line, so an approved job can actually book its
+ * finished goods; without the product link a completion posts nothing.
+ */
 export async function createWorkOrdersForShortages(
   orderId: string,
-  shortages: ShortageItem[]
-): Promise<{ created: string[]; count: number }> {
+  shortages: ShortageItem[],
+  requestedBy?: string | null,
+): Promise<{ created: string[]; count: number; skipped: number; emailed: boolean }> {
   const sb = createSupabaseBrowserClient()
 
   const { data: order } = await sb
     .from('sales_orders')
-    .select('order_number, customer_id')
+    .select('order_number, customer_id, required_ship_date, customers(company_name)')
     .eq('id', orderId)
     .maybeSingle()
 
-  const orderRef = (order as any)?.order_number ?? orderId.slice(0, 8)
-  const created: string[] = []
+  const o: any = order
+  const orderRef = o?.order_number ?? orderId.slice(0, 8)
+  const customer = o?.customers?.company_name ?? ''
 
-  for (const shortage of shortages) {
+  // Do not raise a second work order for something already being made. An open work order
+  // against the same order and part is the same job.
+  const { data: existing } = await sb
+    .from('work_orders')
+    .select('id, item_part_number, status')
+    .eq('sales_order_id', orderId)
+    .not('status', 'in', '("Complete","QC Passed","Cancelled")')
+  const openParts = new Set(
+    ((existing ?? []) as any[]).map(w => String(w.item_part_number ?? '').trim().toLowerCase()).filter(Boolean))
+
+  const created: string[] = []
+  const madeRows: { code: string; sku: string; qty: number; name: string; id: string }[] = []
+  let skipped = 0
+
+  for (const s of shortages) {
+    if (openParts.has(String(s.sku).trim().toLowerCase())) { skipped++; continue }
     const { data: wo, error } = await sb
       .from('work_orders')
       .insert({
         sales_order_id: orderId,
-        qty_ordered: shortage.qty_short,
+        order_id: orderId,
+        item_part_number: s.sku,
+        product_id: s.product_id ?? null,
+        uom: s.uom ?? null,
+        qty_ordered: s.qty_short,
         qty_produced: 0,
         status: 'Queued',
-        notes: `AUTO|${shortage.product_name}|SOREF:${orderId}|Need ${shortage.qty_short} of ${shortage.sku} for ${orderRef}. On hand: ${shortage.qty_on_hand}`,
+        approval_state: 'pending',
+        due_date: o?.required_ship_date ?? null,
+        auto_reason: `Short ${s.qty_short} of ${s.sku} for ${orderRef}${customer ? ` (${customer})` : ''} — ordered ${s.qty_required}, on hand ${s.qty_on_hand}.`,
+        notes: `AUTO|${s.product_name}|SOREF:${orderId}|Need ${s.qty_short} of ${s.sku} for ${orderRef}. On hand: ${s.qty_on_hand}`,
       })
-      .select('id')
+      .select('id, wo_number')
       .single()
 
     if (error) { console.error('WO insert error:', error.message); continue }
-    if (wo) created.push((wo as any).id)
+    if (wo) {
+      created.push((wo as any).id)
+      madeRows.push({
+        code: `WO-${(wo as any).wo_number}`, sku: s.sku, qty: s.qty_short,
+        name: s.product_name, id: (wo as any).id,
+      })
+    }
   }
 
-  await sb.from('sales_orders').update({ status: 'Awaiting Production' }).eq('id', orderId)
+  // The order is queued for production, not in production — nobody has approved anything yet.
+  if (created.length) await sb.from('sales_orders').update({ status: 'Production Queue' }).eq('id', orderId)
 
-  return { created, count: created.length }
+  let emailed = false
+  if (madeRows.length) {
+    try {
+      const rows = madeRows.map(r => `<tr>
+        <td style="border:1px solid #e5e7eb;padding:6px"><a href="https://beyondgreen-erp.vercel.app/production/work-orders?item=${r.id}">${r.code}</a></td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${r.sku}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${r.name}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${r.qty.toLocaleString()}</td></tr>`).join('')
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+          <p><strong>${madeRows.length} work order${madeRows.length > 1 ? 's' : ''}</strong> raised for order
+             <strong>${orderRef}</strong>${customer ? ` (${customer})` : ''} because the stock is not on the shelf.</p>
+          <p>They are waiting for approval at the top of the Work Orders board. None of them will run
+             until somebody gives them a production group, a machine and an operator and approves them.</p>
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0">
+            <tr>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Work order</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Part #</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Item</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">To make</td>
+            </tr>
+            ${rows}
+          </table>
+          ${skipped ? `<p>${skipped} line${skipped > 1 ? 's were' : ' was'} skipped — already being made on an open work order.</p>` : ''}
+          <p>Raised by ${requestedBy || 'the Order Pipeline'}.<br>
+             <a href="https://beyondgreen-erp.vercel.app/production/work-orders">Open the Work Orders board</a></p>
+          <p style="color:#6b7280;font-size:12px">Sent from the beyondGREEN ERP when the stock check on ${orderRef} found a shortage.</p>
+        </div>`
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: WORK_ORDER_APPROVERS,
+          reply_to: requestedBy || undefined,
+          subject: `${madeRows.length} work order${madeRows.length > 1 ? 's' : ''} awaiting approval — ${orderRef}${customer ? ` (${customer})` : ''}`,
+          html,
+        }),
+      })
+      emailed = res.ok
+    } catch (e) { console.error('WO approval email failed:', e) }
+  }
+
+  return { created, count: created.length, skipped, emailed }
 }
 
 // ─── Check if All Work Orders Complete → auto-move to shipping ───────────────

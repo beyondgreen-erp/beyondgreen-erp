@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
 import { checkInventoryForOrder, createWorkOrdersForShortages, onStatusChange } from '@/lib/orderFlow'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Props {
   orderId: string
@@ -30,7 +31,13 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
 
   async function handleCreateWorkOrders() {
     setActing(true)
-    await createWorkOrdersForShortages(orderId, result.shortages)
+    const sb = createSupabaseBrowserClient()
+    const { data: u } = await sb.auth.getUser()
+    const r = await createWorkOrdersForShortages(orderId, result.shortages, u?.user?.email ?? null)
+    const bits = [`${r.count} work order${r.count === 1 ? '' : 's'} raised and waiting for approval`]
+    if (r.skipped) bits.push(`${r.skipped} skipped — already being made`)
+    bits.push(r.emailed ? 'Veejay, Shea, Rudy and Robert have been emailed' : 'the notification email could not be sent')
+    alert(`✓ ${bits.join('. ')}.`)
     onDone('production')
   }
 
@@ -165,10 +172,11 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
                     {result.shortages.length} Work Order{result.shortages.length !== 1 ? 's' : ''} will be created
                   </p>
                   <p className="text-xs" style={{ color: '#3B82F6' }}>
-                    Each shortage item gets its own Work Order (status: Queued).
-                    Shea or Veejay must approve, assign a machine, and schedule before production begins.
-                    Once all work orders complete, this order automatically moves to the Shipping Queue.
-
+                    Each short item gets its own work order, carrying its part number and quantity.
+                    They land in <strong>Waiting for approval</strong> at the top of the Work Orders board and
+                    do not run until somebody gives them a production group, machine and operator and approves them.
+                    Veejay, Shea, Rudy and Robert are emailed. Anything already being made on an open work order is skipped.
+                    Once all the work orders complete, this order moves to the Shipping Queue on its own.
                   </p>
                 </div>
               )}

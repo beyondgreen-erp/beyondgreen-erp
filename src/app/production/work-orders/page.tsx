@@ -131,6 +131,10 @@ interface WO {
   scheduled_start: string | null
   scheduled_hours: number | null
   assigned_operator: string | null
+  approval_state: string | null
+  auto_reason: string | null
+  approved_at: string | null
+  approved_by: string | null
   sales_orders?: { order_number: string; customers?: { company_name: string } } | null
 }
 
@@ -267,6 +271,9 @@ export default function WorkOrdersPage() {
     GROUPS.forEach(g => { map[g.name] = [] })
     const loose: WO[] = []
     orders.forEach(wo => {
+      // Anything still waiting for approval lives in its own bucket at the top, not in a
+      // group tile — it has no group yet, and that is the point of approving it.
+      if (wo.approval_state === 'pending') return
       if (!showDone && !OPEN_STATUSES.includes(wo.status)) return
       if (wo.group_name && map[wo.group_name]) map[wo.group_name].push(wo)
       else loose.push(wo)
@@ -274,13 +281,63 @@ export default function WorkOrdersPage() {
     return { map, loose }
   }, [orders, showDone])
 
+  /** Raised automatically off a stock shortage and not yet looked at by anyone. */
+  const pendingApproval = useMemo(
+    () => orders.filter(wo => wo.approval_state === 'pending'),
+    [orders])
+
   // Open jobs still waiting on a part number. Finished and cancelled ones are left alone —
   // chasing a number for a job nobody is going to run is noise.
   const missingPart = useMemo(
-    () => orders.filter(wo => OPEN_STATUSES.includes(wo.status) && needsPartNumber(wo)),
+    () => orders.filter(wo => OPEN_STATUSES.includes(wo.status) && needsPartNumber(wo) && wo.approval_state !== 'pending'),
     [orders])
 
   // ── Actions ────────────────────────────────────────────────────────────────
+
+  /**
+   * Approve a job the system raised. It only joins a group tile once it has a group, so the
+   * group is what approval actually requires — the machine and the operator can follow, and a
+   * job with no machine still shows on the board rather than disappearing.
+   */
+  async function approveWO(wo: WO) {
+    if (!wo.group_name) {
+      alert('Give this work order a production group first — open it and pick the group it runs in. Without one it has no tile to sit on.')
+      setDetail(wo)
+      return
+    }
+    const g = groupByName(wo.group_name)
+    const label = wo.wo_code || `WO-${wo.wo_number}`
+    if (!window.confirm(`Approve ${label} and put it in the ${wo.group_name} queue?`)) return
+    const patch: Record<string, any> = {
+      approval_state: 'approved',
+      approved_at: new Date().toISOString(),
+      approved_by: userEmail || null,
+      updated_at: new Date().toISOString(),
+    }
+    // Give it a proper code now the group is known — the codes read by group, so one could
+    // not be issued while the job had no group.
+    if (!wo.wo_code && g) patch.wo_code = nextWoCode(g, orders.map(o => o.wo_code).filter((c): c is string => !!c))
+    if (!wo.form_type && g) patch.form_type = g.form
+    const { error } = await sb.from('work_orders').update(patch).eq('id', wo.id)
+    if (error) { alert('Could not approve: ' + error.message); return }
+    setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...patch } as WO : o)))
+    setDetail(d => (d && d.id === wo.id ? { ...d, ...patch } as WO : d))
+  }
+
+  /** Not needed after all — keep the row and the reason, take it off the floor's list. */
+  async function rejectWO(wo: WO) {
+    const label = wo.wo_code || `WO-${wo.wo_number}`
+    if (!window.confirm(`Reject ${label}?\n\nIt will be cancelled and leave the approval list. The order it came from is not changed.`)) return
+    const patch = {
+      approval_state: 'rejected', status: 'Cancelled',
+      approved_at: new Date().toISOString(), approved_by: userEmail || null,
+      updated_at: new Date().toISOString(),
+    }
+    const { error } = await sb.from('work_orders').update(patch).eq('id', wo.id)
+    if (error) { alert('Could not reject: ' + error.message); return }
+    setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...patch } as WO : o)))
+    setDetail(d => (d && d.id === wo.id ? { ...d, ...patch } as WO : d))
+  }
 
   async function setStatus(wo: WO, status: string) {
     if (!status || status === wo.status) return
@@ -623,6 +680,71 @@ export default function WorkOrdersPage() {
         Open a work order to fill in its sheet.
       </p>
 
+      {/* Waiting for approval — raised by the stock check, nobody has looked at them yet.
+          Sits above the group tiles because nothing here has a group until it is approved. */}
+      {pendingApproval.length > 0 && (
+        <div className="mb-5 rounded-xl border-2 border-violet-300 bg-violet-50 overflow-hidden">
+          <div className="px-4 py-2.5 bg-violet-100 border-b border-violet-200 flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-violet-800">
+              Waiting for approval
+            </span>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-violet-600 text-white">
+              {pendingApproval.length}
+            </span>
+            <span className="text-[11px] text-violet-700 ml-2">
+              raised automatically because the stock was not on the shelf — none of these run until approved
+            </span>
+          </div>
+          <div className="divide-y divide-violet-100">
+            {pendingApproval.map(wo => (
+              <div key={wo.id} className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 hover:bg-violet-100/40">
+                <button onClick={() => setDetail(wo)} className="text-left min-w-[150px]">
+                  <span className="font-semibold text-sm text-gray-900">{woLabel(wo)}</span>
+                  <span className="block text-[11px] text-gray-500">
+                    {wo.sales_orders?.order_number ? `SO ${wo.sales_orders.order_number}` : '—'}
+                    {wo.sales_orders?.customers?.company_name ? ` · ${wo.sales_orders.customers.company_name}` : ''}
+                  </span>
+                </button>
+                <div className="min-w-[160px]">
+                  <span className="text-sm text-gray-900 font-medium">{wo.item_part_number || '—'}</span>
+                  <span className="block text-[11px] text-gray-500">
+                    make {fmtN(wo.qty_ordered)} {wo.uom || ''}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <span className="text-[11px] text-gray-600">{wo.auto_reason || ''}</span>
+                  {!wo.group_name && (
+                    <span className="block text-[11px] font-semibold text-violet-700">
+                      Needs a production group before it can be approved
+                    </span>
+                  )}
+                  {wo.group_name && (
+                    <span className="block text-[11px] text-violet-700">
+                      {wo.group_name}{machineName(wo.machine_id) ? ` · ${machineName(wo.machine_id)}` : ' · no machine yet'}
+                      {wo.assigned_operator ? ` · ${wo.assigned_operator}` : ''}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button onClick={() => setDetail(wo)}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white text-gray-700 font-medium hover:bg-gray-50">
+                    Open &amp; edit
+                  </button>
+                  <button onClick={() => rejectWO(wo)}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-red-200 text-red-600 font-medium hover:bg-red-50">
+                    Reject
+                  </button>
+                  <button onClick={() => approveWO(wo)}
+                    className="px-3 py-1.5 text-xs rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-500">
+                    Approve
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {missingPart.length > 0 && (
         <div className="mb-4 rounded-lg bg-blue-50 border border-blue-300 text-[12px] text-blue-800 px-3 py-2">
           <span className="font-semibold wo-blink">◆ {missingPart.length} work order{missingPart.length > 1 ? 's' : ''} without a part number</span>
@@ -734,6 +856,35 @@ export default function WorkOrdersPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+              {/* Raised by the stock check and not yet approved. */}
+              {detail.approval_state === 'pending' && (
+                <div className="rounded-lg bg-violet-50 border-2 border-violet-300 px-3 py-3">
+                  <p className="text-[13px] font-semibold text-violet-900">⏸ Waiting for approval</p>
+                  <p className="text-[12px] text-violet-900 mt-1">
+                    {detail.auto_reason || 'Raised automatically from a stock shortage.'}
+                  </p>
+                  <p className="text-[12px] text-violet-900 mt-1">
+                    Set the production group, machine and operator below, then approve. It will not appear
+                    on a group tile or run until you do.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button onClick={() => approveWO(detail)}
+                      className="px-3 py-2 text-sm rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-500">
+                      Approve this work order
+                    </button>
+                    <button onClick={() => rejectWO(detail)}
+                      className="px-3 py-2 text-sm rounded-lg border border-red-200 text-red-600 font-medium hover:bg-red-50">
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              )}
+              {detail.approval_state === 'approved' && detail.approved_by && (
+                <p className="text-[11px] text-gray-400">
+                  ✓ Approved {detail.approved_at ? new Date(detail.approved_at).toLocaleString() : ''} by {detail.approved_by}
+                </p>
+              )}
+
               {/* Waiting on a part number. The job is not blocked — it says so and offers to ask. */}
               {needsPartNumber(detail) && (
                 <div className="rounded-lg bg-blue-50 border border-blue-300 px-3 py-3">
