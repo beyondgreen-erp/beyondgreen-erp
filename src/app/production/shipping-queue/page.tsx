@@ -200,7 +200,7 @@ export default function ShippingQueuePage() {
     setLoading(true)
     const { data } = await sb.from('sales_orders')
       .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, ship_prep, notes, customers(company_name, shipping_address)')
-      .in('status', SHIPPABLE).eq('archived', false).order('required_ship_date', { ascending: true, nullsFirst: false })
+      .in('status', SHIPPABLE).eq('archived', false).eq('is_active', true).order('required_ship_date', { ascending: true, nullsFirst: false })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = (data as any[]) || []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -512,6 +512,20 @@ export default function ShippingQueuePage() {
   }
 
   const activeItem = items.find(i => i.id === openId)
+  async function moveToPipeline() {
+    if (!activeItem) return
+    if (!confirm('Move this order off the Shipping Queue and back to the pipeline (status \u2192 Production Queue)?')) return
+    const { error } = await sb.from('sales_orders').update({ status: 'Production Queue' }).eq('id', activeItem.sales_order_id)
+    if (error) { alert('Could not move: ' + error.message); return }
+    setOpenId(null); resetPackState(); load()
+  }
+  async function deleteQueueOrder() {
+    if (!activeItem) return
+    if (!confirm('Delete this order? It leaves the Shipping Queue and all boards, and is recoverable from the Recycle Bin.')) return
+    const { error } = await sb.from('sales_orders').update({ is_active: false }).eq('id', activeItem.sales_order_id)
+    if (error) { alert('Could not delete: ' + error.message); return }
+    setOpenId(null); resetPackState(); load()
+  }
   const activeW = wItems.find(i => i.id === openW)
   const o = activeItem?.sales_orders
   const shipPrefillRef = useRef<string | null>(null)
@@ -1423,6 +1437,8 @@ export default function ShippingQueuePage() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {draftMsg && <span className="text-white/90 text-xs font-medium whitespace-nowrap">{draftMsg}</span>}
+                        <button onClick={moveToPipeline} className="text-xs font-semibold text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">↩ Move to Pipeline</button>
+                        <button onClick={deleteQueueOrder} className="text-xs font-semibold text-white hover:text-white border border-red-300/60 hover:border-red-200 bg-red-500/25 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">🗑 Delete</button>
                         <button onClick={() => saveDraft()} className="text-xs font-semibold text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">💾 Save Draft</button>
                         <button onClick={() => { saveDraft({ silent: true }); setOpenId(null); resetPackState() }} className="mon-modal-close" aria-label="Close">×</button>
                       </div>
