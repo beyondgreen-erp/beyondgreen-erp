@@ -2746,12 +2746,26 @@ export default function OrdersPage() {
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
                           <p className="text-xs text-gray-500 truncate">{o.po_number ? 'PO ' + o.po_number : (o.order_number && o.order_number !== orderTitle(o) ? o.order_number : '')}{shipCounts[o.id] ? ` · 📦 ${shipCounts[o.id]} shipped` : ''}</p>
+                          {(noPartMap[o.id]?.length ?? 0) > 0 && (
+                            <p className="wo-blink text-[11px] font-semibold truncate">
+                              ◆ {noPartMap[o.id].length} part number{noPartMap[o.id].length > 1 ? 's' : ''} needed
+                            </p>
+                          )}
                         </div>
                         {columns.map(col => { const cf = ((o as any).custom_fields) || {}; return (
                           <input key={col.id} type={col.ftype === 'number' ? 'number' : col.ftype === 'date' ? 'date' : 'text'} value={cf[col.id] ?? ''} onClick={e => e.stopPropagation()} onChange={e => setCell(o.id, col.id, e.target.value)} onDragStart={e => e.stopPropagation()} placeholder="—"
                             className="w-[110px] shrink-0 hidden md:block text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 focus:outline-none focus:border-[#00A84F]" />
                         ) })}
                         {u && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${u.level === 'overdue' ? 'bg-[#E2445C] text-white' : 'bg-amber-400/20 text-amber-700'}`} title="Ship-date urgency">{u.level === 'overdue' ? `${Math.abs(u.days)}d late` : `${u.days}d`}</span>}
+                        {/* Compares every line against on-hand stock, and raises a work order for
+                            each short one. Lives on the board because this is where orders are worked. */}
+                        <button
+                          onClick={e => { e.stopPropagation(); setInventoryCheckOrder(o) }}
+                          onDragStart={e => e.stopPropagation()}
+                          title="Check stock for this order and raise work orders for anything short"
+                          className="shrink-0 hidden sm:block text-[11px] font-semibold px-2 py-1 rounded-md border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors">
+                          Check stock
+                        </button>
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
                           className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0 max-w-[104px] sm:max-w-[170px] truncate">
@@ -3083,7 +3097,7 @@ export default function OrdersPage() {
             if (result === 'shipped') {
               setFlowToast({ message: '✓ Order moved to Shipping Queue' })
             } else if (result === 'production') {
-              setFlowToast({ message: '✓ Work orders created — pending approval from Shea/Veejay' })
+              setFlowToast({ message: '✓ Work orders raised — waiting for approval at the top of the Work Orders board' })
             }
             load()
           }}
