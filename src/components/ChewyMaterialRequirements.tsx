@@ -100,12 +100,12 @@ export default function ChewyMaterialRequirements() {
       const qty = Number(ln.quantity ?? ln.qty) || 0
       if (!sku || !qty) continue
       const poDate = orderById[ln.sales_order_id]?.order_date || null
-      const key = sku + '||' + (poDate || '')
+      const key = sku // group by SKU across all of its open orders
       const prod = productBySku[sku]
       const packsPerCase = Number(prod?.packs_per_case) || 1
       const packs = isCaseUom(ln.unit_of_measure) ? qty * packsPerCase : qty
       packsByKey[key] = (packsByKey[key] || 0) + packs
-      keyInfo[key] = { sku, poDate }
+      if (!keyInfo[key] || (poDate != null && (keyInfo[key].poDate == null || poDate < (keyInfo[key].poDate as string)))) keyInfo[key] = { sku, poDate }
       const uv = (uomVotesByKey[key] ||= {})
       const label = isCaseUom(ln.unit_of_measure) ? 'cases' : 'pack'
       uv[label] = (uv[label] || 0) + 1
@@ -225,7 +225,7 @@ export default function ChewyMaterialRequirements() {
     doc.text('Generated ' + new Date().toLocaleString() + '  ·  ' + filtered.length + ' SKUs across open Chewy orders', M, y + 32)
     y += 50
     const bodyRows = filtered.map(r => [
-      r.sku, fmtDate(r.poDate), r.uomLabel, fmtN(r.packsOrdered), r.splitPct.toFixed(1) + '%',
+      r.sku, String(r.openOrders), fmtDate(r.poDate), r.uomLabel, fmtN(r.packsOrdered), r.splitPct.toFixed(1) + '%',
       fmtN(r.packsPerCase), fmtN(r.piecesPerPack), fmtN(r.piecesPerOrder),
       r.partWtG == null ? '—' : r.partWtG.toString(),
       r.totalMatKg == null ? '—' : fmtN(r.totalMatKg, 1),
@@ -233,9 +233,9 @@ export default function ChewyMaterialRequirements() {
     ])
     autoTable(doc, {
       startY: y,
-      head: [['BG P/N', 'PO Date', 'UOM', 'Order Qty', '% Split', 'Packs/Case', 'Pieces/Pack', 'Pieces/Order', 'Part Wt (g)', 'Total Mat (lbs)', 'Packaging Req.']],
+      head: [['BG P/N', 'Orders', 'Next PO', 'UOM', 'Order Qty', '% Split', 'Packs/Case', 'Pieces/Pack', 'Pieces/Order', 'Part Wt (g)', 'Total Mat (lbs)', 'Packaging Req.']],
       body: bodyRows,
-      foot: [['TOTAL', '', '', fmtN(totals.packsOrdered), '100%', '', '', fmtN(totals.piecesPerOrder), '', totals.hasAnyMat ? fmtN(totals.totalMatKg, 1) : '—', fmtN(totals.packagingRequired)]],
+      foot: [['TOTAL', String(orders.length), '', '', fmtN(totals.packsOrdered), '100%', '', '', fmtN(totals.piecesPerOrder), '', totals.hasAnyMat ? fmtN(totals.totalMatKg, 1) : '—', fmtN(totals.packagingRequired)]],
       theme: 'grid',
       headStyles: { fillColor: DARK, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
       footStyles: { fillColor: [240, 242, 247], textColor: DARK, fontSize: 8, fontStyle: 'bold' },
@@ -251,7 +251,7 @@ export default function ChewyMaterialRequirements() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-[#E4E6EE]">
         <div>
           <h2 className="text-lg font-bold text-[#1A1D2E]">Chewy Material &amp; Packaging Requirements</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{loading ? 'Loading…' : `${filtered.length} SKU/date row${filtered.length === 1 ? '' : 's'} across open Chewy orders`} · grouped by SKU and PO date, sorted by date · order quantities normalized to packs · click Part Wt or Materials to edit</p>
+          <p className="text-xs text-gray-500 mt-0.5">{loading ? 'Loading…' : `${filtered.length} SKU${filtered.length === 1 ? '' : 's'} across ${orders.length} open Chewy order${orders.length === 1 ? '' : 's'}`} · grouped by SKU (all open orders combined) · shipped orders drop off, new orders add in · order quantities normalized to packs · click Part Wt or Materials to edit</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => load()} disabled={loading} title="Reload latest Chewy order data" className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-[#F5F6FA] disabled:opacity-50 transition-colors"><i className={'ti ti-refresh' + (loading ? ' animate-spin' : '')} />Refresh</button>
@@ -279,7 +279,8 @@ export default function ChewyMaterialRequirements() {
             <thead>
               <tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
                 <th className="text-left px-6 py-2">BG P/N</th>
-                <th className="text-left px-3 py-2">PO Date</th>
+                <th className="text-right px-3 py-2">Orders</th>
+                <th className="text-left px-3 py-2">Next PO</th>
                 <th className="text-left px-3 py-2">UOM</th>
                 <th className="text-right px-3 py-2">Order Qty</th>
                 <th className="text-right px-3 py-2">% Split</th>
@@ -297,6 +298,7 @@ export default function ChewyMaterialRequirements() {
                 <Fragment key={r.rowKey}>
                   <tr className="border-b border-[#EEF0F4] hover:bg-[#FBFCFE]">
                     <td className="px-6 py-2.5 font-mono font-semibold text-gray-800" title={r.name || ''}>{r.sku}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 font-medium">{r.openOrders}</td>
                     <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{fmtDate(r.poDate)}</td>
                     <td className="px-3 py-2.5 text-gray-500">{r.uomLabel}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{fmtN(r.packsOrdered)}</td>
@@ -333,7 +335,7 @@ export default function ChewyMaterialRequirements() {
                   </tr>
                   {editingMatSku === r.rowKey && (
                     <tr className="bg-blue-50/40 border-b border-[#EEF0F4]">
-                      <td colSpan={12} className="px-6 py-3">
+                      <td colSpan={13} className="px-6 py-3">
                         <div className="flex flex-wrap items-start gap-4">
                           <div className="flex flex-col gap-1.5">
                             {matDraft.map((m, i) => (
@@ -363,6 +365,7 @@ export default function ChewyMaterialRequirements() {
             <tfoot>
               <tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-bold text-[#1A1D2E]">
                 <td className="px-6 py-3">TOTAL</td>
+                <td className="px-3 py-3 text-right tabular-nums">{orders.length}</td>
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-right tabular-nums">{fmtN(totals.packsOrdered)}</td>
