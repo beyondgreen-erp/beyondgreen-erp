@@ -6,18 +6,19 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-interface SOrder { id: string; order_number: string | null; status: string | null; order_section: string | null; customer: { company_name: string | null } | null }
+interface SOrder { id: string; order_number: string | null; status: string | null; order_section: string | null; order_date: string | null; customer: { company_name: string | null } | null }
 interface SLine { sales_order_id: string; sku: string | null; qty: number | null; quantity: number | null; unit_of_measure: string | null }
 interface Prod { sku: string; product_name: string | null; unit_of_measure: string | null; pieces_per_pack: number | null; packs_per_case: number | null; weight_per_unit_grams: number | null }
 interface Bom { id: string; finished_good_sku: string; component_sku: string; uom_type: string | null; percentage: number | null }
 
 const fmtN = (n: number | null, d = 0) => (n == null || isNaN(n) ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }))
+const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 const DONE = ['shipped', 'completed', 'closed', 'cancelled']
 const isCaseUom = (u?: string | null) => /case/i.test(u || '')
 
 type MatSplit = { code: string; pct: number; kg: number | null }
 type Row = {
-  sku: string; dbSku: string; name: string | null; openOrders: number
+  sku: string; dbSku: string; rowKey: string; name: string | null; openOrders: number; poDate: string | null
   uomLabel: string; packsOrdered: number; splitPct: number
   packsPerCase: number | null; piecesPerPack: number | null; piecesPerOrder: number
   partWtG: number | null; materials: MatSplit[]; totalMatKg: number | null
@@ -45,7 +46,7 @@ export default function ChewyMaterialRequirements() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: o }, { data: l }, { data: p }, { data: b }] = await Promise.all([
-      sb.from('sales_orders').select('id, order_number, status, order_section, customer:customers(company_name)').eq('archived', false).eq('is_active', true),
+      sb.from('sales_orders').select('id, order_number, status, order_section, order_date, customer:customers(company_name)').eq('archived', false).eq('is_active', true),
       sb.from('sales_order_lines').select('sales_order_id, sku, qty, quantity, unit_of_measure'),
       sb.from('products').select('sku, product_name, unit_of_measure, pieces_per_pack, packs_per_case, weight_per_unit_grams'),
       sb.from('product_bom').select('id, finished_good_sku, component_sku, uom_type, percentage'),
@@ -84,28 +85,35 @@ export default function ChewyMaterialRequirements() {
   }, [bom])
 
   const orderCountBySo = useMemo(() => new Set(orders.map(o => o.id)), [orders])
+  const orderById = useMemo(() => { const m: Record<string, SOrder> = {}; for (const o of orders) m[o.id] = o; return m }, [orders])
 
   const rows = useMemo<Row[]>(() => {
-    // Normalize every line to "packs" using each SKU's own packs_per_case, then aggregate.
-    const packsBySku: Record<string, number> = {}
-    const uomVotesBySku: Record<string, Record<string, number>> = {}
-    const soCountBySku: Record<string, Set<string>> = {}
+    // Normalize every line to "packs" using each SKU's own packs_per_case, then aggregate
+    // by SKU + PO date so material needs can be read off by order date.
+    const packsByKey: Record<string, number> = {}
+    const uomVotesByKey: Record<string, Record<string, number>> = {}
+    const soCountByKey: Record<string, Set<string>> = {}
+    const keyInfo: Record<string, { sku: string; poDate: string | null }> = {}
     for (const ln of lines) {
       if (!orderCountBySo.has(ln.sales_order_id)) continue
       const sku = (ln.sku || '').trim().toUpperCase()
       const qty = Number(ln.quantity ?? ln.qty) || 0
       if (!sku || !qty) continue
+      const poDate = orderById[ln.sales_order_id]?.order_date || null
+      const key = sku + '||' + (poDate || '')
       const prod = productBySku[sku]
       const packsPerCase = Number(prod?.packs_per_case) || 1
       const packs = isCaseUom(ln.unit_of_measure) ? qty * packsPerCase : qty
-      packsBySku[sku] = (packsBySku[sku] || 0) + packs
-      const uv = (uomVotesBySku[sku] ||= {})
+      packsByKey[key] = (packsByKey[key] || 0) + packs
+      keyInfo[key] = { sku, poDate }
+      const uv = (uomVotesByKey[key] ||= {})
       const label = isCaseUom(ln.unit_of_measure) ? 'cases' : 'pack'
       uv[label] = (uv[label] || 0) + 1
-      ;(soCountBySku[sku] ||= new Set()).add(ln.sales_order_id)
+      ;(soCountByKey[key] ||= new Set()).add(ln.sales_order_id)
     }
-    const totalPacks = Object.values(packsBySku).reduce((a, b) => a + b, 0)
-    const out: Row[] = Object.entries(packsBySku).map(([sku, packsOrdered]) => {
+    const totalPacks = Object.values(packsByKey).reduce((a, b) => a + b, 0)
+    const out: Row[] = Object.entries(packsByKey).map(([key, packsOrdered]) => {
+      const { sku, poDate } = keyInfo[key]
       const prod = productBySku[sku]
       const piecesPerPack = prod?.pieces_per_pack != null ? Number(prod.pieces_per_pack) : null
       const piecesPerOrder = piecesPerPack != null ? packsOrdered * piecesPerPack : 0
@@ -117,18 +125,21 @@ export default function ChewyMaterialRequirements() {
         pct: Number(b.percentage) || 0,
         kg: totalMatKg != null ? (totalMatKg * (Number(b.percentage) || 0)) / 100 : null,
       }))
-      const votes = uomVotesBySku[sku] || {}
+      const votes = uomVotesByKey[key] || {}
       const uomLabel = (votes['cases'] || 0) > (votes['pack'] || 0) ? 'cases' : 'pack'
       return {
-        sku, dbSku: prod?.sku || sku, name: prod?.product_name ?? null, openOrders: soCountBySku[sku]?.size || 0,
+        sku, dbSku: prod?.sku || sku, rowKey: key, name: prod?.product_name ?? null, openOrders: soCountByKey[key]?.size || 0, poDate,
         uomLabel, packsOrdered, splitPct: totalPacks > 0 ? (packsOrdered / totalPacks) * 100 : 0,
         packsPerCase: prod?.packs_per_case ?? null, piecesPerPack, piecesPerOrder,
         partWtG, materials, totalMatKg, packagingRequired: packsOrdered,
       }
     })
-    out.sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }))
+    out.sort((a, b) => {
+      const ad = a.poDate || '9999-99-99', bd = b.poDate || '9999-99-99'
+      return ad !== bd ? ad.localeCompare(bd) : a.sku.localeCompare(b.sku, undefined, { numeric: true })
+    })
     return out
-  }, [lines, orderCountBySo, productBySku, bomBySku])
+  }, [lines, orderCountBySo, orderById, productBySku, bomBySku])
 
   const filtered = useMemo(() => {
     const ql = q.trim().toLowerCase()
@@ -153,7 +164,7 @@ export default function ChewyMaterialRequirements() {
   // ── Edit: Part Wt (g) ────────────────────────────────────────────────────
   function startEditWt(r: Row) {
     setEditingMatSku(null)
-    setEditingWtSku(r.sku)
+    setEditingWtSku(r.rowKey)
     setWtDraft(r.partWtG != null ? String(r.partWtG) : '')
   }
   async function saveWt(r: Row) {
@@ -173,7 +184,7 @@ export default function ChewyMaterialRequirements() {
   // ── Edit: Materials (BOM %) ──────────────────────────────────────────────
   function startEditMaterials(r: Row) {
     setEditingWtSku(null)
-    setEditingMatSku(r.sku)
+    setEditingMatSku(r.rowKey)
     setMatDraft(r.materials.length ? r.materials.map(m => ({ code: m.code, pct: String(m.pct) })) : [{ code: '', pct: '' }])
   }
   function addMatRow() { setMatDraft(d => [...d, { code: '', pct: '' }]) }
@@ -213,7 +224,7 @@ export default function ChewyMaterialRequirements() {
     doc.text('Generated ' + new Date().toLocaleString() + '  ·  ' + filtered.length + ' SKUs across open Chewy orders', M, y + 32)
     y += 50
     const bodyRows = filtered.map(r => [
-      r.sku, r.uomLabel, fmtN(r.packsOrdered), r.splitPct.toFixed(1) + '%',
+      r.sku, fmtDate(r.poDate), r.uomLabel, fmtN(r.packsOrdered), r.splitPct.toFixed(1) + '%',
       fmtN(r.packsPerCase), fmtN(r.piecesPerPack), fmtN(r.piecesPerOrder),
       r.partWtG == null ? '—' : r.partWtG.toString(),
       r.totalMatKg == null ? '—' : fmtN(r.totalMatKg, 1),
@@ -221,9 +232,9 @@ export default function ChewyMaterialRequirements() {
     ])
     autoTable(doc, {
       startY: y,
-      head: [['BG P/N', 'UOM', 'Order Qty', '% Split', 'Packs/Case', 'Pieces/Pack', 'Pieces/Order', 'Part Wt (g)', 'Total Mat (KGs)', 'Packaging Req.']],
+      head: [['BG P/N', 'PO Date', 'UOM', 'Order Qty', '% Split', 'Packs/Case', 'Pieces/Pack', 'Pieces/Order', 'Part Wt (g)', 'Total Mat (KGs)', 'Packaging Req.']],
       body: bodyRows,
-      foot: [['TOTAL', '', fmtN(totals.packsOrdered), '100%', '', '', fmtN(totals.piecesPerOrder), '', totals.hasAnyMat ? fmtN(totals.totalMatKg, 1) : '—', fmtN(totals.packagingRequired)]],
+      foot: [['TOTAL', '', '', fmtN(totals.packsOrdered), '100%', '', '', fmtN(totals.piecesPerOrder), '', totals.hasAnyMat ? fmtN(totals.totalMatKg, 1) : '—', fmtN(totals.packagingRequired)]],
       theme: 'grid',
       headStyles: { fillColor: DARK, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
       footStyles: { fillColor: [240, 242, 247], textColor: DARK, fontSize: 8, fontStyle: 'bold' },
@@ -239,7 +250,7 @@ export default function ChewyMaterialRequirements() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-[#E4E6EE]">
         <div>
           <h2 className="text-lg font-bold text-[#1A1D2E]">Chewy Material &amp; Packaging Requirements</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{loading ? 'Loading…' : `${filtered.length} SKU${filtered.length === 1 ? '' : 's'} across open Chewy orders`} · order quantities normalized to packs · click Part Wt or Materials to edit</p>
+          <p className="text-xs text-gray-500 mt-0.5">{loading ? 'Loading…' : `${filtered.length} SKU/date row${filtered.length === 1 ? '' : 's'} across open Chewy orders`} · grouped by SKU and PO date, sorted by date · order quantities normalized to packs · click Part Wt or Materials to edit</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => load()} disabled={loading} title="Reload latest Chewy order data" className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-[#F5F6FA] disabled:opacity-50 transition-colors"><i className={'ti ti-refresh' + (loading ? ' animate-spin' : '')} />Refresh</button>
@@ -267,6 +278,7 @@ export default function ChewyMaterialRequirements() {
             <thead>
               <tr className="text-[10px] uppercase text-gray-400 border-b border-[#EEF0F4]">
                 <th className="text-left px-6 py-2">BG P/N</th>
+                <th className="text-left px-3 py-2">PO Date</th>
                 <th className="text-left px-3 py-2">UOM</th>
                 <th className="text-right px-3 py-2">Order Qty</th>
                 <th className="text-right px-3 py-2">% Split</th>
@@ -281,9 +293,10 @@ export default function ChewyMaterialRequirements() {
             </thead>
             <tbody>
               {filtered.map(r => (
-                <Fragment key={r.sku}>
+                <Fragment key={r.rowKey}>
                   <tr className="border-b border-[#EEF0F4] hover:bg-[#FBFCFE]">
                     <td className="px-6 py-2.5 font-mono font-semibold text-gray-800" title={r.name || ''}>{r.sku}</td>
+                    <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{fmtDate(r.poDate)}</td>
                     <td className="px-3 py-2.5 text-gray-500">{r.uomLabel}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{fmtN(r.packsOrdered)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-500">{r.splitPct.toFixed(1)}%</td>
@@ -291,7 +304,7 @@ export default function ChewyMaterialRequirements() {
                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-500">{fmtN(r.piecesPerPack)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 font-medium">{fmtN(r.piecesPerOrder)}</td>
                     <td className="px-3 py-2.5 text-right">
-                      {editingWtSku === r.sku ? (
+                      {editingWtSku === r.rowKey ? (
                         <div className="flex items-center justify-end gap-1">
                           <input autoFocus type="number" step="0.01" min="0" value={wtDraft} onChange={e => setWtDraft(e.target.value)}
                             onKeyDown={e => { if (e.key === 'Enter') saveWt(r); if (e.key === 'Escape') setEditingWtSku(null) }}
@@ -306,7 +319,7 @@ export default function ChewyMaterialRequirements() {
                       )}
                     </td>
                     <td className="px-3 py-2.5">
-                      {editingMatSku !== r.sku && (
+                      {editingMatSku !== r.rowKey && (
                         <button onClick={() => startEditMaterials(r)} className="text-left hover:underline decoration-dotted underline-offset-2">
                           {r.materials.length
                             ? <span className="text-gray-600">{r.materials.map(m => `${m.code} ${m.pct}%`).join(' · ')}</span>
@@ -317,9 +330,9 @@ export default function ChewyMaterialRequirements() {
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-[#1A1D2E]">{r.totalMatKg == null ? <span className="text-gray-300 font-normal">—</span> : fmtN(r.totalMatKg, 1)}</td>
                     <td className="px-6 py-2.5 text-right tabular-nums font-semibold text-[#1C49C2]">{fmtN(r.packagingRequired)}</td>
                   </tr>
-                  {editingMatSku === r.sku && (
+                  {editingMatSku === r.rowKey && (
                     <tr className="bg-blue-50/40 border-b border-[#EEF0F4]">
-                      <td colSpan={11} className="px-6 py-3">
+                      <td colSpan={12} className="px-6 py-3">
                         <div className="flex flex-wrap items-start gap-4">
                           <div className="flex flex-col gap-1.5">
                             {matDraft.map((m, i) => (
@@ -349,6 +362,7 @@ export default function ChewyMaterialRequirements() {
             <tfoot>
               <tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-bold text-[#1A1D2E]">
                 <td className="px-6 py-3">TOTAL</td>
+                <td className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-right tabular-nums">{fmtN(totals.packsOrdered)}</td>
                 <td className="px-3 py-3 text-right tabular-nums">100%</td>
