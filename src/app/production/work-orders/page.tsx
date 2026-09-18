@@ -210,6 +210,9 @@ export default function WorkOrdersPage() {
         setMachines(list => list.map(m => (m.id === mid ? { ...m, status: ms } : m)))
       }
     }
+    // Completing books finished goods in the database, so re-read the stock figures
+    // rather than leaving the panel showing what was on hand a moment ago.
+    if (status === 'Complete') await refreshFG()
   }
 
   async function setMachineOn(wo: WO, machineId: string) {
