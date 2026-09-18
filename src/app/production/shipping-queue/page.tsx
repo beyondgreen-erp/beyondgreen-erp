@@ -585,6 +585,12 @@ export default function ShippingQueuePage() {
   }, [boxConfigs])
   const remainingUnitsForSku = (sku: string, units: number) => units - (assignedUnitsBySku[sku] || 0)
   const anyUnitsUnallocated = plan.some(r => remainingUnitsForSku(r.sku, r.shippedUnits) !== 0)
+  // The real outcome of confirming right now — every line's prior-shipped + what's in this
+  // shipment reaching its ordered qty — independent of the Full/Partial toggle picked earlier.
+  // The toggle only pre-fills how much to ship; if someone flips it to Partial but then fills
+  // in the full remaining balance anyway (or vice versa), this is what actually decides the
+  // order's status on submit, so the button should say what will really happen, not the toggle.
+  const willCompleteOrder = plan.length > 0 && plan.every(r => r.units <= 0 || (r.done + r.shippedUnits) >= r.units)
   const expandedBoxes = useMemo(() => {
     const bySku = new Map(plan.map(r => [r.sku, r]))
     const out: { number: number; lengthIn: number; widthIn: number; heightIn: number; weightLb: number; lines: { sku: string; description: string; units: number }[] }[] = []
@@ -1818,7 +1824,7 @@ export default function ShippingQueuePage() {
                             ))}
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <button onClick={startCloseout} disabled={!canMove} className={`${btn} ${canMove ? (shipMode === 'partial' ? 'bg-amber-500 text-white border-amber-500' : 'bg-emerald-600 text-white border-emerald-600') : 'bg-white border-gray-300'}`}>{shipMode === 'partial' ? '📦 Ship Partial' : '🚚 Move to shipments'}</button>
+                            <button onClick={startCloseout} disabled={!canMove} className={`${btn} ${canMove ? (willCompleteOrder ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-500 text-white border-amber-500') : 'bg-white border-gray-300'}`}>{willCompleteOrder ? '🚚 Ship Full — move to shipments' : '📦 Ship Partial'}</button>
                             <button onClick={doOverride} disabled={busy === 'override'} className={`${btn} bg-white border-amber-300 text-amber-700`}>🔒 Shipped Override</button>
                             <button onClick={doCancel} disabled={busy === 'cancel'} className={`${btn} bg-white border-red-300 text-red-600`}>✕ Cancel shipment</button>
                           </div>
@@ -2079,7 +2085,7 @@ export default function ShippingQueuePage() {
               <button onClick={() => setCloseout(false)} className={`${btn} bg-white border-gray-300`}>Cancel</button>
               <div className="flex items-center gap-2">
                 <button onClick={() => confirmMove(true)} disabled={!canConfirm || !!coBusy} title="Records this shipment's details and deducts inventory, but keeps the order on the Shipping Queue as 'Partially Shipped' so the remaining balance can still be shipped." className={`${btn} bg-white border-emerald-600 text-emerald-700`}>{coBusy === 'partial' ? 'Saving…' : '\uD83D\uDCE6 Save partial — keep order open'}</button>
-                <button onClick={() => confirmMove(false)} disabled={!canConfirm || !!coBusy} title={shipMode === 'partial' ? "Records this shipment and its own invoice for just what's shipping now — the order stays on the Shipping Queue as 'Partially Shipped' with the remaining balance still to ship." : "Finalizes: records the shipment and moves the order to the Shipments board (Shipped when everything is shipped)."} className={`${btn} ${canConfirm ? (shipMode === 'partial' ? 'bg-amber-500 text-white border-amber-500' : 'bg-emerald-600 text-white border-emerald-600') : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Shipping…' : shipMode === 'partial' ? '📦 Ship Partial' : '\u2705 Confirm & move to shipments'}</button>
+                <button onClick={() => confirmMove(false)} disabled={!canConfirm || !!coBusy} title={willCompleteOrder ? "Every line reaches its ordered quantity with this shipment — this will mark the order Shipped and move it off the queue." : "Records this shipment and its own invoice for just what's shipping now — the order stays on the Shipping Queue as 'Partially Shipped' with the remaining balance still to ship."} className={`${btn} ${canConfirm ? (willCompleteOrder ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-500 text-white border-amber-500') : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Shipping…' : willCompleteOrder ? '\u2705 Ship Full — confirm & move to shipments' : '📦 Ship Partial'}</button>
               </div>
             </div>
           </div>
