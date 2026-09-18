@@ -10,6 +10,7 @@ import ExportButton from '@/components/ExportButton'
 import RunEntry from '@/components/RunEntry'
 import { GROUPS, FORMS, formFor, groupByName, nextWoCode, computeAll, type GroupDef, type Field, type FormDef } from '@/lib/workOrderForms'
 import { buildMachineQueue, runHours, hoursAreCalculated, toMinutes, fmtClock, woLabel, tomorrowISO, type SchedulableWO } from '@/lib/productionSchedule'
+import { isPlaceholderPart, needsPartNumber, PART_NUMBER_APPROVERS } from '@/lib/partNumber'
 
 const sb = createSupabaseBrowserClient()
 
@@ -93,27 +94,6 @@ function FormBody({ form, live, onChange }: { form: FormDef; live: Record<string
     </div>
   )
 }
-
-// A part number nobody has decided yet is not a SKU. These must never match a product.
-const PLACEHOLDER_PARTS = new Set(['tbd', 'tba', 'n/a', 'na', 'none', 'null', '-', '--', '?', 'x', 'xx', 'test', 'placeholder'])
-const isPlaceholderPart = (v: any) => PLACEHOLDER_PARTS.has(String(v ?? '').trim().toLowerCase())
-
-// Who gets asked when a job reaches the floor without a part number on it.
-const PART_NUMBER_APPROVERS = [
-  'Shea@beyondgreenbiotech.com',
-  'Finance@beyondgreenbiotech.com',
-  'Veejay.patell@byndgrn.com',
-  'Rudyp@beyondgreenbiotech.com',
-]
-
-/**
- * A work order is short a part number until the one on it matches a SKU on the Inventory
- * board — a linked product is the thing that makes a completion actually book stock, so a
- * number that matches nothing is no better than a blank. Blank and placeholders both count
- * as missing. The job still runs; it just says so until somebody fills it in.
- */
-const needsPartNumber = (wo: { item_part_number: string | null; product_id: string | null }) =>
-  !wo.product_id || !String(wo.item_part_number ?? '').trim() || isPlaceholderPart(wo.item_part_number)
 
 const DONE_STATUSES = ['QC Passed', 'Complete']
 const IDLE_AFTER = ['QC Passed', 'Complete', 'Cancelled', 'On Hold']

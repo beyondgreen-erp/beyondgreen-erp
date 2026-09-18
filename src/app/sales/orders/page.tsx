@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { buildCaseLabels, loadBarcodePng, type CaseLabel } from '@/lib/shipping/labels'
+import { needsPartNumber, PART_NUMBER_APPROVERS } from '@/lib/partNumber'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
@@ -826,6 +827,7 @@ function LastInvoice({ customerId }: { customerId: string }) {
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
   customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSendAck, onOpenSOConfirm, emailBusy, canSendSO, onSearchLeads, userEmail,
+  onRequestPartNumbers, requestingPart,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -849,6 +851,8 @@ function EditPanel({
   canSendSO: boolean
   onSearchLeads: (q: string) => Promise<{ id: string; company_name: string }[]>
   userEmail: string
+  onRequestPartNumbers: () => void
+  requestingPart: boolean
 }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [skuDropdown, setSkuDropdown] = useState<number | null>(null)
@@ -1066,6 +1070,51 @@ function EditPanel({
                       {allocBusy ? 'Allocating\u2026' : (allocState.released ? 'Re-allocate raw materials' : 'Allocate raw materials')}
                     </button>
                   </>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Lines with no usable part number. The number originates here, so this is where
+              it gets chased — the Work Orders board only inherits whatever this order carries. */}
+          {editing && (() => {
+            // Read off the lines being edited rather than what was last saved, so the panel
+            // follows what is actually on screen as SKUs are typed and linked.
+            const missing = editLines.filter(l => needsPartNumber({ sku: l.sku, product_id: l.product_id }))
+            if (!missing.length) return null
+            const stamp = (editing as any).part_number_requested_at as string | null
+            const by = (editing as any).part_number_requested_by as string | null
+            return (
+              <div className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-3">
+                <p className="text-xs font-semibold wo-blink mb-1">
+                  ◆ {missing.length} line{missing.length > 1 ? 's' : ''} without a part number
+                </p>
+                <p className="text-xs text-blue-900 mb-2">
+                  A work order raised from this order inherits its part numbers. Until these are filled in
+                  and linked to a product on the Inventory board, anything produced against them will not
+                  be booked into stock.
+                </p>
+                <ul className="text-xs text-blue-900 mb-2 list-disc pl-4">
+                  {missing.slice(0, 6).map((l, i) => (
+                    <li key={l._key ?? i}>
+                      {String(l.sku ?? '').trim() || '(blank)'}{l.description ? ` — ${l.description}` : ''}
+                    </li>
+                  ))}
+                  {missing.length > 6 && <li>…and {missing.length - 6} more</li>}
+                </ul>
+                {stamp ? (
+                  <p className="text-xs text-blue-800">
+                    ✓ Requested {new Date(stamp).toLocaleString()}{by ? ` by ${by}` : ''}
+                    <button type="button" onClick={onRequestPartNumbers} disabled={requestingPart}
+                      className="ml-2 underline hover:no-underline disabled:opacity-50">
+                      {requestingPart ? 'Sending…' : 'Ask again'}
+                    </button>
+                  </p>
+                ) : (
+                  <button type="button" onClick={onRequestPartNumbers} disabled={requestingPart}
+                    className="px-3 py-2 text-xs rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-500 disabled:opacity-50">
+                    {requestingPart ? 'Sending…' : 'Request part numbers'}
+                  </button>
                 )}
               </div>
             )
@@ -1699,6 +1748,8 @@ export default function OrdersPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [portals, setPortals] = useState<PortalClient[]>([])
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
+  const [noPartMap, setNoPartMap] = useState<Record<string, any[]>>({})
+  const [requestingPart, setRequestingPart] = useState(false)
   const [columns, setColumns] = useState<{ id: string; label: string; ftype: string; position: number }[]>([])
   const [inlineErr, setInlineErr] = useState('')
   const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
@@ -1736,7 +1787,7 @@ export default function OrdersPage() {
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone,city,state)').eq('archived', false).eq('is_active', true).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number,pieces_per_pack,packs_per_case,cases_per_pallet,case_qty').eq('is_active', true).order('sku'),
-      sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),
+      sb.from('sales_order_lines').select('id, sales_order_id, sku, product_id, description, quantity, unit_of_measure, line_number'),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
       // Fetch every shipment (not just fully-'Shipped' ones) so we can both (a) know which
       // orders are truly done — only a 'Shipped' shipment counts toward that, a partial still
@@ -1762,6 +1813,14 @@ export default function OrdersPage() {
       const fm: Record<string, number> = {}
       for (const r of fl as any[]) { if (r.sales_order_id && !r.product_id && !String(r.sku ?? '').trim()) fm[r.sales_order_id] = (fm[r.sales_order_id] ?? 0) + 1 }
       setFlaggedMap(fm)
+      // Lines still without a usable part number. The part number starts here — a line that
+      // leaves this board without one carries the gap into its work order, and the finished
+      // goods are never booked. Kept per order so the board can say which order to look at.
+      const nm: Record<string, any[]> = {}
+      for (const r of fl as any[]) {
+        if (r.sales_order_id && needsPartNumber(r)) (nm[r.sales_order_id] ||= []).push(r)
+      }
+      setNoPartMap(nm)
     }
     if (wo) {
       const wm: Record<string, number> = {}
@@ -2102,6 +2161,68 @@ export default function OrdersPage() {
     autoSORef.current = String(next)
     setForm({ ...emptyForm, order_number: String(next) })
     setEditOpen(true)
+  }
+
+  /**
+   * Ask the people who decide part numbers to fill in the ones missing on this order. Same
+   * button and same recipients as the Work Orders board, because it is the same question —
+   * it is just being asked earlier, where the number is supposed to originate.
+   */
+  async function requestPartNumbers(order: SalesOrder) {
+    const lines = noPartMap[order.id] || []
+    if (!lines.length) return
+    const ref = order.order_number || 'this order'
+    const customer = order.customer?.company_name || ''
+    if (!window.confirm(`Email Shea, Finance, Veejay and Rudy for the ${lines.length} missing part number${lines.length > 1 ? 's' : ''} on ${ref}?`)) return
+    setRequestingPart(true)
+    try {
+      const rows = lines.map(l => `<tr>
+        <td style="border:1px solid #e5e7eb;padding:6px">${l.line_number ?? ''}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${String(l.sku ?? '').trim() || '<em>(blank)</em>'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${l.description ?? ''}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${l.quantity ?? ''} ${l.unit_of_measure ?? ''}</td></tr>`).join('')
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+          <p>Order <strong>${ref}</strong>${customer ? ` for ${customer}` : ''} has
+             ${lines.length} line${lines.length > 1 ? 's' : ''} without a usable part number.</p>
+          <p>The part number starts on the sales order. Until it is here and linked to a product,
+             any work order raised from this order inherits the gap and its finished goods are
+             never booked into inventory.</p>
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0">
+            <tr>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Line</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Part #</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Description</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Qty</td>
+            </tr>
+            ${rows}
+          </table>
+          <p>Requested by ${userEmail || 'the sales team'}.</p>
+          <p>Please add the part numbers and item details on the order:<br>
+             <a href="https://beyondgreen-erp.vercel.app/sales/orders?item=${order.id}">Open ${ref}</a></p>
+          <p style="color:#6b7280;font-size:12px">Sent from the beyondGREEN ERP when someone pressed &ldquo;Request part numbers&rdquo; on the Order Pipeline.</p>
+        </div>`
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: PART_NUMBER_APPROVERS,
+          reply_to: userEmail || undefined,
+          subject: `Part number needed — order ${ref}${customer ? ` (${customer})` : ''}`,
+          html,
+        }),
+      })
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) { alert('Could not send the request: ' + (out?.error || res.statusText)); return }
+      await sb.from('sales_orders').update({
+        part_number_requested_at: new Date().toISOString(),
+        part_number_requested_by: userEmail || null,
+      }).eq('id', order.id)
+      setOrders(os => os.map(o => o.id === order.id
+        ? { ...o, part_number_requested_at: new Date().toISOString(), part_number_requested_by: userEmail || null } as SalesOrder
+        : o))
+      alert(`✓ Asked Shea, Finance, Veejay and Rudy for the part numbers on ${ref}.`)
+    } finally { setRequestingPart(false) }
   }
 
   async function openEdit(order: SalesOrder) {
@@ -2464,6 +2585,20 @@ export default function OrdersPage() {
         )}
       </div>
 
+      {/* The part number starts on the sales order — chase it here, not on the floor. */}
+      {(() => {
+        const withGap = orders.filter(o => !isCompleted(o) && (noPartMap[o.id]?.length ?? 0) > 0)
+        if (!withGap.length) return null
+        const lineCount = withGap.reduce((a, o) => a + (noPartMap[o.id]?.length ?? 0), 0)
+        return (
+          <div className="mb-4 rounded-lg bg-blue-50 border border-blue-300 text-[12px] text-blue-800 px-3 py-2">
+            <span className="font-semibold wo-blink">◆ {withGap.length} order{withGap.length > 1 ? 's' : ''} with {lineCount} line{lineCount > 1 ? 's' : ''} missing a part number</span>
+            {' '}— open one and use <span className="font-medium">Request part numbers</span> if you do not know them.
+            A work order raised from these inherits the gap and books nothing into inventory.
+          </div>
+        )
+      })()}
+
       {/* Stats bar */}
       {inlineErr && (
         <div className="fixed bottom-5 right-5 z-[130] rounded-lg bg-[#E2445C] text-white text-sm font-semibold px-4 py-2.5 shadow-lg">{inlineErr}</div>
@@ -2691,6 +2826,11 @@ export default function OrdersPage() {
                       <td className="px-3 py-3.5 max-w-[200px] cursor-pointer mon-row" onClick={() => openEdit(order)}>
                         <p className="text-[#1A1D2E] font-semibold text-sm truncate">{custName}</p>
                         {ref && <p className="text-gray-500 text-xs truncate mt-0.5">{ref}</p>}
+                        {(noPartMap[order.id]?.length ?? 0) > 0 && (
+                          <p className="wo-blink text-[11px] font-semibold truncate mt-0.5">
+                            ◆ {noPartMap[order.id].length} part number{noPartMap[order.id].length > 1 ? 's' : ''} needed
+                          </p>
+                        )}
                       </td>
                       <td className="px-3 py-3.5">
                         {order.order_section && (
@@ -2998,6 +3138,8 @@ export default function OrdersPage() {
         onDuplicate={() => editingOrder && duplicateOrder(editingOrder)}
         onDownloadSalesOrder={downloadFromForm}
         onSendAck={sendAcknowledgement}
+        onRequestPartNumbers={() => { if (editingOrder) requestPartNumbers(editingOrder) }}
+        requestingPart={requestingPart}
         onOpenSOConfirm={() => setConfirmSOOpen(true)}
         emailBusy={emailBusy}
         canSendSO={!!editingOrder && !!form.customer_id && !!(form.billing_address || '').trim() && !!(form.shipping_address || '').trim() && !!(((form.terms as string) || '') + '').trim() && editLines.some(l => l.sku || l.description)}
