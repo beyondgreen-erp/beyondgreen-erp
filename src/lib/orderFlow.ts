@@ -431,6 +431,10 @@ export async function shipOrder(
     carrier: shipDetails?.carrier ?? null,
     tracking_number: shipDetails?.trackingNumber ?? null,
     delivery_status: 'Shipped',
+    // This function creates its own invoice below (step 3) for exactly this shipment's
+    // value — app_billed tells the DB's auto-bill trigger to skip it, or every shipment
+    // from this flow would get billed twice (once here, once by the trigger).
+    app_billed: true,
     total_value: shippedValue,
     notes: `Shipment for ${orderRef}: ${shippedSummary}${shipDetails?.notes ? ' — ' + shipDetails.notes : ''}`,
   }).select('id').maybeSingle()

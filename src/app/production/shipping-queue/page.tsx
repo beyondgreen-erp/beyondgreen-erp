@@ -940,7 +940,7 @@ export default function ShippingQueuePage() {
   }
 
   function packMeta() {
-    return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, date: new Date().toLocaleDateString(), partialCaption: shipMode === 'partial' ? `PARTIAL SHIPMENT #${priorShipments + 1} of ____` : '' }
+    return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, date: new Date().toLocaleDateString(), partialCaption: shipMode === 'partial' ? `PARTIAL SHIPMENT #${priorShipments + 1}` : '' }
   }
   function packListPallets() {
     return expanded.map(p => ({
