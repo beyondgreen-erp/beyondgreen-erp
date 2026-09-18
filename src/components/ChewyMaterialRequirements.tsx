@@ -118,7 +118,8 @@ export default function ChewyMaterialRequirements() {
       const piecesPerPack = prod?.pieces_per_pack != null ? Number(prod.pieces_per_pack) : null
       const piecesPerOrder = piecesPerPack != null ? packsOrdered * piecesPerPack : 0
       const partWtG = prod?.weight_per_unit_grams != null ? Number(prod.weight_per_unit_grams) : null
-      const totalMatKg = partWtG != null ? (piecesPerOrder * partWtG) / 1000 : null
+      // Total material required, reported in POUNDS (grams / 453.59237). Per-material splits below inherit lb.
+      const totalMatKg = partWtG != null ? (piecesPerOrder * partWtG) / 453.59237 : null
       const skuBom = bomBySku[sku] || []
       const materials: MatSplit[] = skuBom.map(b => ({
         code: b.component_sku,
@@ -232,7 +233,7 @@ export default function ChewyMaterialRequirements() {
     ])
     autoTable(doc, {
       startY: y,
-      head: [['BG P/N', 'PO Date', 'UOM', 'Order Qty', '% Split', 'Packs/Case', 'Pieces/Pack', 'Pieces/Order', 'Part Wt (g)', 'Total Mat (KGs)', 'Packaging Req.']],
+      head: [['BG P/N', 'PO Date', 'UOM', 'Order Qty', '% Split', 'Packs/Case', 'Pieces/Pack', 'Pieces/Order', 'Part Wt (g)', 'Total Mat (lbs)', 'Packaging Req.']],
       body: bodyRows,
       foot: [['TOTAL', '', '', fmtN(totals.packsOrdered), '100%', '', '', fmtN(totals.piecesPerOrder), '', totals.hasAnyMat ? fmtN(totals.totalMatKg, 1) : '—', fmtN(totals.packagingRequired)]],
       theme: 'grid',
@@ -287,7 +288,7 @@ export default function ChewyMaterialRequirements() {
                 <th className="text-right px-3 py-2">Pieces/Order</th>
                 <th className="text-right px-3 py-2">Part Wt (g)</th>
                 <th className="text-left px-3 py-2">Materials</th>
-                <th className="text-right px-3 py-2">Total Mat Req (KGs)</th>
+                <th className="text-right px-3 py-2">Total Mat Req (lbs)</th>
                 <th className="text-right px-6 py-2">Packaging Req.</th>
               </tr>
             </thead>
