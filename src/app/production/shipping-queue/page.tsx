@@ -704,7 +704,10 @@ export default function ShippingQueuePage() {
     const si = ''   // blank by default — fill in per shipment
     const lines = buildBolLines().map(l => ({ ...l, nmfcNumber: l.nmfcNumber || fill.nmfcNumber || '', freightClass: l.freightClass || fill.freightClass || '' }))
     setBolForm({
-      bolNumber, date: new Date().toLocaleDateString(), carrierName: o?.carrier || '', scac: '', freightTerms: '3rd Party',
+      // Walmart orders never reach this generic Pack & Ship flow (they're handled
+      // entirely on the Walmart board), so this default is always for a non-Walmart
+      // shipment — Prepaid, per the same Walmart-only-Collect rule used everywhere else.
+      bolNumber, date: new Date().toLocaleDateString(), carrierName: o?.carrier || '', scac: '', freightTerms: 'Prepaid',
       proNumber: '', trailerNo: '', sealNumber: '', poNumber: po, puNumber: po, loadNumber: po,
       shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, shipToName: st.name, shipToAddress: st.addr,
       specialInstructions: si, declaredValue: orderValue, lines,
