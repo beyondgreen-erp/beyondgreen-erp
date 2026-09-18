@@ -5,6 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
 import WalmartRequirements from '@/components/WalmartRequirements'
 import ChewyRequirements from '@/components/ChewyRequirements'
+import ChewyMaterialRequirements from '@/components/ChewyMaterialRequirements'
 
 interface ExRow {
   id: string
@@ -158,7 +159,7 @@ export default function BusinessReportsPage() {
 
       {tab === 'walmart' && <WalmartRequirements />}
 
-      {tab === 'chewy' && <ChewyRequirements />}
+      {tab === 'chewy' && <><ChewyRequirements /><ChewyMaterialRequirements /></>}
 
       {tab === 'exceptions' && (
       <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
