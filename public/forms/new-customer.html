@@ -80,7 +80,7 @@
     <div class="subbar"><button type="button" class="backlink" data-back>&larr; Back</button> Request a Quote</div>
     <form id="quoteForm" novalidate>
       <div class="qpane">
-        <div style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden" aria-hidden="true"><label>Company (leave this blank)<input type="text" name="q_hp" tabindex="-1" autocomplete="off"></label></div>
+        <div style="display:none" aria-hidden="true"><label>Company (leave this blank)<input type="text" name="q_hp" tabindex="-1" autocomplete="off"></label></div>
         <h2>Your Business</h2>
         <div class="grid">
           <div class="f full"><label>Company Name <span class="req">*</span></label><input type="text" name="q_company_name"></div>
@@ -231,7 +231,7 @@
   var FREE=['gmail.com','googlemail.com','yahoo.com','ymail.com','yahoo.co.uk','hotmail.com','hotmail.co.uk','outlook.com','live.com','msn.com','aol.com','icloud.com','me.com','mac.com','comcast.net','verizon.net','att.net','sbcglobal.net','bellsouth.net','cox.net','proton.me','protonmail.com','gmx.com','gmx.net','mail.com','yandex.com','hey.com','pm.me'];
   function emailBad(e){e=(e||'').trim().toLowerCase();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))return 'Please enter a valid email address.';var d=e.split('@')[1]||'';if(FREE.indexOf(d)>=0)return 'Please use your company email (not Gmail/Yahoo/Outlook) so we can verify your business.';return '';}
   var QREQ=[['q_company_name','Company Name'],['q_website','Company Website'],['q_address','Business Address'],['q_business_type','Type of Business'],['q_contact_name','Contact Name'],['q_email','Business Email'],['q_phone','Phone'],['q_products','Products / items']];
-  document.getElementById('quoteForm').addEventListener('submit',function(ev){ev.preventDefault();var msg=document.getElementById('qmsg');msg.className='msg';msg.textContent='';if(fieldVal('q_hp')){done();return;}var miss=null;for(var i=0;i<QREQ.length;i++){if(!fieldVal(QREQ[i][0])){miss=QREQ[i];break;}}if(miss){msg.className='msg err';msg.textContent='Please complete: '+miss[1];var el=document.getElementsByName(miss[0])[0];if(el&&el.focus)el.focus();return;}var eb=emailBad(fieldVal('q_email'));if(eb){msg.className='msg err';msg.textContent=eb;var ee=document.getElementsByName('q_email')[0];if(ee&&ee.focus)ee.focus();return;}var quote={};document.querySelectorAll('#quoteForm [name]').forEach(function(el){quote[el.getAttribute('name').slice(2)]=(el.value||'').trim();});post({formType:'quote',quote:quote},document.getElementById('qSubmit'),msg);});
+  document.getElementById('quoteForm').addEventListener('submit',function(ev){ev.preventDefault();var msg=document.getElementById('qmsg');msg.className='msg';msg.textContent='';var miss=null;for(var i=0;i<QREQ.length;i++){if(!fieldVal(QREQ[i][0])){miss=QREQ[i];break;}}if(miss){msg.className='msg err';msg.textContent='Please complete: '+miss[1];var el=document.getElementsByName(miss[0])[0];if(el&&el.focus)el.focus();return;}var eb=emailBad(fieldVal('q_email'));if(eb){msg.className='msg err';msg.textContent=eb;var ee=document.getElementsByName('q_email')[0];if(ee&&ee.focus)ee.focus();return;}var quote={};document.querySelectorAll('#quoteForm [name]').forEach(function(el){quote[el.getAttribute('name').slice(2)]=(el.value||'').trim();});post({formType:'quote',quote:quote},document.getElementById('qSubmit'),msg);});
 
   // Account tabs + submit
   var tabs=document.querySelectorAll('#view-account .tab');
