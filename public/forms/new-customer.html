@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>beyondGREEN &mdash; New Customer Forms</title>
+<title>beyondGREEN &mdash; New Customer</title>
 <style>
   :root{--g:#1f7a4d;--g2:#2E9E63;--ink:#1a1d2e;--mut:#5a606e;--line:#e3e6ec;--bg:#f5f7f9}
   *{box-sizing:border-box}
@@ -11,12 +11,23 @@
   .head{background:linear-gradient(135deg,var(--g),var(--g2));color:#fff;padding:22px 26px}
   .head h1{margin:0;font-size:20px}
   .head p{margin:6px 0 0;opacity:.9;font-size:13px}
+  .choices{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:26px}
+  .choice{text-align:left;border:1px solid var(--line);border-radius:14px;padding:20px;background:#fff;cursor:pointer;transition:border-color .15s,box-shadow .15s;display:flex;flex-direction:column;gap:8px}
+  .choice:hover{border-color:var(--g2);box-shadow:0 2px 10px rgba(46,158,99,.12)}
+  .choice .ci{width:40px;height:40px;border-radius:10px;background:#e7f2ec;color:var(--g);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800}
+  .choice .ct{font-size:16px;font-weight:700;color:var(--ink)}
+  .choice .cd{font-size:13px;color:var(--mut)}
+  .view{display:none}
+  .view.active{display:block}
+  .subbar{display:flex;align-items:center;gap:12px;padding:14px 26px;border-bottom:1px solid var(--line);background:#fafbfc;font-weight:600;font-size:14px;color:var(--mut)}
+  .backlink{border:none;background:none;color:var(--g);font-weight:600;font-size:13px;cursor:pointer;padding:0}
   .tabs{display:flex;border-bottom:1px solid var(--line);background:#fafbfc}
   .tab{flex:1;padding:14px 10px;text-align:center;font-weight:600;font-size:14px;color:var(--mut);cursor:pointer;border:none;background:none;border-bottom:3px solid transparent}
   .tab.active{color:var(--g);border-bottom-color:var(--g)}
   .tab .n{display:inline-flex;width:20px;height:20px;border-radius:50%;background:#e7f2ec;color:var(--g);font-size:12px;align-items:center;justify-content:center;margin-right:6px}
   .pane{display:none;padding:22px 26px}
   .pane.active{display:block}
+  .qpane{padding:22px 26px}
   h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--g);margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
   h2:first-child{margin-top:0}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
@@ -41,19 +52,66 @@
   .ok .big{font-size:40px}
   .ok h2{border:none;color:var(--g);justify-content:center;font-size:20px;text-transform:none;letter-spacing:0}
   .secnote{font-size:12px;color:var(--mut);background:#f3f7f4;border:1px solid #e0ece5;border-radius:8px;padding:8px 10px;margin-bottom:12px}
-  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  @media(max-width:640px){.grid,.choices{grid-template-columns:1fr}}
 </style></head>
 <body><div class="wrap">
 <div class="card" id="cardMain">
   <div class="head">
-    <h1>beyondGREEN Biotech &mdash; New Customer Setup</h1>
-    <p>Please complete <b>both</b> tabs: the Credit Application and the New Customer Onboarding form. Your information is transmitted securely.</p>
+    <h1>beyondGREEN Biotech</h1>
+    <p id="headsub">How can we help you today?</p>
   </div>
-  <div class="tabs">
-    <button class="tab active" data-tab="credit"><span class="n">1</span>Credit Application</button>
-    <button class="tab" data-tab="onb"><span class="n">2</span>Customer Onboarding</button>
+
+  <div id="chooser" class="view active">
+    <div class="choices">
+      <button type="button" class="choice" data-mode="quote">
+        <div class="ci">$</div>
+        <div class="ct">Request a Quote</div>
+        <div class="cd">Get pricing on our products. Just your contact info and what you need &mdash; no credit application.</div>
+      </button>
+      <button type="button" class="choice" data-mode="account">
+        <div class="ci">&#9733;</div>
+        <div class="ct">Set up an Account</div>
+        <div class="cd">Open a credit account with payment terms. Includes the Credit Application &amp; Onboarding forms.</div>
+      </button>
+    </div>
   </div>
-  <form id="intake" novalidate>
+
+  <div id="view-quote" class="view">
+    <div class="subbar"><button type="button" class="backlink" data-back>&larr; Back</button> Request a Quote</div>
+    <form id="quoteForm" novalidate>
+      <div class="qpane">
+        <h2>Your Information</h2>
+        <div class="grid">
+          <div class="f full"><label>Company Name <span class="req">*</span></label><input type="text" name="q_company_name"></div>
+          <div class="f"><label>Contact Name <span class="req">*</span></label><input type="text" name="q_contact_name"></div>
+          <div class="f"><label>Title / Position</label><input type="text" name="q_title"></div>
+          <div class="f"><label>Email <span class="req">*</span></label><input type="email" name="q_email"></div>
+          <div class="f"><label>Phone <span class="req">*</span></label><input type="tel" name="q_phone"></div>
+        </div>
+        <h2>What would you like quoted?</h2>
+        <div class="grid one">
+          <div class="f"><label>Products / items <span class="req">*</span></label><textarea name="q_products" rows="3" placeholder="e.g., compostable forks with wrapper, 8 oz cups, custom-printed bags..."></textarea></div>
+        </div>
+        <div class="grid">
+          <div class="f"><label>Estimated quantity</label><input type="text" name="q_quantity" placeholder="e.g., 50 cases / 10,000 units"></div>
+          <div class="f"><label>Needed by</label><input type="date" name="q_target_date"></div>
+          <div class="f full"><label>Additional details</label><textarea name="q_notes" rows="2" placeholder="Anything else that would help us quote accurately"></textarea></div>
+        </div>
+      </div>
+      <div class="foot">
+        <button type="submit" class="btn" id="qSubmit">Submit quote request</button>
+        <span class="msg" id="qmsg"></span>
+      </div>
+    </form>
+  </div>
+
+  <div id="view-account" class="view">
+    <div class="subbar"><button type="button" class="backlink" data-back>&larr; Back</button> Set up an Account</div>
+    <div class="tabs">
+      <button type="button" class="tab active" data-tab="credit"><span class="n">1</span>Credit Application</button>
+      <button type="button" class="tab" data-tab="onb"><span class="n">2</span>Customer Onboarding</button>
+    </div>
+    <form id="intake" novalidate>
     <div class="pane active" id="pane-credit">
       <h2>Company</h2>
       <div class="grid">
@@ -132,19 +190,6 @@
         </div>
         <div class="f"><label>Payment Terms <span class="req">*</span></label><input type="text" name="o_payment_terms" placeholder="e.g., Net 30"></div>
       </div>
-      <h2>Section 4 &mdash; Goods / Services <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mut)">(office use &mdash; optional)</span></h2>
-      <div class="grid">
-        <div class="f full"><label>Reason</label><div class="radio"><label><input type="radio" name="o_reason" value="Resale">Resale</label><label><input type="radio" name="o_reason" value="For own use">For own use</label></div></div>
-        <div class="f"><label>Order Quantity</label><input type="text" name="o_order_qty"></div>
-        <div class="f"><label>Order Date</label><input type="date" name="o_order_date"></div>
-        <div class="f"><label>Estimated Ship Date</label><input type="date" name="o_est_ship_date"></div>
-        <div class="f"><label>Item No / Part Number</label><input type="text" name="o_item_no"></div>
-        <div class="f full"><label>Description of Purchase</label><input type="text" name="o_purchase_desc" placeholder="e.g., molding / bags / straws / private label"></div>
-        <div class="f full"><label>If private label, provide detailed description</label><textarea name="o_private_label_desc" rows="2"></textarea></div>
-        <div class="f"><label>Rate / Price</label><input type="text" name="o_rate_price"></div>
-        <div class="f"><label>Unit of Measure</label><input type="text" name="o_uom"></div>
-        <div class="f"><label>Ship Via</label><input type="text" name="o_ship_via"></div>
-      </div>
       <h2>Declaration</h2>
       <div class="secnote">I hereby confirm that the information provided is accurate and complete to the best of my knowledge.</div>
       <div class="grid">
@@ -153,32 +198,39 @@
         <div class="f"><label>Date <span class="req">*</span></label><input type="date" name="o_decl_date"></div>
       </div>
     </div>
-    <div class="foot">
-      <button type="button" class="btn ghost" id="nextBtn">Next: Onboarding &rarr;</button>
-      <button type="submit" class="btn" id="submitBtn">Submit both forms</button>
-      <span class="msg" id="msg"></span>
-    </div>
-  </form>
+      <div class="foot">
+        <button type="button" class="btn ghost" id="nextBtn">Next: Onboarding &rarr;</button>
+        <button type="submit" class="btn" id="submitBtn">Submit both forms</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </div>
 </div>
 </div>
 <script>
 (function(){
   var FN='https://tdhqucirvetvjpfsmnfb.supabase.co/functions/v1/customer-intake';
-  var tabs=document.querySelectorAll('.tab');
-  function show(t){
-    tabs.forEach(function(x){x.classList.toggle('active',x.getAttribute('data-tab')===t)});
-    document.getElementById('pane-credit').classList.toggle('active',t==='credit');
-    document.getElementById('pane-onb').classList.toggle('active',t==='onb');
-    document.getElementById('nextBtn').style.display = t==='credit' ? '' : 'none';
-    window.scrollTo(0,0);
-  }
-  tabs.forEach(function(x){x.addEventListener('click',function(){show(x.getAttribute('data-tab'))})});
-  document.getElementById('nextBtn').addEventListener('click',function(){show('onb')});
-  var REQ=[['c_company_name','credit','Company Name'],['c_billing_address','credit','Billing Address'],['c_city_state_zip','credit','City / State / Zip'],['c_phone','credit','Phone'],['c_invoice_email','credit','Invoice Email'],['c_business_type','credit','Type of Business'],['c_ein','credit','Federal Tax ID / EIN'],['c_bank_name','credit','Bank Name'],['c_requested_terms','credit','Requested Payment Terms'],['c_signer_name','credit','Authorized Signer'],['c_signer_date','credit','Credit Application Date'],['o_company_name','onb','Customer / Company Name'],['o_bill_to_address','onb','Bill-to Address'],['o_city','onb','City'],['o_state','onb','State'],['o_zip','onb','Zip'],['o_primary_contact_name','onb','Primary Contact Name'],['o_contact_phone','onb','Contact Phone'],['o_contact_email','onb','Contact Email'],['o_payment_terms','onb','Payment Terms'],['o_decl_full_name','onb','Declaration Full Name'],['o_decl_date','onb','Declaration Date']];
+  function done(){document.getElementById('cardMain').innerHTML='<div class="ok"><div class="big">&#9989;</div><h2>Thank you &mdash; your request was submitted.</h2><p style="color:#5a606e">Our team has been notified and will follow up shortly. You may close this page.</p></div>';window.scrollTo(0,0);}
+  function post(payload,btn,msg){btn.disabled=true;msg.className='msg';msg.textContent='Submitting...';fetch(FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){done();}else{btn.disabled=false;msg.className='msg err';msg.textContent=(j&&j.error)||'Something went wrong. Please try again.';}}).catch(function(){btn.disabled=false;msg.className='msg err';msg.textContent='Network error. Please try again.';});}
   function fieldVal(n){var els=document.getElementsByName(n);if(!els.length)return '';if(els[0].type==='radio'){for(var i=0;i<els.length;i++){if(els[i].checked)return els[i].value;}return '';}return (els[0].value||'').trim();}
-  function collect(){var data={c:{},o:{}};document.querySelectorAll('#intake [name]').forEach(function(el){var n=el.getAttribute('name');var b=n.charAt(0);var key=n.slice(2);var bucket=b==='c'?data.c:data.o;if(el.type==='radio'){if(el.checked)bucket[key]=el.value;}else if(el.type==='checkbox'){bucket[key]=el.checked;}else{bucket[key]=(el.value||'').trim();}});return data;}
-  var form=document.getElementById('intake');var msg=document.getElementById('msg');
-  form.addEventListener('submit',function(ev){ev.preventDefault();msg.className='msg';msg.textContent='';var missing=null;for(var i=0;i<REQ.length;i++){if(!fieldVal(REQ[i][0])){missing=REQ[i];break;}}if(missing){show(missing[1]);msg.className='msg err';msg.textContent='Please complete: '+missing[2];var el=document.getElementsByName(missing[0])[0];if(el&&el.focus)el.focus();return;}var data=collect();var payload={customerName:data.c.company_name||data.o.company_name,creditApplication:data.c,onboarding:data.o};var btn=document.getElementById('submitBtn');btn.disabled=true;msg.className='msg';msg.textContent='Submitting...';fetch(FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){document.getElementById('cardMain').innerHTML='<div class="ok"><div class="big">&#9989;</div><h2>Thank you &mdash; your documents were submitted.</h2><p style="color:#5a606e">Our team has been notified and will review your application. You may close this page.</p></div>';window.scrollTo(0,0);}else{btn.disabled=false;msg.className='msg err';msg.textContent=(j&&j.error)||'Something went wrong. Please try again.';}}).catch(function(){btn.disabled=false;msg.className='msg err';msg.textContent='Network error. Please try again.';});});
+
+  var views={chooser:document.getElementById('chooser'),quote:document.getElementById('view-quote'),account:document.getElementById('view-account')};
+  function showView(v){for(var k in views){views[k].classList.toggle('active',k===v);}document.getElementById('headsub').textContent = v==='quote' ? 'Request a Quote' : v==='account' ? 'Set up an Account' : 'How can we help you today?';window.scrollTo(0,0);}
+  document.querySelectorAll('.choice').forEach(function(b){b.addEventListener('click',function(){showView(b.getAttribute('data-mode'));});});
+  document.querySelectorAll('[data-back]').forEach(function(b){b.addEventListener('click',function(){showView('chooser');});});
+
+  // Quote submit
+  var QREQ=[['q_company_name','Company Name'],['q_contact_name','Contact Name'],['q_email','Email'],['q_phone','Phone'],['q_products','Products / items']];
+  document.getElementById('quoteForm').addEventListener('submit',function(ev){ev.preventDefault();var msg=document.getElementById('qmsg');msg.className='msg';msg.textContent='';var miss=null;for(var i=0;i<QREQ.length;i++){if(!fieldVal(QREQ[i][0])){miss=QREQ[i];break;}}if(miss){msg.className='msg err';msg.textContent='Please complete: '+miss[1];var el=document.getElementsByName(miss[0])[0];if(el&&el.focus)el.focus();return;}var quote={};document.querySelectorAll('#quoteForm [name]').forEach(function(el){quote[el.getAttribute('name').slice(2)]=(el.value||'').trim();});post({formType:'quote',quote:quote},document.getElementById('qSubmit'),msg);});
+
+  // Account tabs + submit
+  var tabs=document.querySelectorAll('#view-account .tab');
+  function showTab(t){tabs.forEach(function(x){x.classList.toggle('active',x.getAttribute('data-tab')===t);});document.getElementById('pane-credit').classList.toggle('active',t==='credit');document.getElementById('pane-onb').classList.toggle('active',t==='onb');document.getElementById('nextBtn').style.display=t==='credit'?'':'none';window.scrollTo(0,0);}
+  tabs.forEach(function(x){x.addEventListener('click',function(){showTab(x.getAttribute('data-tab'));});});
+  document.getElementById('nextBtn').addEventListener('click',function(){showTab('onb');});
+  var AREQ=[['c_company_name','credit','Company Name'],['c_billing_address','credit','Billing Address'],['c_city_state_zip','credit','City / State / Zip'],['c_phone','credit','Phone'],['c_invoice_email','credit','Invoice Email'],['c_business_type','credit','Type of Business'],['c_ein','credit','Federal Tax ID / EIN'],['c_bank_name','credit','Bank Name'],['c_requested_terms','credit','Requested Payment Terms'],['c_signer_name','credit','Authorized Signer'],['c_signer_date','credit','Credit Application Date'],['o_company_name','onb','Customer / Company Name'],['o_bill_to_address','onb','Bill-to Address'],['o_city','onb','City'],['o_state','onb','State'],['o_zip','onb','Zip'],['o_primary_contact_name','onb','Primary Contact Name'],['o_contact_phone','onb','Contact Phone'],['o_contact_email','onb','Contact Email'],['o_payment_terms','onb','Payment Terms'],['o_decl_full_name','onb','Declaration Full Name'],['o_decl_date','onb','Declaration Date']];
+  function collectAcct(){var data={c:{},o:{}};document.querySelectorAll('#intake [name]').forEach(function(el){var n=el.getAttribute('name');var b=n.charAt(0);var key=n.slice(2);var bucket=b==='c'?data.c:data.o;if(el.type==='radio'){if(el.checked)bucket[key]=el.value;}else if(el.type==='checkbox'){bucket[key]=el.checked;}else{bucket[key]=(el.value||'').trim();}});return data;}
+  document.getElementById('intake').addEventListener('submit',function(ev){ev.preventDefault();var msg=document.getElementById('msg');msg.className='msg';msg.textContent='';var miss=null;for(var i=0;i<AREQ.length;i++){if(!fieldVal(AREQ[i][0])){miss=AREQ[i];break;}}if(miss){showTab(miss[1]);msg.className='msg err';msg.textContent='Please complete: '+miss[2];var el=document.getElementsByName(miss[0])[0];if(el&&el.focus)el.focus();return;}var data=collectAcct();post({formType:'account',customerName:data.c.company_name||data.o.company_name,creditApplication:data.c,onboarding:data.o},document.getElementById('submitBtn'),msg);});
 })();
 </script>
 </body></html>
