@@ -1737,7 +1737,10 @@ export default function OrdersPage() {
       sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number,pieces_per_pack,packs_per_case,cases_per_pallet,case_qty').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
-      sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
+      // Only a fully 'Shipped' shipment record should count toward hiding an order from
+      // the active pipeline — a 'Partially Shipped' shipment still leaves the order open
+      // and needing to stay visible (see isCompleted below).
+      sb.from('shipments').select('sales_order_id').eq('status', 'Shipped').not('sales_order_id', 'is', null),
       sb.from('portal_clients').select('id, customer_id, company_name, name, email').eq('is_active', true),
     ])
     if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) { setUserEmail(data.user.email); sb.from('erp_user_roles').select('role').eq('email', data.user.email).maybeSingle().then(({ data: r }) => setUserRole((r as any)?.role || '')) } }) }
