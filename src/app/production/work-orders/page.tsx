@@ -97,13 +97,14 @@ export default function WorkOrdersPage() {
   const [woProduct, setWoProduct] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null } | null>(null)
   const [fgMoves, setFgMoves] = useState<{ created_at: string; qty: number; uom: string | null; created_by: string | null }[]>([])
   const [booking, setBooking] = useState(false)
+  const [negStock, setNegStock] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null }[]>([])
 
   const fmtN = (v: any) => (v === null || v === undefined || v === '') ? '—' : Number(v).toLocaleString()
   const fgBooked = fgMoves.reduce((s, m) => s + Number(m.qty || 0), 0)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: wos }, { data: mach }, { data: emps }] = await Promise.all([
+    const [{ data: wos }, { data: mach }, { data: emps }, { data: neg }] = await Promise.all([
       sb.from('work_orders')
         .select('*, sales_orders!work_orders_sales_order_id_fkey(order_number, customers(company_name))')
         .order('created_at', { ascending: false }),
@@ -111,10 +112,13 @@ export default function WorkOrdersPage() {
       // Whoever could be put on a machine. Floor staff first; everyone else is still
       // pickable, because a supervisor covering a run is normal.
       sb.from('employees').select('id,name,department').eq('status', 'Active').is('end_date', null).order('name'),
+      // Stock that has gone negative is production that was shipped but never booked in.
+      sb.from('products').select('sku,product_name,on_hand_qty').lt('on_hand_qty', 0).order('on_hand_qty').limit(50),
     ])
     setOrders((wos as WO[]) || [])
     setMachines((mach as Machine[]) || [])
     setEmployees((emps as Employee[]) || [])
+    setNegStock((neg as any[]) || [])
     setLoading(false)
     sb.auth.getUser().then(({ data: u }) => { if (u.user?.email) setUserEmail(u.user.email) })
   }, [])
@@ -275,6 +279,14 @@ export default function WorkOrdersPage() {
       if (merged.wo_code) patch.wo_code = String(merged.wo_code)
       const qty = merged.wo_qty ?? merged.bags_needed ?? merged.straws_needed ?? merged.meter_quantity
       if (qty !== undefined && qty !== '' && qty !== null) patch.qty_ordered = Number(qty) || null
+      // Link the finished-goods product from the item part number. Without a linked
+      // product, completing the work order books nothing into inventory — and a work
+      // order raised by hand on a tile has no product on it.
+      if (!detail.product_id && merged.item_part_number) {
+        const { data: prod } = await sb.from('products').select('id').ilike('sku', String(merged.item_part_number).trim()).limit(1)
+        const pid = (prod?.[0] as any)?.id
+        if (pid) patch.product_id = pid
+      }
       const { error } = await sb.from('work_orders').update(patch).eq('id', detail.id)
       if (error) { alert('Could not save: ' + error.message); return }
       setOrders(os => os.map(o => (o.id === detail.id ? { ...o, ...patch, spec: merged } as WO : o)))
@@ -301,7 +313,7 @@ export default function WorkOrdersPage() {
 
   async function bookFG() {
     if (!detail) return
-    if (!detail.product_id) { alert('No finished-goods product is linked to this work order, so there is nothing to book. Raise it from a sales order line, or link a product first.'); return }
+    if (!detail.product_id) { alert('No finished-goods product is linked to this work order, so there is nothing to book. Put the SKU in Item Part # and save — the product links itself if the SKU is in Inventory.'); return }
     const remaining = Math.max(0, Number(detail.qty_ordered || 0) - fgBooked)
     const input = window.prompt('Quantity of finished goods to book into inventory for ' + (detail.wo_code || 'WO-' + detail.wo_number) + ':', String(remaining || detail.qty_ordered || ''))
     if (input == null) return
@@ -313,8 +325,35 @@ export default function WorkOrdersPage() {
       if (error) { alert('Could not book finished goods: ' + error.message); return }
       const r: any = data
       alert('✓ Booked ' + qty + ' into inventory for ' + (r?.sku || 'item') + '. On-hand is now ' + (r?.on_hand ?? '—') + '.')
-      const { data: mv } = await sb.from('inventory_movements').select('created_at,qty,uom,created_by').eq('ref_table', 'work_orders').eq('ref_id', detail.id).eq('movement_type', 'produce').order('created_at')
-      setFgMoves((mv as any[]) || [])
+      await refreshFG()
+      load()
+    } finally { setBooking(false) }
+  }
+
+  async function refreshFG() {
+    if (!detail) return
+    const { data: mv } = await sb.from('inventory_movements')
+      .select('created_at,qty,uom,created_by')
+      .eq('ref_table', 'work_orders').eq('ref_id', detail.id).eq('movement_type', 'produce').order('created_at')
+    setFgMoves((mv as any[]) || [])
+    if (detail.product_id) {
+      const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty').eq('id', detail.product_id).maybeSingle()
+      setWoProduct((pr as any) || null)
+    }
+  }
+
+  // A status set by mistake should not leave phantom stock on the shelf.
+  async function unbookFG() {
+    if (!detail) return
+    if (!window.confirm(`Take ${fmtN(fgBooked)} back off inventory for ${detail.wo_code || 'WO-' + detail.wo_number}? The booking stays in the ledger with a matching reversal.`)) return
+    setBooking(true)
+    try {
+      const { data, error } = await sb.rpc('wo_unbook_fg', { p_wo_id: detail.id, p_user: userEmail || null })
+      if (error) { alert('Could not reverse the booking: ' + error.message); return }
+      const r: any = data
+      if (r?.ok === false) { alert(r.message); return }
+      alert('✓ Reversed ' + r?.reversed + '. On-hand is now ' + (r?.on_hand ?? '—') + '.')
+      await refreshFG()
       load()
     } finally { setBooking(false) }
   }
@@ -450,6 +489,14 @@ export default function WorkOrdersPage() {
         One tile per production group. <span className="text-green-600 font-medium">Green</span> is running,
         <span className="text-red-600 font-medium"> red</span> is waiting in queue. Open a work order to fill in its sheet.
       </p>
+
+      {negStock.length > 0 && (
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-300 text-[12px] text-amber-800 px-3 py-2">
+          <span className="font-semibold">⚠ {negStock.length} item{negStock.length > 1 ? 's' : ''} negative on-hand</span> — finished goods shipped but never booked in from production.
+          Completing a work order against the SKU books its quantity in and clears this.
+          <div className="mt-1 text-amber-700">{negStock.slice(0, 12).map(n => `${n.sku} (${n.on_hand_qty})`).join(', ')}{negStock.length > 12 ? ', …' : ''}</div>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 mb-5">
         <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
@@ -717,10 +764,28 @@ export default function WorkOrdersPage() {
                   <div className="text-sm text-gray-700 space-y-1">
                     <p><span className="font-mono text-emerald-700">{woProduct?.sku ?? '—'}</span>{woProduct?.product_name ? ' · ' + woProduct.product_name : ''}</p>
                     <p className="text-xs text-gray-500">Ordered {fmtN(detail.qty_ordered)} · Booked {fmtN(fgBooked)} · On hand {fmtN(woProduct?.on_hand_qty)}</p>
-                    <button onClick={bookFG} disabled={booking} className="mt-2 px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">{booking ? 'Booking…' : 'Close & Book FG'}</button>
+                    {fgMoves.length > 0 && (
+                      <ul className="text-xs text-gray-500 mt-1 space-y-0.5">
+                        {fgMoves.map((m, i) => (
+                          <li key={i}>{Number(m.qty) < 0 ? '−' : '+'}{fmtN(Math.abs(Number(m.qty)))} {m.uom || ''} · {new Date(m.created_at).toLocaleDateString()}{m.created_by ? ' · ' + (m.created_by === 'auto' ? 'automatic' : m.created_by) : ''}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="text-[11px] text-gray-400 pt-1">
+                      Setting this work order to Complete books its quantity into inventory on its own — you do not need the button. Book by hand only to post a part quantity before the job is finished.
+                    </p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <button onClick={bookFG} disabled={booking} className="px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">{booking ? 'Working…' : 'Book a part quantity'}</button>
+                      {fgBooked > 0 && (
+                        <button onClick={unbookFG} disabled={booking} className="px-3 py-2 text-sm rounded-lg border border-red-200 text-red-600 font-medium hover:bg-red-50 disabled:opacity-50">Undo booking</button>
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-amber-600">No finished-goods product is linked, so FG can’t be booked. Raise the work order from a sales order line to link one.</p>
+                  <p className="text-xs text-amber-600">
+                    No finished-goods product is linked, so completing this work order will not move stock.
+                    Put the SKU in <span className="font-medium">Item Part #</span> and save — if that SKU is on the Inventory board it links itself.
+                  </p>
                 )}
               </div>
 
