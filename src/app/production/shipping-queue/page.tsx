@@ -130,6 +130,7 @@ function fmtMoney(n?: number | null) { return n != null ? '$' + Number(n).toLoca
 export default function ShippingQueuePage() {
   const [items, setItems] = useState<QueueItem[]>([])
   const [wItems, setWItems] = useState<WQueueItem[]>([])
+  const [shipCounts, setShipCounts] = useState<Record<string, number>>({})
   const [openW, setOpenW] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
@@ -207,6 +208,20 @@ export default function ShippingQueuePage() {
     // Walmart orders are handled entirely on the Walmart board (BOL/packing slip generated there,
     // and marking Shipped creates the shipment directly), so they no longer appear on this queue.
     setWItems([])
+    // How many shipments have already gone out per order, so the queue can show
+    // "Partial 2 shipped" instead of the order just silently reappearing each time.
+    if (rows.length) {
+      const ids = rows.map((o: any) => o.id)
+      const { data: sh } = await sb.from('shipments').select('sales_order_id, order_id').or(`sales_order_id.in.(${ids.join(',')}),order_id.in.(${ids.join(',')})`)
+      const counts: Record<string, number> = {}
+      for (const s of ((sh as any[]) || [])) {
+        const oid = s.sales_order_id || s.order_id
+        if (oid) counts[oid] = (counts[oid] || 0) + 1
+      }
+      setShipCounts(counts)
+    } else {
+      setShipCounts({})
+    }
     setLoading(false)
   }, [])
 
@@ -1385,7 +1400,7 @@ export default function ShippingQueuePage() {
                 <button onClick={() => openOrder(item)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderDisplayName(io)}</p>
-                    <p className="text-xs text-gray-500 truncate">{io?.order_number || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}</p>
+                    <p className="text-xs text-gray-500 truncate">{io?.order_number || ''}{io?.po_number ? ' · PO ' + io?.po_number : ''}{shipCounts[item.sales_order_id] ? ` · 📦 ${shipCounts[item.sales_order_id]} shipped` : ''}</p>
                   </div>
                   <span className="hidden sm:inline-flex">{(() => { const c = statusColor(item.status); return (
                     <span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{item.status}</span>
@@ -1404,6 +1419,7 @@ export default function ShippingQueuePage() {
                         {(() => { const c = statusColor(item.status); return (
                           <span className="mon-pill mt-2" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{item.status}</span>
                         ) })()}
+                        {shipCounts[item.sales_order_id] > 0 && <span className="mon-pill mt-2 ml-1.5" style={{ background: 'rgba(245,158,11,0.15)', color: '#B45309' }}>📦 {shipCounts[item.sales_order_id]} partial{shipCounts[item.sales_order_id] === 1 ? '' : 's'} shipped</span>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {draftMsg && <span className="text-white/90 text-xs font-medium whitespace-nowrap">{draftMsg}</span>}
@@ -1786,7 +1802,7 @@ export default function ShippingQueuePage() {
                             ))}
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <button onClick={startCloseout} disabled={!canMove} className={`${btn} ${canMove ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-gray-300'}`}>🚚 Move to shipments</button>
+                            <button onClick={startCloseout} disabled={!canMove} className={`${btn} ${canMove ? (shipMode === 'partial' ? 'bg-amber-500 text-white border-amber-500' : 'bg-emerald-600 text-white border-emerald-600') : 'bg-white border-gray-300'}`}>{shipMode === 'partial' ? '📦 Ship Partial' : '🚚 Move to shipments'}</button>
                             <button onClick={doOverride} disabled={busy === 'override'} className={`${btn} bg-white border-amber-300 text-amber-700`}>🔒 Shipped Override</button>
                             <button onClick={doCancel} disabled={busy === 'cancel'} className={`${btn} bg-white border-red-300 text-red-600`}>✕ Cancel shipment</button>
                           </div>
@@ -2047,7 +2063,7 @@ export default function ShippingQueuePage() {
               <button onClick={() => setCloseout(false)} className={`${btn} bg-white border-gray-300`}>Cancel</button>
               <div className="flex items-center gap-2">
                 <button onClick={() => confirmMove(true)} disabled={!canConfirm || !!coBusy} title="Records this shipment's details and deducts inventory, but keeps the order on the Shipping Queue as 'Partially Shipped' so the remaining balance can still be shipped." className={`${btn} bg-white border-emerald-600 text-emerald-700`}>{coBusy === 'partial' ? 'Saving…' : '\uD83D\uDCE6 Save partial — keep order open'}</button>
-                <button onClick={() => confirmMove(false)} disabled={!canConfirm || !!coBusy} title="Finalizes: records the shipment and moves the order to the Shipments board (Shipped when everything is shipped)." className={`${btn} ${canConfirm ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Moving…' : '\u2705 Confirm & move to shipments'}</button>
+                <button onClick={() => confirmMove(false)} disabled={!canConfirm || !!coBusy} title={shipMode === 'partial' ? "Records this shipment and its own invoice for just what's shipping now — the order stays on the Shipping Queue as 'Partially Shipped' with the remaining balance still to ship." : "Finalizes: records the shipment and moves the order to the Shipments board (Shipped when everything is shipped)."} className={`${btn} ${canConfirm ? (shipMode === 'partial' ? 'bg-amber-500 text-white border-amber-500' : 'bg-emerald-600 text-white border-emerald-600') : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Shipping…' : shipMode === 'partial' ? '📦 Ship Partial' : '\u2705 Confirm & move to shipments'}</button>
               </div>
             </div>
           </div>

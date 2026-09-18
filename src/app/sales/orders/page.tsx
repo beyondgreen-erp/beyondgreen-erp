@@ -1721,6 +1721,7 @@ export default function OrdersPage() {
   const [expandedCompletedIds, setExpandedCompletedIds] = useState<Set<string>>(new Set())
   const [completedOpen, setCompletedOpen] = useState(false)
   const [shippedOrderIds, setShippedOrderIds] = useState<Set<string>>(new Set())
+  const [shipCounts, setShipCounts] = useState<Record<string, number>>({})
   const [editOpen, setEditOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<SalesOrder | null>(null)
   const [form, setForm] = useState<F>(emptyForm)
@@ -1737,10 +1738,11 @@ export default function OrdersPage() {
       sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number,pieces_per_pack,packs_per_case,cases_per_pallet,case_qty').eq('is_active', true).order('sku'),
       sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
-      // Only a fully 'Shipped' shipment record should count toward hiding an order from
-      // the active pipeline — a 'Partially Shipped' shipment still leaves the order open
-      // and needing to stay visible (see isCompleted below).
-      sb.from('shipments').select('sales_order_id').eq('status', 'Shipped').not('sales_order_id', 'is', null),
+      // Fetch every shipment (not just fully-'Shipped' ones) so we can both (a) know which
+      // orders are truly done — only a 'Shipped' shipment counts toward that, a partial still
+      // leaves the order open (see isCompleted below) — and (b) show how many shipments/
+      // partials have gone out per order on the board.
+      sb.from('shipments').select('sales_order_id, order_id, status').not('sales_order_id', 'is', null),
       sb.from('portal_clients').select('id, customer_id, company_name, name, email').eq('is_active', true),
     ])
     if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) { setUserEmail(data.user.email); sb.from('erp_user_roles').select('role').eq('email', data.user.email).maybeSingle().then(({ data: r }) => setUserRole((r as any)?.role || '')) } }) }
@@ -1770,7 +1772,16 @@ export default function OrdersPage() {
       setWoMap(wm)
     }
     if (sh) {
-      setShippedOrderIds(new Set((sh as any[]).map(r => r.sales_order_id).filter(Boolean)))
+      const rows = sh as any[]
+      setShippedOrderIds(new Set(rows.filter(r => r.status === 'Shipped').map(r => r.sales_order_id).filter(Boolean)))
+      // Count every shipment per order (partial or final) so the board can show
+      // "📦 N shipped" — how many shipments have gone out against this order so far.
+      const counts: Record<string, number> = {}
+      for (const r of rows) {
+        const oid = r.sales_order_id || r.order_id
+        if (oid) counts[oid] = (counts[oid] || 0) + 1
+      }
+      setShipCounts(counts)
     }
     if (pc) setPortals(pc as PortalClient[])
     setLoading(false)
@@ -2599,7 +2610,7 @@ export default function OrdersPage() {
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
-                          <p className="text-xs text-gray-500 truncate">{o.po_number ? 'PO ' + o.po_number : (o.order_number && o.order_number !== orderTitle(o) ? o.order_number : '')}</p>
+                          <p className="text-xs text-gray-500 truncate">{o.po_number ? 'PO ' + o.po_number : (o.order_number && o.order_number !== orderTitle(o) ? o.order_number : '')}{shipCounts[o.id] ? ` · 📦 ${shipCounts[o.id]} shipped` : ''}</p>
                         </div>
                         {columns.map(col => { const cf = ((o as any).custom_fields) || {}; return (
                           <input key={col.id} type={col.ftype === 'number' ? 'number' : col.ftype === 'date' ? 'date' : 'text'} value={cf[col.id] ?? ''} onClick={e => e.stopPropagation()} onChange={e => setCell(o.id, col.id, e.target.value)} onDragStart={e => e.stopPropagation()} placeholder="—"
