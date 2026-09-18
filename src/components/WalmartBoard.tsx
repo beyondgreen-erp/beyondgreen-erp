@@ -429,8 +429,15 @@ export default function WalmartBoard() {
     await sb.from('walmart_pallets').delete().eq('id', p.id)
     await load()
   }
-  async function shipWalmartOrder(order: WOrder): Promise<string | null> {
+  // quiet: callers shipping many orders at once report one summary instead of an alert per failure.
+  async function shipWalmartOrder(order: WOrder, quiet = false): Promise<string | null> {
     if (order.shipment_id) return order.shipment_id
+    // The database also raises the shipment the moment an order reaches Shipped, so ask the row
+    // rather than trusting the copy in memory — otherwise both would insert and the order would
+    // appear on the Shipments board twice.
+    const { data: fresh } = await sb.from('walmart_board_orders').select('shipment_id').eq('id', order.id).maybeSingle()
+    const already = (fresh as any)?.shipment_id as string | null | undefined
+    if (already) return already
     const shipTo = (order.ship_to || '').trim()
     const custName = (shipTo.split(/[,\n]/)[0] || '').trim() || 'Walmart'
     const now = new Date()
@@ -444,7 +451,7 @@ export default function WalmartBoard() {
       month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
     }
     const { data, error } = await sb.from('shipments').insert(ins).select('id').single()
-    if (error) { alert('Could not create shipment: ' + error.message); return null }
+    if (error) { if (!quiet) alert('Could not create shipment: ' + error.message); return null }
     const sid = (data as any).id as string
     await sb.from('walmart_board_orders').update({ shipment_id: sid }).eq('id', order.id)
     return sid
@@ -623,15 +630,35 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
     const ids = Array.from(selected)
     if (!ids.length) return
     const label = Object.entries(patch).map(([k, v]) => `${k.replace(/_/g, ' ')} = ${v}`).join(', ')
-    if (!confirm(`Update ${ids.length} order${ids.length > 1 ? 's' : ''}?\n\n${label}`)) return
+    // Shipping in bulk does everything shipping one at a time does, so say so before it runs.
+    const shipping = groupForStatus(patch.status) === 'Shipped'
+    const extra = shipping
+      ? `\n\nThis also moves them to the Shipments board and auto-creates their bills for finance.`
+      : ''
+    if (!confirm(`Update ${ids.length} order${ids.length > 1 ? 's' : ''}?\n\n${label}${extra}`)) return
     setBulkBusy(true)
     const full: Record<string, any> = { ...patch, updated_at: new Date().toISOString() }
     // Status drives the group, so keep them in lock-step exactly as a single edit does.
     if (patch.status) full.group_name = groupForStatus(patch.status)
     setRows(rs => rs.map(r => (selected.has(r.id) ? { ...r, ...full } : r)))
     const { error } = await sb.from('walmart_board_orders').update(full).in('id', ids)
+    if (error) { setBulkBusy(false); alert('Bulk update failed: ' + error.message); await load(); return }
+    // A shipped order leaves this board, so it has to land on the Shipments board in the same
+    // breath — otherwise it disappears from both. One shipment per order, same as markShipped.
+    if (shipping) {
+      const failed: string[] = []
+      for (const id of ids) {
+        const r = rows.find(x => x.id === id)
+        if (!r || r.shipment_id) continue
+        const sid = await shipWalmartOrder({ ...r, ...full } as WOrder, true)
+        if (!sid) { failed.push(r.po_number || r.name || id); continue }
+        if (r.sales_order_id) {
+          await sb.from('sales_orders').update({ status: 'Shipped', updated_at: new Date().toISOString() }).eq('id', r.sales_order_id)
+        }
+      }
+      if (failed.length) alert(`These orders were marked Shipped but could not be added to the Shipments board:\n\n${failed.join('\n')}\n\nOpen each one and use "Mark as Shipped".`)
+    }
     setBulkBusy(false)
-    if (error) { alert('Bulk update failed: ' + error.message); await load(); return }
     setSelected(new Set())
     await load()
   }
