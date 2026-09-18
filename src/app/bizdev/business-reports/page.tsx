@@ -159,7 +159,7 @@ export default function BusinessReportsPage() {
 
       {tab === 'walmart' && <WalmartRequirements />}
 
-      {tab === 'chewy' && <><ChewyRequirements /><ChewyMaterialRequirements /></>}
+      {tab === 'chewy' && <><ChewyMaterialRequirements /><div className="mt-6"><ChewyRequirements /></div></>}
 
       {tab === 'exceptions' && (
       <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">

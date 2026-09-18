@@ -246,7 +246,7 @@ export default function ChewyMaterialRequirements() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden mt-6">
+    <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-[#E4E6EE]">
         <div>
           <h2 className="text-lg font-bold text-[#1A1D2E]">Chewy Material &amp; Packaging Requirements</h2>
