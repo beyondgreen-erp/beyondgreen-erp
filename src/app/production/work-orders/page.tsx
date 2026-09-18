@@ -25,6 +25,63 @@ const STATUS_LABEL: Record<string, string> = {
   'On Hold': 'On Hold',
   Cancelled: 'Cancelled',
 }
+// These two render the sheet and MUST stay at module scope. Declared inside the page
+// component they were a new function identity on every render, so React threw the <input>
+// away and built a fresh one after each keystroke — the caret went with it, which is why
+// typing a part number meant one character, Enter, one character, Enter.
+function FieldInput({ f, live, onChange }: { f: Field; live: Record<string, any>; onChange: (key: string, value: any) => void }) {
+  const base = 'w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500'
+  if (f.type === 'computed') {
+    const v = f.compute ? f.compute(live) : ''
+    const shown = typeof v === 'number' ? Number(v.toFixed(f.dp ?? 2)).toLocaleString() : v
+    return <div className={`${base} bg-gray-50 text-gray-700 font-medium`}>{shown === '' || shown === '0' ? '—' : shown}</div>
+  }
+  if (f.type === 'textarea') {
+    return <textarea rows={3} value={live[f.key] ?? ''} onChange={e => onChange(f.key, e.target.value)} className={base} />
+  }
+  if (f.type === 'select') {
+    return (
+      <select value={live[f.key] ?? ''} onChange={e => onChange(f.key, e.target.value)} className={`${base} cursor-pointer`}>
+        <option value="">—</option>
+        {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    )
+  }
+  return (
+    <input
+      type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
+      value={live[f.key] ?? ''}
+      placeholder={f.placeholder}
+      onChange={e => onChange(f.key, e.target.value)}
+      className={base}
+    />
+  )
+}
+
+function FormBody({ form, live, onChange }: { form: FormDef; live: Record<string, any>; onChange: (key: string, value: any) => void }) {
+  return (
+    <div className="space-y-6">
+      {form.sections.map((sec, si) => (
+        <div key={si}>
+          {sec.title && <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-2">{sec.title}</p>}
+          <div className={`grid gap-3 ${sec.columns === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
+            {sec.fields.map(f => (
+              <div key={f.key} className={f.wide ? 'sm:col-span-2' : ''}>
+                <label className="block text-xs text-gray-400 mb-1">{f.label}</label>
+                <FieldInput f={f} live={live} onChange={onChange} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// A part number nobody has decided yet is not a SKU. These must never match a product.
+const PLACEHOLDER_PARTS = new Set(['tbd', 'tba', 'n/a', 'na', 'none', 'null', '-', '--', '?', 'x', 'xx', 'test', 'placeholder'])
+const isPlaceholderPart = (v: any) => PLACEHOLDER_PARTS.has(String(v ?? '').trim().toLowerCase())
+
 const DONE_STATUSES = ['QC Passed', 'Complete']
 const IDLE_AFTER = ['QC Passed', 'Complete', 'Cancelled', 'On Hold']
 const OPEN_STATUSES = ['Queued', 'In Progress', 'QC', 'On Hold']
@@ -88,6 +145,7 @@ export default function WorkOrdersPage() {
   const [detail, setDetail] = useState<WO | null>(null)
   const [spec, setSpec] = useState<Record<string, any>>({})
   const [dirty, setDirty] = useState(false)
+  const [hoursDraft, setHoursDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [creatingIn, setCreatingIn] = useState<GroupDef | null>(null)
   const [newMachine, setNewMachine] = useState('')
@@ -154,21 +212,31 @@ export default function WorkOrdersPage() {
   }, [creatingIn, soLines.length])
 
   // Detail extras: the finished-goods product and anything already booked from this run.
+  // Keyed on the work order's id, not the object. Every control in the header — status,
+  // machine, production day, start time, operator, run hours — replaces `detail` with a new
+  // object, and this effect used to run on each of those and reload the sheet from the
+  // database: it silently threw away everything typed but not yet saved and cleared `dirty`,
+  // which greys out Save. So you filled the sheet in, set the machine, and Save went dead.
+  // Now it only reloads when a different work order is opened.
+  const detailId = detail?.id ?? null
   useEffect(() => {
-    if (!detail) { setWoProduct(null); setFgMoves([]); return }
-    setSpec({ ...(detail.spec || {}) })
+    if (!detailId) { setWoProduct(null); setFgMoves([]); return }
+    setSpec({ ...(detail?.spec || {}) })
+    setHoursDraft(detail?.scheduled_hours == null ? '' : String(detail.scheduled_hours))
     setDirty(false)
+    const pid = detail?.product_id ?? null
     ;(async () => {
-      if (detail.product_id) {
-        const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty').eq('id', detail.product_id).maybeSingle()
+      if (pid) {
+        const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty').eq('id', pid).maybeSingle()
         setWoProduct((pr as any) || null)
       } else setWoProduct(null)
       const { data: mv } = await sb.from('inventory_movements')
         .select('created_at,qty,uom,created_by')
-        .eq('ref_table', 'work_orders').eq('ref_id', detail.id).eq('movement_type', 'produce').order('created_at')
+        .eq('ref_table', 'work_orders').eq('ref_id', detailId).eq('movement_type', 'produce').order('created_at')
       setFgMoves((mv as any[]) || [])
     })()
-  }, [detail])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailId])
 
   const openDetail = useCallback((wo: WO) => setDetail(wo), [])
   useItemDeepLink(orders, openDetail)
@@ -285,7 +353,10 @@ export default function WorkOrdersPage() {
       // Link the finished-goods product from the item part number. Without a linked
       // product, completing the work order books nothing into inventory — and a work
       // order raised by hand on a tile has no product on it.
-      if (!detail.product_id && merged.item_part_number) {
+      // "TBD" is not a SKU. There is a real product in the catalogue whose SKU is literally
+      // TBD, so a sheet filled in with a placeholder linked itself to it and a completion
+      // booked the run into a print plate. A placeholder links nothing.
+      if (!detail.product_id && merged.item_part_number && !isPlaceholderPart(merged.item_part_number)) {
         const { data: prod } = await sb.from('products').select('id').ilike('sku', String(merged.item_part_number).trim()).limit(1)
         const pid = (prod?.[0] as any)?.id
         if (pid) patch.product_id = pid
@@ -296,6 +367,9 @@ export default function WorkOrdersPage() {
       setDetail(d => (d ? { ...d, ...patch, spec: merged } as WO : d))
       setSpec(merged)
       setDirty(false)
+      // The sheet no longer reloads on every change to `detail`, so when this save is what
+      // linked the product, pull the finished-goods figures in explicitly.
+      if (patch.product_id) await refreshFG(patch.product_id)
     } finally { setSaving(false) }
   }
 
@@ -317,11 +391,25 @@ export default function WorkOrdersPage() {
   async function bookFG() {
     if (!detail) return
     if (!detail.product_id) { alert('No finished-goods product is linked to this work order, so there is nothing to book. Put the SKU in Item Part # and save — the product links itself if the SKU is in Inventory.'); return }
-    const remaining = Math.max(0, Number(detail.qty_ordered || 0) - fgBooked)
-    const input = window.prompt('Quantity of finished goods to book into inventory for ' + (detail.wo_code || 'WO-' + detail.wo_number) + ':', String(remaining || detail.qty_ordered || ''))
+    const ordered = Number(detail.qty_ordered || 0)
+    const remaining = Math.max(0, ordered - fgBooked)
+    const sku = woProduct?.sku || detail.item_part_number || 'this item'
+    const input = window.prompt(
+      `How many finished ${sku} to add to inventory for ${detail.wo_code || 'WO-' + detail.wo_number}?\n\n`
+      + `This work order is for ${fmtN(ordered)}${detail.uom ? ' ' + detail.uom : ''}, and ${fmtN(fgBooked)} has been booked so far.\n`
+      + `You only need this to book part of a run before the job is finished — setting the work order to Complete books the rest by itself.`,
+      String(remaining || ordered || ''))
     if (input == null) return
     const qty = Number(input)
     if (!qty || qty <= 0) { alert('Enter a quantity greater than zero.'); return }
+    // A slip of the keyboard here goes straight onto the shelf, so anything well over the
+    // run asks first rather than quietly booking it.
+    if (ordered > 0 && qty > ordered * 2) {
+      const ok = window.confirm(
+        `${fmtN(qty)} is a lot more than this work order's ${fmtN(ordered)}${detail.uom ? ' ' + detail.uom : ''}.\n\n`
+        + `Book ${fmtN(qty)} of ${sku} into inventory anyway?`)
+      if (!ok) return
+    }
     setBooking(true)
     try {
       const { data, error } = await sb.rpc('post_wo_fg', { p_wo_id: detail.id, p_qty: qty, p_user: userEmail || null })
@@ -333,14 +421,15 @@ export default function WorkOrdersPage() {
     } finally { setBooking(false) }
   }
 
-  async function refreshFG() {
+  async function refreshFG(productId?: string) {
     if (!detail) return
     const { data: mv } = await sb.from('inventory_movements')
       .select('created_at,qty,uom,created_by')
       .eq('ref_table', 'work_orders').eq('ref_id', detail.id).eq('movement_type', 'produce').order('created_at')
     setFgMoves((mv as any[]) || [])
-    if (detail.product_id) {
-      const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty').eq('id', detail.product_id).maybeSingle()
+    const pid = productId || detail.product_id
+    if (pid) {
+      const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty').eq('id', pid).maybeSingle()
       setWoProduct((pr as any) || null)
     }
   }
@@ -365,54 +454,9 @@ export default function WorkOrdersPage() {
 
   const setField = (key: string, value: any) => { setSpec(s => ({ ...s, [key]: value })); setDirty(true) }
 
-  function FieldInput({ f, live }: { f: Field; live: Record<string, any> }) {
-    const base = 'w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500'
-    if (f.type === 'computed') {
-      const v = f.compute ? f.compute(live) : ''
-      const shown = typeof v === 'number' ? Number(v.toFixed(f.dp ?? 2)).toLocaleString() : v
-      return <div className={`${base} bg-gray-50 text-gray-700 font-medium`}>{shown === '' || shown === '0' ? '—' : shown}</div>
-    }
-    if (f.type === 'textarea') {
-      return <textarea rows={3} value={live[f.key] ?? ''} onChange={e => setField(f.key, e.target.value)} className={base} />
-    }
-    if (f.type === 'select') {
-      return (
-        <select value={live[f.key] ?? ''} onChange={e => setField(f.key, e.target.value)} className={`${base} cursor-pointer`}>
-          <option value="">—</option>
-          {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-      )
-    }
-    return (
-      <input
-        type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
-        value={live[f.key] ?? ''}
-        placeholder={f.placeholder}
-        onChange={e => setField(f.key, e.target.value)}
-        className={base}
-      />
-    )
-  }
-
-  function FormBody({ form }: { form: FormDef }) {
-    return (
-      <div className="space-y-6">
-        {form.sections.map((sec, si) => (
-          <div key={si}>
-            {sec.title && <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-2">{sec.title}</p>}
-            <div className={`grid gap-3 ${sec.columns === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
-              {sec.fields.map(f => (
-                <div key={f.key} className={f.wide ? 'sm:col-span-2' : ''}>
-                  <label className="block text-xs text-gray-400 mb-1">{f.label}</label>
-                  <FieldInput f={f} live={spec} />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
+  // FormBody is rendered straight from the sheet below. There is deliberately no wrapper
+  // component declared here: one would be a new identity on every render and would remount
+  // the whole form beneath it, which is the bug this is fixing.
 
   // ── Tiles ──────────────────────────────────────────────────────────────────
 
@@ -644,8 +688,8 @@ export default function WorkOrdersPage() {
                       <button
                         type="button"
                         onClick={() => patchWO(detail, { scheduled_date: tomorrowISO() })}
-                        className="text-emerald-600 hover:text-emerald-700 font-medium"
-                      >Tomorrow</button>
+                        className="text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 hover:bg-emerald-100 font-medium"
+                      >Set to tomorrow</button>
                     </label>
                     <input
                       type="date"
@@ -693,11 +737,19 @@ export default function WorkOrdersPage() {
                         {Number(detail.spec?.calc_production_hours).toFixed(2)}
                       </div>
                     ) : (
+                      /* Held as text while it is being typed and written once on the way out.
+                         Saving per keystroke put the value back through Number(), so "0." came
+                         back as 0 and the decimal point was swallowed — 0.42 ended up as .42. */
                       <input
                         type="number"
                         step="0.25"
-                        value={detail.scheduled_hours ?? ''}
-                        onChange={e => patchWO(detail, { scheduled_hours: e.target.value === '' ? null : Number(e.target.value) })}
+                        value={hoursDraft}
+                        onChange={e => setHoursDraft(e.target.value)}
+                        onBlur={() => {
+                          const v = hoursDraft.trim() === '' ? null : Number(hoursDraft)
+                          if (v !== null && !isFinite(v)) { setHoursDraft(detail.scheduled_hours == null ? '' : String(detail.scheduled_hours)); return }
+                          if (v !== (detail.scheduled_hours ?? null)) patchWO(detail, { scheduled_hours: v })
+                        }}
                         className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     )}
@@ -754,7 +806,7 @@ export default function WorkOrdersPage() {
                 </div>
               )}
 
-              <FormBody form={form} />
+              <FormBody form={form} live={spec} onChange={setField} />
 
               <div className="border-t border-gray-100 pt-4">
                 <label className="block text-xs text-gray-400 mb-2">Production Steps &amp; Actual Run Time</label>
@@ -765,8 +817,15 @@ export default function WorkOrdersPage() {
                 <label className="block text-xs text-gray-400 mb-1.5">Finished Goods → Inventory</label>
                 {detail.product_id ? (
                   <div className="text-sm text-gray-700 space-y-1">
+                    <p className="text-[11px] text-gray-500 pb-1">
+                      What this run adds to the Inventory board when it is finished.
+                    </p>
                     <p><span className="font-mono text-emerald-700">{woProduct?.sku ?? '—'}</span>{woProduct?.product_name ? ' · ' + woProduct.product_name : ''}</p>
-                    <p className="text-xs text-gray-500">Ordered {fmtN(detail.qty_ordered)} · Booked {fmtN(fgBooked)} · On hand {fmtN(woProduct?.on_hand_qty)}</p>
+                    <p className="text-xs text-gray-500">
+                      <span title="What this work order is for">Ordered {fmtN(detail.qty_ordered)}</span>
+                      {' · '}<span title="How much of it has gone into inventory so far">Booked {fmtN(fgBooked)}</span>
+                      {' · '}<span title="Total stock of this SKU on the Inventory board">On hand {fmtN(woProduct?.on_hand_qty)}</span>
+                    </p>
                     {fgMoves.length > 0 && (
                       <ul className="text-xs text-gray-500 mt-1 space-y-0.5">
                         {fgMoves.map((m, i) => (
@@ -775,10 +834,11 @@ export default function WorkOrdersPage() {
                       </ul>
                     )}
                     <p className="text-[11px] text-gray-400 pt-1">
-                      Setting this work order to Complete books its quantity into inventory on its own — you do not need the button. Book by hand only to post a part quantity before the job is finished.
+                      You normally do not touch these buttons. Setting the work order to Complete adds the run to inventory by itself.
+                      Use <span className="font-medium">Add part of this run</span> only to put some of it on the shelf before the job is finished — say the machine has made half the order and you want that half counted now.
                     </p>
                     <div className="flex items-center gap-2 mt-2">
-                      <button onClick={bookFG} disabled={booking} className="px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">{booking ? 'Working…' : 'Book a part quantity'}</button>
+                      <button onClick={bookFG} disabled={booking} className="px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-500 disabled:opacity-50">{booking ? 'Working…' : 'Add part of this run'}</button>
                       {fgBooked > 0 && (
                         <button onClick={unbookFG} disabled={booking} className="px-3 py-2 text-sm rounded-lg border border-red-200 text-red-600 font-medium hover:bg-red-50 disabled:opacity-50">Undo booking</button>
                       )}
