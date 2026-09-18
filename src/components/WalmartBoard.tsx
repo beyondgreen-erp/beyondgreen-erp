@@ -501,7 +501,9 @@ export default function WalmartBoard() {
       shipToAddress: order.ship_to || '',
       carrierName: order.carrier || undefined, scac: order.scac || undefined,
       trailerNo: order.trailer_no || undefined, sealNumber: order.seal_number || undefined,
-      freightTerms: 'Prepaid', totalPallets, totalCases, totalWeight: Number(order.weight) || 0,
+      // Walmart Private Fleet pickups are Collect, not Prepaid — the Master BOL already
+      // defaulted to Collect correctly; this per-DC Straight BOL was overriding that.
+      freightTerms: 'Collect', totalPallets, totalCases, totalWeight: Number(order.weight) || 0,
       declaredValue: Number(order.total_value) || undefined,
       poNote: order.po_number ? ('PO ' + order.po_number) : undefined,
       specialInstructions: order.special_instructions ? [order.special_instructions] : undefined,

@@ -244,7 +244,7 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   y += rowH + 12
 
   // Declared value + note + signatures (keep this block together on a page)
-  if (y + 160 > pageH) { doc.addPage(); y = TOP_Y }
+  if (y + 175 > pageH) { doc.addPage(); y = TOP_Y }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
   doc.text('The agreed or declared value of the property is specifically stated by the shipper to be not exceeding:', M, y, { maxWidth: tableW })
   y += 12
@@ -258,7 +258,7 @@ function renderBol(doc: jsPDF, d: BolData, lines: BolLine[], logo: string | null
   bold(doc, 'Trailer Loaded:', M, y, 7); norm(doc, '[  ] By Shipper      [  ] By Driver', M + 68, y, 7)
   y += 13
   bold(doc, 'Freight Counted:', M, y, 7); norm(doc, '[  ] By Shipper      [  ] By Driver/pallets said to contain      [  ] By Driver/Pieces', M + 74, y, 7)
-  y += 22
+  y += 38
   const sigW = (tableW - 30) / 2
   line(doc, M, y, M + sigW, y); line(doc, R - sigW, y, R, y)
   bold(doc, 'Shipper Signature / Date', M, y + 11, 7)
