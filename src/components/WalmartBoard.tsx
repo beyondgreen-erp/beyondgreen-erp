@@ -541,7 +541,7 @@ export default function WalmartBoard() {
         trailer_no: order.trailer_no || null, seal_number: order.seal_number || null,
         pallet_qty: totalPallets || 0, case_qty: totalCases || 0,
         weight: Number(order.weight) || 0, declared_value: Number(order.total_value) || 0,
-        freight_terms: 'Prepaid', special_instructions: order.special_instructions || null,
+        freight_terms: 'Collect', special_instructions: order.special_instructions || null,
         commodity_description: commodity, status: 'Draft',
       }, { onConflict: 'walmart_order_id' })
     } catch { /* non-blocking */ }
