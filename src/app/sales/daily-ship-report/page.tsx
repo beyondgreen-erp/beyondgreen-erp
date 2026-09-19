@@ -47,7 +47,6 @@ export default function DailyShipReportPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [statMode, setStatMode] = useState<'channel' | 'month'>('channel')
   const [edit, setEdit] = useState<{ id: string; field: string } | null>(null)
   const dragId = useRef<string | null>(null)
   // Sales totals are hidden behind a password (verified server-side). Reveal lasts for the session.
@@ -216,28 +215,16 @@ export default function DailyShipReportPage() {
       {!loading && (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{statMode === 'channel' ? 'Total sales by channel' : 'Total sales by month'}</p>
-            <div className="flex items-center gap-2">
-              {revealed && <button onClick={hideTotals} className="text-xs text-gray-400 hover:text-gray-600" title="Hide totals again">🔒 Hide</button>}
-              <div className="inline-flex rounded-lg border border-[#E4E6EE] bg-white p-0.5 text-xs">
-                <button onClick={() => setStatMode('channel')} className={`px-3 py-1.5 rounded-md ${statMode === 'channel' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Channel</button>
-                <button onClick={() => setStatMode('month')} className={`px-3 py-1.5 rounded-md ${statMode === 'month' ? 'bg-[#00A84F] text-white font-semibold' : 'text-gray-500 hover:bg-[#F0F2F7]'}`}>By Month</button>
-              </div>
-            </div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Total sales by month</p>
+            {revealed && <button onClick={hideTotals} className="text-xs text-gray-400 hover:text-gray-600" title="Hide totals again">🔒 Hide</button>}
           </div>
           <div className="relative">
             <div className={`grid grid-cols-2 lg:grid-cols-6 gap-3 transition ${revealed ? '' : 'blur-md select-none pointer-events-none'}`} aria-hidden={!revealed}>
               <Stat label="Total Shipped" value={money(grand, 0)} c="#00A84F" />
-              {statMode === 'channel'
-                ? CHANNELS.map(c => <Stat key={c.field} label={c.label} value={money(visibleRows.reduce((a, r) => a + (Number(r[c.field]) || 0), 0), 0)} c={c.color} />)
-                : monthAgg.map(mo => <Stat key={mo.label} label={mo.label} value={money(mo.total, 0)} c={MONTH_HEX[mo.label] || '#9699A6'} locked={mo.locked} />)}
+              {monthAgg.map(mo => <Stat key={mo.label} label={mo.label} value={money(mo.total, 0)} c={MONTH_HEX[mo.label] || '#9699A6'} locked={mo.locked} />)}
             </div>
             {revealed && (
-              <p className="text-[11px] text-gray-400 mt-2">
-                {statMode === 'month'
-                  ? '🔒 = locked manual total (prior months, entered from actual financials). September onward is live from the days below.'
-                  : 'Channel breakdown reflects September onward (live days). Prior months are locked monthly totals only.'}
-              </p>
+              <p className="text-[11px] text-gray-400 mt-2">🔒 = locked manual total (prior months, entered from actual financials). September onward is live from the days below.</p>
             )}
             {!revealed && (
               <div className="absolute inset-0 flex items-center justify-center">
