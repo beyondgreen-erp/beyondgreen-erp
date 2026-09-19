@@ -7,8 +7,9 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 interface Row {
   id: string; name: string | null; group_name: string | null; ship_date: string | null
   amazon: number | null; shopify: number | null; faire: number | null; chewy: number | null; b2b: number | null
-  people: string | null; position: number | null
+  people: string | null; position: number | null; locked?: boolean | null
 }
+interface Override { year: number; month: number; amount: number; locked: boolean }
 
 const CHANNELS: { field: keyof Row; label: string; color: string }[] = [
   { field: 'amazon', label: 'Amazon', color: '#FF9900' },
@@ -30,10 +31,10 @@ function monthColor(title: string): string {
   return idx >= 0 ? MONTH_HEX[MONTHS[idx]] : '#9699A6'
 }
 
-function Stat({ label, value, c }: { label: string; value: string | number; c?: string }) {
+function Stat({ label, value, c, locked }: { label: string; value: string | number; c?: string; locked?: boolean }) {
   return (
     <div className="mon-stat stat-card" style={c ? ({ ['--c']: c } as any) : undefined}>
-      <p className="text-xs font-semibold text-gray-400">{label}</p>
+      <p className="text-xs font-semibold text-gray-400">{label}{locked ? ' 🔒' : ''}</p>
       <p className="mon-stat-val mt-0.5">{typeof value === 'number' ? value.toLocaleString() : value}</p>
     </div>
   )
@@ -42,6 +43,7 @@ function Stat({ label, value, c }: { label: string; value: string | number; c?: 
 export default function DailyShipReportPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Row[]>([])
+  const [overrides, setOverrides] = useState<Override[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -75,6 +77,8 @@ export default function DailyShipReportPage() {
       all.push(...batch)
       if (batch.length < 1000) break
     }
+    const { data: ov } = await sb.from('dsr_month_override').select('year, month, amount, locked').order('year', { ascending: true }).order('month', { ascending: true })
+    setOverrides(((ov as any[]) || []).map(o => ({ year: o.year, month: o.month, amount: Number(o.amount) || 0, locked: !!o.locked })))
     setRows(all); setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
@@ -125,14 +129,18 @@ export default function DailyShipReportPage() {
     patch(id, { group_name: group, position: pos })
   }
 
+  // Only unlocked (September onward) rows are shown and summed live. Prior months are
+  // locked manual overrides that drive the By Month + YTD totals below.
+  const visibleRows = useMemo(() => rows.filter(r => !r.locked), [rows])
+
   const q = search.trim().toLowerCase()
   const match = (r: Row) => !q || (r.name || '').toLowerCase().includes(q) || (r.group_name || '').toLowerCase().includes(q) || (r.ship_date || '').includes(q)
-  const groupRows = (key: string) => rows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
+  const groupRows = (key: string) => visibleRows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
 
-  // Groups derived from data, ordered chronologically by earliest date in the week
+  // Groups derived from visible data, ordered chronologically by earliest date in the week
   const groups = useMemo(() => {
     const m = new Map<string, string | null>()
-    for (const r of rows) {
+    for (const r of visibleRows) {
       const key = r.group_name || '(no week)'
       const d = r.ship_date || null
       const cur = m.get(key)
@@ -143,15 +151,17 @@ export default function DailyShipReportPage() {
     return [...m.entries()]
       .map(([key, minDate]) => ({ key, color: monthColor(key), minDate }))
       .sort((a, b) => (b.minDate || '0000').localeCompare(a.minDate || '0000') || b.key.localeCompare(a.key))
-  }, [rows])
+  }, [visibleRows])
 
   const shown = groups.reduce((a, g) => a + groupRows(g.key).length, 0)
-  const grand = rows.reduce((a, r) => a + rowTotal(r), 0)
+  const overrideTotal = useMemo(() => overrides.reduce((a, o) => a + (Number(o.amount) || 0), 0), [overrides])
+  const liveTotal = useMemo(() => visibleRows.reduce((a, r) => a + rowTotal(r), 0), [visibleRows])
+  const grand = liveTotal + overrideTotal
 
-  // Monthly aggregation for the "By Month" tile view
+  // Monthly aggregation for the "By Month" tile view: live (visible) months + locked overrides
   const monthAgg = useMemo(() => {
-    const m = new Map<string, { label: string; sort: number; total: number }>()
-    for (const r of rows) {
+    const m = new Map<string, { label: string; sort: number; total: number; locked: boolean }>()
+    for (const r of visibleRows) {
       let label = 'Other', sort = 9999
       if (r.ship_date) {
         const d = new Date(r.ship_date + 'T00:00:00')
@@ -160,11 +170,15 @@ export default function DailyShipReportPage() {
         const idx = MONTH_KEYS.findIndex(k => (r.group_name || '').trim().toLowerCase().startsWith(k))
         if (idx >= 0) { sort = 2026 * 12 + idx; label = MONTHS[idx] }
       }
-      const cur = m.get(label) || { label, sort, total: 0 }
+      const cur = m.get(label) || { label, sort, total: 0, locked: false }
       cur.total += rowTotal(r); m.set(label, cur)
     }
+    for (const o of overrides) {
+      const label = MONTHS[o.month - 1]; const sort = o.year * 12 + (o.month - 1)
+      m.set(label, { label, sort, total: Number(o.amount) || 0, locked: true })
+    }
     return [...m.values()].sort((a, b) => a.sort - b.sort)
-  }, [rows])
+  }, [visibleRows, overrides])
 
   const inpCls = 'w-full bg-white border border-[#0086C0] rounded px-2 py-1 text-[13px] focus:outline-none'
   const Cell = ({ r, field, type = 'text', money: isMoney = false }: { r: Row; field: keyof Row; type?: 'text' | 'num' | 'date'; money?: boolean }) => {
@@ -191,7 +205,7 @@ export default function DailyShipReportPage() {
         <div>
           <span className="mon-tag">📦 Daily Ship</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">2026 Daily Ship Report</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : (revealed ? `${shown} of ${rows.length} days · ${money(grand, 0)} shipped YTD` : `${shown} of ${rows.length} days · ••••••• shipped YTD`)}</p>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : (revealed ? `${shown} of ${visibleRows.length} days · ${money(grand, 0)} shipped YTD` : `${shown} of ${visibleRows.length} days · ••••••• shipped YTD`)}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={addWeek} className="mon-btn" style={{ background: '#fff', color: '#00A84F', border: '1px solid #00A84F' }}>+ New week</button>
@@ -215,9 +229,16 @@ export default function DailyShipReportPage() {
             <div className={`grid grid-cols-2 lg:grid-cols-6 gap-3 transition ${revealed ? '' : 'blur-md select-none pointer-events-none'}`} aria-hidden={!revealed}>
               <Stat label="Total Shipped" value={money(grand, 0)} c="#00A84F" />
               {statMode === 'channel'
-                ? CHANNELS.map(c => <Stat key={c.field} label={c.label} value={money(rows.reduce((a, r) => a + (Number(r[c.field]) || 0), 0), 0)} c={c.color} />)
-                : monthAgg.map(mo => <Stat key={mo.label} label={mo.label} value={money(mo.total, 0)} c={MONTH_HEX[mo.label] || '#9699A6'} />)}
+                ? CHANNELS.map(c => <Stat key={c.field} label={c.label} value={money(visibleRows.reduce((a, r) => a + (Number(r[c.field]) || 0), 0), 0)} c={c.color} />)
+                : monthAgg.map(mo => <Stat key={mo.label} label={mo.label} value={money(mo.total, 0)} c={MONTH_HEX[mo.label] || '#9699A6'} locked={mo.locked} />)}
             </div>
+            {revealed && (
+              <p className="text-[11px] text-gray-400 mt-2">
+                {statMode === 'month'
+                  ? '🔒 = locked manual total (prior months, entered from actual financials). September onward is live from the days below.'
+                  : 'Channel breakdown reflects September onward (live days). Prior months are locked monthly totals only.'}
+              </p>
+            )}
             {!revealed && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <form onSubmit={unlockTotals} className="flex flex-col items-center gap-2 bg-white/80 backdrop-blur-sm border border-[#E4E6EE] rounded-xl px-5 py-4 shadow-sm">
@@ -245,7 +266,7 @@ export default function DailyShipReportPage() {
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-2.5 mb-6">
-          <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>{groups.map(group => {
+          <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards. Prior months (Jan–Aug) are locked to manual totals; September onward is entered here.</div>{groups.map(group => {
             const gr = groupRows(group.key); const isCol = collapsed[group.key]
             const wkTotal = gr.reduce((a, r) => a + rowTotal(r), 0)
             return (
