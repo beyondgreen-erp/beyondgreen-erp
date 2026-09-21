@@ -55,6 +55,9 @@ interface Shipment {
   so_number?: string | null
   so_notes?: string | null
   chep_wm_id?: string | null
+  chep_load?: string | null
+  chep_pallets?: string | null
+  chep_cases?: number | null
   chep_submitted?: boolean | null
   chep_submitted_at?: string | null
   broker_portal_client: string | null
@@ -147,7 +150,7 @@ export default function ShipmentsPage() {
       // CHEP pallet status for Walmart orders — mirrored from walmart_board_orders (single
       // source of truth). Match a shipment to its Walmart PO by sales_order_id, else PO #.
       try {
-        const { data: wmo } = await sb.from('walmart_board_orders').select('id, sales_order_id, po_number, chep_submitted, chep_submitted_at')
+        const { data: wmo } = await sb.from('walmart_board_orders').select('id, sales_order_id, po_number, chep_submitted, chep_submitted_at, load_number, pallets')
         const bySo: Record<string, any> = {}, byPo: Record<string, any> = {}
         for (const w of ((wmo as any[]) || [])) {
           if (w.sales_order_id) bySo[w.sales_order_id] = w
@@ -155,7 +158,16 @@ export default function ShipmentsPage() {
         }
         for (const s of all) {
           const w = (s.sales_order_id && bySo[s.sales_order_id]) || (s.po_number && byPo[String(s.po_number).trim()]) || null
-          if (w) { s.chep_wm_id = w.id; s.chep_submitted = !!w.chep_submitted; s.chep_submitted_at = w.chep_submitted_at }
+          if (w) { s.chep_wm_id = w.id; s.chep_submitted = !!w.chep_submitted; s.chep_submitted_at = w.chep_submitted_at; s.chep_load = w.load_number; s.chep_pallets = w.pallets }
+        }
+        const linkedSoIds = Array.from(new Set(all.filter(s => s.chep_wm_id && s.sales_order_id).map(s => s.sales_order_id))) as string[]
+        if (linkedSoIds.length) {
+          const caseBySo: Record<string, number> = {}
+          for (let i = 0; i < linkedSoIds.length; i += 300) {
+            const { data: sp } = await sb.from('shipment_pallets').select('sales_order_id, case_count').in('sales_order_id', linkedSoIds.slice(i, i + 300))
+            for (const p of ((sp as any[]) || [])) caseBySo[p.sales_order_id] = (caseBySo[p.sales_order_id] || 0) + (Number(p.case_count) || 0)
+          }
+          for (const s of all) if (s.chep_wm_id && s.sales_order_id && caseBySo[s.sales_order_id]) s.chep_cases = caseBySo[s.sales_order_id]
         }
       } catch { /* CHEP is best-effort; board still loads without it */ }
       setRows(all); setLoading(false)
@@ -741,6 +753,15 @@ export default function ShipmentsPage() {
                     </div>
                     <button onClick={() => editing && toggleChep(editing)} className={`shrink-0 text-xs font-semibold rounded-lg px-3 py-2 border transition-colors ${editing.chep_submitted ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>{editing.chep_submitted ? '\u2713 Submitted to CHEP' : '\u23f3 Pending Submission'}</button>
                   </div>
+                  <div className="mt-3 pt-3 border-t border-[#E4E6EE] grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[12px]">
+                    <div><span className="text-gray-400">Load #</span><div className="font-semibold text-[#1A1D2E]">{editing.chep_load || '—'}</div></div>
+                    <div><span className="text-gray-400">Pallet Qty</span><div className="font-semibold text-[#1A1D2E]">{editing.chep_pallets || '—'}</div></div>
+                    <div><span className="text-gray-400">Cases</span><div className="font-semibold text-[#1A1D2E]">{editing.chep_cases != null && editing.chep_cases > 0 ? editing.chep_cases : '—'}</div></div>
+                    <div><span className="text-gray-400">PO #</span><div className="font-semibold text-[#1A1D2E]">{editing.po_number || '—'}</div></div>
+                    <div><span className="text-gray-400">BOL #</span><div className="font-semibold text-[#1A1D2E]">{editing.bol_number || '—'}</div></div>
+                    <div><span className="text-gray-400">Ship date</span><div className="font-semibold text-[#1A1D2E]">{fmtD(editing.ship_date)}</div></div>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">Details for the CHEP portal. Load # and Pallet Qty come from the Walmart order; Cases shows when the order was packed in the ERP.</p>
                 </div>
               )}
 
@@ -907,7 +928,7 @@ export default function ShipmentsPage() {
                     <FileUpload supabase={sb} recordType="shipment" recordId={editing.id} currentUserEmail={userEmail} />
                   </div>
                   <div className="border-t border-[#E4E6EE] pt-4">
-                    <Comments recordType="shipment" recordId={editing.id} currentUserEmail={userEmail}/>
+                    <Comments recordType={editing.sales_order_id ? 'sales_order' : 'shipment'} recordId={editing.sales_order_id || editing.id} currentUserEmail={userEmail}/>
                   </div>
                 </>
               )}
