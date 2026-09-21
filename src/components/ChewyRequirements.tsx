@@ -73,23 +73,9 @@ export default function ChewyRequirements() {
         const fsku = (ln.sku || '').trim().toUpperCase()
         const qq = Number(ln.quantity ?? ln.qty) || 0
         if (!fsku || !qq) continue
-        const boms = bomByFg[fsku]
-        if (boms && boms.length) {
-          const fp = productBySku[fsku]
-          for (const bb of boms) {
-            const cs = (bb.component_sku || '').trim().toUpperCase()
-            if (!cs) continue
-            let perUnit = 0
-            if (bb.uom_type === 'percentage') perUnit = ((Number(bb.qty_value ?? bb.percentage) || 0) / 100) * (Number(fp?.weight_per_unit_grams) || 0) / 453.592
-            else if (bb.is_case_level) { const cq = Number(fp?.case_qty) || 0; perUnit = cq > 0 ? (Number(bb.qty_value) || 0) / cq : 0 }
-            else perUnit = Number(bb.qty_value) || 0
-            const need = perUnit * qq
-            if (need <= 0) continue
-            reqMap[cs] = (reqMap[cs] || 0) + need
-          }
-        } else {
-          reqMap[fsku] = (reqMap[fsku] || 0) + qq
-        }
+        // Chewy business reports show only the finished goods Chewy ordered - do NOT explode
+        // a finished good into its BOM components/materials here.
+        reqMap[fsku] = (reqMap[fsku] || 0) + qq
       }
       for (const [sku, need] of Object.entries(reqMap)) {
         const cp = productBySku[sku]
@@ -240,7 +226,7 @@ export default function ChewyRequirements() {
           )
         })}
       </div>
-      <div className="px-6 py-2 border-t border-[#EEF0F4]"><p className="text-[11px] text-gray-400">On Hand is the shared inventory pool; Short accounts for stock already claimed by earlier-shipping POs (by ship date). Finished-good items are checked directly; items with a BOM are exploded to components.</p></div>
+      <div className="px-6 py-2 border-t border-[#EEF0F4]"><p className="text-[11px] text-gray-400">On Hand is the shared finished-goods pool; Short accounts for stock already claimed by earlier-shipping POs (by ship date). Only the finished goods ordered by Chewy are shown.</p></div>
     </div>
   )
 }
