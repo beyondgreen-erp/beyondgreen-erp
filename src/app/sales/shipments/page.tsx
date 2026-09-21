@@ -54,6 +54,9 @@ interface Shipment {
   sales_order_id: string | null
   so_number?: string | null
   so_notes?: string | null
+  chep_wm_id?: string | null
+  chep_submitted?: boolean | null
+  chep_submitted_at?: string | null
   broker_portal_client: string | null
   broker_cost: number | null
   broker_commission_basis: string | null
@@ -141,6 +144,20 @@ export default function ShipmentsPage() {
         }
         for (const s of all) { const m = s.sales_order_id ? soMap[s.sales_order_id] : null; if (m) { s.so_number = m.order_number; s.so_notes = m.notes } }
       }
+      // CHEP pallet status for Walmart orders — mirrored from walmart_board_orders (single
+      // source of truth). Match a shipment to its Walmart PO by sales_order_id, else PO #.
+      try {
+        const { data: wmo } = await sb.from('walmart_board_orders').select('id, sales_order_id, po_number, chep_submitted, chep_submitted_at')
+        const bySo: Record<string, any> = {}, byPo: Record<string, any> = {}
+        for (const w of ((wmo as any[]) || [])) {
+          if (w.sales_order_id) bySo[w.sales_order_id] = w
+          if (w.po_number) byPo[String(w.po_number).trim()] = w
+        }
+        for (const s of all) {
+          const w = (s.sales_order_id && bySo[s.sales_order_id]) || (s.po_number && byPo[String(s.po_number).trim()]) || null
+          if (w) { s.chep_wm_id = w.id; s.chep_submitted = !!w.chep_submitted; s.chep_submitted_at = w.chep_submitted_at }
+        }
+      } catch { /* CHEP is best-effort; board still loads without it */ }
       setRows(all); setLoading(false)
     })()
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
@@ -271,6 +288,18 @@ export default function ShipmentsPage() {
     setSaving(false)
     setRows(prev => prev.map(r => r.id === editing.id ? { ...r, ...form } as Shipment : r))
     setOpen(false)
+  }
+
+  // CHEP pallet reporting status for a Walmart shipment. Writes walmart_board_orders so
+  // it stays in sync with the Walmart board (single source of truth).
+  async function toggleChep(s: Shipment) {
+    if (!s.chep_wm_id) return
+    const next = !s.chep_submitted
+    const at = next ? new Date().toISOString() : null
+    setRows(prev => prev.map(r => r.chep_wm_id === s.chep_wm_id ? { ...r, chep_submitted: next, chep_submitted_at: at } : r))
+    setEditing(e => (e && e.chep_wm_id === s.chep_wm_id) ? { ...e, chep_submitted: next, chep_submitted_at: at } : e)
+    const { error } = await sb.from('walmart_board_orders').update({ chep_submitted: next, chep_submitted_at: at }).eq('id', s.chep_wm_id)
+    if (error) alert('Could not update CHEP status: ' + error.message)
   }
 
   async function bulkDelete() {
@@ -466,6 +495,7 @@ export default function ShipmentsPage() {
                               <th className="text-left font-semibold px-3 py-2.5 w-[130px]">City / State</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Invoice</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[150px]">Status</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[170px]">CHEP</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#EAECF2]">
@@ -486,6 +516,7 @@ export default function ShipmentsPage() {
                                   <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{[s.city, s.state].filter(Boolean).join(', ') || '—'}</td>
                                   <td className="px-3 py-2.5 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{s.invoice_number ? <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 whitespace-nowrap" title={'Billed · ' + s.invoice_number}>🧾 Billed <span className="font-mono text-emerald-500/80">{s.invoice_number}</span></span> : <span className="text-gray-300 text-xs">—</span>}</td>
                                   <td className="px-3 py-2.5 cursor-pointer" onClick={() => openEdit(s)}>{(() => { const c = statusColor(s.delivery_status); return (<span className="mon-pill" style={{ background: c.bg, color: c.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: c.solid }} />{s.delivery_status}</span>) })()}</td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap" onClick={e => e.stopPropagation()}>{s.chep_wm_id ? <button onClick={() => toggleChep(s)} title={s.chep_submitted ? ('Submitted to CHEP' + (s.chep_submitted_at ? ' ' + fmtD(s.chep_submitted_at.slice(0, 10)) : '') + ' — click to mark pending') : 'Mark CHEP pallets submitted to CHEP'} className={`text-[11px] font-semibold rounded-full px-2 py-0.5 border transition-colors ${s.chep_submitted ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>{s.chep_submitted ? '\u2713 Submitted to CHEP' : '\u23f3 Pending Submission'}</button> : <span className="text-gray-300 text-xs">\u2014</span>}</td>
                                 </tr>
                               )
                             })}
@@ -700,6 +731,18 @@ export default function ShipmentsPage() {
                   <textarea rows={3} value={form.notes || ''} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className={inp + ' resize-none'} />
                 </div>
               </div>
+
+              {editing?.chep_wm_id && (
+                <div className="rounded-xl border border-[#E4E6EE] bg-[#FAFBFF] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#1A1D2E]">🦱 CHEP pallet status</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">Have the CHEP pallets for this Walmart order been reported to CHEP?{editing.chep_submitted && editing.chep_submitted_at ? ' Submitted ' + fmtD(editing.chep_submitted_at.slice(0, 10)) + '.' : ''}</p>
+                    </div>
+                    <button onClick={() => editing && toggleChep(editing)} className={`shrink-0 text-xs font-semibold rounded-lg px-3 py-2 border transition-colors ${editing.chep_submitted ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>{editing.chep_submitted ? '\u2713 Submitted to CHEP' : '\u23f3 Pending Submission'}</button>
+                  </div>
+                </div>
+              )}
 
               {/* ── Client Portal (Eco Maven broker) ── */}
               <div className="rounded-xl border border-[#CDD9F0] bg-[#F0F5FF] p-3">
