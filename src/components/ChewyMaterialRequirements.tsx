@@ -65,7 +65,19 @@ export default function ChewyMaterialRequirements() {
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    let t: ReturnType<typeof setTimeout> | null = null
+    const bump = () => { if (t) clearTimeout(t); t = setTimeout(() => { load() }, 400) }
+    const ch = sb.channel('chewy-material-requirements-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_order_lines' }, bump)
+      .subscribe()
+    const onFocus = () => load()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => { if (t) clearTimeout(t); sb.removeChannel(ch); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
+  }, [load, sb])
 
   const productBySku = useMemo(() => {
     const m: Record<string, Prod> = {}
