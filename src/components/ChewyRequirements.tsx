@@ -9,7 +9,6 @@ import autoTable from 'jspdf-autotable'
 interface SOrder { id: string; order_number: string | null; po_number: string | null; status: string | null; order_section: string | null; required_ship_date: string | null; customer: { company_name: string | null } | null }
 interface SLine { sales_order_id: string; sku: string | null; qty: number | null; quantity: number | null }
 interface Prod { sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null }
-interface Bom { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
 
 const fmtN = (n: number | null) => (n == null || isNaN(n) ? '—' : Number(n).toLocaleString())
 const DONE = ['shipped', 'completed', 'closed', 'cancelled']
@@ -19,18 +18,16 @@ export default function ChewyRequirements() {
   const [orders, setOrders] = useState<SOrder[]>([])
   const [lines, setLines] = useState<Record<string, SLine[]>>({})
   const [products, setProducts] = useState<Prod[]>([])
-  const [bom, setBom] = useState<Bom[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: o }, { data: l }, { data: p }, { data: b }] = await Promise.all([
+    const [{ data: o }, { data: l }, { data: p }] = await Promise.all([
       sb.from('sales_orders').select('id, order_number, po_number, status, order_section, required_ship_date, customer:customers(company_name)').eq('archived', false).eq('is_active', true),
       sb.from('sales_order_lines').select('sales_order_id, sku, qty, quantity'),
       sb.from('products').select('sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams'),
-      sb.from('product_bom').select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level'),
     ])
     const chewy = ((o as any[]) || []).filter((so: any) => {
       const sec = so.order_section || ''
@@ -43,7 +40,6 @@ export default function ChewyRequirements() {
     for (const r of (l as SLine[]) || []) { (lm[r.sales_order_id] ||= []).push(r) }
     setLines(lm)
     setProducts((p as Prod[]) || [])
-    setBom((b as Bom[]) || [])
     setLoading(false)
   }, [sb])
 
@@ -54,12 +50,6 @@ export default function ChewyRequirements() {
     for (const p of products) m[(p.sku || '').trim().toUpperCase()] = p
     return m
   }, [products])
-
-  const bomByFg = useMemo(() => {
-    const m: Record<string, Bom[]> = {}
-    for (const b of bom) { const k = (b.finished_good_sku || '').trim().toUpperCase(); if (!k) continue; (m[k] ||= []).push(b) }
-    return m
-  }, [bom])
 
   type Row = { po: string; poName: string; shipKey: number; sku: string; name: string | null; need: number; onHand: number; short: number | null }
 
@@ -73,8 +63,7 @@ export default function ChewyRequirements() {
         const fsku = (ln.sku || '').trim().toUpperCase()
         const qq = Number(ln.quantity ?? ln.qty) || 0
         if (!fsku || !qq) continue
-        // Chewy business reports show only the finished goods Chewy ordered - do NOT explode
-        // a finished good into its BOM components/materials here.
+        // Finished-goods only: always check the ordered SKU against FG on-hand (no BOM explosion to raw materials)
         reqMap[fsku] = (reqMap[fsku] || 0) + qq
       }
       for (const [sku, need] of Object.entries(reqMap)) {
@@ -92,7 +81,7 @@ export default function ChewyRequirements() {
     }
     out.sort((a, b) => a.po.localeCompare(b.po) || a.sku.localeCompare(b.sku))
     return out
-  }, [orders, lines, bomByFg, productBySku])
+  }, [orders, lines, productBySku])
 
   const groups = useMemo(() => {
     const ql = q.trim().toLowerCase()
@@ -226,7 +215,7 @@ export default function ChewyRequirements() {
           )
         })}
       </div>
-      <div className="px-6 py-2 border-t border-[#EEF0F4]"><p className="text-[11px] text-gray-400">On Hand is the shared finished-goods pool; Short accounts for stock already claimed by earlier-shipping POs (by ship date). Only the finished goods ordered by Chewy are shown.</p></div>
+      <div className="px-6 py-2 border-t border-[#EEF0F4]"><p className="text-[11px] text-gray-400">On Hand is the shared inventory pool; Short accounts for stock already claimed by earlier-shipping POs (by ship date). Each line shows the finished good the PO ordered, checked against finished-goods on-hand (raw materials are not included).</p></div>
     </div>
   )
 }
