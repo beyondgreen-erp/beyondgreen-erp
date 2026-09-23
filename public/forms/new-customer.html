@@ -141,8 +141,6 @@
           </div>
         </div>
         <div class="f"><label>Years in Business</label><input type="text" name="c_years_in_business"></div>
-        <div class="f"><label>Federal Tax ID / EIN <span class="req">*</span></label><input type="text" name="c_ein"></div>
-        <div class="f"><label>Resale / Tax Exempt #</label><input type="text" name="c_resale_tax_exempt"></div>
       </div>
       <h2>Bank Information</h2>
       <div class="grid">
@@ -177,6 +175,14 @@
         <div class="f"><label>Zip <span class="req">*</span></label><input type="text" name="o_zip"></div>
         <div class="f"><label>Country</label><input type="text" name="o_country"></div>
         <div class="f full"><label>Ship-to Address</label><input type="text" name="o_ship_to_address"><div class="note"><label style="font-weight:500"><input type="checkbox" name="o_ship_same"> Same as billing</label></div></div>
+        <div class="f"><label>Federal Tax ID / EIN <span class="req">*</span></label><input type="text" name="o_ein"></div>
+        <div class="f full"><label>Purpose of Purchase <span class="req">*</span></label>
+          <div class="radio">
+            <label><input type="radio" name="o_purpose" value="Own use">Own use</label>
+            <label><input type="radio" name="o_purpose" value="Resale">Resale</label>
+          </div>
+        </div>
+        <div class="f full" id="resaleCertWrap" style="display:none"><label>Resale Certificate <span class="req">*</span></label><input type="file" name="o_resale_cert_file" id="resaleCertFile" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif"><div class="note">Required when purpose is Resale. Upload your resale / tax-exemption certificate (PDF or image, max 10&nbsp;MB).</div></div>
       </div>
       <h2>Section 2 &mdash; Contact Information</h2>
       <div class="grid">
@@ -238,9 +244,18 @@
   function showTab(t){tabs.forEach(function(x){x.classList.toggle('active',x.getAttribute('data-tab')===t);});document.getElementById('pane-credit').classList.toggle('active',t==='credit');document.getElementById('pane-onb').classList.toggle('active',t==='onb');document.getElementById('nextBtn').style.display=t==='credit'?'':'none';window.scrollTo(0,0);}
   tabs.forEach(function(x){x.addEventListener('click',function(){showTab(x.getAttribute('data-tab'));});});
   document.getElementById('nextBtn').addEventListener('click',function(){showTab('onb');});
-  var AREQ=[['c_company_name','credit','Company Name'],['c_billing_address','credit','Billing Address'],['c_city_state_zip','credit','City / State / Zip'],['c_phone','credit','Phone'],['c_invoice_email','credit','Invoice Email'],['c_business_type','credit','Type of Business'],['c_ein','credit','Federal Tax ID / EIN'],['c_bank_name','credit','Bank Name'],['c_requested_terms','credit','Requested Payment Terms'],['c_signer_name','credit','Authorized Signer'],['c_signer_date','credit','Credit Application Date'],['o_company_name','onb','Customer / Company Name'],['o_bill_to_address','onb','Bill-to Address'],['o_city','onb','City'],['o_state','onb','State'],['o_zip','onb','Zip'],['o_primary_contact_name','onb','Primary Contact Name'],['o_contact_phone','onb','Contact Phone'],['o_contact_email','onb','Contact Email'],['o_payment_terms','onb','Payment Terms'],['o_decl_full_name','onb','Declaration Full Name'],['o_decl_date','onb','Declaration Date']];
-  function collectAcct(){var data={c:{},o:{}};document.querySelectorAll('#intake [name]').forEach(function(el){var n=el.getAttribute('name');var b=n.charAt(0);var key=n.slice(2);var bucket=b==='c'?data.c:data.o;if(el.type==='radio'){if(el.checked)bucket[key]=el.value;}else if(el.type==='checkbox'){bucket[key]=el.checked;}else{bucket[key]=(el.value||'').trim();}});return data;}
-  document.getElementById('intake').addEventListener('submit',function(ev){ev.preventDefault();var msg=document.getElementById('msg');msg.className='msg';msg.textContent='';var miss=null;for(var i=0;i<AREQ.length;i++){if(!fieldVal(AREQ[i][0])){miss=AREQ[i];break;}}if(miss){showTab(miss[1]);msg.className='msg err';msg.textContent='Please complete: '+miss[2];var el=document.getElementsByName(miss[0])[0];if(el&&el.focus)el.focus();return;}var data=collectAcct();post({formType:'account',customerName:data.c.company_name||data.o.company_name,creditApplication:data.c,onboarding:data.o},document.getElementById('submitBtn'),msg);});
+  // Purpose of Purchase -> toggle resale certificate upload
+  var purposeRadios=document.getElementsByName('o_purpose');
+  function syncResale(){var v='';for(var i=0;i<purposeRadios.length;i++){if(purposeRadios[i].checked)v=purposeRadios[i].value;}var w=document.getElementById('resaleCertWrap');if(w)w.style.display=(v==='Resale')?'':'none';}
+  for(var pri=0;pri<purposeRadios.length;pri++){purposeRadios[pri].addEventListener('change',syncResale);}
+  var AREQ=[['c_company_name','credit','Company Name'],['c_billing_address','credit','Billing Address'],['c_city_state_zip','credit','City / State / Zip'],['c_phone','credit','Phone'],['c_invoice_email','credit','Invoice Email'],['c_business_type','credit','Type of Business'],['c_bank_name','credit','Bank Name'],['c_requested_terms','credit','Requested Payment Terms'],['c_signer_name','credit','Authorized Signer'],['c_signer_date','credit','Credit Application Date'],['o_company_name','onb','Customer / Company Name'],['o_bill_to_address','onb','Bill-to Address'],['o_city','onb','City'],['o_state','onb','State'],['o_zip','onb','Zip'],['o_ein','onb','Federal Tax ID / EIN'],['o_purpose','onb','Purpose of Purchase'],['o_primary_contact_name','onb','Primary Contact Name'],['o_contact_phone','onb','Contact Phone'],['o_contact_email','onb','Contact Email'],['o_payment_terms','onb','Payment Terms'],['o_decl_full_name','onb','Declaration Full Name'],['o_decl_date','onb','Declaration Date']];
+  function collectAcct(){var data={c:{},o:{}};document.querySelectorAll('#intake [name]').forEach(function(el){var n=el.getAttribute('name');var b=n.charAt(0);var key=n.slice(2);var bucket=b==='c'?data.c:data.o;if(el.type==='file'){return;}if(el.type==='radio'){if(el.checked)bucket[key]=el.value;}else if(el.type==='checkbox'){bucket[key]=el.checked;}else{bucket[key]=(el.value||'').trim();}});return data;}
+  document.getElementById('intake').addEventListener('submit',function(ev){ev.preventDefault();var msg=document.getElementById('msg');msg.className='msg';msg.textContent='';var miss=null;for(var i=0;i<AREQ.length;i++){if(!fieldVal(AREQ[i][0])){miss=AREQ[i];break;}}if(miss){showTab(miss[1]);msg.className='msg err';msg.textContent='Please complete: '+miss[2];var el=document.getElementsByName(miss[0])[0];if(el&&el.focus)el.focus();return;}
+    var purpose=fieldVal('o_purpose');var fileEl=document.getElementById('resaleCertFile');var file=fileEl&&fileEl.files&&fileEl.files[0];
+    if(purpose==='Resale'){if(!file){showTab('onb');msg.className='msg err';msg.textContent='Please upload your resale certificate.';if(fileEl&&fileEl.focus)fileEl.focus();return;}if(file.size>10*1024*1024){showTab('onb');msg.className='msg err';msg.textContent='Resale certificate must be 10 MB or smaller.';return;}}
+    var data=collectAcct();
+    function finish(){post({formType:'account',customerName:data.c.company_name||data.o.company_name,creditApplication:data.c,onboarding:data.o},document.getElementById('submitBtn'),msg);}
+    if(purpose==='Resale'&&file){var btn=document.getElementById('submitBtn');btn.disabled=true;msg.className='msg';msg.textContent='Uploading certificate...';var fr=new FileReader();fr.onload=function(){var res=String(fr.result||'');var b64=res.indexOf(',')>=0?res.slice(res.indexOf(',')+1):res;data.o.resale_cert_file={name:file.name,type:file.type||'application/octet-stream',data:b64};finish();};fr.onerror=function(){btn.disabled=false;msg.className='msg err';msg.textContent='Could not read the certificate file. Please try again.';};fr.readAsDataURL(file);}else{finish();}});
 })();
 </script>
 </body></html>
