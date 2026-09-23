@@ -6,6 +6,7 @@ import { getFileUrl } from '@/lib/fileHelpers'
 import WalmartRequirements from '@/components/WalmartRequirements'
 import ChewyRequirements from '@/components/ChewyRequirements'
 import ChewyMaterialRequirements from '@/components/ChewyMaterialRequirements'
+import ChewyActivityReport from '@/components/ChewyActivityReport'
 
 interface ExRow {
   id: string
@@ -159,7 +160,7 @@ export default function BusinessReportsPage() {
 
       {tab === 'walmart' && <WalmartRequirements />}
 
-      {tab === 'chewy' && <><ChewyMaterialRequirements /><div className="mt-6"><ChewyRequirements /></div></>}
+      {tab === 'chewy' && <><ChewyActivityReport /><ChewyMaterialRequirements /><div className="mt-6"><ChewyRequirements /></div></>}
 
       {tab === 'exceptions' && (
       <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
