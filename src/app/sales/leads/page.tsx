@@ -228,7 +228,7 @@ export default function LeadsPage() {
         <div className="flex gap-2 items-center"></div>
       </div>
 
-      <div className="flex gap-2 mb-5">{tabBtn('leads', 'Leads')}{tabBtn('scrape', 'Find Leads (Scrape)')}{tabBtn('market', 'Market Finder')}</div>
+      {false && (<div className="flex gap-2 mb-5">{tabBtn('leads', 'Leads')}{tabBtn('scrape', 'Find Leads (Scrape)')}{tabBtn('market', 'Market Finder')}</div>)}
 
       {tab === 'leads' && (
         <>
