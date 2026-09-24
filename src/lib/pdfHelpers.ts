@@ -137,11 +137,30 @@ function drawAddrBox(doc: jsPDF, x: number, y: number, w: number, h: number, lab
   })
 }
 
-function depositPctFrom(terms?: string | null): number {
-  if (!terms) return 40
-  const m = String(terms).match(/(\d{1,3})\s*%/)
+function pctFromTerms(terms?: string | null): number | null {
+  const m = String(terms || '').match(/(\d{1,3})\s*%/)
   if (m) { const n = parseInt(m[1], 10); if (n > 0 && n <= 100) return n }
-  return 40
+  return null
+}
+// One-line payment summary shown in the footer notes on page 1, derived from the payment terms field.
+function paymentShort(terms?: string | null): string {
+  const t = String(terms || '').trim()
+  if (/\bc\.?\s*o\.?\s*d\.?\b|cash on delivery/i.test(t)) return 'Payment is due in full upon delivery (COD).'
+  const net = t.match(/net\s*(\d+)/i); if (net) return `Payment terms are Net ${net[1]} days from the invoice date.`
+  const p = pctFromTerms(t); if (p != null) return `Custom projects require a ${p}% deposit to confirm; the remaining ${100 - p}% balance is due prior to shipment unless approved credit terms apply.`
+  if (/upfront|in advance|prepaid|100\s*%/i.test(t)) return 'Full payment is required in advance before the order is scheduled.'
+  if (t) return `Payment terms: ${t}.`
+  return 'Custom projects require a deposit to confirm; balance due prior to shipment unless approved credit terms apply.'
+}
+// Full "Payment Terms" clause for section 3 of the Terms & Conditions page, derived from the payment terms field.
+function paymentTC(terms?: string | null): string {
+  const t = String(terms || '').trim()
+  if (/\bc\.?\s*o\.?\s*d\.?\b|cash on delivery/i.test(t)) return 'Payment is due in full upon delivery (COD), unless other terms are stated on the face of this quote. Credit terms do not apply unless separately applied for and approved by Seller in writing.'
+  const net = t.match(/net\s*(\d+)/i); if (net) return `Approved payment terms for this order are Net ${net[1]} days from the invoice date. Seller may suspend performance or shipment while any balance is past due.`
+  const p = pctFromTerms(t); if (p != null) return `For custom projects, a ${p}% deposit is required to confirm and schedule the order, with the remaining ${100 - p}% balance due at the time of shipment, unless credit terms have been applied for and approved by Seller in writing. Approved credit terms are Net 30 days from the invoice date. First orders for custom projects are not eligible for credit terms. To apply for credit terms, email finance@beyondgreenbiotech.com.`
+  if (/upfront|in advance|prepaid|100\s*%/i.test(t)) return 'Full payment is required in advance before the order is scheduled and materials are procured, unless other terms are stated on the face of this quote.'
+  if (t) return `Payment terms for this order are: ${t}, unless otherwise stated on the face of this quote. Approved credit terms, where granted in writing, are Net 30 days from the invoice date.`
+  return 'For custom projects, a deposit is required to confirm and schedule the order, with the balance due at the time of shipment, unless credit terms have been applied for and approved by Seller in writing.'
 }
 
 // The Bill To / Ship To boxes echo exactly what was typed into the document's
@@ -631,9 +650,9 @@ function drawTermsPage(doc: jsPDF, order: PDFOrder) {
 
   const ensure = (need: number) => { if (y + need > H - 52) { doc.addPage(); y = 50 } }
 
-  const _depTC = depositPctFrom(order.terms)
+  const _payTC = paymentTC(order.terms)
   SO_TERMS.forEach(([title, rawBody], i) => {
-    const body = _depTC === 40 ? rawBody : rawBody.replace(/\b40%/g, _depTC + '%')
+    const body = title === 'Payment Terms' ? _payTC : rawBody
     doc.setFont('times', 'bold'); doc.setFontSize(8.5)
     const headLines = doc.splitTextToSize(`${i + 1}. ${title}`, CW) as string[]
     doc.setFont('times', 'normal'); doc.setFontSize(8)
@@ -755,8 +774,10 @@ async function renderSalesDocumentPDF(
     ] },
   }[kind]
 
-  const _depNote = depositPctFrom(order.terms)
-  if (_depNote !== 40) KIND.footerNotes = KIND.footerNotes.map(n => n.replace(/\b40%/g, _depNote + '%'))
+  const _payShort = paymentShort(order.terms)
+  KIND.footerNotes = KIND.footerNotes.map(n => n
+    .replace(/Custom projects require a 40% deposit to confirm the order; the balance is due at time of shipment unless approved credit terms apply\./, _payShort)
+    .replace(/Custom projects require a 40% deposit to confirm; balance due at time of shipment unless approved credit terms apply\./, _payShort))
 
   // Header: logo + title + Date/Number box
   const logo = await loadBrandLogo()
