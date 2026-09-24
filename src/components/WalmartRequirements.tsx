@@ -40,7 +40,19 @@ export default function WalmartRequirements() {
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    let t: any
+    const bump = () => { clearTimeout(t); t = setTimeout(() => load(), 400) }
+    const ch = sb.channel('walmart-po-requirements-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_board_orders' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_board_lines' }, bump)
+      .subscribe()
+    const onFocus = () => load()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => { clearTimeout(t); sb.removeChannel(ch); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
+  }, [load, sb])
 
   const productBySku = useMemo(() => {
     const m: Record<string, Prod> = {}
