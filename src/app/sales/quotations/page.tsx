@@ -552,6 +552,8 @@ export default function QuotationsPage() {
         total,
         notes: form.notes || null,
         payment_terms: form.payment_terms || null,
+        billing_address: form.billing_address || null,
+        shipping_address: form.shipping_address || null,
       },
       pdfLines,
       customer ? { company_name: customer.company_name } : null
