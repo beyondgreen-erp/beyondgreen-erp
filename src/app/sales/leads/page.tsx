@@ -225,10 +225,7 @@ export default function LeadsPage() {
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Leads</h1>
           <p className="text-gray-500 text-sm mt-0.5">{leads.length.toLocaleString()} leads · {withEmail.toLocaleString()} with email · <b className="text-amber-600">{totalNew.toLocaleString()} not yet contacted</b></p>
         </div>
-        <div className="flex gap-2 items-center">
-          <Link href="/sales/sequences" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Sequences →</Link>
-          <Link href="/sales/campaign" className="text-sm px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-600 hover:text-[#1A1D2E]">Campaigns →</Link>
-        </div>
+        <div className="flex gap-2 items-center"></div>
       </div>
 
       <div className="flex gap-2 mb-5">{tabBtn('leads', 'Leads')}{tabBtn('scrape', 'Find Leads (Scrape)')}{tabBtn('market', 'Market Finder')}</div>
@@ -281,7 +278,7 @@ export default function LeadsPage() {
                                 <th className="text-left px-3 py-2 font-semibold w-[130px]">Location</th>
                                 <th className="text-left px-3 py-2 font-semibold w-[200px]">Email</th>
                                 <th className="text-left px-3 py-2 font-semibold w-[120px]">Industry</th>
-                                <th className="text-left px-3 py-2 font-semibold w-[300px]">Sequence</th>
+                                <th className="text-left px-3 py-2 font-semibold w-[300px]">Status</th>
                                 <th className="text-right px-3 py-2 font-semibold w-[60px]"></th>
                               </tr>
                             </thead>
