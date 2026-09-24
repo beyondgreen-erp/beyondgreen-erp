@@ -137,18 +137,32 @@ function drawAddrBox(doc: jsPDF, x: number, y: number, w: number, h: number, lab
   })
 }
 
+function depositPctFrom(terms?: string | null): number {
+  if (!terms) return 40
+  const m = String(terms).match(/(\d{1,3})\s*%/)
+  if (m) { const n = parseInt(m[1], 10); if (n > 0 && n <= 100) return n }
+  return 40
+}
+
+// The Bill To / Ship To boxes echo exactly what was typed into the document's
+// billing_address / shipping_address fields (verbatim, one PDF line per text line).
+// Only when a document has no explicit address block do we fall back to the customer record.
 function billToRows(order: PDFOrder, customer: PDFCustomer | null): string[] {
+  if (order.billing_address && order.billing_address.trim())
+    return order.billing_address.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
   const out: string[] = []
   if (customer?.company_name) out.push(customer.company_name)
-  const addr = order.billing_address || customer?.billing_address || order.shipping_address || ''
+  const addr = customer?.billing_address || order.shipping_address || ''
   if (addr) out.push(...addr.split(/\r?\n/).filter(Boolean))
   return out
 }
 
 function shipToRows(order: PDFOrder, customer: PDFCustomer | null): string[] {
+  if (order.shipping_address && order.shipping_address.trim())
+    return order.shipping_address.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
   const out: string[] = []
   if (customer?.company_name) out.push(customer.company_name)
-  const addr = order.shipping_address || customer?.shipping_address || customer?.billing_address || ''
+  const addr = customer?.shipping_address || customer?.billing_address || ''
   if (addr) out.push(...addr.split(/\r?\n/).filter(Boolean))
   return out
 }
@@ -617,7 +631,9 @@ function drawTermsPage(doc: jsPDF, order: PDFOrder) {
 
   const ensure = (need: number) => { if (y + need > H - 52) { doc.addPage(); y = 50 } }
 
-  SO_TERMS.forEach(([title, body], i) => {
+  const _depTC = depositPctFrom(order.terms)
+  SO_TERMS.forEach(([title, rawBody], i) => {
+    const body = _depTC === 40 ? rawBody : rawBody.replace(/\b40%/g, _depTC + '%')
     doc.setFont('times', 'bold'); doc.setFontSize(8.5)
     const headLines = doc.splitTextToSize(`${i + 1}. ${title}`, CW) as string[]
     doc.setFont('times', 'normal'); doc.setFontSize(8)
@@ -646,7 +662,7 @@ function drawTermsPage(doc: jsPDF, order: PDFOrder) {
 }
 
 export async function generateQuotePDF(
-  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null; payment_terms?: string | null; po_number?: string | null },
+  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null; payment_terms?: string | null; po_number?: string | null; billing_address?: string | null; shipping_address?: string | null },
   lines: PDFLine[],
   customer: PDFCustomer | null
 ) {
@@ -656,6 +672,8 @@ export async function generateQuotePDF(
     required_ship_date: quote.expiry_date,
     status: quote.status,
     po_number: quote.po_number ?? null,
+    billing_address: quote.billing_address ?? null,
+    shipping_address: quote.shipping_address ?? null,
     subtotal: quote.subtotal,
     tax_pct: quote.tax_pct,
     total: quote.total,
@@ -736,6 +754,9 @@ async function renderSalesDocumentPDF(
       'You may reply in whatever format works best for you — fill in this PDF, send a quote sheet, or reply directly by email. Response due by the date shown above.',
     ] },
   }[kind]
+
+  const _depNote = depositPctFrom(order.terms)
+  if (_depNote !== 40) KIND.footerNotes = KIND.footerNotes.map(n => n.replace(/\b40%/g, _depNote + '%'))
 
   // Header: logo + title + Date/Number box
   const logo = await loadBrandLogo()
@@ -892,5 +913,7 @@ async function renderSalesDocumentPDF(
   // ---- Page 2: Terms & Conditions (SO/Quote only) ----
   if (KIND.includeTerms) drawTermsPage(doc, order)
 
-  doc.save(`${KIND.filePrefix}-${(order.order_number || KIND.filePrefix).replace(/[^\w.-]+/g, '_')}.pdf`)
+  const _custPart = (customer?.company_name || '').replace(/[^\w.-]+/g, ' ').trim().replace(/\s+/g, ' ')
+  const _numPart = (order.order_number || KIND.filePrefix).replace(/[^\w.-]+/g, '_')
+  doc.save((_custPart ? `${_custPart} - ${_numPart}` : `${KIND.filePrefix}-${_numPart}`) + '.pdf')
 }
