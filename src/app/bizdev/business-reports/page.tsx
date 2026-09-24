@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
 import WalmartRequirements from '@/components/WalmartRequirements'
+import WalmartActivityReport from '@/components/WalmartActivityReport'
 import ChewyRequirements from '@/components/ChewyRequirements'
 import ChewyMaterialRequirements from '@/components/ChewyMaterialRequirements'
 import ChewyActivityReport from '@/components/ChewyActivityReport'
@@ -158,7 +159,7 @@ export default function BusinessReportsPage() {
         <button onClick={() => setTab('chewy')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'chewy' ? { background: '#1C49C2', color: '#fff' } : { color: '#1C49C2' }}>Chewy PO Requirements</button>
       </div>
 
-      {tab === 'walmart' && <WalmartRequirements />}
+      {tab === 'walmart' && <><WalmartActivityReport /><WalmartRequirements /></>}
 
       {tab === 'chewy' && <><ChewyActivityReport /><ChewyMaterialRequirements /><div className="mt-6"><ChewyRequirements /></div></>}
 
