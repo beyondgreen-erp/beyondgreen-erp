@@ -8,6 +8,7 @@ import MentionsWidget from './MentionsWidget'
 import TeamPresenceStrip from './TeamPresenceStrip'
 import RawMaterialsPanel from './RawMaterialsPanel'
 import InventoryLinkGaps from './InventoryLinkGaps'
+import ActivityFeedCard from './ActivityFeedCard'
 
 const sb = createSupabaseBrowserClient()
 
@@ -923,6 +924,8 @@ export default function DashboardShell() {
           {editing && <button onClick={resetDefaults} className="px-3 py-2 bg-white border border-[#E2E8F0] text-gray-500 text-xs font-semibold rounded-lg hover:bg-[#F1F4F9]">Reset to default</button>}
         </div>
       </div>
+
+      <ActivityFeedCard />
 
       {/* Warehouse quick access — always visible, mobile-friendly */}
       <div className="grid grid-cols-2 gap-3 mb-5">
