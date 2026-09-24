@@ -26,7 +26,6 @@ interface NewLead { id: string; company_name: string | null; email: string | nul
 // Record-Board style status groups (colored, collapsible, count pill)
 const GROUPS = [
   { key: 'new',        title: 'New leads',       color: '#FDAB3D', match: (l: Lead, enr: boolean) => !isContacted(l) && !enr && !l.is_dead_lead },
-  { key: 'sequence',   title: 'In sequence',     color: '#6366F1', match: (l: Lead, enr: boolean) => enr && !l.is_dead_lead },
   { key: 'contacted',  title: 'Contacted',       color: '#3B6FE0', match: (l: Lead, enr: boolean) => isContacted(l) && !enr && !isReplied(l) && !l.is_dead_lead },
   { key: 'replied',    title: 'Replied / warm',  color: '#00C875', match: (l: Lead, enr: boolean) => isReplied(l) && !l.is_dead_lead },
   { key: 'dead',       title: 'Dead',            color: '#9699A6', match: (l: Lead) => !!l.is_dead_lead },
@@ -71,7 +70,7 @@ export default function LeadsPage() {
     const SIZE = 1000
     for (let from = 0; from < 100000; from += SIZE) {
       const { data } = await sb.from('customers').select(cols)
-        .or('is_scraped_lead.eq.true,customer_status.eq.Lead')
+        .eq('board', 'Leads')
         .order('scraped_at', { ascending: false, nullsFirst: false })
         .range(from, from + SIZE - 1)
       if (!data || !data.length) break
@@ -244,10 +243,12 @@ export default function LeadsPage() {
                 <button onClick={() => markContacted(true)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-blue-50 text-blue-700 font-semibold">Mark Contacted</button>
                 <button onClick={() => markContacted(false)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">Uncontact</button>
                 <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">→ Prospect</button>
+{false && (
                 <select value="" onChange={e => { if (e.target.value) enrollSelected(e.target.value) }} className="px-2 py-1.5 rounded border border-[#E4E6EE] bg-indigo-50 text-indigo-700 font-semibold">
                   <option value="">+ Add to sequence…</option>
                   {sequences.map(s => <option key={s.id} value={s.id}>{s.name}{s.status !== 'active' ? ` (${s.status})` : ''}</option>)}
                 </select>
+                )}
                 <button onClick={deleteSelected} className="px-2.5 py-1.5 rounded border border-red-200 bg-red-50 text-red-600 font-semibold">Delete</button>
               </div>
             )}
