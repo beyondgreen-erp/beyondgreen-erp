@@ -205,6 +205,153 @@ export async function createWorkOrdersForShortages(
   return { created, count: created.length, skipped, emailed }
 }
 
+// ─── BOM component shortages → Purchase Request ──────────────────────────────
+
+export interface ComponentShortage {
+  component_sku: string
+  component_name: string
+  qty_required: number
+  qty_on_hand: number
+  qty_short: number
+  uom: string
+  product_id: string | null
+  from_fgs: string[]
+}
+
+/**
+ * For the finished-good shortages we must PRODUCE (qty_short each), explode each FG's BOM to its
+ * components and report the components that are themselves short on hand. Same explosion the
+ * Walmart/Chewy requirement boards use.
+ */
+export async function checkComponentShortages(shortages: ShortageItem[]): Promise<ComponentShortage[]> {
+  const sb = createSupabaseBrowserClient()
+  if (!shortages.length) return []
+
+  const { data: boms } = await sb
+    .from('product_bom')
+    .select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level')
+  const bomByFg: Record<string, any[]> = {}
+  for (const b of (boms ?? []) as any[]) {
+    const k = String(b.finished_good_sku || '').trim().toUpperCase()
+    if (!k) continue
+    ;(bomByFg[k] ||= []).push(b)
+  }
+
+  const { data: fgProds } = await sb
+    .from('products')
+    .select('sku, weight_per_unit_grams, case_qty')
+    .in('sku', shortages.map(s => s.sku))
+  const fgAttr: Record<string, any> = {}
+  for (const pr of (fgProds ?? []) as any[]) fgAttr[String(pr.sku || '').trim().toUpperCase()] = pr
+
+  const need: Record<string, { qty: number; fgs: Set<string> }> = {}
+  for (const sh of shortages) {
+    const fsku = String(sh.sku).trim().toUpperCase()
+    const rows = bomByFg[fsku]
+    if (!rows || !rows.length) continue
+    const fp = fgAttr[fsku] || {}
+    for (const bb of rows) {
+      const cs = String(bb.component_sku || '').trim().toUpperCase()
+      if (!cs) continue
+      let perUnit = 0
+      if (bb.uom_type === 'percentage') perUnit = ((Number(bb.qty_value ?? bb.percentage) || 0) / 100) * (Number(fp.weight_per_unit_grams) || 0) / 453.592
+      else if (bb.is_case_level) { const cq = Number(fp.case_qty) || 0; perUnit = cq > 0 ? (Number(bb.qty_value) || 0) / cq : 0 }
+      else perUnit = Number(bb.qty_value) || 0
+      const q = perUnit * sh.qty_short
+      if (q <= 0) continue
+      const e = (need[cs] ||= { qty: 0, fgs: new Set<string>() })
+      e.qty += q
+      e.fgs.add(sh.sku)
+    }
+  }
+
+  const out: ComponentShortage[] = []
+  for (const [cs, info] of Object.entries(need)) {
+    const { data: cp } = await sb
+      .from('products')
+      .select('id, product_name, on_hand_qty, unit_of_measure')
+      .eq('sku', cs)
+      .maybeSingle()
+    const onHand = Number((cp as any)?.on_hand_qty ?? 0)
+    const req = Math.round(info.qty * 100) / 100
+    if (onHand < req) {
+      out.push({
+        component_sku: cs,
+        component_name: (cp as any)?.product_name ?? cs,
+        qty_required: req,
+        qty_on_hand: onHand,
+        qty_short: Math.round((req - onHand) * 100) / 100,
+        uom: (cp as any)?.unit_of_measure ?? 'lb',
+        product_id: (cp as any)?.id ?? null,
+        from_fgs: [...info.fgs],
+      })
+    }
+  }
+  return out
+}
+
+/** Finance-approval bucket on the Purchasing Requests board. */
+export const PR_FINANCE_GROUP = { key: 'group_finance_approval', title: 'Waiting on Finance Approval' }
+
+/**
+ * Raise ONE purchasing request (with a line per short component) into the
+ * "Waiting on Finance Approval" group, sourced from the sales order.
+ */
+export async function createPurchaseRequestForShortages(
+  orderId: string,
+  components: ComponentShortage[],
+  requestedBy?: string | null,
+): Promise<{ id: string | null; count: number }> {
+  const sb = createSupabaseBrowserClient()
+  if (!components.length) return { id: null, count: 0 }
+
+  const { data: order } = await sb
+    .from('sales_orders')
+    .select('order_number, customers(company_name)')
+    .eq('id', orderId)
+    .maybeSingle()
+  const o: any = order
+  const orderRef = o?.order_number ?? orderId.slice(0, 8)
+  const customer = o?.customers?.company_name ?? ''
+
+  const names = components.map(c => c.component_sku)
+  const headerName = names.length === 1 ? names[0] : `${names[0]} + ${names.length - 1} more`
+
+  const { data: header, error: hErr } = await sb
+    .from('purchasing_requests')
+    .insert({
+      name: `${headerName} — for ${orderRef}${customer ? ` (${customer})` : ''}`,
+      group_key: PR_FINANCE_GROUP.key,
+      group_title: PR_FINANCE_GROUP.title,
+      status: 'Pending Review',
+      person_requesting: requestedBy || 'system',
+      order_ref: orderRef,
+      customer_project: customer || null,
+      source: 'auto_shortage',
+      source_sales_order_id: orderId,
+    })
+    .select('id')
+    .single()
+
+  if (hErr) { console.error('PR header insert error:', hErr.message); return { id: null, count: 0 } }
+  const reqId = (header as any)?.id
+  if (!reqId) return { id: null, count: 0 }
+
+  const lineRows = components.map((c, i) => ({
+    parent_id: reqId,
+    name: c.component_name,
+    part_number: c.component_sku,
+    description: `Short ${c.qty_short} ${c.uom} for ${orderRef} (need ${c.qty_required}, on hand ${c.qty_on_hand}). Used in: ${c.from_fgs.join(', ')}`,
+    qty_ordered: String(c.qty_short),
+    position: i,
+    product_id: c.product_id ?? null,
+  }))
+  const { error: iErr } = await sb.from('purchasing_request_items').insert(lineRows)
+  if (iErr) console.error('PR items insert error:', iErr.message)
+
+  return { id: reqId, count: components.length }
+}
+
 // ─── Check if All Work Orders Complete → auto-move to shipping ───────────────
 
 export async function checkOrderReadyToShip(orderId: string): Promise<{ readyToShip: boolean; pending: number }> {
