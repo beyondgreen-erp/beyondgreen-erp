@@ -309,7 +309,7 @@ export default function QuotationsPage() {
       status: q.status ?? 'Draft',
       quote_date: q.quote_date ?? '',
       expiry_date: q.expiry_date ?? '',
-      payment_terms: q.payment_terms ?? 'Net 30',
+      payment_terms: q.payment_terms ?? '',
       notes: q.notes ?? '',
       tax_rate: '0',
       type: (q.type as 'quote' | 'rfq') || 'quote',
@@ -469,7 +469,7 @@ export default function QuotationsPage() {
         status: form.status,
         quote_date: form.quote_date || null,
         expiry_date: form.expiry_date || null,
-        payment_terms: form.payment_terms || 'Net 30',
+        payment_terms: form.payment_terms || null,
         notes: form.notes || null,
         subtotal,
         tax_pct: taxRate,
@@ -567,6 +567,7 @@ export default function QuotationsPage() {
         payment_terms: form.payment_terms || null,
         billing_address: form.billing_address || null,
         shipping_address: form.shipping_address || null,
+        export_country: form.export_country || null,
       },
       pdfLines,
       customer ? { company_name: customer.company_name } : null
@@ -588,10 +589,6 @@ export default function QuotationsPage() {
         unit_price: 0,
         discount_pct: 0,
       }))
-    if (pdfLines.length === 0) {
-      alert('Add at least one line item before downloading an RFQ.')
-      return
-    }
     // RFQs are sent OUT to suppliers on our behalf, so the buyer and ship-to are
     // always beyondGREEN. We do NOT expose the end customer to the supplier.
     // reply_to is a shared sourcing inbox, not the current user's email.
@@ -601,10 +598,14 @@ export default function QuotationsPage() {
         quote_date: form.quote_date || new Date().toISOString().split('T')[0],
         expiry_date: form.expiry_date || null,
         notes: form.notes || null,
-        delivery_address: null,   // pdfHelpers hard-fills beyondGREEN warehouse address for RFQ
+        delivery_address: form.shipping_address || null,
         delivery_by: (src as any)?.required_by || null,
         reply_to_email: 'sourcing@beyondgreenbiotech.com',
         reply_to_name: null,
+        billing_address: form.billing_address || null,
+        shipping_address: form.shipping_address || null,
+        export_country: form.export_country || null,
+        payment_terms: form.payment_terms || null,
       },
       pdfLines,
       null   // never send the end customer to suppliers
@@ -626,7 +627,6 @@ export default function QuotationsPage() {
     if (!form.customer_id) missing.push('Customer')
     if (!(form.billing_address || '').trim()) missing.push('Billing address')
     if (!(form.shipping_address || '').trim()) missing.push('Shipping address')
-    if (!(form.payment_terms || '').trim()) missing.push('Payment terms')
     if (!lines.some(l => (Number(l.quantity) || 0) > 0)) missing.push('At least one line item with a quantity')
     if (missing.length) {
       setConvertError('Please fill in these required details on the quote before converting: ' + missing.join(', ') + '.')
@@ -1061,6 +1061,7 @@ export default function QuotationsPage() {
                       <select value={form.export_country} onChange={e => setForm(p => ({ ...p, export_country: e.target.value }))} className={inp} style={{ ...inpStyle, cursor: 'pointer' }}>
                         <option value="China">China</option>
                         <option value="India">India</option>
+                        <option value="Indonesia">Indonesia</option>
                       </select>
                     </div>
                   </>
@@ -1077,6 +1078,7 @@ export default function QuotationsPage() {
                     </div>
                   ) : (
                     <select value={form.payment_terms} onChange={e => setForm(p => ({ ...p, payment_terms: e.target.value }))} className={inp} style={inpStyle}>
+                      <option value="">— None (leave empty) —</option>
                       {paymentTermOptions.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   )}
