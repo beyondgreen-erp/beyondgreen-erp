@@ -5,7 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
-import { checkOrderReadyToShip } from '@/lib/orderFlow'
+import { checkOrderReadyToShip, notifyFlowConfirmed } from '@/lib/orderFlow'
 import ExportButton from '@/components/ExportButton'
 import RunEntry from '@/components/RunEntry'
 import { GROUPS, FORMS, formFor, groupByName, nextWoCode, computeAll, type GroupDef, type Field, type FormDef } from '@/lib/workOrderForms'
@@ -338,6 +338,12 @@ export default function WorkOrdersPage() {
     if (error) { alert('Could not approve: ' + error.message); return }
     setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...patch } as WO : o)))
     setDetail(d => (d && d.id === wo.id ? { ...d, ...patch } as WO : d))
+    // Confirmed — tell the group (Vaishu, Robert, Shea, Veejay, Rudy) via ERP bell + email.
+    void notifyFlowConfirmed('work_order', patch.wo_code || label, {
+      orderRef: wo.sales_orders?.order_number ?? null,
+      customer: wo.sales_orders?.customers?.company_name ?? null,
+      by: userEmail || null,
+    })
   }
 
   /** Not needed after all — keep the row and the reason, take it off the floor's list. */
