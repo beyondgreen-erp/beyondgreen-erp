@@ -615,13 +615,16 @@ export default function InventoryPage() {
   const [activityOpen, setActivityOpen] = useState<Record<string, boolean>>({})
   const [activityData, setActivityData] = useState<Record<string, any[]>>({})
   const [manualAlloc, setManualAlloc] = useState<Record<string, number>>({})
+  // Finished goods committed to open sales orders. Without this the Alloc/Avail column
+  // was blank for every finished product, because component allocations only cover BOM parts.
+  const [soAlloc, setSoAlloc] = useState<Record<string, { qty: number; orders: number }>>({})
   const [allocProduct, setAllocProduct] = useState<Product | null>(null)
   const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }, { data: mal }, { data: uf }] = await Promise.all([
+    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }, { data: mal }, { data: uf }, { data: soa }] = await Promise.all([
       sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('product_bom').select('finished_good_sku'),
       sb.from('product_zones').select('product_id'),
@@ -629,6 +632,7 @@ export default function InventoryPage() {
       sb.rpc('inventory_last_received'),
       sb.from('v_manual_allocation_totals').select('sku, allocated_qty'),
       sb.from('product_uom_flags').select('sku, fix, ea_line_count, units_seen, ea_on_orders'),
+      sb.from('v_fg_allocation_totals').select('sku_key, allocated_qty, open_orders'),
     ])
     { const m: Record<string, string> = {}; for (const r of (lr as any[]) || []) { if (r.sku) m[r.sku] = r.last_received } setLastRecv(m) }
     { const m: Record<string, any> = {}; for (const r of (uf as any[]) || []) { if (r.sku) m[r.sku] = r } setUomFlags(m) }
@@ -639,9 +643,12 @@ export default function InventoryPage() {
       for (const r of b as any[]) { const k = r.finished_good_sku; if (k) counts[k] = (counts[k] ?? 0) + 1 }
       setBomMap(counts)
     }
+    // Key both allocation maps by the same normalised SKU as manualAlloc — order lines and
+    // products disagree on case ("bG23FRK1000" vs "BG23FRK1000"), which hid real allocations.
     const am: Record<string, { qty: number; orders: number }> = {}
-    for (const r of (alloc as any[]) || []) am[r.component_sku] = { qty: Number(r.allocated_qty) || 0, orders: Number(r.open_orders) || 0 }
+    for (const r of (alloc as any[]) || []) { if (r.component_sku) am[String(r.component_sku).trim().toUpperCase()] = { qty: Number(r.allocated_qty) || 0, orders: Number(r.open_orders) || 0 } }
     setAllocMap(am)
+    { const sm: Record<string, { qty: number; orders: number }> = {}; for (const r of (soa as any[]) || []) { if (r.sku_key) sm[String(r.sku_key).trim().toUpperCase()] = { qty: Number(r.allocated_qty) || 0, orders: Number(r.open_orders) || 0 } } setSoAlloc(sm) }
     { const mm: Record<string, number> = {}; for (const r of (mal as any[]) || []) { if (r.sku) mm[String(r.sku).toUpperCase()] = Number(r.allocated_qty) || 0 } setManualAlloc(mm) }
     setZonedSet(new Set(((pz as any[]) || []).map(r => r.product_id)))
     setLoading(false)
@@ -742,9 +749,11 @@ export default function InventoryPage() {
   function exportInventory(list: Product[], scope: string) {
     const header = ['SKU','Product','Category','UOM','On Hand','Qty Last Updated','Updated How','Updated By','Allocated','Available','Unit Cost','Inventory Value','UPC']
     const data = list.map(p => {
-      const a = allocMap[p.sku]?.qty || 0
-      const ma = manualAlloc[String(p.sku).toUpperCase()] || 0
-      const alloc = a + ma
+      const k = String(p.sku ?? '').trim().toUpperCase()
+      const so = soAlloc[k]?.qty || 0
+      const a = allocMap[k]?.qty || 0
+      const ma = manualAlloc[k] || 0
+      const alloc = so + a + ma
       const oh = p.on_hand_qty ?? 0
       const uc = p.unit_cost ?? 0
       const stampedAt = p.qty_updated_at ? new Date(p.qty_updated_at) : null
@@ -1233,7 +1242,7 @@ export default function InventoryPage() {
                             <th className="text-left font-semibold px-3 py-2.5 w-[130px]">Type</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[64px]">UOM</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[84px]">On Hand</th><th className="text-left font-semibold px-3 py-2.5 w-[132px]">Last Updated</th>
-                            <th className="text-right font-semibold px-3 py-2.5 w-[104px]">Alloc / Avail</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[104px]" title="Allocated = stock committed to open sales orders + consumed by BOMs on open orders + reserved by hand. Available = on hand minus that. Hover any cell for the breakdown; a red number means oversold.">Alloc / Avail</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[92px]">Unit Cost</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[110px]">Inv. Value</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[150px]">UPC</th>
@@ -1277,12 +1286,18 @@ export default function InventoryPage() {
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{qtyStamp(p)}</td>
                                 <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{(() => {
-                                  const a = allocMap[p.sku]?.qty || 0
-                                  const ma = manualAlloc[String(p.sku).toUpperCase()] || 0
-                                  const tot = a + ma
+                                  const k = String(p.sku ?? '').trim().toUpperCase()
+                                  const so = soAlloc[k]?.qty || 0          // finished goods on open sales orders
+                                  const a = allocMap[k]?.qty || 0          // BOM components consumed by open orders
+                                  const ma = manualAlloc[k] || 0           // hand-reserved stock
+                                  const tot = so + a + ma
                                   if (tot <= 0) return <span className="text-gray-300 text-xs">—</span>
                                   const avail = (p.on_hand_qty ?? 0) - tot
-                                  const parts = [a>0?`${a.toLocaleString()} BOM`:null, ma>0?`${ma.toLocaleString()} manual`:null].filter(Boolean).join(' + ')
+                                  const parts = [
+                                    so>0?`${so.toLocaleString()} on ${soAlloc[k]?.orders || 0} open order${(soAlloc[k]?.orders || 0) === 1 ? '' : 's'}`:null,
+                                    a>0?`${a.toLocaleString()} BOM`:null,
+                                    ma>0?`${ma.toLocaleString()} manual`:null,
+                                  ].filter(Boolean).join(' + ')
                                   return <div className="leading-tight" title={`Reserved: ${parts}`}><div className="text-[11px] text-violet-600 font-semibold">{tot.toLocaleString()} alloc{ma>0?' *':''}</div><div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
                                 })()}</td>
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
@@ -1432,8 +1447,8 @@ function AllocPanel({ product, userEmail, onClose }: { product: any; userEmail: 
         <div className="px-5 py-4">
           <div className="grid grid-cols-3 gap-3 mb-4 text-center">
             <div className="rounded-lg bg-[#F3F6FC] py-2"><div className="text-[10px] uppercase text-gray-400">On hand</div><div className="font-semibold text-[#1A1D2E]">{(Number(product.on_hand_qty)||0).toLocaleString()}</div></div>
-            <div className="rounded-lg bg-[#EFE7FB] py-2"><div className="text-[10px] uppercase text-gray-400">Reserved</div><div className="font-semibold text-violet-600">{totalAlloc.toLocaleString()}</div></div>
-            <div className="rounded-lg bg-[#EAF7F0] py-2"><div className="text-[10px] uppercase text-gray-400">Available</div><div className={`font-semibold ${avail<0?'text-red-600':'text-emerald-600'}`}>{avail.toLocaleString()}</div></div>
+            <div className="rounded-lg bg-[#EFE7FB] py-2" title="Reserved by hand on this panel only — it does not include stock committed to open sales orders or consumed by BOMs."><div className="text-[10px] uppercase text-gray-400">Reserved by hand</div><div className="font-semibold text-violet-600">{totalAlloc.toLocaleString()}</div></div>
+            <div className="rounded-lg bg-[#EAF7F0] py-2" title="On hand minus hand-reserved. The Alloc / Avail column on the board also nets off open sales orders and BOM usage."><div className="text-[10px] uppercase text-gray-400">Left after that</div><div className={`font-semibold ${avail<0?'text-red-600':'text-emerald-600'}`}>{avail.toLocaleString()}</div></div>
           </div>
 
           <div className="rounded-lg border border-gray-200 p-3 mb-4">
