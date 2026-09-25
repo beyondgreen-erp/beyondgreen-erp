@@ -34,6 +34,7 @@ const fmtDay = (d: string) => parseISO(d).getDate()
 const fmtMonthYear = (d: string) => parseISO(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 const fmtRange = (a: string, b: string) => `${parseISO(a).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${parseISO(b).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
 const fmtTime = (d: string | null) => d ? new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—'
+const fmtStart = (t: string | null) => { if (!t) return ''; const m = /^(\d{1,2}):(\d{2})/.exec(t); if (!m) return ''; let h = +m[1]; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return `${h}:${m[2]} ${ap}` }
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function parsePlanText(text: string): { planDate: string; lines: { machine: string; product: string; operator: string }[] } {
@@ -90,7 +91,7 @@ export default function DailyPlanPage() {
     setLoading(true)
     const [{ data: wos }, { data: mach }] = await Promise.all([
       sb.from('work_orders')
-        .select('id,wo_code,wo_number,group_name,form_type,item_part_number,qty_ordered,uom,status,machine_id,scheduled_date,scheduled_start,scheduled_hours,assigned_operator,spec')
+        .select('id,wo_code,wo_number,group_name,form_type,item_part_number,qty_ordered,uom,status,machine_id,scheduled_date,scheduled_start,scheduled_hours,assigned_operator,spec,op_token')
         .not('scheduled_date', 'is', null),
       sb.from('machines').select('id,machine_code,name'),
     ])
@@ -150,6 +151,23 @@ export default function DailyPlanPage() {
   function flash(m: string) { setToast(m); setTimeout(() => setToast(''), 2500) }
   function publicUrl(token: string) { return `${typeof window !== 'undefined' ? window.location.origin : ''}/dp/${token}` }
   function copyLink(p: Plan) { navigator.clipboard?.writeText(publicUrl(p.share_token)); flash('Operator link copied — paste it into WhatsApp') }
+
+  async function sendDayToWhatsApp(date: string) {
+    const wos: any[] = woByDate[date] || []
+    if (!wos.length) { flash('No work orders scheduled for this day'); return }
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const rows = wos.map(w => {
+      const code = w.wo_code || `WO-${w.wo_number}`
+      const mc = w.machine_id ? (machineNames[w.machine_id] || '') : ''
+      const t = w.scheduled_start ? ` · ${fmtStart(w.scheduled_start)}` : ''
+      const body = `\uD83C\uDFED ${fmtDate(date)} — *${code}*${mc ? ` · ${mc}` : ''}${t}\n${w.item_part_number || ''}${w.qty_ordered != null ? ` · ${Number(w.qty_ordered).toLocaleString()} ${w.uom || ''}` : ''}${w.assigned_operator ? `\nOperator: ${w.assigned_operator}` : ''}\n▶ Log hourly: ${origin}/wo/${w.op_token}`
+      return { wo_id: w.id, kind: 'schedule', body, plan_date: date }
+    })
+    const { error } = await sb.from('whatsapp_outbox').insert(rows)
+    if (error) { flash(error.message); return }
+    flash(`Queued ${rows.length} work order${rows.length === 1 ? '' : 's'} for the WhatsApp group`)
+  }
+  function copyOpLink(w: any) { navigator.clipboard?.writeText((typeof window !== 'undefined' ? window.location.origin : '') + '/wo/' + w.op_token); flash('Operator link copied') }
 
   function openAssign(date?: string) { setAssign({ wo_id: '', machine_id: '', date: date || anchor, start: '', hours: '', operator: '' }); setAssignOpen(true); setErr('') }
   async function saveAssign() {
@@ -221,6 +239,7 @@ export default function DailyPlanPage() {
           </span>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => openAssign(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#3B6FE0] text-white font-semibold hover:opacity-90">+ Schedule work order</button>
+            <button onClick={() => sendDayToWhatsApp(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#25D366] text-white font-semibold hover:opacity-90">Send to WhatsApp</button>
             <button onClick={() => copyLink(p)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#037f4c] text-white font-semibold hover:opacity-90">Copy operator link</button>
             <a href={publicUrl(p.share_token)} target="_blank" rel="noreferrer" className="text-[11px] px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Open ↗</a>
             <button onClick={() => deletePlan(p)} className="text-[11px] px-2 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50">Delete</button>
@@ -252,7 +271,7 @@ export default function DailyPlanPage() {
                             <td className="px-3 py-2 text-gray-700">{j.wo.item_part_number || '—'}{j.wo.qty_ordered != null ? ` · ${Number(j.wo.qty_ordered).toLocaleString()} ${j.wo.uom || ''}` : ''}</td>
                             <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{j.wo.assigned_operator || <span className="text-amber-600">no operator</span>}</td>
                             <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{j.wo.group_name || '—'}</td>
-                            <td className="px-3 py-2 text-right whitespace-nowrap"><button onClick={() => { setAssign({ wo_id: j.wo.id, machine_id: j.wo.machine_id || '', date: p.plan_date, start: (j.wo.scheduled_start || '').slice(0, 5), hours: j.wo.scheduled_hours ? String(j.wo.scheduled_hours) : '', operator: j.wo.assigned_operator || '' }); setAssignOpen(true) }} className="text-[11px] text-[#3B6FE0] hover:underline">edit</button></td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap"><button onClick={() => copyOpLink(j.wo)} className="text-[11px] text-[#037f4c] hover:underline mr-3">op link</button><button onClick={() => { setAssign({ wo_id: j.wo.id, machine_id: j.wo.machine_id || '', date: p.plan_date, start: (j.wo.scheduled_start || '').slice(0, 5), hours: j.wo.scheduled_hours ? String(j.wo.scheduled_hours) : '', operator: j.wo.assigned_operator || '' }); setAssignOpen(true) }} className="text-[11px] text-[#3B6FE0] hover:underline">edit</button></td>
                           </tr>
                         ))}
                       </tbody></table>
