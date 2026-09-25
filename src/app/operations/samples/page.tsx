@@ -13,12 +13,16 @@ interface Sample {
   customer_type: string | null; product: string | null; status: string | null; ship_due_date: string | null; sample_date: string | null
   ship_cost: number | null; shipped_via: string | null; tracking_number: string | null; ship_to_address: string | null; group_name: string | null
   recipient_email?: string | null; position?: number | null; attachments?: { name: string; url: string }[] | null
+  shipped_at?: string | null; estimated_delivery_date?: string | null; delivered_at?: string | null; delivered_email_sent_at?: string | null
 }
+
+const OPS_CC = 'rudy@beyondgreenbiotech.com'
 
 const STATUSES = [
   { label: 'Ready', hex: '#fdab3d' },
   { label: 'Hold', hex: '#579bfc' },
   { label: 'Shipped', hex: '#037f4c' },
+  { label: 'Delivered', hex: '#00c875' },
   { label: 'Complete', hex: '#00c875' },
   { label: 'Moved to Sales Pipeline', hex: '#9d50dd' },
   { label: 'Cancelled', hex: '#df2f4a' },
@@ -29,6 +33,7 @@ const statusHex = (s: string | null) => STATUSES.find(x => x.label === s)?.hex |
 const GROUPS = [
   { key: 'Pending Sample Shipments', color: '#FDAB3D' },
   { key: 'Shipped Samples', color: '#00A84F' },
+  { key: 'Delivered Samples', color: '#00C875' },
 ]
 const GROUP_OPTIONS = GROUPS.map(g => g.key)
 
@@ -48,6 +53,7 @@ const FIELDS: { key: keyof Sample; label: string; kind: 'text' | 'date' | 'num' 
   { key: 'ship_cost', label: 'Ship Cost', kind: 'num' },
   { key: 'shipped_via', label: 'Shipped Via', kind: 'text' },
   { key: 'tracking_number', label: 'Tracking #', kind: 'text' },
+  { key: 'estimated_delivery_date', label: 'Estimated Delivery', kind: 'date' },
   { key: 'recipient_email', label: 'Recipient Email', kind: 'text' },
   { key: 'ship_to_address', label: 'Ship-To Address', kind: 'text', wide: true },
 ]
@@ -125,8 +131,8 @@ function trackingUrl(carrier: string | null, tracking: string | null): string | 
   return null
 }
 
-function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: string; tracking: string; shipTo: string }): string {
-  const { sample, items, carrier, tracking, shipTo } = opts
+function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: string; tracking: string; shipTo: string; shippedDate: string; eta: string }): string {
+  const { sample, items, carrier, tracking, shipTo, shippedDate, eta } = opts
   const trackUrl = trackingUrl(carrier, tracking)
   const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td></tr>`).join('')
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
@@ -134,12 +140,31 @@ function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: strin
   <p style="margin:0 0 12px">Hi${sample.name ? ' ' + escHtml(sample.name) : ''},</p>
   <p style="margin:0 0 12px">Good news! The beyondGREEN team has sent the samples you requested!</p>
   <table style="border-collapse:collapse;width:100%;margin:8px 0 16px;font-size:14px">
-    <tr><td style="padding:4px 0;color:#6b7280;width:120px">Carrier</td><td style="padding:4px 0;font-weight:600">${escHtml(carrier || '—')}</td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280;width:120px">Ship date</td><td style="padding:4px 0;font-weight:600">${escHtml(fmtD(shippedDate || null))}</td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280">Carrier</td><td style="padding:4px 0;font-weight:600">${escHtml(carrier || '—')}</td></tr>
     <tr><td style="padding:4px 0;color:#6b7280">Tracking #</td><td style="padding:4px 0;font-weight:600;font-family:monospace">${trackUrl ? `<a href="${trackUrl}" style="color:#16a34a;text-decoration:underline">${escHtml(tracking)}</a>` : escHtml(tracking || '—')}</td></tr>
+    ${eta ? `<tr><td style="padding:4px 0;color:#6b7280">Estimated arrival</td><td style="padding:4px 0;font-weight:600">${escHtml(fmtD(eta || null))}</td></tr>` : ''}
     <tr><td style="padding:4px 0;color:#6b7280">Ship to</td><td style="padding:4px 0">${escHtml(shipTo || '—')}</td></tr>
     ${sample.product ? `<tr><td style="padding:4px 0;color:#6b7280">Product</td><td style="padding:4px 0">${escHtml(sample.product)}</td></tr>` : ''}
   </table>
   ${trackUrl ? `<div style="margin:2px 0 18px"><a href="${trackUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:14px;font-weight:600">Track your shipment</a></div>` : ''}
+  ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+  <p style="margin:20px 0 0">Thank you,<br/>The beyondGREEN Team</p>
+</div>`
+}
+
+function buildDeliveredEmail(opts: { sample: Sample; items: Line[]; deliveredDate: string; shipTo: string }): string {
+  const { sample, items, deliveredDate, shipTo } = opts
+  const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td></tr>`).join('')
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
+  <h2 style="color:#00875a;margin:0 0 8px">Your sample has been delivered</h2>
+  <p style="margin:0 0 12px">Hi${sample.name ? ' ' + escHtml(sample.name) : ''},</p>
+  <p style="margin:0 0 12px">Your beyondGREEN samples were marked delivered on ${escHtml(fmtD(deliveredDate || null))}. We'd love to hear what you think — reply to this email any time with questions or feedback.</p>
+  <table style="border-collapse:collapse;width:100%;margin:8px 0 16px;font-size:14px">
+    <tr><td style="padding:4px 0;color:#6b7280;width:120px">Delivered</td><td style="padding:4px 0;font-weight:600">${escHtml(fmtD(deliveredDate || null))}</td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280">Delivered to</td><td style="padding:4px 0">${escHtml(shipTo || '—')}</td></tr>
+    ${sample.product ? `<tr><td style="padding:4px 0;color:#6b7280">Product</td><td style="padding:4px 0">${escHtml(sample.product)}</td></tr>` : ''}
+  </table>
   ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
   <p style="margin:20px 0 0">Thank you,<br/>The beyondGREEN Team</p>
 </div>`
@@ -150,22 +175,25 @@ function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Samp
   const [carrier, setCarrier] = useState(sample.shipped_via || '')
   const [tracking, setTracking] = useState(sample.tracking_number || '')
   const [shipTo, setShipTo] = useState(sample.ship_to_address || '')
+  const [shippedDate, setShippedDate] = useState(sample.shipped_at ? sample.shipped_at.slice(0, 10) : new Date().toISOString().slice(0, 10))
+  const [eta, setEta] = useState(sample.estimated_delivery_date || '')
   const [recipient, setRecipient] = useState(sample.customer_email || sample.recipient_email || '')
   const [subject, setSubject] = useState(`Your beyondGREEN sample(s) have shipped${sample.name ? ` - ${sample.name}` : ''}`)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
   useEffect(() => { if (!lines || lines.length === 0) { sb.from('sample_submission_lines').select('id,name,sku,quantity').eq('sample_id', sample.id).order('line_number').then(({ data }) => setItems((data as Line[]) || [])) } }, [lines, sample.id, sb])
-  const html = useMemo(() => buildShippedEmail({ sample, items, carrier, tracking, shipTo }), [sample, items, carrier, tracking, shipTo])
+  const html = useMemo(() => buildShippedEmail({ sample, items, carrier, tracking, shipTo, shippedDate, eta }), [sample, items, carrier, tracking, shipTo, shippedDate, eta])
   async function sendAndMark() {
     if (!recipient.trim()) { setError('A recipient email is required.'); return }
     setSending(true); setError('')
     try {
-      const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: recipient.trim(), subject, html, reply_to: 'info@byndgrn.com' }) })
+      const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: recipient.trim(), cc: OPS_CC, subject, html, reply_to: 'info@byndgrn.com' }) })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Failed to send email')
       const now = new Date().toISOString()
-      await sb.from('sample_submissions').update({ status: 'Shipped', group_name: 'Shipped Samples', shipped_via: carrier || null, tracking_number: tracking || null, ship_to_address: shipTo || null, recipient_email: recipient.trim(), shipped_at: now, shipped_email_sent_at: now, updated_at: now }).eq('id', sample.id)
+      const shippedAt = shippedDate ? new Date(shippedDate + 'T12:00:00').toISOString() : now
+      await sb.from('sample_submissions').update({ status: 'Shipped', group_name: 'Shipped Samples', shipped_via: carrier || null, tracking_number: tracking || null, ship_to_address: shipTo || null, recipient_email: recipient.trim(), shipped_at: shippedAt, estimated_delivery_date: eta || null, shipped_email_sent_at: now, updated_at: now }).eq('id', sample.id)
       setSent(true); onDone(); setTimeout(onClose, 900)
     } catch (e) { setError((e as Error).message) }
     setSending(false)
@@ -175,7 +203,7 @@ function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Samp
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }} >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
-          <div><h2 className="font-bold text-lg text-[#1A1D2E]">Confirm Shipped</h2><p className="text-xs text-gray-500 mt-0.5">Review the email, then send it to the recipient and mark this sample shipped.</p></div>
+          <div><h2 className="font-bold text-lg text-[#1A1D2E]">Confirm Shipped</h2><p className="text-xs text-gray-500 mt-0.5">Review the email, then send it to the recipient and mark this sample shipped. A copy goes to {OPS_CC}.</p></div>
           <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-xl">&times;</button>
         </div>
         <div className="flex-1 overflow-y-auto grid md:grid-cols-2 gap-0">
@@ -183,6 +211,10 @@ function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Samp
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Shipment details</p>
             <div><label className="text-xs font-medium text-gray-600 block mb-1">Carrier</label><input value={carrier} onChange={e => setCarrier(e.target.value)} placeholder="e.g., UPS, FedEx" className={inp} /></div>
             <div><label className="text-xs font-medium text-gray-600 block mb-1">Tracking #</label><input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="1Z..." className={inp} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="text-xs font-medium text-gray-600 block mb-1">Ship date</label><input type="date" value={shippedDate} onChange={e => setShippedDate(e.target.value)} className={inp} /></div>
+              <div><label className="text-xs font-medium text-gray-600 block mb-1">Estimated arrival</label><input type="date" value={eta} onChange={e => setEta(e.target.value)} className={inp} /></div>
+            </div>
             <div><label className="text-xs font-medium text-gray-600 block mb-1">Ship-to address</label><textarea value={shipTo} onChange={e => setShipTo(e.target.value)} rows={2} className={inp + ' resize-none'} /></div>
             <div className="pt-2 border-t border-[#EEF0F4]"><label className="text-xs font-medium text-gray-600 block mb-1">Recipient email</label><input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="customer@email.com" className={inp} /></div>
             <div><label className="text-xs font-medium text-gray-600 block mb-1">Subject</label><input value={subject} onChange={e => setSubject(e.target.value)} className={inp} /></div>
@@ -194,6 +226,60 @@ function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Samp
           {sent && <p className="text-sm text-emerald-600 mr-auto font-medium">Sent &amp; marked shipped ✓</p>}
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 font-medium rounded-lg hover:bg-gray-100">Cancel</button>
           <button onClick={sendAndMark} disabled={sending || sent} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-lg">{sending ? 'Sending…' : 'Send & Mark Shipped'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeliverConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Sample; lines?: Line[]; sb: ReturnType<typeof createSupabaseBrowserClient>; onClose: () => void; onDone: () => void }) {
+  const [items, setItems] = useState<Line[]>(lines || [])
+  const [deliveredDate, setDeliveredDate] = useState(new Date().toISOString().slice(0, 10))
+  const [shipTo, setShipTo] = useState(sample.ship_to_address || '')
+  const [recipient, setRecipient] = useState(sample.customer_email || sample.recipient_email || '')
+  const [subject, setSubject] = useState(`Your beyondGREEN sample(s) have arrived${sample.name ? ` - ${sample.name}` : ''}`)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const [sent, setSent] = useState(false)
+  useEffect(() => { if (!lines || lines.length === 0) { sb.from('sample_submission_lines').select('id,name,sku,quantity').eq('sample_id', sample.id).order('line_number').then(({ data }) => setItems((data as Line[]) || [])) } }, [lines, sample.id, sb])
+  const html = useMemo(() => buildDeliveredEmail({ sample, items, deliveredDate, shipTo }), [sample, items, deliveredDate, shipTo])
+  async function sendAndMark() {
+    if (!recipient.trim()) { setError('A recipient email is required.'); return }
+    setSending(true); setError('')
+    try {
+      const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: recipient.trim(), cc: OPS_CC, subject, html, reply_to: 'info@byndgrn.com' }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Failed to send email')
+      const now = new Date().toISOString()
+      const deliveredAt = deliveredDate ? new Date(deliveredDate + 'T12:00:00').toISOString() : now
+      await sb.from('sample_submissions').update({ status: 'Delivered', group_name: 'Delivered Samples', delivered_at: deliveredAt, delivered_email_sent_at: now, updated_at: now }).eq('id', sample.id)
+      setSent(true); onDone(); setTimeout(onClose, 900)
+    } catch (e) { setError((e as Error).message) }
+    setSending(false)
+  }
+  const inp = 'w-full border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-[#1A1D2E]'
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }} >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="px-6 py-4 border-b border-[#E4E6EE] flex items-center justify-between shrink-0">
+          <div><h2 className="font-bold text-lg text-[#1A1D2E]">Confirm Delivered</h2><p className="text-xs text-gray-500 mt-0.5">Review the email, then send it and mark this sample delivered. A copy goes to {OPS_CC} so you can follow up.</p></div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-xl">&times;</button>
+        </div>
+        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 gap-0">
+          <div className="p-6 space-y-3 border-r border-[#E4E6EE]">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Delivery details</p>
+            <div><label className="text-xs font-medium text-gray-600 block mb-1">Delivered date</label><input type="date" value={deliveredDate} onChange={e => setDeliveredDate(e.target.value)} className={inp} /></div>
+            <div><label className="text-xs font-medium text-gray-600 block mb-1">Delivered to</label><textarea value={shipTo} onChange={e => setShipTo(e.target.value)} rows={2} className={inp + ' resize-none'} /></div>
+            <div className="pt-2 border-t border-[#EEF0F4]"><label className="text-xs font-medium text-gray-600 block mb-1">Recipient email</label><input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="customer@email.com" className={inp} /></div>
+            <div><label className="text-xs font-medium text-gray-600 block mb-1">Subject</label><input value={subject} onChange={e => setSubject(e.target.value)} className={inp} /></div>
+          </div>
+          <div className="p-6 bg-[#F9FAFB]"><p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Email preview</p><div className="bg-white border border-[#E4E6EE] rounded-lg p-4 overflow-auto" style={{ maxHeight: 360 }} dangerouslySetInnerHTML={{ __html: html }} /></div>
+        </div>
+        <div className="px-6 py-4 border-t border-[#E4E6EE] flex items-center gap-3 justify-end shrink-0">
+          {error && <p className="text-sm text-red-600 mr-auto">{error}</p>}
+          {sent && <p className="text-sm text-emerald-600 mr-auto font-medium">Sent &amp; marked delivered ✓</p>}
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 font-medium rounded-lg hover:bg-gray-100">Cancel</button>
+          <button onClick={sendAndMark} disabled={sending || sent} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-lg">{sending ? 'Sending…' : 'Send & Mark Delivered'}</button>
         </div>
       </div>
     </div>
@@ -222,9 +308,10 @@ export default function SamplesPage() {
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ 'Shipped Samples': true })
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ 'Shipped Samples': true, 'Delivered Samples': true })
   const [showAddModal, setShowAddModal] = useState(false)
   const [shipSample, setShipSample] = useState<Sample | null>(null)
+  const [deliverSample, setDeliverSample] = useState<Sample | null>(null)
   const [userEmail, setUserEmail] = useState('')
   const dragId = useRef<string | null>(null)
 
@@ -410,28 +497,35 @@ export default function SamplesPage() {
       .map(([key]) => ({ key, color: '#00A84F', shippedMonth: true as const }))
     const groups: { key: string; color: string; shippedMonth?: boolean }[] = [
       { key: 'Pending Sample Shipments', color: '#FDAB3D' },
-      ...extraKeys.map(k => ({ key: k, color: '#9699A6' })),
+      ...extraKeys.map(k => ({ key: k, color: GROUPS.find(g => g.key === k)?.color || '#9699A6' })),
       ...shippedMonthGroups,
     ]
     let count = 0; for (const arr of byGroup.values()) count += arr.length
     return { allGroups: groups, rowsByGroup: byGroup, shownCount: count }
   }, [rows, q])
   const groupRows = (g: { key: string; shippedMonth?: boolean }) => rowsByGroup.get(g.key) ?? []
-  // Drag a submission into another group. Dropping into "Shipped Samples" also marks it Shipped.
+  // Drag a submission into another group. Dropping into "Shipped Samples" or "Delivered Samples"
+  // used to just flip the status/group directly, with no email — so a card dragged there looked
+  // done on the board but the customer (and Rudy) never heard anything. Both now open the same
+  // confirm-and-send modal the explicit buttons use, so there is exactly one path to "Shipped" or
+  // "Delivered" and it always sends the email.
   async function moveToGroup(target: { key: string; shippedMonth?: boolean }) {
     const id = dragId.current; dragId.current = null
     if (!id) return
     const row = rows.find(r => r.id === id)
     if (!row) return
-    const patch: any = { updated_at: new Date().toISOString() }
     if (target.shippedMonth) {
       if ((row.group_name || '') === 'Shipped Samples') return // already shipped
-      patch.group_name = 'Shipped Samples'; patch.status = 'Shipped'
-      if (!(row as any).shipped_at) patch.shipped_at = new Date().toISOString()
-    } else {
-      if ((row.group_name || '') === target.key) return
-      patch.group_name = target.key
+      setShipSample(row)
+      return
     }
+    if (target.key === 'Delivered Samples') {
+      if ((row.group_name || '') === 'Delivered Samples') return // already delivered
+      setDeliverSample(row)
+      return
+    }
+    if ((row.group_name || '') === target.key) return
+    const patch: any = { updated_at: new Date().toISOString(), group_name: target.key }
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
     await sb.from('sample_submissions').update(patch).eq('id', id)
   }
@@ -463,6 +557,7 @@ export default function SamplesPage() {
           <Stat label="Total" value={rows.length} c="#0086C0" />
           <Stat label="Pending" value={rows.filter(r => (r.group_name || '') === 'Pending Sample Shipments').length} c="#FDAB3D" />
           <Stat label="Shipped" value={rows.filter(r => r.status === 'Shipped').length} c="#00A84F" />
+          <Stat label="Delivered" value={rows.filter(r => r.status === 'Delivered').length} c="#00C875" />
           <Stat label="On Hold" value={rows.filter(r => r.status === 'Hold').length} c="#579BFC" />
           <Stat label="Cancelled" value={rows.filter(r => r.status === 'Cancelled').length} c="#E2445C" />
           <Stat label="Ship Cost" value={'$' + rows.reduce((a, r) => a + (Number(r.ship_cost) || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} c="#A25DDC" />
@@ -548,6 +643,7 @@ export default function SamplesPage() {
                 {!editing && (
                   <>
                     <button onClick={() => setShipSample(detail)} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">🚚 Ship</button>
+                    {(detail.group_name === 'Shipped Samples' || detail.group_name === 'Delivered Samples') && <button onClick={() => setDeliverSample(detail)} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">📬 Delivered</button>}
                     <button onClick={startEdit} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">✎ Edit</button>
                     <button onClick={deleteRecord} disabled={deleting} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-red-500 disabled:opacity-50 transition-colors">{deleting ? 'Deleting…' : '🗑 Delete'}</button>
                   </>
@@ -680,6 +776,7 @@ export default function SamplesPage() {
 
       <AddSampleModal open={showAddModal} onClose={() => setShowAddModal(false)} onCreated={load} sb={sb} />
       {shipSample && <ShipConfirmModal sample={shipSample} lines={items[shipSample.id]} sb={sb} onClose={() => setShipSample(null)} onDone={load} />}
+      {deliverSample && <DeliverConfirmModal sample={deliverSample} lines={items[deliverSample.id]} sb={sb} onClose={() => setDeliverSample(null)} onDone={load} />}
     </div>
   )
 }
