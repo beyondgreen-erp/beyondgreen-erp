@@ -46,10 +46,19 @@ export const WORK_ORDER_APPROVERS = [
   'robert@beyondgreenbiotech.com',
 ]
 
-/** A purchase request has been raised automatically for a component that is not in stock. */
+/** A purchase request has been raised automatically for a component that is not in stock.
+ *  These people confirm & approve it (Vaishu / Finance, Rudy, Veejay). */
 export const PURCHASE_REQUEST_APPROVERS = [
+  'Finance@beyondgreenbiotech.com',
+  'Rudyp@beyondgreenbiotech.com',
   'Veejay.patell@byndgrn.com',
-  'Shea@beyondgreenbiotech.com',
+]
+
+/** A work order OR purchase request has been confirmed/approved — the whole group is told. */
+export const FLOW_CONFIRMED_NOTIFY = [
   'Finance@beyondgreenbiotech.com',
   'robert@beyondgreenbiotech.com',
+  'Shea@beyondgreenbiotech.com',
+  'Veejay.patell@byndgrn.com',
+  'Rudyp@beyondgreenbiotech.com',
 ]

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import { WORK_ORDER_APPROVERS } from '@/lib/partNumber'
+import { WORK_ORDER_APPROVERS, PURCHASE_REQUEST_APPROVERS, FLOW_CONFIRMED_NOTIFY } from '@/lib/partNumber'
 
 export type OrderStatus =
   | 'Pending' | 'New' | 'Confirmed' | 'Awaiting Production'
@@ -200,9 +200,82 @@ export async function createWorkOrdersForShortages(
       })
       emailed = res.ok
     } catch (e) { console.error('WO approval email failed:', e) }
+    // ERP bell for the same people the email went to (Robert, Shea, Rudy, Veejay).
+    try {
+      await sb.from('notifications').insert(WORK_ORDER_APPROVERS.map(r => ({
+        recipient_email: r,
+        sender_email: 'system',
+        message: `${madeRows.length} work order${madeRows.length > 1 ? 's' : ''} awaiting confirmation for ${orderRef}${customer ? ` (${customer})` : ''} — set group, machine & operator, then approve.`,
+        page: 'Work Orders',
+        is_read: false,
+        context_url: '/production/work-orders',
+      })))
+    } catch (e) { console.error('WO approval bell failed:', e) }
   }
 
   return { created, count: created.length, skipped, emailed }
+}
+
+// ─── Stage notifications (ERP bell + email) ──────────────────────────────────
+// One place that both drops a row into the notifications table (the in-app bell)
+// and sends the same note by email. Best-effort: a failure never blocks the flow.
+export async function notifyErpAndEmail(opts: {
+  recipients: string[]
+  message: string
+  page: string
+  subject: string
+  html: string
+  contextUrl?: string | null
+  replyTo?: string | null
+}): Promise<void> {
+  const sb = createSupabaseBrowserClient()
+  const to = Array.from(new Set(opts.recipients.filter(Boolean)))
+  if (!to.length) return
+  try {
+    await sb.from('notifications').insert(to.map(r => ({
+      recipient_email: r,
+      sender_email: 'system',
+      message: opts.message,
+      page: opts.page,
+      is_read: false,
+      context_url: opts.contextUrl ?? null,
+    })))
+  } catch (e) { console.error('ERP bell notify failed:', e) }
+  try {
+    await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, reply_to: opts.replyTo || undefined, subject: opts.subject, html: opts.html }),
+    })
+  } catch (e) { console.error('notify email failed:', e) }
+}
+
+/** A work order OR a purchase request has been confirmed/approved. Tell the whole group. */
+export async function notifyFlowConfirmed(
+  kind: 'work_order' | 'purchase_request',
+  label: string,
+  opts?: { orderRef?: string | null; customer?: string | null; by?: string | null },
+): Promise<void> {
+  const isWO = kind === 'work_order'
+  const what = isWO ? 'Work order' : 'Purchase request'
+  const page = isWO ? 'Work Orders' : 'Purchasing Requests'
+  const url = isWO ? '/production/work-orders' : '/sales/purchase-orders'
+  const ref = opts?.orderRef ? ` for ${opts.orderRef}${opts?.customer ? ` (${opts.customer})` : ''}` : ''
+  const message = `${what} ${label}${ref} has been confirmed${opts?.by ? ` by ${opts.by}` : ''}.`
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+      <p><strong>${what} ${label}</strong>${ref} has been <strong>confirmed</strong>${opts?.by ? ` by ${opts.by}` : ''}.</p>
+      <p>${isWO
+        ? 'It has been scheduled/approved and will now appear on the daily production plan.'
+        : 'Finance has approved it and it is moving forward for purchasing.'}</p>
+      <p><a href="https://beyondgreen-erp.vercel.app${url}">Open the ${page} board</a></p>
+      <p style="color:#6b7280;font-size:12px">Sent automatically by the beyondGREEN ERP.</p>
+    </div>`
+  await notifyErpAndEmail({
+    recipients: FLOW_CONFIRMED_NOTIFY,
+    message, page, subject: `${what} confirmed — ${label}${opts?.orderRef ? ` · ${opts.orderRef}` : ''}`,
+    html, contextUrl: url,
+  })
 }
 
 // ─── BOM component shortages → Purchase Request ──────────────────────────────
@@ -348,6 +421,28 @@ export async function createPurchaseRequestForShortages(
   }))
   const { error: iErr } = await sb.from('purchasing_request_items').insert(lineRows)
   if (iErr) console.error('PR items insert error:', iErr.message)
+
+  // Tell Vaishu (Finance), Rudy and Veejay to confirm & approve it — ERP bell + email.
+  const compList = components.map(c => `${c.component_sku} — short ${c.qty_short} ${c.uom}`).join(', ')
+  const prHtml = `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+      <p>A <strong>purchase request</strong> has been raised for order <strong>${orderRef}</strong>${customer ? ` (${customer})` : ''}
+         because BOM components are not on the shelf. It is waiting in
+         <strong>Waiting on Finance Approval</strong> for you to confirm and approve.</p>
+      <p><strong>Components:</strong> ${compList}</p>
+      <p>Raised by ${requestedBy || 'the stock check'}.<br>
+         <a href="https://beyondgreen-erp.vercel.app/sales/purchase-orders">Open the Purchasing Requests board</a></p>
+      <p style="color:#6b7280;font-size:12px">Sent automatically by the beyondGREEN ERP.</p>
+    </div>`
+  await notifyErpAndEmail({
+    recipients: PURCHASE_REQUEST_APPROVERS,
+    message: `Purchase request for ${orderRef}${customer ? ` (${customer})` : ''} needs finance confirmation & approval: ${compList}`,
+    page: 'Purchasing Requests',
+    subject: `Purchase request awaiting approval — ${orderRef}${customer ? ` (${customer})` : ''}`,
+    html: prHtml,
+    contextUrl: '/sales/purchase-orders',
+    replyTo: requestedBy || undefined,
+  })
 
   return { id: reqId, count: components.length }
 }
