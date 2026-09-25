@@ -7,7 +7,7 @@ import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 import Comments from '@/components/Comments'
 
-interface Line { id?: string; _new?: boolean; name: string | null; sku: string | null; quantity: number | null; product_id?: string | null }
+interface Line { id?: string; _new?: boolean; name: string | null; sku: string | null; quantity: number | null; uom: string | null; product_id?: string | null }
 interface Sample {
   id: string; name: string | null; requesting_facility: string | null; requestor: string | null; customer_email: string | null
   customer_type: string | null; product: string | null; status: string | null; ship_due_date: string | null; sample_date: string | null
@@ -36,6 +36,9 @@ const GROUPS = [
   { key: 'Delivered Samples', color: '#00C875' },
 ]
 const GROUP_OPTIONS = GROUPS.map(g => g.key)
+// The UOMs already in use across Inventory (products.unit_of_measure) — kept as one list so
+// the sample line items pick from the same vocabulary the rest of the ERP already uses.
+const UOM_OPTIONS = ['EA', 'PCS', 'PKS', 'CASE', 'LBS', 'ROLLS', 'M', 'Bags']
 
 const fmtD = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 function escHtml(v: unknown): string { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
@@ -134,7 +137,7 @@ function trackingUrl(carrier: string | null, tracking: string | null): string | 
 function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: string; tracking: string; shipTo: string; shippedDate: string; eta: string }): string {
   const { sample, items, carrier, tracking, shipTo, shippedDate, eta } = opts
   const trackUrl = trackingUrl(carrier, tracking)
-  const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td></tr>`).join('')
+  const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml((i as any).uom || '—')}</td></tr>`).join('')
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
   <h2 style="color:#16a34a;margin:0 0 8px">Your sample has shipped</h2>
   <p style="margin:0 0 12px">Hi${sample.name ? ' ' + escHtml(sample.name) : ''},</p>
@@ -148,14 +151,14 @@ function buildShippedEmail(opts: { sample: Sample; items: Line[]; carrier: strin
     ${sample.product ? `<tr><td style="padding:4px 0;color:#6b7280">Product</td><td style="padding:4px 0">${escHtml(sample.product)}</td></tr>` : ''}
   </table>
   ${trackUrl ? `<div style="margin:2px 0 18px"><a href="${trackUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-size:14px;font-weight:600">Track your shipment</a></div>` : ''}
-  ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+  ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th><th style="text-align:left;padding:6px 10px;color:#6b7280">UOM</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
   <p style="margin:20px 0 0">Thank you,<br/>The beyondGREEN Team</p>
 </div>`
 }
 
 function buildDeliveredEmail(opts: { sample: Sample; items: Line[]; deliveredDate: string; shipTo: string }): string {
   const { sample, items, deliveredDate, shipTo } = opts
-  const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td></tr>`).join('')
+  const rows = items.map(i => `<tr><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml(i.name || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;font-family:monospace">${escHtml(i.sku || '—')}</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">${i.quantity ?? '—'}</td><td style="padding:6px 10px;border-top:1px solid #eee">${escHtml((i as any).uom || '—')}</td></tr>`).join('')
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1A1D2E">
   <h2 style="color:#00875a;margin:0 0 8px">Your sample has been delivered</h2>
   <p style="margin:0 0 12px">Hi${sample.name ? ' ' + escHtml(sample.name) : ''},</p>
@@ -165,7 +168,7 @@ function buildDeliveredEmail(opts: { sample: Sample; items: Line[]; deliveredDat
     <tr><td style="padding:4px 0;color:#6b7280">Delivered to</td><td style="padding:4px 0">${escHtml(shipTo || '—')}</td></tr>
     ${sample.product ? `<tr><td style="padding:4px 0;color:#6b7280">Product</td><td style="padding:4px 0">${escHtml(sample.product)}</td></tr>` : ''}
   </table>
-  ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+  ${items.length ? `<h3 style="font-size:14px;margin:16px 0 4px">Items</h3><table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;color:#6b7280">Item</th><th style="text-align:left;padding:6px 10px;color:#6b7280">SKU</th><th style="text-align:right;padding:6px 10px;color:#6b7280">Qty</th><th style="text-align:left;padding:6px 10px;color:#6b7280">UOM</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
   <p style="margin:20px 0 0">Thank you,<br/>The beyondGREEN Team</p>
 </div>`
 }
@@ -182,7 +185,7 @@ function ShipConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: Samp
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
-  useEffect(() => { if (!lines || lines.length === 0) { sb.from('sample_submission_lines').select('id,name,sku,quantity').eq('sample_id', sample.id).order('line_number').then(({ data }) => setItems((data as Line[]) || [])) } }, [lines, sample.id, sb])
+  useEffect(() => { if (!lines || lines.length === 0) { sb.from('sample_submission_lines').select('id,name,sku,quantity,uom').eq('sample_id', sample.id).order('line_number').then(({ data }) => setItems((data as Line[]) || [])) } }, [lines, sample.id, sb])
   const html = useMemo(() => buildShippedEmail({ sample, items, carrier, tracking, shipTo, shippedDate, eta }), [sample, items, carrier, tracking, shipTo, shippedDate, eta])
   async function sendAndMark() {
     if (!recipient.trim()) { setError('A recipient email is required.'); return }
@@ -241,7 +244,7 @@ function DeliverConfirmModal({ sample, lines, sb, onClose, onDone }: { sample: S
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
-  useEffect(() => { if (!lines || lines.length === 0) { sb.from('sample_submission_lines').select('id,name,sku,quantity').eq('sample_id', sample.id).order('line_number').then(({ data }) => setItems((data as Line[]) || [])) } }, [lines, sample.id, sb])
+  useEffect(() => { if (!lines || lines.length === 0) { sb.from('sample_submission_lines').select('id,name,sku,quantity,uom').eq('sample_id', sample.id).order('line_number').then(({ data }) => setItems((data as Line[]) || [])) } }, [lines, sample.id, sb])
   const html = useMemo(() => buildDeliveredEmail({ sample, items, deliveredDate, shipTo }), [sample, items, deliveredDate, shipTo])
   async function sendAndMark() {
     if (!recipient.trim()) { setError('A recipient email is required.'); return }
@@ -352,7 +355,7 @@ export default function SamplesPage() {
 
   const ensureLines = useCallback(async (id: string) => {
     if (items[id]) return
-    const { data } = await sb.from('sample_submission_lines').select('id,name,sku,quantity,product_id').eq('sample_id', id).order('line_number')
+    const { data } = await sb.from('sample_submission_lines').select('id,name,sku,quantity,uom,product_id').eq('sample_id', id).order('line_number')
     setItems(m => ({ ...m, [id]: (data as Line[]) || [] }))
   }, [items, sb])
 
@@ -368,20 +371,20 @@ export default function SamplesPage() {
     for (const fld of FIELDS) f[fld.key] = (detail as any)[fld.key] ?? ''
     f.name = detail.name ?? ''
     setForm(f)
-    setLineForms(detailLines.map(l => ({ id: l.id, name: l.name ?? '', sku: l.sku ?? '', quantity: l.quantity, product_id: (l as any).product_id ?? null })))
+    setLineForms(detailLines.map(l => ({ id: l.id, name: l.name ?? '', sku: l.sku ?? '', quantity: l.quantity, uom: (l as any).uom ?? '', product_id: (l as any).product_id ?? null })))
     setEditing(true)
   }
   const setLine = (idx: number, patch: Partial<Line>) => setLineForms(ls => ls.map((l, i) => i === idx ? { ...l, ...patch } : l))
-  const addLine = () => setLineForms(ls => [...ls, { _new: true, name: '', sku: '', quantity: null, product_id: null }])
+  const addLine = () => setLineForms(ls => [...ls, { _new: true, name: '', sku: '', quantity: null, uom: '', product_id: null }])
   const removeLine = (idx: number) => setLineForms(ls => ls.filter((_, i) => i !== idx))
   // ULTRON: pull products live from the Inventory board (source of truth)
   async function searchProducts(q: string) {
     if (q.trim().length < 2) { setProductResults([]); return }
-    const { data } = await sb.from('products').select('id, sku, product_name').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
+    const { data } = await sb.from('products').select('id, sku, product_name, unit_of_measure').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).limit(8)
     setProductResults(data ?? [])
   }
   function selectProduct(product: any) {
-    setLineForms(ls => [...ls, { _new: true, name: product.product_name ?? '', sku: product.sku ?? '', quantity: null, product_id: product.id }])
+    setLineForms(ls => [...ls, { _new: true, name: product.product_name ?? '', sku: product.sku ?? '', quantity: null, uom: product.unit_of_measure ?? '', product_id: product.id }])
     setProductSearch(''); setProductResults([])
   }
 
@@ -419,7 +422,7 @@ export default function SamplesPage() {
             else { const { data: again } = await sb.from('products').select('id').ilike('sku', sku).limit(1); pid = (again?.[0] as any)?.id ?? null }
           }
         }
-        const row: any = { sample_id: detail.id, name: (name || null), sku: (sku || null), quantity: isNaN(q as any) ? null : q, product_id: pid, line_number: idx + 1 }
+        const row: any = { sample_id: detail.id, name: (name || null), sku: (sku || null), quantity: isNaN(q as any) ? null : q, uom: (l.uom || null), product_id: pid, line_number: idx + 1 }
         if (l._new || !l.id) await sb.from('sample_submission_lines').insert(row)
         else await sb.from('sample_submission_lines').update(row).eq('id', l.id)
       }
@@ -704,7 +707,7 @@ export default function SamplesPage() {
                 {editing ? (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[520px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">Item</th><th className="text-left px-2 py-2 w-[160px]">SKU</th><th className="text-left px-2 py-2 w-[90px]">Qty</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">Item</th><th className="text-left px-2 py-2 w-[160px]">SKU</th><th className="text-left px-2 py-2 w-[90px]">Qty</th><th className="text-left px-2 py-2 w-[100px]">UOM</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
                       <tbody>
                         {lineForms.map((l, idx) => (
                           <tr key={l.id || `new-${idx}`} className="border-t border-[#F0F2F6]">
@@ -718,19 +721,25 @@ export default function SamplesPage() {
                               </div>
                             </td>
                             <td className="px-2 py-1.5"><input type="number" className={cellCls} value={l.quantity ?? ''} onChange={e => setLine(idx, { quantity: e.target.value === '' ? null : Number(e.target.value) })} /></td>
+                            <td className="px-2 py-1.5">
+                              <select className={cellCls} value={l.uom ?? ''} onChange={e => setLine(idx, { uom: e.target.value })}>
+                                <option value="">—</option>
+                                {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+                              </select>
+                            </td>
                             <td className="px-1 py-1.5 text-center"><button onClick={() => removeLine(idx)} className="text-gray-300 hover:text-red-500 text-base leading-none" title="Remove item">×</button></td>
                           </tr>
                         ))}
-                        {lineForms.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400 text-sm">No items. Click “＋ Add item”.</td></tr>}
+                        {lineForms.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-sm">No items. Click “＋ Add item”.</td></tr>}
                       </tbody>
                     </table>
                   </div>
                 ) : detailLines.length === 0 ? <p className="text-sm text-gray-400">No sample items.</p> : (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[480px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">Item</th><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Qty</th></tr></thead>
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-3 py-2">Item</th><th className="text-left px-3 py-2">SKU</th><th className="text-right px-3 py-2">Qty</th><th className="text-left px-3 py-2">UOM</th></tr></thead>
                       <tbody>
-                        {detailLines.map(l => (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 text-gray-700">{l.name || '—'}</td><td className="px-3 py-2 font-mono text-emerald-600">{l.sku || '—'}</td><td className="px-3 py-2 text-right text-gray-600">{l.quantity ?? '—'}</td></tr>))}
+                        {detailLines.map(l => (<tr key={l.id} className="border-t border-[#F0F2F6]"><td className="px-3 py-2 text-gray-700">{l.name || '—'}</td><td className="px-3 py-2 font-mono text-emerald-600">{l.sku || '—'}</td><td className="px-3 py-2 text-right text-gray-600">{l.quantity ?? '—'}</td><td className="px-3 py-2 text-gray-600">{(l as any).uom || '—'}</td></tr>))}
                       </tbody>
                     </table>
                   </div>
