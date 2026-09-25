@@ -171,6 +171,7 @@ export default function WorkOrdersPage() {
   const [busy, setBusy] = useState(false)
   const [showDone, setShowDone] = useState(false)
   const [woProduct, setWoProduct] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null } | null>(null)
+  const [bom, setBom] = useState<{ component_sku: string; product_name: string | null; on_hand_qty: number | null; uom: string | null; lot: string | null }[]>([])
   const [fgMoves, setFgMoves] = useState<{ created_at: string; qty: number; uom: string | null; created_by: string | null }[]>([])
   const [booking, setBooking] = useState(false)
   const [negStock, setNegStock] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null }[]>([])
@@ -238,20 +239,35 @@ export default function WorkOrdersPage() {
   // Now it only reloads when a different work order is opened.
   const detailId = detail?.id ?? null
   useEffect(() => {
-    if (!detailId) { setWoProduct(null); setFgMoves([]); return }
+    if (!detailId) { setWoProduct(null); setFgMoves([]); setBom([]); return }
     setSpec({ ...(detail?.spec || {}) })
     setHoursDraft(detail?.scheduled_hours == null ? '' : String(detail.scheduled_hours))
     setDirty(false)
     const pid = detail?.product_id ?? null
     ;(async () => {
+      let sku: string | null = detail?.item_part_number ?? null
       if (pid) {
         const { data: pr } = await sb.from('products').select('sku,product_name,on_hand_qty').eq('id', pid).maybeSingle()
         setWoProduct((pr as any) || null)
+        if ((pr as any)?.sku) sku = (pr as any).sku
       } else setWoProduct(null)
       const { data: mv } = await sb.from('inventory_movements')
         .select('created_at,qty,uom,created_by')
         .eq('ref_table', 'work_orders').eq('ref_id', detailId).eq('movement_type', 'produce').order('created_at')
       setFgMoves((mv as any[]) || [])
+      // BOM raw-material components pulled live from the Inventory board (on-hand + latest lot).
+      if (sku && String(sku).trim()) {
+        const { data: brows } = await sb.from('product_bom').select('component_sku').ilike('finished_good_sku', String(sku).trim())
+        const comps = Array.from(new Set(((brows as any[]) || []).map(b => String(b.component_sku || '').trim().toUpperCase()).filter(Boolean)))
+        const out: { component_sku: string; product_name: string | null; on_hand_qty: number | null; uom: string | null; lot: string | null }[] = []
+        for (const cs of comps) {
+          const { data: cp } = await sb.from('products').select('product_name,on_hand_qty,unit_of_measure').ilike('sku', cs).limit(1)
+          const prod = (cp as any)?.[0]
+          const { data: lt } = await sb.from('inventory_movements').select('lot_number').ilike('sku', cs).not('lot_number', 'is', null).order('created_at', { ascending: false }).limit(1)
+          out.push({ component_sku: cs, product_name: prod?.product_name ?? null, on_hand_qty: prod?.on_hand_qty ?? null, uom: prod?.unit_of_measure ?? null, lot: ((lt as any)?.[0]?.lot_number) ?? null })
+        }
+        setBom(out)
+      } else setBom([])
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailId])
@@ -1124,6 +1140,28 @@ export default function WorkOrdersPage() {
                     No finished-goods product is linked, so completing this work order will not move stock.
                     Put the SKU in <span className="font-medium">Item Part #</span> and save — if that SKU is on the Inventory board it links itself.
                   </p>
+                )}
+              </div>
+
+              <div className="border-t border-gray-100 pt-4">
+                <label className="block text-xs text-gray-400 mb-2">Materials / BOM · live from the Inventory board</label>
+                {bom.length > 0 ? (
+                  <div className="rounded-lg border border-gray-100 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-gray-50 text-[11px] text-gray-400 uppercase"><th className="text-left px-3 py-1.5">Component</th><th className="text-right px-3 py-1.5">On hand</th><th className="text-left px-3 py-1.5">Lot</th></tr></thead>
+                      <tbody>
+                        {bom.map((c, i) => (
+                          <tr key={i} className="border-t border-gray-50">
+                            <td className="px-3 py-1.5"><span className="font-mono text-emerald-700">{c.component_sku}</span><div className="text-[10px] text-gray-400 truncate max-w-[190px]">{c.product_name}</div></td>
+                            <td className="px-3 py-1.5 text-right" style={{ color: (Number(c.on_hand_qty) || 0) < 0 ? '#DC2626' : '#111827' }}>{fmtN(c.on_hand_qty)} {c.uom || ''}</td>
+                            <td className="px-3 py-1.5 text-xs text-gray-500">{c.lot || '\u2014'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">No BOM components on file for this item.</p>
                 )}
               </div>
 
