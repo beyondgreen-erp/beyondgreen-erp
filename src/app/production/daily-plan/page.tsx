@@ -252,7 +252,7 @@ export default function DailyPlanPage() {
                             <td className="px-3 py-2 text-gray-700">{j.wo.item_part_number || '—'}{j.wo.qty_ordered != null ? ` · ${Number(j.wo.qty_ordered).toLocaleString()} ${j.wo.uom || ''}` : ''}</td>
                             <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{j.wo.assigned_operator || <span className="text-amber-600">no operator</span>}</td>
                             <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{j.wo.group_name || '—'}</td>
-                            <td className="px-3 py-2 text-right whitespace-nowrap"><button onClick={() => setAssign({ wo_id: j.wo.id, machine_id: j.wo.machine_id || '', date: p.plan_date, start: (j.wo.scheduled_start || '').slice(0, 5), hours: j.wo.scheduled_hours ? String(j.wo.scheduled_hours) : '', operator: j.wo.assigned_operator || '' }) || setAssignOpen(true)} className="text-[11px] text-[#3B6FE0] hover:underline">edit</button></td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap"><button onClick={() => { setAssign({ wo_id: j.wo.id, machine_id: j.wo.machine_id || '', date: p.plan_date, start: (j.wo.scheduled_start || '').slice(0, 5), hours: j.wo.scheduled_hours ? String(j.wo.scheduled_hours) : '', operator: j.wo.assigned_operator || '' }); setAssignOpen(true) }} className="text-[11px] text-[#3B6FE0] hover:underline">edit</button></td>
                           </tr>
                         ))}
                       </tbody></table>
