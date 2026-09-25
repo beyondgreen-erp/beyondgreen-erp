@@ -10,6 +10,9 @@ import { normalizeUom } from '@/lib/uom'
 
 const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
+// Comparison key for a SKU: ignores case, spaces and punctuation, so "BC-1212 12BAG",
+// "bc121212bag" and "BC121212BAG" all resolve to the same inventory product.
+const skuKey = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
 const SHIP_FROM_NAME = 'beyondGREEN biotech, Inc.'
 const SHIP_FROM_ADDR = '1202 E Wakeham Ave.,\nSanta Ana, CA 92705 USA'
 const SHIPPABLE = ['In Production', 'Ready to Ship', 'Prepped & Ready for Dispatch', 'Ready at Will Call', 'Partially Shipped']
@@ -46,6 +49,9 @@ interface PlanRow {
   caseWeightLb: number; gramsPerUnit: number; upc: string | null; customerPart: string | null
   gtinImageUrl: string | null; uom: string; packaging: string; done: number
   productId: string | null
+  // The SKU as Inventory spells it (may differ from the order line's SKU by case/punctuation).
+  // GTIN writes go back under this spelling so they land on the real product.
+  productSku?: string | null
   // The sales_order_line this row came from, and its price. Both are needed to record
   // what went in the shipment and what that shipment was worth.
   lineId: string | null
@@ -296,9 +302,20 @@ export default function ShippingQueuePage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;((bySku as any[]) || []).forEach((p: any) => { prodBySku[String(p.sku || '').toUpperCase()] = p })
     }
+    // Last resort: a SKU that differs only by punctuation/spacing ("BC1212 BAG", "bc-121212bag")
+    // still has to find its product, otherwise the UPC + GTIN barcode silently go missing on the
+    // case labels. Product list is small, so one pass builds a normalised index.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prodByNorm: Record<string, any> = {}
+    const unmatched = ls.filter((l: any) => !(l.product_id && prodMap[l.product_id]) && !prodBySku[String(l.sku || '').trim().toUpperCase()])
+    if (unmatched.length) {
+      const { data: allProds } = await sb.from('products').select(PROD_COLS).limit(5000)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;((allProds as any[]) || []).forEach((p: any) => { const k = skuKey(p.sku); if (k && !prodByNorm[k]) prodByNorm[k] = p })
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rowsOut: PlanRow[] = ls.map((l: any) => {
-      const prod = (l.product_id && prodMap[l.product_id]) || prodBySku[String(l.sku || '').toUpperCase()] || null
+      const prod = (l.product_id && prodMap[l.product_id]) || prodBySku[String(l.sku || '').trim().toUpperCase()] || prodByNorm[skuKey(l.sku)] || null
       // Cases = ordered quantity unless the line explicitly bundles units per case.
       // (product.case_qty is the retail count e.g. "1,000CT" — not a shipping case grouping.)
       const upc = l.qty_per_case || 1
@@ -315,7 +332,8 @@ export default function ShippingQueuePage() {
         caseWeightLb: perCaseWt, gramsPerUnit: gpu,
         upc: prod?.upc_gtin || null, customerPart: prod?.customer_part_number || null, gtinImageUrl: prod?.gtin_image_url || null,
         uom: normalizeUom(l.unit_of_measure) || normalizeUom(prod?.unit_of_measure) || 'Case', packaging: l.packaging || '', done,
-        productId: l.product_id || null,
+        productId: prod?.id || l.product_id || null,   // resolved product wins: the line's id can be stale
+        productSku: prod?.sku || null,
         lineId: l.id || null, unitPrice: Number(l.unit_price) || 0,
         shippedUnits: shipped, boxes,
       }
@@ -324,10 +342,10 @@ export default function ShippingQueuePage() {
     try {
       const skuList = [...new Set(rowsOut.map(r => String(r.sku || '').trim().toUpperCase()).filter(Boolean))]
       if (skuList.length) {
-        const { data: ov } = await sb.from('sku_gtin_overrides').select('sku, gtin_image_url').in('sku', skuList)
+        const { data: ov } = await sb.from('sku_gtin_overrides').select('sku, gtin_image_url')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ovMap: Record<string, string> = {}; ((ov as any[]) || []).forEach((o: any) => { ovMap[String(o.sku).toUpperCase()] = o.gtin_image_url })
-        for (const r of rowsOut) { if (!r.gtinImageUrl) { const u = ovMap[String(r.sku || '').trim().toUpperCase()]; if (u) r.gtinImageUrl = u } }
+        const ovMap: Record<string, string> = {}; ((ov as any[]) || []).forEach((o: any) => { const k = skuKey(o.sku); if (k) ovMap[k] = o.gtin_image_url })
+        for (const r of rowsOut) { if (!r.gtinImageUrl) { const u = ovMap[skuKey(r.sku)]; if (u) r.gtinImageUrl = u } }
       }
     } catch { /* ignore */ }
     // Restore a saved draft (pallet configurations, parcel flag, BOL form) if one exists.
@@ -839,16 +857,57 @@ export default function ShippingQueuePage() {
       const url = sb.storage.from('erp-images').getPublicUrl(path).data.publicUrl
       // apply to every plan row with this SKU so the case labels can use it now
       setPlan(p => p.map(r => r.sku === sku ? { ...r, gtinImageUrl: url } : r))
-      // write back to Inventory so it's available next time. Update by product id first; if that
-      // matched no row (orphaned/mismatched id), fall back to a case-insensitive SKU match so the
-      // GTIN reliably persists to the real product.
-      const pid = plan.find(r => r.sku === sku)?.productId
-      let saved = 0
-      if (pid) { const { data } = await sb.from('products').update({ gtin_image_url: url }).eq('id', pid).select('id'); saved = (data as unknown[])?.length || 0 }
-      if (!saved) { const { data } = await sb.from('products').update({ gtin_image_url: url }).ilike('sku', sku).select('id'); saved = (data as unknown[])?.length || 0 }
-      // Persist a SKU→GTIN fallback so it sticks even when the SKU has no inventory product.
-      try { await sb.from('sku_gtin_overrides').upsert({ sku: sku.trim().toUpperCase(), gtin_image_url: url, updated_at: new Date().toISOString() }) } catch { /* ignore */ }
+
+      // Write it back so it is there next time. This used to fail silently in three ways at once
+      // (stale product_id, order-line SKU spelled differently from Inventory, swallowed error),
+      // which is why uploads "didn't save". Every step is now checked and reported.
+      const row = plan.find(r => r.sku === sku)
+      let productId: string | null = null
+
+      // 1. the id the row resolved to — confirm the product actually exists before trusting it
+      if (row?.productId) {
+        const { data } = await sb.from('products').select('id').eq('id', row.productId).maybeSingle()
+        if (data) productId = (data as { id: string }).id
+      }
+      // 2. Inventory's own spelling of the SKU, then the order line's
+      for (const cand of [row?.productSku, sku]) {
+        if (productId || !cand) continue
+        const { data } = await sb.from('products').select('id').ilike('sku', String(cand).trim()).limit(1)
+        const hit = (data as { id: string }[] | null)?.[0]
+        if (hit) productId = hit.id
+      }
+      // 3. punctuation/space-insensitive match, so "BC1212BAG" still finds "BC121212BAG"-class typos
+      if (!productId) {
+        const key = skuKey(sku)
+        const { data } = await sb.from('products').select('id, sku').limit(5000)
+        const hit = ((data as { id: string; sku: string | null }[] | null) || []).find(p => skuKey(p.sku) === key)
+        if (hit) productId = hit.id
+      }
+
+      let savedToProduct = false
+      let productErr = ''
+      if (productId) {
+        const { data, error: upErr } = await sb.from('products').update({ gtin_image_url: url }).eq('id', productId).select('id')
+        if (upErr) productErr = upErr.message
+        savedToProduct = ((data as unknown[]) || []).length > 0
+      }
+
+      // Always keep the SKU→GTIN fallback in step, so the barcode survives even when this SKU
+      // has no inventory product at all. Errors here are surfaced, not swallowed.
+      const { error: ovErr } = await sb.from('sku_gtin_overrides')
+        .upsert({ sku: sku.trim().toUpperCase(), gtin_image_url: url, updated_at: new Date().toISOString() }, { onConflict: 'sku' })
+
       setMissing(m => m.filter(s => s !== sku))
+
+      if (!savedToProduct && ovErr) {
+        alert(`The barcode is on this shipment's labels, but it could NOT be saved for next time.\n\n`
+          + `SKU "${sku}" was not found on the Inventory board${productErr ? ` (${productErr})` : ''}, and the fallback save failed: ${ovErr.message}\n\n`
+          + `Add this SKU to Inventory, or send this message to Rudy.`)
+      } else if (!savedToProduct) {
+        alert(`Saved — this barcode will be used for SKU "${sku}" from now on.\n\n`
+          + `Note: "${sku}" is not on the Inventory board${productErr ? ` (${productErr})` : ''}, so it was saved against the SKU instead of the product. `
+          + `Adding it to Inventory is still worth doing.`)
+      }
     } catch (e) { alert('GTIN upload failed: ' + (e as Error).message) }
     setBusy('')
   }
