@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
-import { checkInventoryForOrder, createWorkOrdersForShortages, onStatusChange } from '@/lib/orderFlow'
+import { checkInventoryForOrder, createWorkOrdersForShortages, checkComponentShortages, createPurchaseRequestForShortages, onStatusChange } from '@/lib/orderFlow'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Props {
@@ -15,11 +15,16 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
   const [loading, setLoading] = useState(true)
   const [result, setResult] = useState<any>(null)
   const [acting, setActing] = useState(false)
+  const [components, setComponents] = useState<any[]>([])
+  const [prCreated, setPrCreated] = useState(false)
 
   useEffect(() => {
-    checkInventoryForOrder(orderId).then(r => {
+    checkInventoryForOrder(orderId).then(async r => {
       setResult(r)
       setLoading(false)
+      if (r.shortages.length) {
+        try { setComponents(await checkComponentShortages(r.shortages)) } catch { /* best-effort */ }
+      }
     })
   }, [orderId])
 
@@ -39,6 +44,16 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
     bits.push(r.emailed ? 'Veejay, Shea, Rudy and Robert have been emailed' : 'the notification email could not be sent')
     alert(`✓ ${bits.join('. ')}.`)
     onDone('production')
+  }
+
+  async function handleCreatePurchaseRequest() {
+    setActing(true)
+    const sb = createSupabaseBrowserClient()
+    const { data: u } = await sb.auth.getUser()
+    const r = await createPurchaseRequestForShortages(orderId, components, u?.user?.email ?? null)
+    setPrCreated(true)
+    setActing(false)
+    alert(`✓ Purchase request raised with ${r.count} component${r.count === 1 ? '' : 's'} into "Waiting on Finance Approval".`)
   }
 
   return (
@@ -180,6 +195,40 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
                   </p>
                 </div>
               )}
+              {/* BOM components short -> purchase request */}
+              {components.length > 0 && (
+                <div className="rounded-xl p-4 mt-3"
+                  style={{ background: '#FEF3F2', border: '1px solid #FECDCA' }}>
+                  <p className="text-sm font-semibold mb-2" style={{ color: '#B42318' }}>
+                    <i className="ti ti-package-off mr-1.5" />
+                    {components.length} BOM component{components.length !== 1 ? 's' : ''} also short — a Purchase Request is needed
+                  </p>
+                  <div className="rounded-lg border overflow-hidden bg-white" style={{ borderColor: '#FECDCA' }}>
+                    <table className="w-full">
+                      <thead>
+                        <tr style={{ background: '#FFFBFA', borderBottom: '1px solid #FEE4E2' }}>
+                          {['Component', 'Need', 'On Hand', 'Short', 'For'].map(h => (
+                            <th key={h} className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: '#B42318' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {components.map((c: any, i: number) => (
+                          <tr key={i} style={{ borderBottom: '1px solid #FEF3F2' }}>
+                            <td className="px-3 py-2 text-xs font-semibold" style={{ color: '#B42318' }}>{c.component_sku}<div className="text-[10px] font-normal text-gray-400 truncate max-w-[150px]">{c.component_name}</div></td>
+                            <td className="px-3 py-2 text-xs text-right" style={{ color: '#1A1D2E' }}>{c.qty_required.toLocaleString()} {c.uom}</td>
+                            <td className="px-3 py-2 text-xs text-right" style={{ color: '#1A1D2E' }}>{c.qty_on_hand.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-xs text-right font-semibold" style={{ color: '#DC2626' }}>{c.qty_short.toLocaleString()} {c.uom}</td>
+                            <td className="px-3 py-2 text-[10px] text-gray-400">{(c.from_fgs || []).join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[11px] mt-2" style={{ color: '#B42318' }}>Creates one Purchase Request in the &ldquo;Waiting on Finance Approval&rdquo; group on the Purchasing Requests board.</p>
+                </div>
+              )}
+
             </>
           )}
         </div>
@@ -193,6 +242,16 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
               style={{ borderColor: '#E4E6EE', color: '#6B7280' }}>
               Cancel
             </button>
+            {components.length > 0 && (
+              <button
+                onClick={handleCreatePurchaseRequest}
+                disabled={acting || prCreated}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
+                style={{ background: prCreated ? '#9CA3AF' : (acting ? '#B4231Bcc' : '#B42318') }}>
+                <i className="ti ti-shopping-cart-plus text-sm" />
+                {prCreated ? 'Purchase Request created' : 'Create Purchase Request'}
+              </button>
+            )}
             {result?.allSufficient ? (
               <button
                 onClick={handleSendToShipping}
