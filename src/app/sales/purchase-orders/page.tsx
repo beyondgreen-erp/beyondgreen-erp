@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
+import { notifyFlowConfirmed } from '@/lib/orderFlow'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
@@ -305,10 +306,25 @@ export default function PurchasingRequestsPage() {
       patch.group_title = RECEIVING_LOG.title
       patch.position = posBase
     }
+    // A purchase request in "Waiting on Finance Approval" is CONFIRMED when finance moves it
+    // off "Pending Review" to a real, forward status (not a hold/cancel). Fire the group notice once.
+    const prev = rows.find(r => r.id === id)
+    const NON_CONFIRM = ['Pending Review', 'ON HOLD', 'PO Canceled', 'PO Cancelled', 'Return', 'Missing Item']
+    const prConfirmed = !!prev
+      && prev.group_key === 'group_finance_approval'
+      && (prev.status || 'Pending Review') === 'Pending Review'
+      && !!status && !NON_CONFIRM.includes(status)
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
     setDetail((d: any) => d && d.id === id ? { ...d, ...patch } : d)
     await sb.from('purchasing_requests').update(patch).eq('id', id)
     if (moveToLog) setCollapsed(c => ({ ...c, [RECEIVING_LOG.key]: false }))
+    if (prConfirmed) {
+      void notifyFlowConfirmed('purchase_request', prev!.name || 'purchase request', {
+        orderRef: prev!.order_ref ?? null,
+        customer: prev!.customer_project ?? null,
+        by: userEmail || null,
+      })
+    }
   }
   const match = (r: any) => {
     if (!q) return true
