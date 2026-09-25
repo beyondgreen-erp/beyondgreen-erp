@@ -2,11 +2,11 @@
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
 
-export interface LabelOrder { poNumber: string; shipToName: string; shipToAddress: string }
+export interface LabelOrder { poNumber: string; shipToName: string; shipToAddress: string; shipFromLines?: string[] }
 export interface CaseLabel {
   sku: string; description?: string; upcGtin: string | null
   customerPartNumber?: string | null; vendorPartNumber?: string | null
-  caseNumber: number; totalCases: number; unitsInCase?: number
+  caseNumber: number; totalCases: number; unitsInCase?: number; unitLabel?: string
   gtinImageDataUrl?: string | null   // uploaded GTIN barcode image (data URL); used instead of generating one
 }
 export interface PalletLabel { palletNumber: number; totalPallets: number; sscc?: string | null; caseCount: number; weight?: number; skus?: string[]; dims?: string }
@@ -80,7 +80,7 @@ export function buildCaseLabels(order: LabelOrder, cases: CaseLabel[]): jsPDF {
     if (idx > 0) doc.addPage([W, H], 'portrait')
     let y = 0.32
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5)
-    SHIP_FROM.forEach(l => { doc.text(l, cx, y, { align: 'center' }); y += 0.17 })
+    ;(order.shipFromLines || SHIP_FROM).forEach(l => { doc.text(l, cx, y, { align: 'center' }); y += 0.17 })
     y += 0.16
     y = ctext(doc, 'SHIP TO:', cx, y, 12, 'bold', maxW, 0.22)
     y = ctext(doc, order.shipToName.toUpperCase(), cx, y, 12.5, 'bold', maxW, 0.22)
@@ -90,6 +90,7 @@ export function buildCaseLabels(order: LabelOrder, cases: CaseLabel[]): jsPDF {
     y += 0.06
     y = ctext(doc, `Case ${c.caseNumber} of ${c.totalCases}`, cx, y, 16, 'bold', maxW, 0.28)
     y = ctext(doc, `PART # ${c.customerPartNumber || c.sku}`, cx, y, 11.5, 'bold', maxW, 0.22)
+    if (c.unitsInCase) y = ctext(doc, `${c.unitsInCase}${c.unitLabel ? ' ' + c.unitLabel : ''} per Case`, cx, y, 10.5, 'normal', maxW, 0.19)
     y += 0.06
     // Prefer the uploaded GTIN barcode image; if it can't be embedded, fall back to a barcode
     // generated from the UPC/GTIN number so the label is never left blank.
