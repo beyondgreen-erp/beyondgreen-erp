@@ -6,7 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-interface WOrder { id: string; name: string | null; po_number: string | null; status: string | null; group_name: string | null; order_date: string | null; bol_date: string | null; units: number | null; total_value: number | null }
+interface WOrder { id: string; name: string | null; po_number: string | null; status: string | null; group_name: string | null; order_date: string | null; bol_date: string | null; ship_due_date: string | null; units: number | null; total_value: number | null }
 interface WLine { order_id: string; part_number: string | null; qty: number | null }
 interface Prod { sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null }
 interface Bom { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
@@ -42,7 +42,7 @@ export default function WalmartActivityReport() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: o }, { data: l }, { data: p }, { data: b }] = await Promise.all([
-      sb.from('walmart_board_orders').select('id, name, po_number, status, group_name, order_date, bol_date, units, total_value').eq('archived', false),
+      sb.from('walmart_board_orders').select('id, name, po_number, status, group_name, order_date, bol_date, ship_due_date, units, total_value').eq('archived', false),
       sb.from('walmart_board_lines').select('order_id, part_number, qty'),
       sb.from('products').select('sku, product_name, on_hand_qty, case_qty, weight_per_unit_grams'),
       sb.from('product_bom').select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level'),
@@ -121,7 +121,52 @@ export default function WalmartActivityReport() {
 
   const shippedValue = useMemo(() => shipped.reduce((s, o) => s + (Number(o.total_value) || 0), 0), [shipped])
   const addedUnits = useMemo(() => added.reduce((s, o) => s + (Number(o.units) || 0), 0), [added])
-  const shortComponents = material.filter(r => (r.short ?? 0) > 0).length
+  // Per-PO shortage rows — same ship-date allocation the PO Requirements list uses,
+  // so the headline count reconciles with the per-PO "short" badges.
+  const perPoRows = useMemo(() => {
+    type Row = { po: string; shipKey: number; sku: string; need: number; onHand: number; short: number | null }
+    const out: Row[] = []
+    for (const o of openOrders) {
+      const poLabel = o.po_number || o.name || '—'
+      const shipKey = o.ship_due_date ? Date.parse(o.ship_due_date) : Number.POSITIVE_INFINITY
+      const compForPo: Record<string, number> = {}
+      for (const ln of (lines[o.id] || [])) {
+        const fsku = (ln.part_number || '').trim().toUpperCase()
+        const qq = Number(ln.qty) || 0
+        if (!fsku || !qq) continue
+        const fp = productBySku[fsku]
+        for (const bb of bom) {
+          if ((bb.finished_good_sku || '').trim().toUpperCase() !== fsku) continue
+          const cs = (bb.component_sku || '').trim().toUpperCase()
+          if (!cs) continue
+          let perUnit = 0
+          if (bb.uom_type === 'percentage') perUnit = ((Number(bb.qty_value ?? bb.percentage) || 0) / 100) * (Number(fp?.weight_per_unit_grams) || 0) / 453.592
+          else if (bb.is_case_level) { const cq = Number(fp?.case_qty) || 0; perUnit = cq > 0 ? (Number(bb.qty_value) || 0) / cq : 0 }
+          else perUnit = Number(bb.qty_value) || 0
+          const need = perUnit * qq
+          if (need <= 0) continue
+          compForPo[cs] = (compForPo[cs] || 0) + need
+        }
+      }
+      for (const [cs, need] of Object.entries(compForPo)) {
+        const cp = productBySku[cs]
+        out.push({ po: poLabel, shipKey, sku: cs, need, onHand: Number(cp?.on_hand_qty ?? NaN), short: null })
+      }
+    }
+    const consumed: Record<string, number> = {}
+    for (const r of [...out].sort((a, b) => (a.shipKey - b.shipKey) || a.po.localeCompare(b.po))) {
+      if (isNaN(r.onHand)) { r.short = null; continue }
+      const used = consumed[r.sku] || 0
+      const availNow = Math.max(0, r.onHand - used)
+      r.short = Math.max(0, r.need - availNow)
+      consumed[r.sku] = used + r.need
+    }
+    return out
+  }, [openOrders, lines, bom, productBySku])
+
+  const shortLines = perPoRows.filter(r => (r.short ?? 0) > 0).length
+  const posWithShort = new Set(perPoRows.filter(r => (r.short ?? 0) > 0).map(r => r.po)).size
+  const shortSkus = new Set(perPoRows.filter(r => (r.short ?? 0) > 0).map(r => r.sku)).size
 
   function download() {
     setBusy(true)
@@ -203,7 +248,7 @@ export default function WalmartActivityReport() {
         <div className="px-6 py-4"><p className="text-[11px] uppercase text-gray-400 font-semibold">Orders Added</p><p className="text-2xl font-bold text-[#1A1D2E] mt-1">{added.length}</p><p className="text-[11px] text-gray-500">{addedUnits.toLocaleString()} units</p></div>
         <div className="px-6 py-4"><p className="text-[11px] uppercase text-gray-400 font-semibold">Orders Shipped</p><p className="text-2xl font-bold text-[#1A1D2E] mt-1">{shipped.length}</p><p className="text-[11px] text-gray-500">{money(shippedValue)}</p></div>
         <div className="px-6 py-4"><p className="text-[11px] uppercase text-gray-400 font-semibold">Open POs</p><p className="text-2xl font-bold text-[#1A1D2E] mt-1">{openOrders.length}</p><p className="text-[11px] text-gray-500">awaiting ship</p></div>
-        <div className="px-6 py-4"><p className="text-[11px] uppercase text-gray-400 font-semibold">Short Components</p><p className={'text-2xl font-bold mt-1 ' + (shortComponents ? 'text-red-600' : 'text-emerald-600')}>{shortComponents}</p><p className="text-[11px] text-gray-500">on open POs</p></div>
+        <div className="px-6 py-4"><p className="text-[11px] uppercase text-gray-400 font-semibold">Short Lines</p><p className={'text-2xl font-bold mt-1 ' + (shortLines ? 'text-red-600' : 'text-emerald-600')}>{shortLines}</p><p className="text-[11px] text-gray-500">{shortSkus} component{shortSkus === 1 ? '' : 's'} · {posWithShort} PO{posWithShort === 1 ? '' : 's'}</p></div>
       </div>
       <div className="px-6 py-2 border-t border-[#EEF0F4]"><p className="text-[11px] text-gray-400">Added &amp; shipped counts cover the selected month; material &amp; finished-goods shortages reflect all open POs. Shipped POs drop off the requirements.</p></div>
     </div>
