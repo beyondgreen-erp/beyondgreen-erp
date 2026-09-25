@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { WORK_ORDER_APPROVERS } from '@/lib/partNumber'
 
 export type OrderStatus =
   | 'Pending' | 'New' | 'Confirmed' | 'Awaiting Production'
@@ -17,6 +18,9 @@ export interface ShortageItem {
   qty_on_hand: number
   qty_short: number
   order_line_id: string
+  /** Carried onto the work order so the finished goods can actually be booked. */
+  product_id?: string | null
+  uom?: string | null
 }
 
 export interface SufficientItem {
@@ -36,23 +40,29 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
   const sb = createSupabaseBrowserClient()
   const { data: lines } = await sb
     .from('sales_order_lines')
-    .select('id, sku, quantity, sku_flagged, description')
+    .select('id, sku, quantity, sku_flagged, description, product_id, unit_of_measure')
     .eq('sales_order_id', orderId)
+
+  const rows = ((lines ?? []) as any[]).filter(l => l.sku && !l.sku_flagged)
+  if (!rows.length) return { shortages: [], sufficient: [], allSufficient: true }
+
+  // One lookup for the whole order rather than one round trip per line.
+  const skus = Array.from(new Set(rows.map(l => String(l.sku).trim())))
+  const { data: prods } = await sb
+    .from('products')
+    .select('id, sku, product_name, on_hand_qty, unit_of_measure')
+    .in('sku', skus)
+  const bySku: Record<string, any> = {}
+  for (const p of (prods ?? []) as any[]) bySku[String(p.sku).trim().toLowerCase()] = p
 
   const shortages: ShortageItem[] = []
   const sufficient: SufficientItem[] = []
 
-  for (const line of (lines ?? []) as any[]) {
-    if (!line.sku || line.sku_flagged) continue
-    const { data: prod } = await sb
-      .from('products')
-      .select('product_name, on_hand_qty')
-      .eq('sku', line.sku)
-      .maybeSingle()
-
-    const onHand: number = (prod as any)?.on_hand_qty ?? 0
-    const required: number = line.quantity ?? 0
-    const productName: string = (prod as any)?.product_name ?? line.description ?? line.sku
+  for (const line of rows) {
+    const prod = bySku[String(line.sku).trim().toLowerCase()]
+    const onHand = Number(prod?.on_hand_qty ?? 0)
+    const required = Number(line.quantity ?? 0)
+    const productName: string = prod?.product_name ?? line.description ?? line.sku
 
     if (onHand < required) {
       shortages.push({
@@ -62,6 +72,8 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
         qty_on_hand: onHand,
         qty_short: required - onHand,
         order_line_id: line.id,
+        product_id: line.product_id ?? prod?.id ?? null,
+        uom: line.unit_of_measure ?? prod?.unit_of_measure ?? null,
       })
     } else {
       sufficient.push({ sku: line.sku, product_name: productName, qty_required: required, qty_on_hand: onHand })
@@ -73,142 +85,124 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
 
 // ─── Create Work Orders for Shortages ────────────────────────────────────────
 
+/**
+ * Raise one work order per short line — one order with two short items gets two work orders,
+ * because they are two different things to make on two different machines.
+ *
+ * Nothing goes straight into the production queue. Each one is created `pending` and waits in
+ * the Waiting for Approval bucket at the top of the Work Orders board until somebody gives it
+ * a production group, a machine and an operator and approves it. The part number, product link
+ * and UOM are carried over from the sales order line, so an approved job can actually book its
+ * finished goods; without the product link a completion posts nothing.
+ */
 export async function createWorkOrdersForShortages(
   orderId: string,
-  shortages: ShortageItem[]
-): Promise<{ created: string[]; count: number }> {
+  shortages: ShortageItem[],
+  requestedBy?: string | null,
+): Promise<{ created: string[]; count: number; skipped: number; emailed: boolean }> {
   const sb = createSupabaseBrowserClient()
 
   const { data: order } = await sb
     .from('sales_orders')
-    .select('order_number, customer_id')
+    .select('order_number, customer_id, required_ship_date, customers(company_name)')
     .eq('id', orderId)
     .maybeSingle()
 
-  const orderRef = (order as any)?.order_number ?? orderId.slice(0, 8)
-  const custId = (order as any)?.customer_id ?? null
+  const o: any = order
+  const orderRef = o?.order_number ?? orderId.slice(0, 8)
+  const customer = o?.customers?.company_name ?? ''
 
-  // Next work-order number (so the board shows WO-#### instead of WO-blank).
-  const { data: maxWo } = await sb.from('work_orders').select('wo_number').order('wo_number', { ascending: false, nullsFirst: false }).limit(1).maybeSingle()
-  let nextNum = (Number((maxWo as any)?.wo_number) || 1000) + 1
+  // Do not raise a second work order for something already being made. An open work order
+  // against the same order and part is the same job.
+  const { data: existing } = await sb
+    .from('work_orders')
+    .select('id, item_part_number, status')
+    .eq('sales_order_id', orderId)
+    .not('status', 'in', '("Complete","QC Passed","Cancelled")')
+  const openParts = new Set(
+    ((existing ?? []) as any[]).map(w => String(w.item_part_number ?? '').trim().toLowerCase()).filter(Boolean))
 
   const created: string[] = []
+  const madeRows: { code: string; sku: string; qty: number; name: string; id: string }[] = []
+  let skipped = 0
 
-  for (const shortage of shortages) {
-    // Link the finished-goods product so the work order carries real details
-    // (part number, qty, and the ability to book FG) instead of just a notes blob.
-    const { data: prod } = await sb.from('products').select('id').eq('sku', shortage.sku).maybeSingle()
-
+  for (const s of shortages) {
+    if (openParts.has(String(s.sku).trim().toLowerCase())) { skipped++; continue }
     const { data: wo, error } = await sb
       .from('work_orders')
       .insert({
-        wo_number: nextNum++,
         sales_order_id: orderId,
-        customer_id: custId,
-        product_id: (prod as any)?.id ?? null,
-        item_part_number: shortage.sku,
-        qty_required: shortage.qty_short,
-        qty_ordered: shortage.qty_short,
+        order_id: orderId,
+        item_part_number: s.sku,
+        product_id: s.product_id ?? null,
+        uom: s.uom ?? null,
+        qty_ordered: s.qty_short,
         qty_produced: 0,
-        status: 'Awaiting Scheduling',
+        status: 'Queued',
         approval_state: 'pending',
-        auto_reason: `Auto-created from ${orderRef}: short ${shortage.qty_short} of ${shortage.sku} (on hand ${shortage.qty_on_hand})`,
-        notes: `${shortage.product_name} — need ${shortage.qty_short} of ${shortage.sku} for ${orderRef}. On hand: ${shortage.qty_on_hand}`,
+        due_date: o?.required_ship_date ?? null,
+        auto_reason: `Short ${s.qty_short} of ${s.sku} for ${orderRef}${customer ? ` (${customer})` : ''} — ordered ${s.qty_required}, on hand ${s.qty_on_hand}.`,
+        notes: `AUTO|${s.product_name}|SOREF:${orderId}|Need ${s.qty_short} of ${s.sku} for ${orderRef}. On hand: ${s.qty_on_hand}`,
       })
-      .select('id')
+      .select('id, wo_number')
       .single()
 
     if (error) { console.error('WO insert error:', error.message); continue }
-    if (wo) created.push((wo as any).id)
-  }
-
-  await sb.from('sales_orders').update({ status: 'Awaiting Production' }).eq('id', orderId)
-
-  return { created, count: created.length }
-}
-
-// ─── Check BOM component shortages (for the FG shortages we must produce) ─────
-
-export interface ComponentShortage {
-  component_sku: string
-  component_name: string
-  qty_required: number
-  qty_on_hand: number
-  qty_short: number
-  uom: string
-  from_fgs: string[]
-}
-
-/**
- * Given the finished-good shortages we must PRODUCE (qty_short each), explode each
- * FG's BOM to its components and report which components are themselves short on hand.
- * Mirrors the explosion logic used on the Walmart/Chewy requirement boards.
- */
-export async function checkComponentShortages(shortages: ShortageItem[]): Promise<ComponentShortage[]> {
-  const sb = createSupabaseBrowserClient()
-  if (!shortages.length) return []
-
-  const { data: boms } = await sb
-    .from('product_bom')
-    .select('finished_good_sku, component_sku, uom_type, qty_value, percentage, is_case_level')
-  const bomByFg: Record<string, any[]> = {}
-  for (const b of (boms ?? []) as any[]) {
-    const k = (b.finished_good_sku || '').trim().toUpperCase()
-    if (!k) continue
-    ;(bomByFg[k] ||= []).push(b)
-  }
-
-  // FG attributes needed for percentage / case-level conversions
-  const { data: fgProds } = await sb
-    .from('products')
-    .select('sku, weight_per_unit_grams, case_qty')
-    .in('sku', shortages.map(s => s.sku))
-  const fgAttr: Record<string, any> = {}
-  for (const pr of (fgProds ?? []) as any[]) fgAttr[(pr.sku || '').trim().toUpperCase()] = pr
-
-  const need: Record<string, { qty: number; fgs: Set<string> }> = {}
-  for (const sh of shortages) {
-    const fsku = sh.sku.trim().toUpperCase()
-    const rows = bomByFg[fsku]
-    if (!rows || !rows.length) continue
-    const fp = fgAttr[fsku] || {}
-    for (const bb of rows) {
-      const cs = (bb.component_sku || '').trim().toUpperCase()
-      if (!cs) continue
-      let perUnit = 0
-      if (bb.uom_type === 'percentage') perUnit = ((Number(bb.qty_value ?? bb.percentage) || 0) / 100) * (Number(fp.weight_per_unit_grams) || 0) / 453.592
-      else if (bb.is_case_level) { const cq = Number(fp.case_qty) || 0; perUnit = cq > 0 ? (Number(bb.qty_value) || 0) / cq : 0 }
-      else perUnit = Number(bb.qty_value) || 0
-      const q = perUnit * sh.qty_short
-      if (q <= 0) continue
-      const e = (need[cs] ||= { qty: 0, fgs: new Set<string>() })
-      e.qty += q
-      e.fgs.add(sh.sku)
-    }
-  }
-
-  const out: ComponentShortage[] = []
-  for (const [cs, info] of Object.entries(need)) {
-    const { data: cp } = await sb
-      .from('products')
-      .select('product_name, on_hand_qty, unit_of_measure')
-      .eq('sku', cs)
-      .maybeSingle()
-    const onHand = Number((cp as any)?.on_hand_qty ?? 0)
-    const req = Math.round(info.qty * 100) / 100
-    if (onHand < req) {
-      out.push({
-        component_sku: cs,
-        component_name: (cp as any)?.product_name ?? cs,
-        qty_required: req,
-        qty_on_hand: onHand,
-        qty_short: Math.round((req - onHand) * 100) / 100,
-        uom: (cp as any)?.unit_of_measure ?? 'lb',
-        from_fgs: [...info.fgs],
+    if (wo) {
+      created.push((wo as any).id)
+      madeRows.push({
+        code: `WO-${(wo as any).wo_number}`, sku: s.sku, qty: s.qty_short,
+        name: s.product_name, id: (wo as any).id,
       })
     }
   }
-  return out
+
+  // The order is queued for production, not in production — nobody has approved anything yet.
+  if (created.length) await sb.from('sales_orders').update({ status: 'Production Queue' }).eq('id', orderId)
+
+  let emailed = false
+  if (madeRows.length) {
+    try {
+      const rows = madeRows.map(r => `<tr>
+        <td style="border:1px solid #e5e7eb;padding:6px"><a href="https://beyondgreen-erp.vercel.app/production/work-orders?item=${r.id}">${r.code}</a></td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${r.sku}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${r.name}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${r.qty.toLocaleString()}</td></tr>`).join('')
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+          <p><strong>${madeRows.length} work order${madeRows.length > 1 ? 's' : ''}</strong> raised for order
+             <strong>${orderRef}</strong>${customer ? ` (${customer})` : ''} because the stock is not on the shelf.</p>
+          <p>They are waiting for approval at the top of the Work Orders board. None of them will run
+             until somebody gives them a production group, a machine and an operator and approves them.</p>
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0">
+            <tr>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Work order</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Part #</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Item</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">To make</td>
+            </tr>
+            ${rows}
+          </table>
+          ${skipped ? `<p>${skipped} line${skipped > 1 ? 's were' : ' was'} skipped — already being made on an open work order.</p>` : ''}
+          <p>Raised by ${requestedBy || 'the Order Pipeline'}.<br>
+             <a href="https://beyondgreen-erp.vercel.app/production/work-orders">Open the Work Orders board</a></p>
+          <p style="color:#6b7280;font-size:12px">Sent from the beyondGREEN ERP when the stock check on ${orderRef} found a shortage.</p>
+        </div>`
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: WORK_ORDER_APPROVERS,
+          reply_to: requestedBy || undefined,
+          subject: `${madeRows.length} work order${madeRows.length > 1 ? 's' : ''} awaiting approval — ${orderRef}${customer ? ` (${customer})` : ''}`,
+          html,
+        }),
+      })
+      emailed = res.ok
+    } catch (e) { console.error('WO approval email failed:', e) }
+  }
+
+  return { created, count: created.length, skipped, emailed }
 }
 
 // ─── Check if All Work Orders Complete → auto-move to shipping ───────────────
@@ -509,24 +503,66 @@ export async function shipOrder(
   const orderRef = (order as any)?.order_number ?? orderId.slice(0, 8)
   const shippedSummary = toShip.map(l => `${l.qtyToShip}× ${l.sku || l.description || ''}`.trim()).join(', ')
 
+  // Value of THIS shipment only — not the order's. The Daily Ship Report and billing
+  // both read it, and it has to be known before the shipment row is written.
+  const shippedValue = toShip.reduce((sum, l) => sum + l.qtyToShip * (l.unit_price ?? 0), 0)
+
   // 1. Shipment record
+  //
+  // This row is what the order's Shipment Log lists, and what the packing list counts to
+  // work out which partial it is printing. Both look the shipment up by sales_order_id.
+  // That column was never set, so every shipment was orphaned: the log stayed empty, and
+  // "prior shipments" counted 0 every time, which is why every packing list came out as
+  // PARTIAL SHIPMENT #1.
   const { data: shipment, error: shipErr } = await sb.from('shipments').insert({
+    sales_order_id: orderId,
+    order_id: orderId,
     customer_name: customerName,
+    customer_email: (order as any)?.customer_email ?? (order as any)?.customers?.email ?? null,
+    ship_to_address: (order as any)?.shipping_address ?? null,
     po_number: orderRef,
     order_date: (order as any)?.order_date ?? null,
     ship_date: shipDate,
     carrier: shipDetails?.carrier ?? null,
     tracking_number: shipDetails?.trackingNumber ?? null,
     delivery_status: 'Shipped',
+    // This function creates its own invoice below (step 3) for exactly this shipment's
+    // value — app_billed tells the DB's auto-bill trigger to skip it, or every shipment
+    // from this flow would get billed twice (once here, once by the trigger).
+    app_billed: true,
+    total_value: shippedValue,
     notes: `Shipment for ${orderRef}: ${shippedSummary}${shipDetails?.notes ? ' — ' + shipDetails.notes : ''}`,
   }).select('id').maybeSingle()
   if (shipErr) console.error('shipment insert error:', shipErr.message)
+  const shipmentId = (shipment as any)?.id as string | undefined
+
+  // 1b. What actually went in this shipment.
+  //
+  // Without these rows the log can say a shipment happened but not what was in it, which
+  // is the difference between a tracker and a record. Best-effort: a failure here must not
+  // cost the stock movement and invoice below.
+  if (shipmentId) {
+    const lineRows = toShip.map(l => ({
+      shipment_id: shipmentId,
+      order_line_id: l.id,
+      sku: l.sku ?? null,
+      product_name: l.description ?? null,
+      qty_shipped: l.qtyToShip,
+    }))
+    const { error: slErr } = await sb.from('shipment_lines').insert(lineRows)
+    if (slErr) console.error('shipment_lines insert error:', slErr.message)
+  }
 
   // 2. Increment quantity_shipped + deduct inventory (shipped qty only)
   const inventoryChanges: { sku: string; qty: number; prevQty: number }[] = []
   for (const l of toShip) {
     const newShipped = (l.quantity_shipped ?? 0) + l.qtyToShip
-    await sb.from('sales_order_lines').update({ quantity_shipped: newShipped }).eq('id', l.id)
+    // completed_qty is what the order form shows as "Done" and what the Partially Shipped
+    // banner totals. It was never advanced on a shipment, so both read zero however much
+    // had gone out. Worse, saving the order writes quantity_shipped back FROM the Done box,
+    // so an untouched save after a partial used to reset the shipped quantity to zero.
+    // Keeping the two in step is what makes the figure survive an edit.
+    await sb.from('sales_order_lines').update({ quantity_shipped: newShipped, completed_qty: newShipped }).eq('id', l.id)
     if (l.sku) {
       const { data: prod } = await sb.from('products').select('id, on_hand_qty, unit_of_measure').eq('sku', l.sku).maybeSingle()
       if (prod) {
@@ -539,7 +575,6 @@ export async function shipOrder(
   }
 
   // 3. Partial invoice for the shipped value only
-  const shippedValue = toShip.reduce((sum, l) => sum + l.qtyToShip * (l.unit_price ?? 0), 0)
   const invNum = 'INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5)
   const { data: invoice, error: invErr } = await sb.from('invoices').insert({
     invoice_number: invNum, invoice_number_display: invNum, invoice_type: 'invoice',
@@ -564,6 +599,8 @@ export async function shipOrder(
   const fullyShipped = (allLines ?? []).length > 0 && (allLines as any[]).every(l => (l.quantity_shipped ?? 0) >= (l.quantity ?? 0))
   const newStatus = fullyShipped ? 'Shipped' : 'Partially Shipped'
   await sb.from('sales_orders').update({ status: newStatus, ship_date: shipDate, updated_at: new Date().toISOString() }).eq('id', orderId)
+  // The log badges a shipment Final or Partial from this.
+  if (shipmentId) await sb.from('shipments').update({ status: fullyShipped ? 'Shipped' : 'Partially Shipped' }).eq('id', shipmentId)
   if (fullyShipped) {
     await sb.from('shipping_queue').delete().eq('order_id', orderId)
   } else {
@@ -666,7 +703,11 @@ export async function undoFlow(undoData: any): Promise<FlowResult> {
     for (const sl of (undoData.shippedLines ?? [])) {
       if (!sl.id) continue
       const { data: ln } = await sb.from('sales_order_lines').select('quantity_shipped').eq('id', sl.id).maybeSingle()
-      if (ln) await sb.from('sales_order_lines').update({ quantity_shipped: Math.max(0, ((ln as any).quantity_shipped ?? 0) - (sl.qty ?? 0)) }).eq('id', sl.id)
+      if (ln) {
+        const back = Math.max(0, ((ln as any).quantity_shipped ?? 0) - (sl.qty ?? 0))
+        // Both, or the Done box would keep claiming the undone units.
+        await sb.from('sales_order_lines').update({ quantity_shipped: back, completed_qty: back }).eq('id', sl.id)
+      }
     }
 
     return { success: true, message: 'Ship undone — inventory restored, invoice voided' }
