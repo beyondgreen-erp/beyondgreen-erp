@@ -1,8 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
-import { checkInventoryForOrder, createWorkOrdersForShortages, onStatusChange } from '@/lib/orderFlow'
-import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { checkInventoryForOrder, createWorkOrdersForShortages, checkComponentShortages, onStatusChange } from '@/lib/orderFlow'
 
 interface Props {
   orderId: string
@@ -14,12 +13,16 @@ interface Props {
 export default function InventoryCheckModal({ orderId, orderNumber, onClose, onDone }: Props) {
   const [loading, setLoading] = useState(true)
   const [result, setResult] = useState<any>(null)
+  const [components, setComponents] = useState<any[]>([])
   const [acting, setActing] = useState(false)
 
   useEffect(() => {
-    checkInventoryForOrder(orderId).then(r => {
+    checkInventoryForOrder(orderId).then(async r => {
       setResult(r)
       setLoading(false)
+      if (r.shortages.length) {
+        try { setComponents(await checkComponentShortages(r.shortages)) } catch { /* best-effort */ }
+      }
     })
   }, [orderId])
 
@@ -31,13 +34,7 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
 
   async function handleCreateWorkOrders() {
     setActing(true)
-    const sb = createSupabaseBrowserClient()
-    const { data: u } = await sb.auth.getUser()
-    const r = await createWorkOrdersForShortages(orderId, result.shortages, u?.user?.email ?? null)
-    const bits = [`${r.count} work order${r.count === 1 ? '' : 's'} raised and waiting for approval`]
-    if (r.skipped) bits.push(`${r.skipped} skipped — already being made`)
-    bits.push(r.emailed ? 'Veejay, Shea, Rudy and Robert have been emailed' : 'the notification email could not be sent')
-    alert(`✓ ${bits.join('. ')}.`)
+    await createWorkOrdersForShortages(orderId, result.shortages)
     onDone('production')
   }
 
@@ -163,6 +160,39 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
                 </div>
               )}
 
+              {/* BOM component shortages → purchase request */}
+              {components.length > 0 && (
+                <div className="rounded-xl p-4 mb-3"
+                  style={{ background: '#FEF3F2', border: '1px solid #FECDCA' }}>
+                  <p className="text-sm font-semibold mb-2" style={{ color: '#B42318' }}>
+                    <i className="ti ti-package-off mr-1.5" />
+                    {components.length} BOM component{components.length !== 1 ? 's' : ''} also short — a Purchase Request is needed
+                  </p>
+                  <div className="rounded-lg border overflow-hidden bg-white" style={{ borderColor: '#FECDCA' }}>
+                    <table className="w-full">
+                      <thead>
+                        <tr style={{ background: '#FFFBFA', borderBottom: '1px solid #FEE4E2' }}>
+                          {['Component', 'Need', 'On Hand', 'Short', 'For'].map(h => (
+                            <th key={h} className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: '#B42318' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {components.map((c: any, i: number) => (
+                          <tr key={i} style={{ borderBottom: '1px solid #FEF3F2' }}>
+                            <td className="px-3 py-2 text-xs font-semibold" style={{ color: '#B42318' }}>{c.component_sku}<div className="text-[10px] font-normal text-gray-400 truncate max-w-[150px]">{c.component_name}</div></td>
+                            <td className="px-3 py-2 text-xs text-right" style={{ color: '#1A1D2E' }}>{c.qty_required.toLocaleString()} {c.uom}</td>
+                            <td className="px-3 py-2 text-xs text-right" style={{ color: '#1A1D2E' }}>{c.qty_on_hand.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-xs text-right font-semibold" style={{ color: '#DC2626' }}>{c.qty_short.toLocaleString()} {c.uom}</td>
+                            <td className="px-3 py-2 text-[10px] text-gray-400">{(c.from_fgs || []).join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Work orders preview */}
               {!result.allSufficient && result.shortages.length > 0 && (
                 <div className="rounded-xl p-4 mb-2"
@@ -172,11 +202,10 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
                     {result.shortages.length} Work Order{result.shortages.length !== 1 ? 's' : ''} will be created
                   </p>
                   <p className="text-xs" style={{ color: '#3B82F6' }}>
-                    Each short item gets its own work order, carrying its part number and quantity.
-                    They land in <strong>Waiting for approval</strong> at the top of the Work Orders board and
-                    do not run until somebody gives them a production group, machine and operator and approves them.
-                    Veejay, Shea, Rudy and Robert are emailed. Anything already being made on an open work order is skipped.
-                    Once all the work orders complete, this order moves to the Shipping Queue on its own.
+                    Each shortage item gets its own Work Order (status: Queued).
+                    Shea or Veejay must approve, assign a machine, and schedule before production begins.
+                    Once all work orders complete, this order automatically moves to the Shipping Queue.
+
                   </p>
                 </div>
               )}
