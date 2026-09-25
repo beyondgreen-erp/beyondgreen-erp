@@ -9,6 +9,7 @@ import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 
 const GROUPS = [
+  { key: 'group_finance_approval', title: 'Waiting on Finance Approval', color: '#e2445c' },
   { key: 'group_mkr363e4', title: 'Imports', color: '#007eb5' },
   { key: 'group_mkzk3jaa', title: '2026 - PO & Receiving Log', color: '#00c875' },
   { key: 'new_group_mkkttdvf', title: '2025 - PO & Receiving Log', color: '#fdab3d' },
