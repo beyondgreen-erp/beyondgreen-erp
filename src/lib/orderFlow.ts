@@ -86,17 +86,34 @@ export async function createWorkOrdersForShortages(
     .maybeSingle()
 
   const orderRef = (order as any)?.order_number ?? orderId.slice(0, 8)
+  const custId = (order as any)?.customer_id ?? null
+
+  // Next work-order number (so the board shows WO-#### instead of WO-blank).
+  const { data: maxWo } = await sb.from('work_orders').select('wo_number').order('wo_number', { ascending: false, nullsFirst: false }).limit(1).maybeSingle()
+  let nextNum = (Number((maxWo as any)?.wo_number) || 1000) + 1
+
   const created: string[] = []
 
   for (const shortage of shortages) {
+    // Link the finished-goods product so the work order carries real details
+    // (part number, qty, and the ability to book FG) instead of just a notes blob.
+    const { data: prod } = await sb.from('products').select('id').eq('sku', shortage.sku).maybeSingle()
+
     const { data: wo, error } = await sb
       .from('work_orders')
       .insert({
+        wo_number: nextNum++,
         sales_order_id: orderId,
+        customer_id: custId,
+        product_id: (prod as any)?.id ?? null,
+        item_part_number: shortage.sku,
+        qty_required: shortage.qty_short,
         qty_ordered: shortage.qty_short,
         qty_produced: 0,
-        status: 'Queued',
-        notes: `AUTO|${shortage.product_name}|SOREF:${orderId}|Need ${shortage.qty_short} of ${shortage.sku} for ${orderRef}. On hand: ${shortage.qty_on_hand}`,
+        status: 'Awaiting Scheduling',
+        approval_state: 'pending',
+        auto_reason: `Auto-created from ${orderRef}: short ${shortage.qty_short} of ${shortage.sku} (on hand ${shortage.qty_on_hand})`,
+        notes: `${shortage.product_name} — need ${shortage.qty_short} of ${shortage.sku} for ${orderRef}. On hand: ${shortage.qty_on_hand}`,
       })
       .select('id')
       .single()
