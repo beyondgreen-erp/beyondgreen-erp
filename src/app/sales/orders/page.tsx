@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { buildCaseLabels, loadBarcodePng, type CaseLabel } from '@/lib/shipping/labels'
+import { needsPartNumber, PART_NUMBER_APPROVERS } from '@/lib/partNumber'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
@@ -826,6 +827,7 @@ function LastInvoice({ customerId }: { customerId: string }) {
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
   customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSendAck, onOpenSOConfirm, emailBusy, canSendSO, onSearchLeads, userEmail,
+  onRequestPartNumbers, requestingPart,
 }: {
   open: boolean
   editing: SalesOrder | null
@@ -849,6 +851,8 @@ function EditPanel({
   canSendSO: boolean
   onSearchLeads: (q: string) => Promise<{ id: string; company_name: string }[]>
   userEmail: string
+  onRequestPartNumbers: () => void
+  requestingPart: boolean
 }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [skuDropdown, setSkuDropdown] = useState<number | null>(null)
@@ -861,6 +865,12 @@ function EditPanel({
   const [leadResults, setLeadResults] = useState<{ id: string; company_name: string }[]>([])
   const [leadSearching, setLeadSearching] = useState(false)
   const [pickedLead, setPickedLead] = useState(false)
+  // Order Name auto-fill (Customer | PO) — auto unless the user edits it by hand.
+  const [nameTouched, setNameTouched] = useState(false)
+  // Quick-create a new customer directly from this popup.
+  const [showNewCust, setShowNewCust] = useState(false)
+  const [newCustBusy, setNewCustBusy] = useState(false)
+  const [newCust, setNewCust] = useState({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' })
   // Raw-material allocation (Robert's workflow: reserve before Order Confirmation; auto-released on production consume)
   const [allocState, setAllocState] = useState<{ at: string | null; by: string | null; released: string | null }>({ at: null, by: null, released: null })
   const [allocBusy, setAllocBusy] = useState(false)
@@ -878,7 +888,7 @@ function EditPanel({
     } catch (e: any) { alert('Could not allocate: ' + (e?.message || e)) }
     finally { setAllocBusy(false) }
   }  useEffect(() => {
-    if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false) }
+    if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false); setNameTouched(!!((editing as any)?.notes || '').trim()); setShowNewCust(false); setNewCust({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' }) }
   }, [open, editing])
   useEffect(() => {
     if (custMode !== 'lead') return
@@ -894,7 +904,7 @@ function EditPanel({
   }, [leadQ, custMode, onSearchLeads])
   const custMatches = customers.filter(c => c.company_name.toLowerCase().includes(custQ.toLowerCase())).slice(0, 50)
   async function pickCustomer(c: Customer) {
-    setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name })); setPickedLead(false); setCustOpen(false); setCustQ('')
+    setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name, notes: nameTouched ? p.notes : composeOrderName(c.company_name, p.po_number) })); setPickedLead(false); setCustOpen(false); setCustQ('')
     // Autofill contact + address from the saved customer record (only fills fields left blank).
     const { data: cd } = await sb.from('customers').select('email,phone,billing_address,shipping_address').eq('id', c.id).maybeSingle()
     if (cd) setForm(p => ({
@@ -905,8 +915,33 @@ function EditPanel({
       shipping_address: p.shipping_address || (cd as any).shipping_address || '',
     }))
   }
-  function pickLead(l: { id: string; company_name: string }) { setForm(p => ({ ...p, customer_id: l.id, customer_label: l.company_name })); setPickedLead(true); setLeadQ(''); setLeadResults([]) }
+  function pickLead(l: { id: string; company_name: string }) { setForm(p => ({ ...p, customer_id: l.id, customer_label: l.company_name, notes: nameTouched ? p.notes : composeOrderName(l.company_name, p.po_number) })); setPickedLead(true); setLeadQ(''); setLeadResults([]) }
   function clearLinkedCustomer() { setForm(p => ({ ...p, customer_id: '', customer_label: '' })); setPickedLead(false) }
+  function composeOrderName(label: string, po: string) { return [ (label || '').trim(), (po || '').trim() ].filter(Boolean).join(' | ') }
+  async function saveNewCustomer() {
+    const name = newCust.company_name.trim()
+    if (!name) { alert('Enter a company name for the new customer.'); return }
+    setNewCustBusy(true)
+    try {
+      const { data, error } = await sb.from('customers').insert({
+        company_name: name, email: newCust.email.trim() || null, phone: newCust.phone.trim() || null,
+        billing_address: newCust.billing_address.trim() || null, shipping_address: newCust.shipping_address.trim() || null,
+        board: 'customer', is_active: true,
+      }).select('id,company_name').single()
+      if (error || !data) { alert('Could not create customer: ' + (error?.message || 'unknown error')); return }
+      setForm(p => ({
+        ...p, customer_id: data.id, customer_label: data.company_name,
+        customer_email: p.customer_email || newCust.email.trim(),
+        customer_phone: p.customer_phone || fmtPhone(newCust.phone.trim()),
+        billing_address: p.billing_address || newCust.billing_address.trim(),
+        shipping_address: p.shipping_address || newCust.shipping_address.trim(),
+        notes: nameTouched ? p.notes : composeOrderName(data.company_name, p.po_number),
+      }))
+      setPickedLead(false); setShowNewCust(false)
+      setNewCust({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' })
+    } catch (e: any) { alert('Could not create customer: ' + (e?.message || e)) }
+    finally { setNewCustBusy(false) }
+  }
   const skuMatches = products.filter(p => {
     if (skuQ.length === 0) return false
     const q = skuQ.toLowerCase()
@@ -1040,6 +1075,51 @@ function EditPanel({
             )
           })()}
 
+          {/* Lines with no usable part number. The number originates here, so this is where
+              it gets chased — the Work Orders board only inherits whatever this order carries. */}
+          {editing && (() => {
+            // Read off the lines being edited rather than what was last saved, so the panel
+            // follows what is actually on screen as SKUs are typed and linked.
+            const missing = editLines.filter(l => needsPartNumber({ sku: l.sku, product_id: l.product_id }))
+            if (!missing.length) return null
+            const stamp = (editing as any).part_number_requested_at as string | null
+            const by = (editing as any).part_number_requested_by as string | null
+            return (
+              <div className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-3">
+                <p className="text-xs font-semibold wo-blink mb-1">
+                  ◆ {missing.length} line{missing.length > 1 ? 's' : ''} without a part number
+                </p>
+                <p className="text-xs text-blue-900 mb-2">
+                  A work order raised from this order inherits its part numbers. Until these are filled in
+                  and linked to a product on the Inventory board, anything produced against them will not
+                  be booked into stock.
+                </p>
+                <ul className="text-xs text-blue-900 mb-2 list-disc pl-4">
+                  {missing.slice(0, 6).map((l, i) => (
+                    <li key={l._key ?? i}>
+                      {String(l.sku ?? '').trim() || '(blank)'}{l.description ? ` — ${l.description}` : ''}
+                    </li>
+                  ))}
+                  {missing.length > 6 && <li>…and {missing.length - 6} more</li>}
+                </ul>
+                {stamp ? (
+                  <p className="text-xs text-blue-800">
+                    ✓ Requested {new Date(stamp).toLocaleString()}{by ? ` by ${by}` : ''}
+                    <button type="button" onClick={onRequestPartNumbers} disabled={requestingPart}
+                      className="ml-2 underline hover:no-underline disabled:opacity-50">
+                      {requestingPart ? 'Sending…' : 'Ask again'}
+                    </button>
+                  </p>
+                ) : (
+                  <button type="button" onClick={onRequestPartNumbers} disabled={requestingPart}
+                    className="px-3 py-2 text-xs rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-500 disabled:opacity-50">
+                    {requestingPart ? 'Sending…' : 'Request part numbers'}
+                  </button>
+                )}
+              </div>
+            )
+          })()}
+
           {/* Awaiting BOM Components → link to the Purchase Order Request board */}
           {editing && form.status === 'Awaiting BOM Components' && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -1074,7 +1154,7 @@ function EditPanel({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Order Name / Customer <span className="text-gray-300">(optional)</span></label>
-                <input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className={inp} placeholder="Customer Name | PO Reference"/>
+                <input value={form.notes} onChange={e => { setNameTouched(true); setForm(p => ({ ...p, notes: e.target.value })) }} className={inp} placeholder="Customer Name | PO Reference"/>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1098,7 +1178,7 @@ function EditPanel({
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">PO # <span className="normal-case text-gray-300">(customer)</span></label>
-                  <input value={form.po_number} onChange={e => setForm(p => ({ ...p, po_number: e.target.value }))} className={inp} placeholder="Customer PO #"/>
+                  <input value={form.po_number} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, po_number: v, notes: nameTouched ? p.notes : composeOrderName(p.customer_label, v) })) }} className={inp} placeholder="Customer PO #"/>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Facility</label>
@@ -1235,6 +1315,24 @@ function EditPanel({
                             {custMatches.length ? custMatches.map(c => (
                               <button type="button" key={c.id} onMouseDown={e => e.preventDefault()} onClick={() => pickCustomer(c)} className="block w-full text-left px-3 py-2 text-sm text-[#1A1D2E] hover:bg-gray-50 truncate">{c.company_name}</button>
                             )) : <div className="px-3 py-2 text-sm text-gray-400">No matching customers</div>}
+                          </div>
+                        )}
+                        {!showNewCust ? (
+                          <button type="button" onClick={() => { setShowNewCust(true); setNewCust(n => ({ ...n, company_name: custQ.trim() })) }} className="text-[11px] font-semibold text-[#00863F] hover:underline mt-1.5">+ Create new customer</button>
+                        ) : (
+                          <div className="mt-2 rounded-lg border border-[#037f4c]/30 bg-[#037f4c]/5 p-3 space-y-2">
+                            <p className="text-xs font-semibold text-[#037f4c]">New customer - added to the Customers board</p>
+                            <input value={newCust.company_name} onChange={e => setNewCust(n => ({ ...n, company_name: e.target.value }))} placeholder="Company name *" className={inp}/>
+                            <div className="grid grid-cols-2 gap-2">
+                              <input type="email" value={newCust.email} onChange={e => setNewCust(n => ({ ...n, email: e.target.value }))} placeholder="Email" className={inp}/>
+                              <input value={newCust.phone} onChange={e => setNewCust(n => ({ ...n, phone: fmtPhone(e.target.value) }))} inputMode="tel" placeholder="Phone" className={inp}/>
+                            </div>
+                            <textarea rows={2} value={newCust.billing_address} onChange={e => setNewCust(n => ({ ...n, billing_address: e.target.value }))} placeholder="Billing address" className={inp + ' resize-none'}/>
+                            <textarea rows={2} value={newCust.shipping_address} onChange={e => setNewCust(n => ({ ...n, shipping_address: e.target.value }))} placeholder="Shipping address" className={inp + ' resize-none'}/>
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={() => setShowNewCust(false)} className="text-xs px-3 py-1.5 rounded-lg border border-[#E4E6EE] text-gray-500">Cancel</button>
+                              <button type="button" onClick={saveNewCustomer} disabled={newCustBusy} className="text-xs px-3 py-1.5 rounded-lg bg-[#037f4c] text-white font-semibold disabled:opacity-60">{newCustBusy ? 'Creating...' : 'Create & link'}</button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1650,6 +1748,8 @@ export default function OrdersPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [portals, setPortals] = useState<PortalClient[]>([])
   const [flaggedMap, setFlaggedMap] = useState<Record<string, number>>({})
+  const [noPartMap, setNoPartMap] = useState<Record<string, any[]>>({})
+  const [requestingPart, setRequestingPart] = useState(false)
   const [columns, setColumns] = useState<{ id: string; label: string; ftype: string; position: number }[]>([])
   const [inlineErr, setInlineErr] = useState('')
   const [woMap, setWoMap] = useState<Record<string, number>>({}) // soId → wo_number
@@ -1672,6 +1772,7 @@ export default function OrdersPage() {
   const [expandedCompletedIds, setExpandedCompletedIds] = useState<Set<string>>(new Set())
   const [completedOpen, setCompletedOpen] = useState(false)
   const [shippedOrderIds, setShippedOrderIds] = useState<Set<string>>(new Set())
+  const [shipCounts, setShipCounts] = useState<Record<string, number>>({})
   const [editOpen, setEditOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<SalesOrder | null>(null)
   const [form, setForm] = useState<F>(emptyForm)
@@ -1686,9 +1787,13 @@ export default function OrdersPage() {
       sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone,city,state)').eq('archived', false).eq('is_active', true).order('created_at', { ascending: false }),
       sb.from('customers').select('id,company_name').eq('board', 'customer').eq('is_active', true).order('company_name'),
       sb.from('products').select('id,sku,product_name,unit_cost,wholesale_price,msrp,unit_of_measure,our_part_number,supplier_part_number,pieces_per_pack,packs_per_case,cases_per_pallet,case_qty').eq('is_active', true).order('sku'),
-      sb.from('sales_order_lines').select('sales_order_id, sku, product_id'),
+      sb.from('sales_order_lines').select('id, sales_order_id, sku, product_id, description, quantity, unit_of_measure, line_number'),
       sb.from('work_orders').select('wo_number,notes').order('wo_number'),
-      sb.from('shipments').select('sales_order_id').not('sales_order_id', 'is', null),
+      // Fetch every shipment (not just fully-'Shipped' ones) so we can both (a) know which
+      // orders are truly done — only a 'Shipped' shipment counts toward that, a partial still
+      // leaves the order open (see isCompleted below) — and (b) show how many shipments/
+      // partials have gone out per order on the board.
+      sb.from('shipments').select('sales_order_id, order_id, status').not('sales_order_id', 'is', null),
       sb.from('portal_clients').select('id, customer_id, company_name, name, email').eq('is_active', true),
     ])
     if (!userEmail) { sb.auth.getUser().then(({ data }) => { if (data.user?.email) { setUserEmail(data.user.email); sb.from('erp_user_roles').select('role').eq('email', data.user.email).maybeSingle().then(({ data: r }) => setUserRole((r as any)?.role || '')) } }) }
@@ -1708,6 +1813,14 @@ export default function OrdersPage() {
       const fm: Record<string, number> = {}
       for (const r of fl as any[]) { if (r.sales_order_id && !r.product_id && !String(r.sku ?? '').trim()) fm[r.sales_order_id] = (fm[r.sales_order_id] ?? 0) + 1 }
       setFlaggedMap(fm)
+      // Lines still without a usable part number. The part number starts here — a line that
+      // leaves this board without one carries the gap into its work order, and the finished
+      // goods are never booked. Kept per order so the board can say which order to look at.
+      const nm: Record<string, any[]> = {}
+      for (const r of fl as any[]) {
+        if (r.sales_order_id && needsPartNumber(r)) (nm[r.sales_order_id] ||= []).push(r)
+      }
+      setNoPartMap(nm)
     }
     if (wo) {
       const wm: Record<string, number> = {}
@@ -1718,7 +1831,16 @@ export default function OrdersPage() {
       setWoMap(wm)
     }
     if (sh) {
-      setShippedOrderIds(new Set((sh as any[]).map(r => r.sales_order_id).filter(Boolean)))
+      const rows = sh as any[]
+      setShippedOrderIds(new Set(rows.filter(r => r.status === 'Shipped').map(r => r.sales_order_id).filter(Boolean)))
+      // Count every shipment per order (partial or final) so the board can show
+      // "📦 N shipped" — how many shipments have gone out against this order so far.
+      const counts: Record<string, number> = {}
+      for (const r of rows) {
+        const oid = r.sales_order_id || r.order_id
+        if (oid) counts[oid] = (counts[oid] || 0) + 1
+      }
+      setShipCounts(counts)
     }
     if (pc) setPortals(pc as PortalClient[])
     setLoading(false)
@@ -2041,6 +2163,68 @@ export default function OrdersPage() {
     setEditOpen(true)
   }
 
+  /**
+   * Ask the people who decide part numbers to fill in the ones missing on this order. Same
+   * button and same recipients as the Work Orders board, because it is the same question —
+   * it is just being asked earlier, where the number is supposed to originate.
+   */
+  async function requestPartNumbers(order: SalesOrder) {
+    const lines = noPartMap[order.id] || []
+    if (!lines.length) return
+    const ref = order.order_number || 'this order'
+    const customer = order.customer?.company_name || ''
+    if (!window.confirm(`Email Shea, Finance, Veejay and Rudy for the ${lines.length} missing part number${lines.length > 1 ? 's' : ''} on ${ref}?`)) return
+    setRequestingPart(true)
+    try {
+      const rows = lines.map(l => `<tr>
+        <td style="border:1px solid #e5e7eb;padding:6px">${l.line_number ?? ''}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${String(l.sku ?? '').trim() || '<em>(blank)</em>'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${l.description ?? ''}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px">${l.quantity ?? ''} ${l.unit_of_measure ?? ''}</td></tr>`).join('')
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111">
+          <p>Order <strong>${ref}</strong>${customer ? ` for ${customer}` : ''} has
+             ${lines.length} line${lines.length > 1 ? 's' : ''} without a usable part number.</p>
+          <p>The part number starts on the sales order. Until it is here and linked to a product,
+             any work order raised from this order inherits the gap and its finished goods are
+             never booked into inventory.</p>
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0">
+            <tr>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Line</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Part #</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Description</td>
+              <td style="border:1px solid #e5e7eb;padding:6px;background:#f9fafb;font-weight:600">Qty</td>
+            </tr>
+            ${rows}
+          </table>
+          <p>Requested by ${userEmail || 'the sales team'}.</p>
+          <p>Please add the part numbers and item details on the order:<br>
+             <a href="https://beyondgreen-erp.vercel.app/sales/orders?item=${order.id}">Open ${ref}</a></p>
+          <p style="color:#6b7280;font-size:12px">Sent from the beyondGREEN ERP when someone pressed &ldquo;Request part numbers&rdquo; on the Order Pipeline.</p>
+        </div>`
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: PART_NUMBER_APPROVERS,
+          reply_to: userEmail || undefined,
+          subject: `Part number needed — order ${ref}${customer ? ` (${customer})` : ''}`,
+          html,
+        }),
+      })
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) { alert('Could not send the request: ' + (out?.error || res.statusText)); return }
+      await sb.from('sales_orders').update({
+        part_number_requested_at: new Date().toISOString(),
+        part_number_requested_by: userEmail || null,
+      }).eq('id', order.id)
+      setOrders(os => os.map(o => o.id === order.id
+        ? { ...o, part_number_requested_at: new Date().toISOString(), part_number_requested_by: userEmail || null } as SalesOrder
+        : o))
+      alert(`✓ Asked Shea, Finance, Veejay and Rudy for the part numbers on ${ref}.`)
+    } finally { setRequestingPart(false) }
+  }
+
   async function openEdit(order: SalesOrder) {
     // Load lines for this order
     const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', order.id).order('line_number')
@@ -2204,7 +2388,6 @@ export default function OrdersPage() {
       broker_commission_paid: form.broker_commission_status === 'paid_by_bg',
     }
 
-    const creating = !editingOrder
     let orderId = editingOrder?.id
     if (editingOrder) {
       const { error: e1 } = await sb.from('sales_orders').update({ ...basePayload, ...extPayload }).eq('id', editingOrder.id)
@@ -2324,11 +2507,6 @@ export default function OrdersPage() {
     }
 
     setEditingOrder(null); load()
-
-    // Auto inventory check on a newly created order: stock check -> WO / PR prompt
-    if (creating && orderId) {
-      setInventoryCheckOrder({ id: orderId, order_number: form.order_number || 'New Order' } as SalesOrder)
-    }
   }
 
   async function duplicateOrder(order: SalesOrder) {
@@ -2363,10 +2541,11 @@ export default function OrdersPage() {
 
 
     async function executeDelete(id: string) {
-      await sb.from('work_orders').delete().eq('sales_order_id', id)
-      await sb.from('shipments').delete().eq('sales_order_id', id)
-      await sb.from('sales_order_lines').delete().eq('sales_order_id', id)
-      await sb.from('sales_orders').delete().eq('id', id)
+      // Soft delete (recycle bin) — a hard delete fails on RESTRICT foreign keys
+      // (lines, shipments, QC, lot codes, etc.). is_active=false removes it from the
+      // board and is restorable from the Recycle Bin.
+      const { error } = await sb.from('sales_orders').update({ is_active: false }).eq('id', id)
+      if (error) { alert('Could not delete this order: ' + error.message); return }
       setConfirmDeleteId(null); load()
     }
     async function bulkDelete() {
@@ -2377,10 +2556,8 @@ export default function OrdersPage() {
     async function executeBulkDelete() {
       setDeleting(true)
       const ids = Array.from(ms.selected)
-        await sb.from('work_orders').delete().in('sales_order_id', ids)
-        await sb.from('shipments').delete().in('sales_order_id', ids)
-      await sb.from('sales_order_lines').delete().in('sales_order_id', ids)
-      await sb.from('sales_orders').delete().in('id', ids)
+      const { error } = await sb.from('sales_orders').update({ is_active: false }).in('id', ids)
+      if (error) { setDeleting(false); alert('Could not delete: ' + error.message); return }
       ms.clear(); setDeleting(false); setConfirmBulkDelete(false); load()
     }
 
@@ -2407,6 +2584,20 @@ export default function OrdersPage() {
         </button>
         )}
       </div>
+
+      {/* The part number starts on the sales order — chase it here, not on the floor. */}
+      {(() => {
+        const withGap = orders.filter(o => !isCompleted(o) && (noPartMap[o.id]?.length ?? 0) > 0)
+        if (!withGap.length) return null
+        const lineCount = withGap.reduce((a, o) => a + (noPartMap[o.id]?.length ?? 0), 0)
+        return (
+          <div className="mb-4 rounded-lg bg-blue-50 border border-blue-300 text-[12px] text-blue-800 px-3 py-2">
+            <span className="font-semibold wo-blink">◆ {withGap.length} order{withGap.length > 1 ? 's' : ''} with {lineCount} line{lineCount > 1 ? 's' : ''} missing a part number</span>
+            {' '}— open one and use <span className="font-medium">Request part numbers</span> if you do not know them.
+            A work order raised from these inherits the gap and books nothing into inventory.
+          </div>
+        )
+      })()}
 
       {/* Stats bar */}
       {inlineErr && (
@@ -2554,13 +2745,27 @@ export default function OrdersPage() {
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
-                          <p className="text-xs text-gray-500 truncate">{o.po_number ? 'PO ' + o.po_number : (o.order_number && o.order_number !== orderTitle(o) ? o.order_number : '')}</p>
+                          <p className="text-xs text-gray-500 truncate">{o.po_number ? 'PO ' + o.po_number : (o.order_number && o.order_number !== orderTitle(o) ? o.order_number : '')}{shipCounts[o.id] ? ` · 📦 ${shipCounts[o.id]} shipped` : ''}</p>
+                          {(noPartMap[o.id]?.length ?? 0) > 0 && (
+                            <p className="wo-blink text-[11px] font-semibold truncate">
+                              ◆ {noPartMap[o.id].length} part number{noPartMap[o.id].length > 1 ? 's' : ''} needed
+                            </p>
+                          )}
                         </div>
                         {columns.map(col => { const cf = ((o as any).custom_fields) || {}; return (
                           <input key={col.id} type={col.ftype === 'number' ? 'number' : col.ftype === 'date' ? 'date' : 'text'} value={cf[col.id] ?? ''} onClick={e => e.stopPropagation()} onChange={e => setCell(o.id, col.id, e.target.value)} onDragStart={e => e.stopPropagation()} placeholder="—"
                             className="w-[110px] shrink-0 hidden md:block text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 focus:outline-none focus:border-[#00A84F]" />
                         ) })}
                         {u && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${u.level === 'overdue' ? 'bg-[#E2445C] text-white' : 'bg-amber-400/20 text-amber-700'}`} title="Ship-date urgency">{u.level === 'overdue' ? `${Math.abs(u.days)}d late` : `${u.days}d`}</span>}
+                        {/* Compares every line against on-hand stock, and raises a work order for
+                            each short one. Lives on the board because this is where orders are worked. */}
+                        <button
+                          onClick={e => { e.stopPropagation(); setInventoryCheckOrder(o) }}
+                          onDragStart={e => e.stopPropagation()}
+                          title="Check stock for this order and raise work orders for anything short"
+                          className="shrink-0 hidden sm:block text-[11px] font-semibold px-2 py-1 rounded-md border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors">
+                          Check stock
+                        </button>
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
                           className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0 max-w-[104px] sm:max-w-[170px] truncate">
@@ -2635,6 +2840,11 @@ export default function OrdersPage() {
                       <td className="px-3 py-3.5 max-w-[200px] cursor-pointer mon-row" onClick={() => openEdit(order)}>
                         <p className="text-[#1A1D2E] font-semibold text-sm truncate">{custName}</p>
                         {ref && <p className="text-gray-500 text-xs truncate mt-0.5">{ref}</p>}
+                        {(noPartMap[order.id]?.length ?? 0) > 0 && (
+                          <p className="wo-blink text-[11px] font-semibold truncate mt-0.5">
+                            ◆ {noPartMap[order.id].length} part number{noPartMap[order.id].length > 1 ? 's' : ''} needed
+                          </p>
+                        )}
                       </td>
                       <td className="px-3 py-3.5">
                         {order.order_section && (
@@ -2887,7 +3097,7 @@ export default function OrdersPage() {
             if (result === 'shipped') {
               setFlowToast({ message: '✓ Order moved to Shipping Queue' })
             } else if (result === 'production') {
-              setFlowToast({ message: '✓ Work orders created — pending approval from Shea/Veejay' })
+              setFlowToast({ message: '✓ Work orders raised — waiting for approval at the top of the Work Orders board' })
             }
             load()
           }}
@@ -2942,6 +3152,8 @@ export default function OrdersPage() {
         onDuplicate={() => editingOrder && duplicateOrder(editingOrder)}
         onDownloadSalesOrder={downloadFromForm}
         onSendAck={sendAcknowledgement}
+        onRequestPartNumbers={() => { if (editingOrder) requestPartNumbers(editingOrder) }}
+        requestingPart={requestingPart}
         onOpenSOConfirm={() => setConfirmSOOpen(true)}
         emailBusy={emailBusy}
         canSendSO={!!editingOrder && !!form.customer_id && !!(form.billing_address || '').trim() && !!(form.shipping_address || '').trim() && !!(((form.terms as string) || '') + '').trim() && editLines.some(l => l.sku || l.description)}
