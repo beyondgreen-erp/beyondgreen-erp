@@ -32,6 +32,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/production/machine-status': 'Machine Status',
   '/production/rates': 'Production Rates',
   '/imports': 'Import Tracker',
+  '/packaging': 'Packaging Design',
   '/walmart': 'Walmart Portal',
   '/bizdev/tasks': 'Tasks',
   '/bizdev/forecasting': 'Forecasting',
@@ -70,7 +71,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   }, [])
 
   useEffect(() => {
-    if (pathname === '/login' || pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/')) return
+    if (pathname === '/login' || pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/') || pathname.startsWith('/proof')) return
     const sb = createSupabaseBrowserClient()
     sb.auth.getUser().then(({ data }) => {
       const email = data.user?.email ?? ''
@@ -90,7 +91,9 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     })
   }, [pathname])
 
-  if (pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/')) return <>{children}</>
+  if (pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/') || pathname.startsWith('/proof')) return <>{children}</>
+  // Packaging Studio editor is a full-screen app of its own
+  if (pathname.startsWith('/packaging/')) return <ToastProvider>{children}<AuthWatcher /><PresenceTracker /></ToastProvider>
   if (pathname === '/login') return <>{children}<AuthWatcher /></>
   // Scan tools are full-screen standalone apps (also the only surface production-role users can reach)
   if (pathname.startsWith('/warehouse/produce') || pathname.startsWith('/warehouse/scans')) return <>{children}<AuthWatcher /></>

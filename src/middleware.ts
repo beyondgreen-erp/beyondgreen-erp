@@ -13,6 +13,20 @@ const PORTAL_HOSTS = Array.from(new Set([
   ...(process.env.NEXT_PUBLIC_PORTAL_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
 ]))
 
+// Hostnames that serve ONLY the external printer-proof portal (Packaging Design ▸ Printer Share).
+// Printers get links on this host; everything else (ERP, login, client portal) is invisible here.
+const PROOF_HOSTS = Array.from(new Set([
+  'beyondgreen-proofs.vercel.app',
+  ...(process.env.NEXT_PUBLIC_PROOF_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+]))
+
+function isProofPath(pathname: string): boolean {
+  return pathname === '/proof' || pathname.startsWith('/proof/') || pathname.startsWith('/api/proof/') ||
+    pathname.startsWith('/pkg-fonts/') || pathname.startsWith('/vendor/') ||
+    pathname.startsWith('/_next') || pathname === '/manifest.json' ||
+    /\.(?:png|jpe?g|gif|svg|ico|webp|css|js|woff2?|ttf|otf|map)$/i.test(pathname)
+}
+
 function isPortalPath(pathname: string): boolean {
   return pathname === '/portal' || pathname.startsWith('/portal/') ||
     pathname.startsWith('/api/portal') || pathname.startsWith('/api/avatar') ||
@@ -33,15 +47,28 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Dedicated printer-proof host: only /proof pages + their API exist; the ERP is invisible.
+  if (PROOF_HOSTS.includes(host)) {
+    if (isProofPath(pathname)) {
+      const res = NextResponse.next()
+      res.headers.set('X-Robots-Tag', 'noindex, nofollow')
+      return res
+    }
+    const url = request.nextUrl.clone()
+    url.pathname = '/proof'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
+
   if (
+    pathname === '/proof' || pathname.startsWith('/proof/') ||
+    pathname.startsWith('/pkg-fonts/') || pathname.startsWith('/vendor/') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/professional') ||
     pathname.startsWith('/t/') ||
     pathname.startsWith('/p/') ||
     pathname.startsWith('/w/') ||
     pathname.startsWith('/scan/') ||
-    pathname.startsWith('/dp/') ||
-    pathname.startsWith('/wo/') ||
     pathname.startsWith('/portal') ||
     pathname.startsWith('/ship-docs') ||
     pathname.startsWith('/forms') ||
