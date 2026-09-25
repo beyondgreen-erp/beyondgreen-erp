@@ -73,6 +73,7 @@ export interface PDFOrder {
   terms?: string | null
   fob?: string | null
   sales_rep?: string | null
+  export_country?: string | null
 }
 
 export interface PDFCustomer {
@@ -150,7 +151,7 @@ function paymentShort(terms?: string | null): string {
   const p = pctFromTerms(t); if (p != null) return `Custom projects require a ${p}% deposit to confirm; the remaining ${100 - p}% balance is due prior to shipment unless approved credit terms apply.`
   if (/upfront|in advance|prepaid|100\s*%/i.test(t)) return 'Full payment is required in advance before the order is scheduled.'
   if (t) return `Payment terms: ${t}.`
-  return 'Custom projects require a deposit to confirm; balance due prior to shipment unless approved credit terms apply.'
+  return ''
 }
 // Full "Payment Terms" clause for section 3 of the Terms & Conditions page, derived from the payment terms field.
 function paymentTC(terms?: string | null): string {
@@ -160,7 +161,7 @@ function paymentTC(terms?: string | null): string {
   const p = pctFromTerms(t); if (p != null) return `For custom projects, a ${p}% deposit is required to confirm and schedule the order, with the remaining ${100 - p}% balance due at the time of shipment, unless credit terms have been applied for and approved by Seller in writing. Approved credit terms are Net 30 days from the invoice date. First orders for custom projects are not eligible for credit terms. To apply for credit terms, email finance@beyondgreenbiotech.com.`
   if (/upfront|in advance|prepaid|100\s*%/i.test(t)) return 'Full payment is required in advance before the order is scheduled and materials are procured, unless other terms are stated on the face of this quote.'
   if (t) return `Payment terms for this order are: ${t}, unless otherwise stated on the face of this quote. Approved credit terms, where granted in writing, are Net 30 days from the invoice date.`
-  return 'For custom projects, a deposit is required to confirm and schedule the order, with the balance due at the time of shipment, unless credit terms have been applied for and approved by Seller in writing.'
+  return ''
 }
 
 // The Bill To / Ship To boxes echo exactly what was typed into the document's
@@ -437,12 +438,14 @@ export async function generateOrderPDF(
   // Info row
   const iY = bY + boxH + 12, infoRowH = 20
   const infoCols = [
-    { label: 'P.O. No.', value: order.po_number || '', w: 120 },
-    { label: 'Ship By', value: fmtDate(order.required_ship_date, true), w: 120 },
-    { label: 'Terms', value: order.terms || 'Net 30', w: 120 },
-    { label: 'FOB', value: order.fob || 'Santa Ana', w: 96 },
-    { label: 'Sales Rep', value: order.sales_rep || 'RP', w: 84 },
+    { label: 'P.O. No.', value: order.po_number || '', w: 0 },
+    { label: 'Ship By', value: fmtDate(order.required_ship_date, true), w: 0 },
+    { label: 'Terms', value: order.terms || '', w: 0 },
+    { label: 'FOB', value: order.fob || 'Santa Ana', w: 0 },
+    ...(order.export_country ? [{ label: 'Export From', value: order.export_country || '', w: 0 }] : []),
+    { label: 'Sales Rep', value: order.sales_rep || 'RP', w: 0 },
   ]
+  { const _iw = (R - L) / infoCols.length; infoCols.forEach(c => { c.w = _iw }) }
   let ix = L
   doc.setLineWidth(0.7); doc.setDrawColor(0)
   infoCols.forEach(c => {
@@ -681,7 +684,7 @@ function drawTermsPage(doc: jsPDF, order: PDFOrder) {
 }
 
 export async function generateQuotePDF(
-  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null; payment_terms?: string | null; po_number?: string | null; billing_address?: string | null; shipping_address?: string | null },
+  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null; payment_terms?: string | null; po_number?: string | null; billing_address?: string | null; shipping_address?: string | null; export_country?: string | null },
   lines: PDFLine[],
   customer: PDFCustomer | null
 ) {
@@ -697,9 +700,10 @@ export async function generateQuotePDF(
     tax_pct: quote.tax_pct,
     total: quote.total,
     notes: quote.notes ?? null,
-    terms: quote.payment_terms ?? 'Net 30',
+    terms: quote.payment_terms ?? '',
     fob: 'Santa Ana',
     sales_rep: 'RP',
+    export_country: quote.export_country ?? null,
   }
   await renderSalesDocumentPDF('quote', orderLike, lines, customer)
 }
@@ -714,6 +718,10 @@ export async function generateRFQPDF(
     delivery_by?: string | null
     reply_to_email?: string | null
     reply_to_name?: string | null
+    billing_address?: string | null
+    shipping_address?: string | null
+    export_country?: string | null
+    payment_terms?: string | null
   },
   lines: PDFLine[],
   buyer: PDFCustomer | null
@@ -729,10 +737,12 @@ export async function generateRFQPDF(
     tax_pct: 0,
     total: 0,
     notes: rfq.notes ?? null,
-    terms: 'Reply with DDP pricing',
+    terms: (rfq.payment_terms && rfq.payment_terms.trim()) ? rfq.payment_terms : 'Reply with DDP pricing',
     fob: '',
     sales_rep: rfq.reply_to_name ?? 'Sourcing',
-    shipping_address: rfq.delivery_address ?? null,
+    billing_address: rfq.billing_address ?? null,
+    shipping_address: rfq.shipping_address ?? rfq.delivery_address ?? null,
+    export_country: rfq.export_country ?? null,
   }
   await renderSalesDocumentPDF('rfq', orderLike, lines, buyer, {
     replyToEmail: rfq.reply_to_email ?? null,
