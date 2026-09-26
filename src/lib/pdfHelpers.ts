@@ -951,3 +951,124 @@ async function renderSalesDocumentPDF(
   if (opts.output === 'base64') return doc.output('datauristring').split('base64,')[1]
   doc.save((_custPart ? `${_custPart} - ${_numPart}` : `${KIND.filePrefix}-${_numPart}`) + '.pdf')
 }
+
+// ---------------------------------------------------------------------------
+// Sample submissions: box label + packing list
+// ---------------------------------------------------------------------------
+
+export interface SampleLabelInfo { customerName: string; requestedBy: string | null }
+
+/** A 4x6" label for a sample box: logo, company address, who it's for, who requested it. */
+export async function generateSampleLabel(info: SampleLabelInfo) {
+  const doc = new jsPDF({ unit: 'in', format: [4, 6], orientation: 'portrait' })
+  const W = doc.internal.pageSize.getWidth()
+  const cx = W / 2
+  doc.setTextColor(0, 0, 0)
+
+  const logo = await loadBrandLogo()
+  if (logo) { try { doc.addImage(logo, 'PNG', cx - 0.85, 0.3, 1.7, 0.67) } catch { /* skip */ } }
+
+  let y = 1.35
+  doc.setFont('times', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...GRAY)
+  doc.text(COMPANY.addr.slice(0, 2).join('  •  '), cx, y, { align: 'center' })
+  doc.setTextColor(0, 0, 0)
+  y += 0.32
+
+  doc.setDrawColor(...GREEN); doc.setLineWidth(0.02)
+  doc.line(0.35, y, W - 0.35, y)
+  y += 0.4
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(...GREEN)
+  doc.text('SAMPLES', cx, y, { align: 'center' }); y += 0.32
+  doc.text('FROM beyondGREEN', cx, y, { align: 'center' })
+  doc.setTextColor(0, 0, 0)
+  y += 0.55
+
+  doc.setDrawColor(...GREEN); doc.line(0.35, y, W - 0.35, y)
+  y += 0.45
+
+  doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(...GRAY)
+  doc.text('CUSTOMER', cx, y, { align: 'center' }); y += 0.3
+  doc.setFont('times', 'bold'); doc.setFontSize(17); doc.setTextColor(0, 0, 0)
+  const nameLines = doc.splitTextToSize(info.customerName || '—', W - 0.7) as string[]
+  nameLines.forEach(l => { doc.text(l, cx, y, { align: 'center' }); y += 0.26 })
+  y += 0.35
+
+  if (info.requestedBy) {
+    doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(...GRAY)
+    doc.text('REQUESTED BY', cx, y, { align: 'center' }); y += 0.3
+    doc.setFont('times', 'bold'); doc.setFontSize(15); doc.setTextColor(0, 0, 0)
+    doc.text(info.requestedBy, cx, y, { align: 'center' })
+  }
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRAY)
+  doc.text('beyondgreenbiotech.com', cx, doc.internal.pageSize.getHeight() - 0.3, { align: 'center' })
+
+  const file = (info.customerName || 'sample').replace(/[^\w.-]+/g, ' ').trim().replace(/\s+/g, '-')
+  doc.save(`sample-label-${file}.pdf`)
+}
+
+export interface SamplePackingItem { name: string; sku: string | null; quantity: number | null; uom: string | null }
+export interface SamplePackingInfo {
+  reference: string; date: string | null; customerName: string; shipToAddress: string | null
+  requestedBy: string | null; product: string | null
+}
+
+/** A letterhead-style packing list for a sample box, listing everything that went in it. */
+export async function generateSamplePackingList(info: SamplePackingInfo, items: SamplePackingItem[]) {
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  const W = doc.internal.pageSize.getWidth()
+  const L = 36, R = W - 36
+
+  const logo = await loadBrandLogo()
+  if (logo) { try { doc.addImage(logo, 'PNG', L, 28, 122, 48) } catch { /* skip */ } }
+  doc.setFont('times', 'bold'); doc.setFontSize(28); doc.setTextColor(...DARK)
+  doc.text('Packing List', R, 60, { align: 'right' })
+
+  const boxW = 200, boxX = R - boxW, boxY = 74, colX = boxX + boxW / 2, rowH = 20
+  doc.setDrawColor(0); doc.setLineWidth(0.7)
+  doc.rect(boxX, boxY, boxW, rowH)
+  doc.rect(boxX, boxY + rowH, boxW, rowH)
+  doc.line(colX, boxY, colX, boxY + rowH * 2)
+  doc.setFont('times', 'bold'); doc.setFontSize(9.5)
+  doc.text('Date', boxX + boxW / 4, boxY + 13.5, { align: 'center' })
+  doc.text('Reference', colX + boxW / 4, boxY + 13.5, { align: 'center' })
+  doc.setFont('times', 'normal')
+  fitText(doc, fmtDate(info.date), boxX + boxW / 4, boxY + rowH + 13.5, boxW / 2, { align: 'center', maxSize: 9.5 })
+  fitText(doc, info.reference || '-', colX + boxW / 4, boxY + rowH + 13.5, boxW / 2, { align: 'center', maxSize: 9.5 })
+
+  doc.setFont('times', 'bold'); doc.setFontSize(11)
+  doc.text(COMPANY.name, L, 100)
+  doc.setFont('times', 'normal'); doc.setFontSize(12)
+  let cyc = 118
+  COMPANY.addr.forEach(line => { doc.text(line, L, cyc); cyc += 15 })
+
+  const bY = 176, boxH = 96, rbX = 300, rbW = R - rbX
+  const shipRows = (info.shipToAddress || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+  drawAddrBox(doc, rbX, bY, rbW, boxH, 'Ship To', [info.customerName, ...shipRows].filter(Boolean))
+
+  doc.setFont('times', 'bold'); doc.setFontSize(9.5)
+  doc.text('Requested By', L, bY + 14)
+  doc.setFont('times', 'normal')
+  doc.text(info.requestedBy || '—', L, bY + 30)
+  if (info.product) {
+    doc.setFont('times', 'bold'); doc.text('Product', L, bY + 54)
+    doc.setFont('times', 'normal'); doc.text(doc.splitTextToSize(info.product, 240) as string[], L, bY + 70)
+  }
+
+  autoTable(doc, {
+    startY: bY + boxH + 20,
+    head: [['#', 'SKU', 'Item', 'Qty', 'UOM']],
+    body: items.map((l, i) => [i + 1, l.sku ?? '—', l.name, l.quantity ?? '', l.uom ?? '—']),
+    headStyles: { fillColor: GREEN, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 9, minCellHeight: 18 },
+    alternateRowStyles: { fillColor: [246, 250, 247] },
+    columnStyles: { 0: { cellWidth: 24, halign: 'center' }, 1: { cellWidth: 90, font: 'courier', fontSize: 8 }, 3: { cellWidth: 60, halign: 'center' }, 4: { cellWidth: 60, halign: 'center' } },
+  })
+
+  doc.setFontSize(8); doc.setTextColor(...GRAY)
+  doc.text(`Generated ${new Date().toLocaleString()} · beyondGREEN ERP`, W / 2, doc.internal.pageSize.getHeight() - 18, { align: 'center' })
+
+  const file = (info.customerName || 'sample').replace(/[^\w.-]+/g, ' ').trim().replace(/\s+/g, '-')
+  doc.save(`sample-packing-list-${file}.pdf`)
+}

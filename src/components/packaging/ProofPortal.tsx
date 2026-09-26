@@ -5,7 +5,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import * as fabric from 'fabric'
 import { restore } from '@/lib/packaging/canvasIO'
-import { exportDesign, downloadBlob, DEFAULT_EXPORT, type ExportFormat } from '@/lib/packaging/exporters'
+import { buildProofObjects, loadBrandLogo, sheetLayout, drawProof } from '@/lib/packaging/proofTemplate'
+import { loadFamily } from '@/lib/packaging/fonts'
+import { exportDesign, exportProofSheet, downloadBlob, DEFAULT_EXPORT, type ExportFormat } from '@/lib/packaging/exporters'
 import { fmtUnit, safeFileName, type DesignDoc } from '@/lib/packaging/doc'
 import CommentsPanel, { type PkgComment } from './CommentsPanel'
 
@@ -58,6 +60,7 @@ export default function ProofPortal() {
     return j as Payload
   }, [token])
 
+  const proofObjsRef = useRef<fabric.FabricObject[]>([])
   const renderDoc = useCallback(async (p: Payload) => {
     const fc = fcRef.current
     if (!fc || !p.doc) return
@@ -68,6 +71,13 @@ export default function ProofPortal() {
       const b = await (await fetch(url)).blob(); return URL.createObjectURL(b)
     })
     applyVisibility(p.doc, showDieline)
+    proofObjsRef.current = []
+    if (p.doc.proof && p.doc.proof.enabled !== false) {
+      try {
+        const [logo] = await Promise.all([loadBrandLogo(), loadFamily('Inter')])
+        proofObjsRef.current = buildProofObjects(p.doc.proof, p.doc.width, p.doc.height, logo)
+      } catch { /* sheet is optional */ }
+    }
     fit()
     setRendering(false)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -108,7 +118,14 @@ export default function ProofPortal() {
       const d = docRef.current
       if (ctx !== fc.getContext() || !d) return
       const v = fc.viewportTransform
-      ctx.save(); ctx.transform(v[0], v[1], v[2], v[3], v[4], v[5]); ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 14; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, d.width, d.height); ctx.restore()
+      ctx.save(); ctx.transform(v[0], v[1], v[2], v[3], v[4], v[5])
+      if (proofObjsRef.current.length) {
+        const L = sheetLayout(d.width, d.height)
+        ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 14; ctx.fillStyle = '#fff'; ctx.fillRect(L.x, L.y, L.w, L.h); ctx.restore()
+        drawProof(ctx, proofObjsRef.current)
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, d.width, d.height)
+      } else { ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 14; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, d.width, d.height) }
+      ctx.restore()
     }
     const el = wrapRef.current!
     const ro = new ResizeObserver(() => { fc.setDimensions({ width: el.clientWidth, height: el.clientHeight }); fc.requestRenderAll(); setVpt(fc.viewportTransform.slice()) })
@@ -138,8 +155,9 @@ export default function ProofPortal() {
   // ── view helpers ──
   const fit = () => {
     const fc = fcRef.current, d = docRef.current; if (!fc || !d) return
-    const W = fc.getWidth(), H = fc.getHeight(), z = Math.min((W - 60) / d.width, (H - 60) / d.height)
-    fc.setViewportTransform([z, 0, 0, z, (W - d.width * z) / 2, (H - d.height * z) / 2]); setVpt(fc.viewportTransform.slice())
+    const r = proofObjsRef.current.length ? sheetLayout(d.width, d.height) : { x: 0, y: 0, w: d.width, h: d.height }
+    const W = fc.getWidth(), H = fc.getHeight(), z = Math.min((W - 60) / r.w, (H - 60) / r.h)
+    fc.setViewportTransform([z, 0, 0, z, (W - r.w * z) / 2 - r.x * z, (H - r.h * z) / 2 - r.y * z]); setVpt(fc.viewportTransform.slice())
   }
   const zoomAt = (z: number, px?: number, py?: number) => {
     const fc = fcRef.current; if (!fc) return
@@ -217,6 +235,15 @@ export default function ProofPortal() {
     try {
       const r = await exportDesign(fc, { width: d.width, height: d.height, title: data.design.name, layers: d.layers }, fmt, { ...DEFAULT_EXPORT, includeDieline: true })
       downloadBlob(r.blob, `${safeFileName(data.design.name)}_proof.${fmt}`)
+    } catch (e: any) { alert(e?.message || 'Export failed') } finally { setBusy(null) }
+  }
+
+  const exportProof = async () => {
+    const fc = fcRef.current, d = docRef.current; if (!fc || !d || !data || !d.proof) return
+    setBusy('PROOF')
+    try {
+      const r = await exportProofSheet(fc, { width: d.width, height: d.height, title: data.design.name, layers: d.layers }, d.proof)
+      downloadBlob(r.blob, `${safeFileName(data.design.name)}_APPROVAL_PROOF.pdf`)
     } catch (e: any) { alert(e?.message || 'Export failed') } finally { setBusy(null) }
   }
 
@@ -332,6 +359,11 @@ export default function ProofPortal() {
                       </button>
                     ))}
                   </div>
+                  {docRef.current?.proof && docRef.current.proof.enabled !== false && (
+                    <button disabled={!!busy || rendering} onClick={exportProof} className="mt-1.5 w-full py-2 rounded-lg border border-gray-900 bg-gray-900 text-white text-xs font-semibold disabled:opacity-50">
+                      {busy === 'PROOF' ? <i className="ti ti-loader-2 animate-spin" /> : <><i className="ti ti-file-certificate" /> Approval proof sheet (PDF)</>}
+                    </button>
+                  )}
                   <p className="text-[11px] text-gray-400 mt-2">Vector files have text converted to outlines and open in Adobe Illustrator and CorelDRAW (File ▸ Import).</p>
                 </div>
               </div>

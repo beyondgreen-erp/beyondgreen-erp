@@ -33,6 +33,11 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     const { data: blob } = await admin.storage.from(BUCKET).download(design.doc_path)
     if (blob) { try { doc = JSON.parse(await blob.text()) } catch { doc = null } }
   }
+  // printers see the customer's company only — never their contact details
+  if (doc?.proof?.customer) {
+    const c = doc.proof.customer
+    doc.proof.customer = { name: c.name || '', location: c.location || '', status: '', code: c.code || '' }
+  }
   // only designs inside designs/{id}/ may be signed — defence in depth against crafted JSON
   const prefix = `designs/${design.id}/`
   const paths = Array.from(assetPaths(doc?.objects || [], new Set())).filter(p => p.startsWith(prefix))
