@@ -52,6 +52,24 @@ export default function PackagingDesignsPage() {
   }, [sb])
   useEffect(() => { load() }, [load])
 
+  const deleteDesign = async (r: DesignRow) => {
+    if (!window.confirm(`Delete "${r.name}" permanently?\n\nThis removes the artwork, versions, final files, comments and printer links. It cannot be undone.`)) return
+    // collect every stored file under designs/{id}/ (artwork, assets, versions, final files)
+    const paths: string[] = []
+    const walk = async (dir: string) => {
+      const { data } = await sb.storage.from(BUCKET).list(dir, { limit: 1000 })
+      for (const f of data || []) {
+        const full = `${dir}/${f.name}`
+        if (f.id) paths.push(full); else await walk(full)
+      }
+    }
+    await walk(`designs/${r.id}`)
+    for (let i = 0; i < paths.length; i += 100) await sb.storage.from(BUCKET).remove(paths.slice(i, i + 100))
+    const { error } = await sb.from('packaging_designs').delete().eq('id', r.id)
+    if (error) { window.alert('Could not delete: ' + error.message); return }
+    setRows(rs => rs.filter(x => x.id !== r.id))
+  }
+
   const filtered = rows.filter(r => {
     if (status === 'Active' && r.status === 'Archived') return false
     if (status !== 'Active' && status !== 'All' && r.status !== status) return false
@@ -102,6 +120,8 @@ export default function PackagingDesignsPage() {
                 <div className="flex items-start gap-2">
                   <p className="font-semibold text-gray-900 leading-tight flex-1 min-w-0 truncate">{r.name}</p>
                   <span className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_COLORS[r.status] || ''}`}>{r.status}</span>
+                  <button title="Delete design" onClick={e => { e.preventDefault(); e.stopPropagation(); deleteDesign(r) }}
+                    className="text-gray-300 hover:text-red-600 -mr-1 px-1"><i className="ti ti-trash" /></button>
                 </div>
                 <p className="text-xs text-gray-500 truncate">{[r.customer_name, r.sku, r.product_type].filter(Boolean).join(' · ') || '—'}</p>
                 <div className="flex items-center gap-3 text-[11px] text-gray-400 pt-1">
