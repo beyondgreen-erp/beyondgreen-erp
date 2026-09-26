@@ -148,7 +148,7 @@ function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => 
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [textMode, setTextMode] = useState<'live' | 'outline'>('live')
+  const [textMode, setTextMode] = useState<'live' | 'outline'>('outline')
   const pickFile = (f: File | null) => {
     setFile(f)
     if (f && !f.name.match(/\.(ai|pdf|eps|ps|svg)$/i)) { setErr('Choose an .ai, .pdf, .eps, .ps or .svg file'); setFile(null); return }
@@ -192,8 +192,8 @@ function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => 
               <input type="file" accept=".ai,.pdf,.eps,.ps,.svg" className="hidden" onChange={e => pickFile(e.target.files?.[0] || null)} />
             </label>
             <div className="flex gap-4 text-xs text-gray-600">
-              <label className="flex items-center gap-1.5"><input type="radio" checked={textMode === 'live'} onChange={() => setTextMode('live')} /> Keep text editable</label>
-              <label className="flex items-center gap-1.5"><input type="radio" checked={textMode === 'outline'} onChange={() => setTextMode('outline')} /> Convert text to outlines (exact look)</label>
+              <label className="flex items-center gap-1.5"><input type="radio" checked={textMode === 'outline'} onChange={() => setTextMode('outline')} /> Exact lettering (recommended)</label>
+              <label className="flex items-center gap-1.5"><input type="radio" checked={textMode === 'live'} onChange={() => setTextMode('live')} /> Editable text (fonts may be substituted)</label>
             </div>
           </div>
         )}
