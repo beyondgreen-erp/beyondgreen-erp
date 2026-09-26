@@ -4,7 +4,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import * as fabric from 'fabric'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-import { type DesignDoc, type DesignRow, type DocLayer, type Swatch, BUCKET, OBJ_PROPS, UNIT_PT, fmtUnit, uid } from '@/lib/packaging/doc'
+import { type DesignDoc, type DesignRow, type DocLayer, type Swatch, BUCKET, OBJ_PROPS, UNIT_PT, fmtUnit, uid, safeFileName, sha256Hex } from '@/lib/packaging/doc'
 import { ensureAssets, restore, serialize, thumbnail } from '@/lib/packaging/canvasIO'
 import { importFile, ACCEPT } from '@/lib/packaging/importers'
 import { fontFamilies, loadFamily, DEFAULT_FONT } from '@/lib/packaging/fonts'
@@ -81,10 +81,10 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   const [panel, setPanel] = useState<'props' | 'layers' | 'comments' | 'import' | 'proof'>(initialPanel || 'props')
   const [importing, setImporting] = useState<string | null>(null)
   const [importMsg, setImportMsg] = useState<string[]>([])
-  const [importTarget, setImportTarget] = useState<'dieline' | 'active' | 'new'>('active')
+  const [importTarget, setImportTarget] = useState<'dieline' | 'active' | 'new' | 'replace'>('active')
   const [fitArtboard, setFitArtboard] = useState(true)
   const [importUngroup, setImportUngroup] = useState(true)
-  const [importText, setImportText] = useState<'live' | 'outline'>('live')
+  const [importText, setImportText] = useState<'live' | 'outline'>('outline')
   const [comments, setComments] = useState<PkgComment[]>([])
   const [draftComment, setDraftComment] = useState<{ x: number; y: number; w?: number; h?: number } | null>(null)
   const [focusCommentId, setFocusCommentId] = useState<string | null>(null)
@@ -1000,12 +1000,31 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   }
 
   // ── import & place ───────────────────────────────────────────────────────
-  type ImportOpts = { target: 'dieline' | 'active' | 'new'; fit: boolean; ungroup: boolean; text: 'live' | 'outline' }
+  type ImportOpts = { target: 'dieline' | 'active' | 'new' | 'replace'; fit: boolean; ungroup: boolean; text: 'live' | 'outline' }
   const doImport = async (file: File, override?: Partial<ImportOpts>) => {
     const o: ImportOpts = { target: importTarget, fit: fitArtboard, ungroup: importUngroup, text: importText, ...override }
     const fc = fcRef.current!; setImporting('Reading file…'); setImportMsg([]); setPanel('import')
     try {
       const res = await importFile(file, s => setImporting(s), { text: o.text })
+      const isVector = !(res.kind === 'png' || res.kind === 'jpg')
+      const empty = !(fc.getObjects() as any[]).some(x => !x.isHelper)
+      // keep the uploaded file byte-for-byte: printers always get exactly what we uploaded
+      if (isVector && (o.target === 'replace' || empty)) {
+        setImporting('Storing the original file…')
+        const bytes = await file.arrayBuffer()
+        const sha = await sha256Hex(bytes)
+        const path = `designs/${design.id}/source/${sha.slice(0, 16)}-${safeFileName(file.name)}`
+        const up = await sb.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream', cacheControl: '31536000' })
+        if (up.error && !/exists/i.test(up.error.message)) throw new Error('Could not store the original file: ' + up.error.message)
+        docRef.current.source = { path, name: file.name, size: file.size, sha256: sha, uploaded_at: new Date().toISOString(), uploaded_by: user.email, text: o.text }
+      }
+      if (o.target === 'replace') {
+        histRef.current.lock = true
+        fc.discardActiveObject()
+        fc.remove(...(fc.getObjects() as any[]).filter(x => !x.isHelper))
+        isolatedRef.current = null; setIsolated(null)
+        histRef.current.lock = false
+      }
       // replace canvas-backed images with blob images so snapshots stay light
       const convertImages = async (objs: any[]) => {
         for (const o of objs) {
@@ -1021,7 +1040,10 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       await convertImages(res.objects)
       if (res.kind === 'png' || res.kind === 'jpg') { (res.objects[0] as any).__srcBlob = file }
       let layerId = docRef.current.activeLayerId
-      if (o.target === 'dieline') {
+      if (o.target === 'replace') {
+        const art = docRef.current.layers.find(l => l.kind !== 'dieline' && !l.locked) || docRef.current.layers.find(l => l.kind !== 'dieline')
+        if (art) { layerId = art.id; docRef.current.activeLayerId = art.id }
+      } else if (o.target === 'dieline') {
         let die = docRef.current.layers.find(l => l.kind === 'dieline')
         if (!die) { die = { id: uid(), name: 'Dieline', visible: true, locked: true, color: '#EC008C', kind: 'dieline' }; docRef.current.layers = [die, ...docRef.current.layers] }
         layerId = die.id
@@ -1029,13 +1051,13 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
         const l = { id: uid(), name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), visible: true, locked: false, color: '#10B981' }
         docRef.current.layers = [l, ...docRef.current.layers]; layerId = l.id; docRef.current.activeLayerId = l.id
       }
-      const isVectorPage = !(res.kind === 'png' || res.kind === 'jpg')
-      if (o.fit && isVectorPage) { docRef.current.width = res.width; docRef.current.height = res.height; setArtboard(a => ({ ...a, w: res.width, h: res.height })) }
+      const isVectorPage = isVector
+      if ((o.fit || o.target === 'replace') && isVectorPage) { docRef.current.width = res.width; docRef.current.height = res.height; setArtboard(a => ({ ...a, w: res.width, h: res.height })) }
       const layer = docRef.current.layers.find(l => l.id === layerId)
       let placed: any[]
       if (isVectorPage) {
         const group: any = res.objects.length === 1 ? res.objects[0] : new fabric.Group(res.objects, { subTargetCheck: true, interactive: true } as any)
-        if (!o.fit) group.set({ left: docRef.current.width / 2, top: docRef.current.height / 2, originX: 'center', originY: 'center' })
+        if (!o.fit && o.target !== 'replace') group.set({ left: docRef.current.width / 2, top: docRef.current.height / 2, originX: 'center', originY: 'center' })
         group.setCoords()
         if (o.ungroup && res.objects.length > 1) placed = group.removeAll()
         else { group.name = file.name; placed = [group] }
@@ -1063,6 +1085,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       setImportMsg(['Import failed: ' + (e?.message || String(e))])
     } finally { setImporting(null) }
   }
+  const docSource = (docRef.current as any).source as (DesignDoc['source'] | undefined)
   const doImportRef = useRef(doImport)
   doImportRef.current = doImport
   const placeImage = async (file: File) => {
@@ -1398,13 +1421,23 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
                   <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'active'} onChange={() => setImportTarget('active')} /> The active layer — <b>editable artwork</b></label>
                   <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'new'} onChange={() => setImportTarget('new')} /> A new layer named after the file</label>
                   <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'dieline'} onChange={() => setImportTarget('dieline')} /> The <b>Dieline</b> layer (locked, for cut lines)</label>
+                  <label className="flex items-start gap-2"><input type="radio" className="mt-0.5" checked={importTarget === 'replace'} onChange={() => { setImportTarget('replace'); setImportText('outline') }} /> <span><b>Replace all artwork</b> with this file — keeps the proof, comments and printer links</span></label>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 pt-2">Text in the file</p>
-                  <label className="flex items-center gap-2"><input type="radio" checked={importText === 'live'} onChange={() => setImportText('live')} /> Keep text <b>editable</b> (fonts matched to the library)</label>
-                  <label className="flex items-center gap-2"><input type="radio" checked={importText === 'outline'} onChange={() => setImportText('outline')} /> Convert text to outlines (exact look)</label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={importText === 'outline'} onChange={() => setImportText('outline')} /> <span><b>Exact lettering</b> — text converted to outlines (recommended)</span></label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={importText === 'live'} onChange={() => setImportText('live')} /> <span>Editable text — fonts may be <b>substituted</b></span></label>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 pt-2">Options</p>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={importUngroup} onChange={e => setImportUngroup(e.target.checked)} /> Ungroup — every shape and text can be selected on its own</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={fitArtboard} onChange={e => setFitArtboard(e.target.checked)} /> Resize artboard to the file&apos;s page</label>
                 </div>
+                {docSource ? (
+                  <div className="text-[11px] bg-emerald-50 border border-emerald-200 rounded p-2 text-emerald-800">
+                    <i className="ti ti-shield-check" /> Original stored unaltered: <b className="break-all">{docSource.name}</b> ({docSource.size > 1e6 ? (docSource.size / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(docSource.size / 1e3)) + ' KB'}) · SHA-256 {docSource.sha256.slice(0, 12)}… Printers download this exact file.
+                  </div>
+                ) : (
+                  <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 text-amber-800">
+                    <i className="ti ti-alert-triangle" /> No original file is stored for this design. Use <b>Replace all artwork</b> with the original .ai / .pdf so printers get the exact file.
+                  </div>
+                )}
                 <button disabled={!!importing} onClick={() => fileRef.current?.click()} className="w-full py-2 rounded-lg bg-[#3B6FE0] text-white text-sm font-medium disabled:opacity-60">
                   {importing ? <><i className="ti ti-loader-2 animate-spin" /> {importing}</> : <><i className="ti ti-upload" /> Choose file…</>}
                 </button>
