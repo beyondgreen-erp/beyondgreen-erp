@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin'
 import { loadLink } from '@/lib/packaging/proofServer'
+import { approvalState, log } from '@/lib/packaging/approvalServer'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -72,12 +73,36 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
 
   if (req.nextUrl.searchParams.get('view') === '1') {
     await admin.from('packaging_share_links').update({ view_count: (link.view_count || 0) + 1, last_viewed_at: new Date().toISOString() }).eq('id', link.id)
+    const who = req.nextUrl.searchParams.get('who') || ''
+    await log(admin, { design_id: design.id, share_link_id: link.id, actor_type: 'printer', actor_name: who.slice(0, 120) || null, action: 'portal_opened' })
   }
+
+  // approval status for this printer link + the shared activity trail
+  const st = await approvalState(admin, design.id, link.id)
+  let approval: any = null
+  if (st) {
+    const r = st.round
+    let approvedUrl: string | null = null
+    if (r.status === 'approved' && r.source_path && String(r.source_path).startsWith(prefix)) {
+      const { data: s } = await admin.storage.from(BUCKET).createSignedUrl(r.source_path, 3600, { download: r.source_name || true })
+      approvedUrl = s?.signedUrl || null
+    }
+    approval = {
+      round_no: r.round_no, status: r.status, submitted_at: r.submitted_at, submitted_by_name: r.submitted_by_name, printer_note: r.printer_note,
+      approved_at: r.approved_at, approval_sent_at: r.approval_sent_at, closed_note: r.status === 'changes_requested' ? r.closed_note : null,
+      source_name: r.source_name, source_sha256: r.source_sha256, approved_url: approvedUrl,
+      approvers: st.approvers.map((a: any) => ({ name: a.name, decision: a.decision, decided_at: a.decided_at })), confirmed: st.confirmed, total: st.total,
+    }
+  }
+  const { data: acts } = await admin.from('packaging_activity').select('actor_type, actor_name, action, details, created_at').eq('design_id', design.id)
+    .or(`share_link_id.eq.${link.id},share_link_id.is.null`).in('action', ['portal_opened', 'downloaded', 'comment', 'reply', 'comment_resolved', 'submitted', 'confirmed', 'changes_requested', 'approved', 'approval_sent', 'round_cancelled', 'artwork_replaced'])
+    .order('created_at', { ascending: false }).limit(200)
+  const activity = (acts || []).map((a: any) => ({ ...a, details: { round: a.details?.round, file: a.details?.file, note: a.action === 'changes_requested' ? a.details?.note : undefined } }))
 
   return NextResponse.json({
     link: { printer_company: link.printer_company, printer_contact: link.printer_contact, printer_email: link.printer_email, message: link.message, allow_download: link.allow_download, allow_comments: link.allow_comments, expires_at: link.expires_at },
     design: { name: design.name, customer_name: design.customer_name, sku: design.sku, product_type: design.product_type, status: design.status, width_pt: design.width_pt, height_pt: design.height_pt, unit: design.unit, updated_at: design.updated_at },
-    doc, assets, files, source,
+    doc, assets, files, source, approval, activity,
     comments: [...(threads || []), ...(replies || [])].map(strip),
   }, { headers: NO_STORE })
 }
