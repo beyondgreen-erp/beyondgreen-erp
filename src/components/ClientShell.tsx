@@ -71,7 +71,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   }, [])
 
   useEffect(() => {
-    if (pathname === '/login' || pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/') || pathname.startsWith('/proof')) return
+    if (pathname === '/login' || pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/') || pathname.startsWith('/proof') || pathname.startsWith('/rfq/supplier/')) return
     const sb = createSupabaseBrowserClient()
     sb.auth.getUser().then(({ data }) => {
       const email = data.user?.email ?? ''
@@ -91,7 +91,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     })
   }, [pathname])
 
-  if (pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/') || pathname.startsWith('/proof')) return <>{children}</>
+  if (pathname.startsWith('/t/') || pathname.startsWith('/w/') || pathname.startsWith('/portal') || pathname.startsWith('/lp/') || pathname.startsWith('/proof') || pathname.startsWith('/rfq/supplier/')) return <>{children}</>
   // Packaging Studio editor is a full-screen app of its own
   if (pathname.startsWith('/packaging/')) return <ToastProvider>{children}<AuthWatcher /><PresenceTracker /></ToastProvider>
   if (pathname === '/login') return <>{children}<AuthWatcher /></>
