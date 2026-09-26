@@ -6,6 +6,49 @@ import * as fabric from 'fabric'
 import { importPdfPage } from './pdfImport'
 import { sceneItemsToFabric } from './fabricScene'
 import { matchFamily } from './fonts'
+import { unzlibSync } from 'fflate'
+
+const toBin = (u: Uint8Array) => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, Array.from(u.subarray(i, i + 0x8000))); return s }
+const fromBin = (s: string) => { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 0xff; return u }
+
+/**
+ * Ghostscript writes CIE Lab colours (e.g. a "Cut" spot plate with a Lab alternate) as ICCBased spaces
+ * carrying a Lab profile. pdf.js treats any 3-component ICCBased space as RGB, so those colours come out
+ * wrong (the red cut line becomes white). Rewrite such spaces back to plain /Lab and rebuild the xref.
+ */
+export function fixLabIccSpaces(pdf: Uint8Array): { bytes: Uint8Array; fixed: number } {
+  let s = toBin(pdf)
+  const labStreams = new Set<string>()
+  const objRe = /(?:^|[\r\n])(\d+) 0 obj\s*<<((?:(?!endobj)[\s\S])*?)>>\s*stream\r?\n/g
+  let m: RegExpExecArray | null
+  while ((m = objRe.exec(s))) {
+    const dict = m[2]
+    if (!/\/N\s+3\b/.test(dict) || /\/Type\s*\/XObject/.test(dict)) continue
+    const lenM = dict.match(/\/Length\s+(\d+)(?!\s+\d+\s+R)/)
+    const start = m.index + m[0].length
+    const end = lenM ? start + Number(lenM[1]) : s.indexOf('endstream', start)
+    let head = fromBin(s.slice(start, Math.min(end, start + 64)))
+    if (/\/FlateDecode/.test(dict)) { try { head = unzlibSync(fromBin(s.slice(start, end))).subarray(0, 64) } catch { continue } }
+    if (head.length >= 24 && String.fromCharCode(...Array.from(head.subarray(12, 20))) === 'spacLab ') labStreams.add(m[1])
+  }
+  if (!labStreams.size) return { bytes: pdf, fixed: 0 }
+  let fixed = 0
+  s = s.replace(/\[\s*\/ICCBased\s+(\d+)\s+0\s+R\s*\]/g, (all, n) => labStreams.has(n) ? (fixed++, '[/Lab<</WhitePoint[0.9642 1 0.8249]/Range[-128 127 -128 127]>>]') : all)
+  if (!fixed) return { bytes: pdf, fixed: 0 }
+  // rebuild the classic xref table so byte offsets stay valid
+  const x = s.lastIndexOf('\nxref')
+  const t = s.indexOf('trailer', x)
+  if (x < 0 || t < 0) return { bytes: fromBin(s), fixed } // pdf.js reconstructs broken xrefs itself
+  const offs = new Map<number, number>()
+  const re2 = /(^|[\r\n])(\d+) 0 obj\b/g
+  while ((m = re2.exec(s.slice(0, x)))) offs.set(Number(m[2]), m.index + m[1].length)
+  const size = Math.max(...Array.from(offs.keys())) + 1
+  let tbl = `xref\n0 ${size}\n0000000000 65535 f \n`
+  for (let i = 1; i < size; i++) tbl += offs.has(i) ? String(offs.get(i)).padStart(10, '0') + ' 00000 n \n' : '0000000000 65535 f \n'
+  const trailer = s.slice(t, s.indexOf('startxref', t)).replace(/\/Size\s+\d+/, `/Size ${size}`)
+  s = s.slice(0, x + 1) + tbl + trailer + `startxref\n${x + 1}\n%%EOF\n`
+  return { bytes: fromBin(s), fixed }
+}
 
 function loadScript(src: string, globalName: string): Promise<any> {
   const w = window as any
@@ -103,6 +146,7 @@ export async function importFile(file: File, onStatus?: (s: string) => void, opt
     onStatus?.(kind === 'pdf' ? 'Converting text to outlines…' : `Interpreting ${kind.toUpperCase()}…`)
     try {
       pdfBytes = await ghostscriptToPdf(buf, kind === 'pdf' ? 'pdf' : kind, textMode === 'outline')
+      pdfBytes = fixLabIccSpaces(pdfBytes).bytes
     } catch (e: any) {
       if (kind !== 'pdf') throw e
       warnings.push('Could not convert text to outlines — text was kept live instead. ' + (e?.message || ''))
