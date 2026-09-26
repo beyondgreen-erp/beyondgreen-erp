@@ -58,11 +58,14 @@ export async function middleware(request: NextRequest) {
 
   // Public warehouse ticket pages + their API bypass auth entirely (no-login, token-gated).
   // Landing pages under /lp/ are also public so they can be linked from cold outreach emails.
+  // Supplier RFQ response pages are token-gated and reached by outside vendors who
+  // have no ERP login, so they must bypass auth the same way the warehouse tickets do.
   if (
     pathname.startsWith('/t/') || pathname.startsWith('/api/ct/') ||
     pathname.startsWith('/w/') || pathname.startsWith('/api/wh/') ||
     pathname.startsWith('/dp/') || pathname.startsWith('/api/dp/') ||
-    pathname.startsWith('/lp/') || pathname.startsWith('/api/lp/')
+    pathname.startsWith('/lp/') || pathname.startsWith('/api/lp/') ||
+    pathname.startsWith('/rfq/supplier/') || pathname.startsWith('/api/rfq/vendor-response/')
   ) {
     return NextResponse.next({ request })
   }

@@ -66,6 +66,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/professional') ||
     pathname.startsWith('/t/') ||
     pathname.startsWith('/p/') ||
+    pathname.startsWith('/rfq/supplier/') ||
     pathname.startsWith('/w/') ||
     pathname.startsWith('/scan/') ||
     pathname.startsWith('/dp/') ||
