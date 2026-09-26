@@ -37,7 +37,23 @@ export async function ensureAssets(canvas: fabric.Canvas, designId: string, uplo
   await walk(canvas.getObjects())
 }
 
+/** Objects inside a multi-selection store their position relative to the selection box.
+ *  Run fn with the selection released so every object reports its true page position,
+ *  then restore the selection. (Saving while several objects were selected shifted them.) */
+export function withWorldCoords<T>(canvas: any, fn: () => T): T {
+  const active = canvas.getActiveObject?.()
+  const multi = active && (active.type === 'activeselection' || active.type === 'activeSelection') ? active.getObjects().slice() : null
+  if (!multi) return fn()
+  canvas.discardActiveObject()
+  try { return fn() } finally {
+    try { canvas.setActiveObject(new fabric.ActiveSelection(multi, { canvas })) } catch { /* selection is cosmetic */ }
+  }
+}
+
 export function serialize(canvas: fabric.Canvas, doc: DesignDoc): DesignDoc {
+  return withWorldCoords(canvas, () => serializeNow(canvas, doc))
+}
+function serializeNow(canvas: fabric.Canvas, doc: DesignDoc): DesignDoc {
   const objects = (canvas.getObjects() as any[]).filter(o => !o.isHelper).map(o => {
     const j: any = o.toObject(OBJ_PROPS)
     const fix = (x: any) => {
