@@ -13,8 +13,9 @@ const Editor = nextDynamic(() => import('@/components/packaging/Editor'), { ssr:
 const FinalFilesTab = nextDynamic(() => import('@/components/packaging/FinalFilesTab'), { ssr: false })
 const ShareTab = nextDynamic(() => import('@/components/packaging/ShareTab'), { ssr: false })
 const VersionsTab = nextDynamic(() => import('@/components/packaging/VersionsTab'), { ssr: false })
+const ApprovalsTab = nextDynamic(() => import('@/components/packaging/ApprovalsTab'), { ssr: false })
 
-type Tab = 'design' | 'files' | 'share' | 'versions'
+type Tab = 'design' | 'files' | 'share' | 'approvals' | 'versions'
 
 export default function PackagingWorkspace() {
   const params = useParams()
@@ -26,7 +27,7 @@ export default function PackagingWorkspace() {
   const [doc, setDoc] = useState<DesignDoc | null>(null)
   const [err, setErr] = useState('')
   const [user, setUser] = useState({ email: '', name: '' })
-  const [tab, setTab] = useState<Tab>('design')
+  const [tab, setTab] = useState<Tab>(() => (['files', 'share', 'approvals', 'versions'].includes(search.get('tab') || '') ? search.get('tab') : 'design') as Tab)
   const [save, setSave] = useState<SaveState>({ status: 'idle' })
   const [name, setName] = useState('')
   const [, tick] = useState(0)
@@ -83,7 +84,7 @@ export default function PackagingWorkspace() {
         </select>
         <span className="text-[11px] text-white/50 hidden lg:inline">{[design.customer_name, design.sku].filter(Boolean).join(' · ')}</span>
         <nav className="flex items-center gap-1 ml-4">
-          {([['design', 'ti-pencil', 'Design'], ['files', 'ti-file-export', 'Final Files'], ['share', 'ti-share', 'Printer Share'], ['versions', 'ti-history', 'Versions']] as const).map(([k, ic, l]) => (
+          {([['design', 'ti-pencil', 'Design'], ['files', 'ti-file-export', 'Final Files'], ['share', 'ti-share', 'Printer Share'], ['approvals', 'ti-rosette-discount-check', 'Approvals'], ['versions', 'ti-history', 'Versions']] as const).map(([k, ic, l]) => (
             <button key={k} onClick={() => setTab(k)} className={`px-3 h-8 rounded-md text-xs font-medium flex items-center gap-1.5 ${tab === k ? 'bg-white text-[#1A2035]' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
               <i className={`ti ${ic}`} />{l}
             </button>
@@ -107,6 +108,7 @@ export default function PackagingWorkspace() {
         <Editor editorRef={editorRef} design={design} initialDoc={doc} user={user} onSaved={onSaved} onSaveState={setSave} visible={tab === 'design'} initialPanel={search.get('import') ? 'import' : undefined} />
         {tab === 'files' && <FinalFilesTab design={design} editor={editorRef} user={user} onDesign={updateDesign} />}
         {tab === 'share' && <ShareTab design={design} editor={editorRef} user={user} onDesign={updateDesign} onOpenComment={cid => { setTab('design'); setTimeout(() => editorRef.current?.focusComment(cid), 50) }} />}
+        {tab === 'approvals' && <ApprovalsTab design={design} editor={editorRef} user={user} />}
         {tab === 'versions' && <VersionsTab design={design} editor={editorRef} user={user} />}
       </div>
     </div>
