@@ -25,6 +25,16 @@ const FROM_NAME = 'beyondGREEN biotech'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://beyondgreen-erp.vercel.app'
 const DEFAULT_REPLY_TO = 'rudyp@beyondgreenbiotech.com'
 
+/**
+ * Suppliers get their quote form on a host of its own — never an ERP URL, and the
+ * ERP is unreachable from it (see the RFQ_HOSTS block in middleware). Same
+ * deployment underneath, so a submitted quote still lands under this RFQ.
+ */
+const RFQ_PORTAL_URL = (process.env.NEXT_PUBLIC_RFQ_PORTAL_URL || 'https://beyondgreen-rfq.vercel.app').replace(/\/+$/, '')
+
+/** Rudy is copied on every outbound RFQ, so the thread is never only in the ERP. */
+const ALWAYS_CC = 'rudy@beyondgreenbiotech.com'
+
 interface VendorTarget {
   vendor_id?: string | null
   vendor_name: string
@@ -114,7 +124,7 @@ export async function POST(req: NextRequest) {
       }
 
       const token = crypto.randomBytes(24).toString('hex')
-      const portalLink = `${APP_URL}/rfq/supplier/${token}`
+      const portalLink = `${RFQ_PORTAL_URL}/rfq/supplier/${token}`
       const html = personalise(body_html, v, portalLink) + portalBlock(portalLink, rfq.quote_number)
 
       const { data: sendRow, error: sendErr } = await supabase
@@ -146,7 +156,12 @@ export async function POST(req: NextRequest) {
         subject,
         html,
       }
-      if (cc && cc.length) payload.cc = cc
+      const ccList = Array.from(new Set(
+        [...(cc ?? []), ALWAYS_CC]
+          .map(e => String(e || '').trim().toLowerCase())
+          .filter(Boolean)
+      )).filter(e => e !== String(v.email).trim().toLowerCase())
+      if (ccList.length) payload.cc = ccList
 
       const files: { filename: string; content: string }[] = []
       if (pdf_base64) files.push({ filename: pdf_filename || `${rfq.quote_number}.pdf`, content: pdf_base64 })
