@@ -5,6 +5,7 @@
 import * as fabric from 'fabric'
 import { importPdfPage } from './pdfImport'
 import { sceneItemsToFabric } from './fabricScene'
+import { matchFamily } from './fonts'
 
 function loadScript(src: string, globalName: string): Promise<any> {
   const w = window as any
@@ -32,14 +33,15 @@ export async function getPdfjs(): Promise<any> {
 
 let gsQueue: Promise<unknown> = Promise.resolve()
 /** Run Ghostscript (WASM) → PDF with all text converted to outlines. */
-export async function ghostscriptToPdf(input: Uint8Array, kind: 'pdf' | 'eps' | 'ps'): Promise<Uint8Array> {
+export async function ghostscriptToPdf(input: Uint8Array, kind: 'pdf' | 'eps' | 'ps', outlineText = true): Promise<Uint8Array> {
   const run = async () => {
     const factory = await loadScript(`${GS}/gs.js`, 'Module')
     const errs: string[] = []
     const gs = await factory({ locateFile: (p: string) => `${GS}/${p}`, print: () => {}, printErr: (s: string) => errs.push(s), noInitialRun: true })
     const inName = '/input.' + kind
     gs.FS.writeFile(inName, input)
-    const args = ['-dSAFER', '-dBATCH', '-dNOPAUSE', '-dQUIET', '-sDEVICE=pdfwrite', '-dNoOutputFonts', '-dCompatibilityLevel=1.6', '-dAutoRotatePages=/None', '-dFirstPage=1', '-dLastPage=1']
+    const args = ['-dSAFER', '-dBATCH', '-dNOPAUSE', '-dQUIET', '-sDEVICE=pdfwrite', '-dCompatibilityLevel=1.6', '-dAutoRotatePages=/None', '-dFirstPage=1', '-dLastPage=1']
+    if (outlineText) args.push('-dNoOutputFonts')
     if (kind === 'eps') args.push('-dEPSCrop')
     args.push('-sOutputFile=/output.pdf', inName)
     const code = gs.callMain(args)
@@ -71,7 +73,13 @@ async function sniff(buf: Uint8Array): Promise<'pdf' | 'eps' | 'ps' | 'svg' | 'p
 
 export const ACCEPT = '.ai,.pdf,.eps,.ps,.svg,.png,.jpg,.jpeg'
 
-export async function importFile(file: File, onStatus?: (s: string) => void): Promise<ImportResult> {
+export interface ImportOptions {
+  /** 'live' keeps text retypable (fonts matched to the library); 'outline' converts it to exact vector shapes */
+  text?: 'live' | 'outline'
+}
+
+export async function importFile(file: File, onStatus?: (s: string) => void, opts: ImportOptions = {}): Promise<ImportResult> {
+  const textMode = opts.text || 'live'
   const buf = new Uint8Array(await file.arrayBuffer())
   const ext = extOf(file.name)
   let kind = await sniff(buf)
@@ -88,26 +96,40 @@ export async function importFile(file: File, onStatus?: (s: string) => void): Pr
   }
   if (kind === 'unknown') throw new Error('Unsupported file. Use AI, PDF, EPS, PS, SVG, PNG or JPG.')
 
-  // PDF family
+  // PDF family (.ai files saved with PDF compatibility — Illustrator's default — are PDFs inside)
   let pdfBytes: Uint8Array = buf
   const warnings: string[] = []
-  {
-    onStatus?.(kind === 'pdf' ? (ext === 'ai' ? 'Converting Illustrator file…' : 'Converting PDF (outlining fonts)…') : `Interpreting ${kind.toUpperCase()}…`)
+  if (kind !== 'pdf' || textMode === 'outline') {
+    onStatus?.(kind === 'pdf' ? 'Converting text to outlines…' : `Interpreting ${kind.toUpperCase()}…`)
     try {
-      pdfBytes = await ghostscriptToPdf(buf, kind === 'pdf' ? 'pdf' : kind)
+      pdfBytes = await ghostscriptToPdf(buf, kind === 'pdf' ? 'pdf' : kind, textMode === 'outline')
     } catch (e: any) {
       if (kind !== 'pdf') throw e
-      warnings.push('Font outlining step failed; live text may be missing. ' + (e?.message || ''))
+      warnings.push('Could not convert text to outlines — text was kept live instead. ' + (e?.message || ''))
     }
   }
-  onStatus?.('Rebuilding vectors…')
+  onStatus?.(ext === 'ai' ? 'Rebuilding Illustrator artwork…' : 'Rebuilding vectors…')
   const pdfjs = await getPdfjs()
-  const doc = await pdfjs.getDocument({ data: pdfBytes, isOffscreenCanvasSupported: false, disableFontFace: true }).promise
+  let doc: any
+  try {
+    doc = await pdfjs.getDocument({ data: pdfBytes, isOffscreenCanvasSupported: false, disableFontFace: true, fontExtraProperties: true }).promise
+  } catch (e: any) {
+    if (ext === 'ai') throw new Error('This .ai file was saved without "Create PDF Compatible File". In Illustrator, re-save it with that option ticked (it is on by default), or save a copy as PDF/EPS, then upload again.')
+    throw e
+  }
   if (doc.numPages > 1) warnings.push(`File has ${doc.numPages} pages/artboards — only the first was imported.`)
   const page = await doc.getPage(1)
-  const res = await importPdfPage(pdfjs, page)
-  const objects = sceneItemsToFabric(res.items, { pageClip: { w: res.width, h: res.height } })
-  // Drop a full-page white background rectangle if the exporter added one.
+  const res = await importPdfPage(pdfjs, page, { text: textMode })
+  onStatus?.('Placing objects…')
+  // report font substitutions for live text
+  const subs = new Map<string, string>()
+  for (const it of res.items) if (it.kind === 'text') {
+    const fam = matchFamily(it.fontName)
+    const base = it.fontName.split(/[-,]/)[0]
+    if (base && fam.replace(/\s/g, '').toLowerCase() !== base.replace(/\s/g, '').toLowerCase()) subs.set(base, fam)
+  }
+  if (subs.size) warnings.push('Fonts not in the library were matched to the closest one: ' + Array.from(subs).map(([a, b]) => `${a} → ${b}`).join(', ') + '. Import with "Convert text to outlines" to keep the exact lettering.')
+  const objects = await sceneItemsToFabric(res.items, { pageClip: { w: res.width, h: res.height } })
   return { width: res.width, height: res.height, objects, warnings: [...warnings, ...res.warnings], kind: ext === 'ai' ? 'ai' : kind }
 }
 
