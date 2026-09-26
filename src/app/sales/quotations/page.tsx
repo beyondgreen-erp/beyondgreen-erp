@@ -158,6 +158,8 @@ export default function QuotationsPage() {
   const [addingTerm, setAddingTerm] = useState(false)
   const [newTerm, setNewTerm] = useState('')
 
+  const [linkedNames, setLinkedNames] = useState<Record<string, string>>({})
+
   const fetchQuotes = useCallback(async () => {
     setLoading(true)
     const [{ data: qData }, { data: lData }] = await Promise.all([
@@ -165,6 +167,18 @@ export default function QuotationsPage() {
       supabase.from('quotation_lines').select('quotation_id'),
     ])
     setQuotes((qData ?? []) as Quote[])
+    // Resolve the names of every customer these quotes actually reference — Leads included.
+    const ids = [...new Set(((qData ?? []) as Quote[]).map(q => q.customer_id).filter(Boolean) as string[])]
+    if (ids.length) {
+      const nm: Record<string, string> = {}
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: cs } = await supabase.from('customers').select('id, company_name').in('id', ids.slice(i, i + 200))
+        for (const c of (cs ?? []) as { id: string; company_name: string | null }[]) {
+          if (c.company_name) nm[c.id] = c.company_name
+        }
+      }
+      setLinkedNames(nm)
+    }
     if (lData) {
       const counts: Record<string, number> = {}
       for (const l of lData as any[]) counts[l.quotation_id] = (counts[l.quotation_id] ?? 0) + 1
@@ -234,11 +248,20 @@ export default function QuotationsPage() {
 
   const cmap = useMemo(() => Object.fromEntries(customers.map(c => [c.id, c.company_name])), [customers])
 
+  // cmap only holds the first 500 rows on the 'customer' board, so a quote raised against a Lead
+  // (or a customer past that cap) had no name to show and the cell fell back to "—" until you
+  // opened the quote, which looked up the name on its own. linkedNames covers exactly the
+  // customers these quotes point at, whichever board they sit on.
+  const nameOf = useCallback(
+    (id?: string | null) => (id ? (cmap[id] || linkedNames[id] || '') : ''),
+    [cmap, linkedNames],
+  )
+
   const filtered = quotes.filter(q => {
     const q2 = search.toLowerCase()
     const matchSearch = !search ||
       (q.quote_number ?? '').toLowerCase().includes(q2) ||
-      (cmap[q.customer_id ?? ''] ?? '').toLowerCase().includes(q2)
+      nameOf(q.customer_id).toLowerCase().includes(q2)
     const matchStatus = statusFilter === 'All' || q.status === statusFilter
     return matchSearch && matchStatus
   })
@@ -295,7 +318,7 @@ export default function QuotationsPage() {
   async function openEdit(q: Quote) {
     setEditing(q)
     // If the linked customer/lead isn't in our initial cache, fetch it by id so the field pre-fills.
-    let displayName = cmap[q.customer_id ?? ''] || ''
+    let displayName = nameOf(q.customer_id)
     if (!displayName && q.customer_id) {
       const { data: c } = await supabase.from('customers').select('id, company_name, board').eq('id', q.customer_id).maybeSingle()
       if (c) {
@@ -706,7 +729,7 @@ export default function QuotationsPage() {
   const rbMatch = (q: Quote) => {
     const t = search.toLowerCase()
     if (!t) return true
-    return (q.quote_number ?? '').toLowerCase().includes(t) || (cmap[q.customer_id ?? ''] ?? '').toLowerCase().includes(t)
+    return (q.quote_number ?? '').toLowerCase().includes(t) || nameOf(q.customer_id).toLowerCase().includes(t)
   }
   const rbGroupRows = (key: string) => quotes.filter(q => ((q.type || 'quote') === activeTab) && (q.status || 'Draft') === key && rbMatch(q))
   const tabQuotes = quotes.filter(q => (q.type || 'quote') === activeTab)
@@ -841,7 +864,7 @@ export default function QuotationsPage() {
                               />
                             </td>
                             <td className="px-3 py-2.5 font-semibold text-[#3B6FE0]">{quote.quote_number || '—'}</td>
-                            <td className="px-3 py-2.5 text-[#1A1D2E] truncate max-w-[280px]">{cmap[quote.customer_id ?? ''] || '—'}</td>
+                            <td className="px-3 py-2.5 text-[#1A1D2E] truncate max-w-[280px]">{nameOf(quote.customer_id) || '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{quote.quote_date ? new Date(quote.quote_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
                             <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{quote.expiry_date ? new Date(quote.expiry_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
                             <td className="px-3 py-2.5">
@@ -1122,7 +1145,7 @@ export default function QuotationsPage() {
                         style={{ ...inpStyle, cursor: 'pointer' }}
                       >
                         <option value="">— Not shared to a portal —</option>
-                        {showCurrent && <option value={form.customer_id}>{(cmap[form.customer_id] || customerSearch || 'Current customer') + ' (current)'}</option>}
+                        {showCurrent && <option value={form.customer_id}>{(nameOf(form.customer_id) || customerSearch || 'Current customer') + ' (current)'}</option>}
                         {portalOpts.map(o => <option key={o.customer_id} value={o.customer_id}>{o.label}</option>)}
                       </select>
                     )
