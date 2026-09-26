@@ -126,8 +126,13 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
     else if (e.key === 'Enter') { e.preventDefault(); const h = allHits[active]; if (h) go(h.href) }
   }
 
+  // The header creates its own stacking context, so the dropdowns inside it can never rise above
+  // the header's own z-index, whatever z-index they carry. z-40 therefore has to out-rank every
+  // sticky element on a board (group headers sit at z-30) or those paint over an open menu.
+  // Modal backdrops and drawers are also z-40 but render after this in the tree, so they still
+  // cover the nav; dialogs at z-50 and above are unaffected.
   return (
-    <header className="shrink-0 sticky top-0 z-30" style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}>
+    <header className="shrink-0 sticky top-0 z-40" style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}>
       <div ref={navRef} className="flex items-center gap-2 px-3 sm:px-5" style={{ height: 64 }}>
         {/* brand logo -> dashboard */}
         <Link href="/" className="flex items-center shrink-0" title="beyondGREEN — Dashboard">

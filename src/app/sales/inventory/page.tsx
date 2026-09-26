@@ -1196,7 +1196,9 @@ export default function InventoryPage() {
         const tabList = ['All', ...keys]
         return (
           <div className="space-y-2.5 mb-6">
-            <div className="flex items-center gap-1.5 flex-wrap bg-white rounded-xl border border-[#ECEEF3] shadow-sm px-2.5 py-2 sticky top-0 z-40 mb-1">
+            {/* z-20: only needs to sit above the rows it scrolls over. At z-40 it tied with the
+                top nav and painted over its open dropdown. */}
+            <div className="flex items-center gap-1.5 flex-wrap bg-white rounded-xl border border-[#ECEEF3] shadow-sm px-2.5 py-2 sticky top-0 z-20 mb-1">
               {tabList.map(t => {
                 const cnt = t === 'All' ? keys.reduce((sm, k) => sm + gmap[k].length, 0) : (gmap[t]?.length || 0)
                 const col = t === 'All' ? '#3B6FE0' : (COLORS[t] || '#9699A6')
