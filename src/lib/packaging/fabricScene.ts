@@ -270,7 +270,99 @@ export async function sceneItemsToFabric(items: ImportItem[], opts: { pageClip?:
     g.name = 'Clip group'
     out.push(g)
   }
-  return out
+  return unwrapPlacementClips(out)
+}
+
+// ── Clip groups that only exist because of how Illustrator stores placed art ──────────
+// Illustrator writes every placed/embedded image (and many pasted logos) with a rectangular
+// clip the size of the image. That clip is invisible in Illustrator, but kept as a mask here
+// it crops the logo as soon as it is moved. Such clips are dropped; real masks are kept.
+function clipWorldRect(g: any): { x0: number; y0: number; x1: number; y1: number } | null {
+  const cp = g.clipPath
+  if (!cp || cp.absolutePositioned || cp.inverted) return null
+  const M = fabric.util.multiplyTransformMatrices(g.calcTransformMatrix(), cp.calcTransformMatrix())
+  let pts: Array<[number, number]> = []
+  if (cp.type === 'rect' || cp.type === 'Rect') {
+    const w = cp.width / 2, h = cp.height / 2
+    pts = [[-w, -h], [w, -h], [w, h], [-w, h]]
+  } else if (Array.isArray(cp.path)) {
+    const off = cp.pathOffset || { x: 0, y: 0 }
+    for (const c of cp.path as any[]) {
+      const op = String(c[0]).toUpperCase()
+      if (op === 'Z') continue
+      if (op !== 'M' && op !== 'L') return null // curves → a real shaped mask
+      pts.push([c[1] - off.x, c[2] - off.y])
+    }
+  } else return null
+  if (pts.length < 4 || pts.length > 6) return null
+  const wp = pts.map(([x, y]) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]])
+  const xs = wp.map(p => p[0]), ys = wp.map(p => p[1])
+  const b = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
+  const e = 0.5
+  for (const [x, y] of wp) {
+    if (!((Math.abs(x - b.x0) < e || Math.abs(x - b.x1) < e) && (Math.abs(y - b.y0) < e || Math.abs(y - b.y1) < e))) return null // rotated / not a rectangle
+  }
+  return b
+}
+
+/** True when a group's clip does nothing visible (or is just an image's placement frame). */
+export function isRedundantClip(g: any): boolean {
+  if (!g || g.type !== 'group' || !g.clipPath) return false
+  const b = clipWorldRect(g); if (!b) return false
+  const kids = g.getObjects() as any[]
+  if (!kids.length) return true
+  let u = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+  for (const k of kids) {
+    const r = k.getBoundingRect()
+    u = { x0: Math.min(u.x0, r.left), y0: Math.min(u.y0, r.top), x1: Math.max(u.x1, r.left + r.width), y1: Math.max(u.y1, r.top + r.height) }
+  }
+  const bw = b.x1 - b.x0, bh = b.y1 - b.y0
+  const tol = Math.max(1.5, 0.01 * Math.max(bw, bh))
+  if (u.x0 >= b.x0 - tol && u.y0 >= b.y0 - tol && u.x1 <= b.x1 + tol && u.y1 <= b.y1 + tol) return true
+  // an image with its own placement frame (still true after the image was moved inside it)
+  if (kids.length === 1 && kids[0].type === 'image') {
+    const uw = u.x1 - u.x0, uh = u.y1 - u.y0
+    if (Math.abs(uw - bw) <= 2 * tol && Math.abs(uh - bh) <= 2 * tol) return true
+  }
+  return false
+}
+
+type Container = { getObjects(): any[]; remove(...o: any[]): any; insertAt(i: number, ...o: any[]): any }
+/** Recursively removes redundant clip groups inside a canvas or group. Returns how many were released. */
+export function releaseRedundantClips(parent: Container): number {
+  let n = 0
+  const objs = parent.getObjects().slice()
+  for (let i = objs.length - 1; i >= 0; i--) {
+    const o = objs[i]
+    if (o.type !== 'group') continue
+    n += releaseRedundantClips(o)
+    if (!isRedundantClip(o)) continue
+    const idx = parent.getObjects().indexOf(o)
+    const layerId = o.layerId
+    parent.remove(o)
+    const kids = o.removeAll() as any[]
+    for (const k of kids) { if (layerId && !k.layerId) k.layerId = layerId; k.setCoords?.() }
+    parent.insertAt(idx, ...kids)
+    n++
+  }
+  return n
+}
+
+/** Same as releaseRedundantClips for a plain array of top-level objects (import results). */
+export function unwrapPlacementClips(objs: any[]): any[] {
+  const res: any[] = []
+  for (const o of objs) {
+    if (o.type === 'group') {
+      releaseRedundantClips(o)
+      if (isRedundantClip(o)) {
+        const kids = o.removeAll() as any[]
+        for (const k of kids) { if (o.layerId && !k.layerId) k.layerId = o.layerId; k.setCoords?.() }
+        res.push(...kids); continue
+      }
+    }
+    res.push(o)
+  }
+  return res
 }
 
 export { segsToSvgD }
