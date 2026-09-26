@@ -8,6 +8,8 @@ import { writePs } from './writePs'
 import { writeSvg } from './writeSvg'
 import type { DocLayer } from './doc'
 import type { ImageItem } from './scene'
+import { buildProofObjects, sheetLayout, loadBrandLogo, type ProofInfo } from './proofTemplate'
+import { transformSegs, rectSegs, multiply as mmul, type SceneItem } from './scene'
 
 export type ExportFormat = 'ai' | 'eps' | 'pdf' | 'ps' | 'svg' | 'png' | 'jpg'
 
@@ -95,4 +97,35 @@ export function downloadBlob(blob: Blob, name: string) {
   a.href = URL.createObjectURL(blob); a.download = name
   document.body.appendChild(a); a.click(); a.remove()
   setTimeout(() => URL.revokeObjectURL(a.href), 30000)
+}
+
+// ── Proof sheet: artwork placed on the official approval template, one vector PDF ──
+
+export async function exportProofSheet(canvas: fabric.Canvas | fabric.StaticCanvas, doc: ExportDoc, info: ProofInfo, o: ExportOptions = DEFAULT_EXPORT): Promise<{ blob: Blob; warnings: string[] }> {
+  const L = sheetLayout(doc.width, doc.height)
+  const shift: [number, number, number, number, number, number] = [1, 0, 0, 1, -L.x, -L.y]
+  const move = (it: SceneItem, extraClip?: any): SceneItem => {
+    const clips = (it.clips || []).map(c => ({ ...c, segs: transformSegs(c.segs, shift) }))
+    if (extraClip) clips.push(extraClip)
+    return { ...it, m: mmul(shift, it.m), clips: clips.length ? clips : undefined } as SceneItem
+  }
+  // 1) template
+  const el = document.createElement('canvas')
+  const sc = new fabric.StaticCanvas(el, { width: 10, height: 10, renderOnAddRemove: false } as any)
+  const logo = await loadBrandLogo()
+  const tpl = buildProofObjects(info, doc.width, doc.height, logo)
+  sc.add(...tpl)
+  const tplLayer: DocLayer = { id: '__proof', name: 'Proof template', visible: true, locked: true, color: '#9CA3AF' }
+  for (const t of tpl as any[]) t.layerId = '__proof'
+  const t = await fabricToScene(sc, { ...doc, layers: [tplLayer] })
+  sc.dispose()
+  // 2) artwork, clipped to the artboard
+  const a = await fabricToScene(canvas, doc, { layerFilter: l => o.includeDieline || l.kind !== 'dieline' })
+  const artClip = { segs: transformSegs(rectSegs(0, 0, doc.width, doc.height), shift), rule: 'nonzero' as const }
+  const layers = [
+    ...t.scene.layers.map(l => ({ ...l, items: l.items.map(i => move(i)) })),
+    ...a.scene.layers.map(l => ({ ...l, items: l.items.map(i => move(i, artClip)) })),
+  ]
+  const scene = { width: L.w, height: L.h, title: `${doc.title} — proof ${info.proofNo || ''}`.trim(), layers }
+  return { blob: new Blob([writePdf(scene, { flattenToCmyk: false }) as any], { type: 'application/pdf' }), warnings: [...t.warnings, ...a.warnings] }
 }
