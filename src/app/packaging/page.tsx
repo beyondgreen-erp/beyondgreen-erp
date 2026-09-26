@@ -25,7 +25,7 @@ export default function PackagingDesignsPage() {
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('Active')
-  const [showNew, setShowNew] = useState(false)
+  const [showNew, setShowNew] = useState<false | 'blank' | 'file'>(false)
 
   const load = useCallback(async () => {
     const { data } = await sb.from('packaging_designs').select('*').order('updated_at', { ascending: false })
@@ -66,9 +66,14 @@ export default function PackagingDesignsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Packaging Design</h1>
           <p className="text-sm text-gray-500">Upload dielines, edit artwork, export print-ready files and share proofs with printers.</p>
         </div>
-        <button onClick={() => setShowNew(true)} className="ml-auto px-4 py-2 rounded-lg text-white text-sm font-semibold" style={{ background: '#3B6FE0' }}>
-          <i className="ti ti-plus" /> New design
-        </button>
+        <div className="ml-auto flex gap-2">
+          <button onClick={() => setShowNew('file')} className="px-4 py-2 rounded-lg text-sm font-semibold border border-gray-300 bg-white hover:bg-gray-50">
+            <i className="ti ti-file-upload" /> Open AI / PDF file
+          </button>
+          <button onClick={() => setShowNew('blank')} className="px-4 py-2 rounded-lg text-white text-sm font-semibold" style={{ background: '#3B6FE0' }}>
+            <i className="ti ti-plus" /> New design
+          </button>
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
@@ -110,21 +115,31 @@ export default function PackagingDesignsPage() {
           ))}
         </div>
       )}
-      {showNew && <NewDesignModal onClose={() => setShowNew(false)} onCreated={id => router.push(`/packaging/${id}?import=1`)} />}
+      {showNew && <NewDesignModal startWithFile={showNew === 'file'} onClose={() => setShowNew(false)} onCreated={id => router.push(`/packaging/${id}?import=1`)} />}
     </div>
   )
 }
 
-function NewDesignModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => void; onCreated: (id: string) => void; startWithFile?: boolean }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [customers, setCustomers] = useState<{ id: string; company_name: string }[]>([])
   const [f, setF] = useState({ name: '', customer_id: '', sku: '', product_type: PRODUCT_TYPES[0], w: '8.5', h: '11', unit: 'in' as 'in' | 'mm' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [textMode, setTextMode] = useState<'live' | 'outline'>('live')
+  const pickFile = (f: File | null) => {
+    setFile(f)
+    if (f && !f.name.match(/\.(ai|pdf|eps|ps|svg)$/i)) { setErr('Choose an .ai, .pdf, .eps, .ps or .svg file'); setFile(null); return }
+    setErr('')
+    if (f && !f.name) return
+    if (f) setF(prev => ({ ...prev, name: prev.name || f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ') }))
+  }
   useEffect(() => {
     sb.from('customers').select('id, company_name').order('company_name').limit(2000).then(({ data }) => setCustomers((data || []) as any))
   }, [sb])
   const create = async () => {
+    if (startWithFile && !file) { setErr('Choose the file to open'); return }
     if (!f.name.trim()) { setErr('Give the design a name'); return }
     const w = parseFloat(f.w), h = parseFloat(f.h)
     if (!(w > 0 && h > 0)) { setErr('Enter an artboard size'); return }
@@ -142,12 +157,29 @@ function NewDesignModal({ onClose, onCreated }: { onClose: () => void; onCreated
     const up = await sb.storage.from(BUCKET).upload(path, new Blob([JSON.stringify(doc)], { type: 'application/json' }), { upsert: true, contentType: 'application/json', cacheControl: '0' })
     if (up.error) { setErr(up.error.message); setBusy(false); return }
     await sb.from('packaging_designs').update({ doc_path: path }).eq('id', data.id)
+    // hand the file to the editor, which opens it as editable artwork and sizes the artboard to it
+    if (file) (window as any).__pkgPendingImport = { designId: data.id, file, text: textMode }
     onCreated(data.id)
   }
   return (
     <div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center"><h2 className="text-lg font-bold">New packaging design</h2><button onClick={onClose} className="ml-auto text-gray-400 hover:text-black"><i className="ti ti-x" /></button></div>
+        <div className="flex items-center"><h2 className="text-lg font-bold">{startWithFile ? 'Open an existing file' : 'New packaging design'}</h2><button onClick={onClose} className="ml-auto text-gray-400 hover:text-black"><i className="ti ti-x" /></button></div>
+        {startWithFile && (
+          <div className="space-y-2">
+            <label className={`flex flex-col items-center justify-center gap-1 border-2 border-dashed rounded-xl p-5 cursor-pointer text-center ${file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300 hover:border-gray-400'}`}
+              onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); pickFile(e.dataTransfer.files?.[0] || null) }}>
+              <i className={`ti ${file ? 'ti-file-check text-emerald-600' : 'ti-file-upload text-gray-400'} text-3xl`} />
+              <span className="text-sm font-medium text-gray-700">{file ? file.name : 'Drop an .ai file here or click to choose'}</span>
+              <span className="text-xs text-gray-500">{file ? `${(file.size / 1e6).toFixed(1)} MB — opens as editable artwork` : 'Also accepts PDF, EPS, PS and SVG'}</span>
+              <input type="file" accept=".ai,.pdf,.eps,.ps,.svg" className="hidden" onChange={e => pickFile(e.target.files?.[0] || null)} />
+            </label>
+            <div className="flex gap-4 text-xs text-gray-600">
+              <label className="flex items-center gap-1.5"><input type="radio" checked={textMode === 'live'} onChange={() => setTextMode('live')} /> Keep text editable</label>
+              <label className="flex items-center gap-1.5"><input type="radio" checked={textMode === 'outline'} onChange={() => setTextMode('outline')} /> Convert text to outlines (exact look)</label>
+            </div>
+          </div>
+        )}
         <label className="block text-sm"><span className="text-gray-600">Design name *</span>
           <input autoFocus value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. 6in Fork Retail Carton — v1" className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />
         </label>
@@ -167,7 +199,7 @@ function NewDesignModal({ onClose, onCreated }: { onClose: () => void; onCreated
             {PRODUCT_TYPES.map(p => <option key={p}>{p}</option>)}
           </select>
         </label>
-        <div>
+        {!startWithFile && <div>
           <span className="text-sm text-gray-600">Artboard size <span className="text-gray-400">(auto-resizes to your dieline on import)</span></span>
           <div className="mt-1 flex gap-2">
             <input value={f.w} onChange={e => setF({ ...f, w: e.target.value })} className="w-24 border border-gray-300 rounded-lg px-3 py-2" />
@@ -178,11 +210,11 @@ function NewDesignModal({ onClose, onCreated }: { onClose: () => void; onCreated
           <div className="mt-2 flex flex-wrap gap-1.5">
             {PRESETS.map(p => <button key={p.label} onClick={() => setF({ ...f, w: String(p.w), h: String(p.h), unit: p.unit })} className="text-[11px] px-2 py-1 rounded-full border border-gray-200 hover:border-gray-400 text-gray-600">{p.label}</button>)}
           </div>
-        </div>
+        </div>}
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100">Cancel</button>
-          <button disabled={busy} onClick={create} className="px-4 py-2 rounded-lg text-sm text-white font-semibold disabled:opacity-60" style={{ background: '#3B6FE0' }}>{busy ? 'Creating…' : 'Create & open editor'}</button>
+          <button disabled={busy} onClick={create} className="px-4 py-2 rounded-lg text-sm text-white font-semibold disabled:opacity-60" style={{ background: '#3B6FE0' }}>{busy ? 'Creating…' : startWithFile ? 'Open in editor' : 'Create & open editor'}</button>
         </div>
       </div>
     </div>
