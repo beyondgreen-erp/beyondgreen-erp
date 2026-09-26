@@ -11,6 +11,14 @@ interface RfqLine {
   quantity: number | null
 }
 
+interface ArtFile {
+  id: string
+  name: string
+  size: number | null
+  type: string | null
+  url: string
+}
+
 interface RfqData {
   rfq_number: string
   rfq_date: string | null
@@ -23,7 +31,15 @@ interface RfqData {
   contact_name: string | null
   contact_email: string | null
   already_responded: boolean
+  art_files?: ArtFile[]
   lines: RfqLine[]
+}
+
+function fileSize(bytes: number | null) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1048576) return Math.round(bytes / 1024) + ' KB'
+  return (bytes / 1048576).toFixed(1) + ' MB'
 }
 
 const GREEN = '#1F9A3A'
@@ -203,6 +219,35 @@ export default function SupplierRfqPage() {
             </div>
           )}
         </div>
+
+        {!!data?.art_files?.length && (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mt-6">
+            <h2 className="font-semibold text-gray-900 mb-1">Artwork and dielines</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Quote against these files. If anything is unreadable or you need a different format, say so in
+              &ldquo;Anything else&rdquo; below and we will resend it.
+            </p>
+            <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+              {data.art_files.map(f => (
+                <li key={f.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">{f.name}</div>
+                    {!!f.size && <div className="text-[11px] text-gray-400">{fileSize(f.size)}</div>}
+                  </div>
+                  <a
+                    href={f.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-md text-white"
+                    style={{ background: GREEN }}
+                  >
+                    Download
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {data?.already_responded && (
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

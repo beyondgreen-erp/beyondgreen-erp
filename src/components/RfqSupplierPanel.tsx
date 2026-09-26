@@ -169,7 +169,8 @@ export function RfqSendModal({
   const [summary, setSummary] = useState('')
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
-  const [result, setResult] = useState<{ sent: number; failed: number; results: any[] } | null>(null)
+  const [result, setResult] = useState<{ sent: number; failed: number; results: any[]; art?: { total: number; attached: number; link_only: string[] } } | null>(null)
+  const [artCount, setArtCount] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -184,6 +185,19 @@ export function RfqSendModal({
   }, [supabase])
 
   useEffect(() => { if (open) load() }, [open, load])
+
+  // Show up front how much artwork will go out, so nobody has to guess.
+  useEffect(() => {
+    if (!open || !quotationId) return
+    let cancelled = false
+    supabase
+      .from('file_attachments')
+      .select('id', { count: 'exact', head: true })
+      .eq('record_type', 'quotation_art')
+      .eq('record_id', quotationId)
+      .then(({ count }) => { if (!cancelled) setArtCount(count ?? 0) })
+    return () => { cancelled = true }
+  }, [open, quotationId, supabase])
 
   useEffect(() => {
     if (!open) return
@@ -292,7 +306,14 @@ export function RfqSendModal({
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Send RFQ to suppliers</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{rfqNumber} · {lines.length} line{lines.length === 1 ? '' : 's'} · the RFQ PDF is attached automatically</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {rfqNumber} · {lines.length} line{lines.length === 1 ? '' : 's'} · the RFQ PDF is attached automatically
+              {artCount !== null && (
+                artCount > 0
+                  ? ` · ${artCount} artwork file${artCount === 1 ? '' : 's'} included`
+                  : ' · no artwork uploaded yet'
+              )}
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
@@ -303,6 +324,14 @@ export function RfqSendModal({
               Sent to {result.sent} supplier{result.sent === 1 ? '' : 's'}{result.failed ? `, ${result.failed} failed` : ''}
             </h3>
             <p className="text-sm text-gray-500 mb-4">Each one has its own response link. Replies land under {rfqNumber}.</p>
+            {!!result.art?.total && (
+              <p className="text-sm text-gray-600 mb-4">
+                Artwork: {result.art.attached} of {result.art.total} file{result.art.total === 1 ? '' : 's'} attached to the email
+                {result.art.link_only.length > 0 && (
+                  <> · too large to attach, downloadable from the quote form: {result.art.link_only.join(', ')}</>
+                )}
+              </p>
+            )}
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               {result.results.map((r: any, i: number) => (
                 <div key={i} className="flex items-center justify-between px-4 py-2 text-sm border-b border-gray-100 last:border-0">
@@ -392,7 +421,7 @@ export function RfqSendModal({
         {!result && (
           <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
             <div className="text-xs text-gray-500">
-              From erp@beyondgreenbiotech.com · replies go to rudyp@beyondgreenbiotech.com
+              From erp@beyondgreenbiotech.com · replies go to rudyp@beyondgreenbiotech.com · rudy@beyondgreenbiotech.com is copied
               {noEmail.length > 0 && <span className="text-amber-600"> · {noEmail.length} selected supplier{noEmail.length === 1 ? ' has' : 's have'} no email and will be skipped</span>}
             </div>
             <div className="flex gap-2">
