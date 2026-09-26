@@ -6,6 +6,7 @@
 // printer portal, and as vectors in the "Proof sheet (PDF)" export.
 import * as fabric from 'fabric'
 import type { DocLayer, Swatch } from './doc'
+import type { DesignSpec } from './specExtract'
 
 export const BRAND_LOGO_URL = 'https://tdhqucirvetvjpfsmnfb.supabase.co/storage/v1/object/public/haccp-attachments/brand/v2/bg_logo_horizontal.png'
 export const BRAND_GREEN = '#2ABF06'
@@ -24,7 +25,7 @@ export interface ProofCustomer {
 export interface ProofProduct {
   id?: string | null; sku: string; name?: string; size?: string; pack?: string; upc?: string; customerPart?: string; color?: string; thickness?: string; caseSize?: string
 }
-export interface ProofInk { name: string; hex: string; cmyk?: number[] | null; spot?: boolean }
+export interface ProofInk { name: string; hex: string; cmyk?: number[] | null; spot?: boolean; technical?: boolean }
 
 /** Stored in the design document so the printer portal can draw the same sheet. */
 export interface ProofInfo {
@@ -101,6 +102,15 @@ export function collectInks(objects: any[], layers: DocLayer[], swatches: Swatch
       { name: 'Process Yellow', hex: '#FFF200', cmyk: [0, 0, 100, 0] }, { name: 'Process Black', hex: '#231F20', cmyk: [0, 0, 0, 100] })
   }
   void swatches
+  return out
+}
+
+/** Inks straight from the original file: exact CMYK builds, printing spots, then die plates. */
+export function specInks(spec: DesignSpec): ProofInk[] {
+  const out: ProofInk[] = []
+  for (const p of spec.plates.filter(p => !p.technical)) out.push({ name: p.name + (p.cmyk ? ` (${p.cmyk.map(v => Math.round(v)).join('/')})` : ''), hex: p.hex, cmyk: p.cmyk, spot: true })
+  for (const c of spec.colors) out.push({ name: c.label, hex: c.hex, cmyk: [c.c, c.m, c.y, c.k] })
+  for (const p of spec.plates.filter(p => p.technical)) out.push({ name: `${p.name} — die / non-printing`, hex: p.hex, cmyk: p.cmyk, spot: true, technical: true })
   return out
 }
 
@@ -200,7 +210,7 @@ export function buildProofObjects(info: ProofInfo, w: number, h: number, logo: H
     ] },
     { title: 'PRINT SPECIFICATIONS', rows: [
       ['Dieline', info.dieline || ''], ['Method', info.printMethod || ''], ['Substrate', info.substrate || prod?.color || ''],
-      ['Finish', info.finish || ''], ['Inks', info.inks?.length ? `${info.inks.length} (${info.inks.filter(i => i.spot).length} spot)` : ''], ['Artist', info.artist || ''],
+      ['Finish', info.finish || ''], ['Inks', info.inks?.length ? `${info.inks.filter(i => !i.technical).length} colour builds (${info.inks.filter(i => i.spot && !i.technical).length} spot)` : ''], ['Artist', info.artist || ''],
     ] },
   ]
   const headH = 15 * S
@@ -227,10 +237,10 @@ export function buildProofObjects(info: ProofInfo, w: number, h: number, logo: H
     let ry = fy + headH + 6 * S
     inks.slice(0, inks.length > per ? per - 1 : per).forEach(ink => {
       rect(cx + 8 * S, ry, 10 * S, 10 * S, { fill: ink.hex, stroke: '#9CA3AF', sw: 0.5 * S, r: 1.5 * S })
-      text(ink.name, cx + 23 * S, ry, 7.5, { bold: !!ink.spot, maxWidth: cw - 30 * S })
+      text(ink.name, cx + 23 * S, ry, 7.5, { bold: !!ink.spot && !ink.technical, color: ink.technical ? MUTED : INK, maxWidth: cw - 30 * S })
       ry += 12.5 * S
     })
-    if (inks.length > per) text(`+ ${inks.length - per + 1} more`, cx + 23 * S, ry, 7, { color: MUTED })
+    if (inks.length > per) text(`+ ${inks.length - per + 1} more — full list under Specs`, cx + 23 * S, ry, 7, { color: MUTED })
     if (!inks.length) text('No printable inks yet', cx + 8 * S, ry, 7.5, { color: '#9CA3AF' })
   }
   line(fx, fy + row1, fx + fw, fy + row1, '#9CA3AF')
