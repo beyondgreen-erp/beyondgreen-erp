@@ -1,11 +1,27 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // PDF (and PDF-compatible .ai) → editable vector items.
 // Walks pdf.js's operator list and rebuilds every path, colour, stroke, clip and image in
-// document space. EPS / PS / legacy files are first normalised to PDF by Ghostscript with
-// text converted to outlines, so the walker only ever needs to understand paths + images.
+// document space. Text is either already outlined by Ghostscript (text: 'outline') or rebuilt
+// as live, retypable text runs (text: 'live') with the original font size, colour and position.
 import { type Mat, type Seg, type PathItem, type ImageItem, type SceneItem, type Clip, multiply, transformSegs } from './scene'
 
-export interface ImportedPage { width: number; height: number; items: SceneItem[]; warnings: string[] }
+/** A run of live text: `m` maps the run's local plane (x → along the baseline, y down, baseline at y = 0) to document space. */
+export interface TextRunItem {
+  kind: 'text'
+  m: Mat
+  text: string
+  fontSize: number
+  fontName: string
+  bold: boolean
+  italic: boolean
+  fill: [number, number, number]
+  opacity: number
+  advance: number   // run width in local units, as laid out in the source file
+  clips?: Clip[]
+}
+export type ImportItem = SceneItem | TextRunItem
+
+export interface ImportedPage { width: number; height: number; items: ImportItem[]; warnings: string[] }
 
 interface GState {
   ctm: Mat
@@ -20,22 +36,76 @@ interface GState {
   dash: number[]
   clips: Clip[]
   groupAlpha: number
+  // text state (part of the graphics state in PDF)
+  font: any
+  fontSize: number
+  charSpacing: number
+  wordSpacing: number
+  hscale: number
+  leading: number
+  rise: number
+  renderMode: number
 }
 
 const CAPS: PathItem['cap'][] = ['butt', 'round', 'square']
 const JOINS: PathItem['join'][] = ['miter', 'round', 'bevel']
 
-export async function importPdfPage(pdfjs: any, page: any): Promise<ImportedPage> {
+export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outline' | 'live' } = {}): Promise<ImportedPage> {
   const OPS = pdfjs.OPS
   const viewport = page.getViewport({ scale: 1 })
   const opList = await page.getOperatorList()
   const warnings = new Set<string>()
-  const items: SceneItem[] = []
+  const items: ImportItem[] = []
 
   let st: GState = {
     ctm: viewport.transform.slice(0, 6) as Mat,
     fill: [0, 0, 0], stroke: [0, 0, 0], fillAlpha: 1, strokeAlpha: 1,
     lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], clips: [], groupAlpha: 1,
+    font: null, fontSize: 0, charSpacing: 0, wordSpacing: 0, hscale: 1, leading: 0, rise: 0, renderMode: 0,
+  }
+  // text object state (not saved by q/Q)
+  let tm: Mat = [1, 0, 0, 1, 0, 0]
+  let tx = 0, ty = 0, lineX = 0, lineY = 0
+  const moveText = (x: number, y: number) => { tx = lineX += x; ty = lineY += y }
+
+  function showText(glyphs: any[]) {
+    const size = st.fontSize
+    if (!size || !Array.isArray(glyphs)) return
+    const font = st.font || {}
+    const fm0 = (font.fontMatrix && font.fontMatrix[0]) || 0.001
+    const dir = font.isType3Font ? -1 : 1
+    const widthScale = size * fm0
+    let x = 0, text = ''
+    for (const g of glyphs) {
+      if (typeof g === 'number') {
+        const dx = (-g * size) / 1000
+        if (dx > size * 0.2 && text && !text.endsWith(' ')) text += ' '
+        x += dx; continue
+      }
+      if (!g) continue
+      const spacing = (g.isSpace ? st.wordSpacing : 0) + st.charSpacing
+      x += (g.width || 0) * widthScale + spacing * dir
+      text += g.unicode ?? g.fontChar ?? ''
+    }
+    const invisible = st.renderMode === 3 || st.renderMode === 7
+    if (opts.text === 'live' && text.trim() && !invisible) {
+      // run plane: origin on the baseline, x along the text, y down; 1 unit = 1 text-space unit
+      const m = multiply(multiply(multiply(st.ctm, tm), [1, 0, 0, 1, tx, ty + st.rise]), [st.hscale, 0, 0, -1, 0, 0])
+      const raw = String(font.name || font.loadedName || '')
+      const clean = raw.replace(/^[A-Z]{6}\+/, '')
+      items.push({
+        kind: 'text', m, text: text.replace(/\s+$/, ''), fontSize: size, fontName: clean,
+        bold: !!font.bold || /bold|black|heavy|semibold|demi/i.test(clean),
+        italic: !!font.italic || /italic|oblique/i.test(clean),
+        fill: st.fill, opacity: st.fillAlpha * st.groupAlpha, advance: x,
+        clips: st.clips.length ? st.clips.slice() : undefined,
+      })
+    } else if (opts.text === 'live' && !text.trim()) {
+      /* spaces only */
+    } else if (opts.text !== 'live' && text.trim() && !invisible) {
+      warnings.add('Some live text could not be converted to outlines and was skipped.')
+    }
+    tx += x * st.hscale
   }
   const stack: GState[] = []
   let path: Seg[] = []
@@ -192,8 +262,21 @@ export async function importPdfPage(pdfjs: any, page: any): Promise<ImportedPage
       case OPS.paintImageMaskXObject: pushImage(imageToRgba(getObj(a[0]?.data ?? a[0]) || a[0], st.fill)); break
       case OPS.paintImageXObjectRepeat: case OPS.paintImageMaskXObjectRepeat: case OPS.paintImageMaskXObjectGroup: case OPS.paintInlineImageXObjectGroup:
         warnings.add('Some tiled / grouped images were skipped.'); break
-      case OPS.showText: case OPS.showSpacedText: case OPS.nextLineShowText: case OPS.nextLineSetSpacingShowText:
-        warnings.add('Live text could not be converted to outlines and was skipped.'); break
+      case OPS.beginText: tm = [1, 0, 0, 1, 0, 0]; tx = ty = lineX = lineY = 0; break
+      case OPS.setFont: st.font = getObj(a[0]); st.fontSize = Math.abs(a[1]); break
+      case OPS.setCharSpacing: st.charSpacing = a[0]; break
+      case OPS.setWordSpacing: st.wordSpacing = a[0]; break
+      case OPS.setHScale: st.hscale = a[0] / 100; break
+      case OPS.setLeading: st.leading = -a[0]; break
+      case OPS.setTextRise: st.rise = a[0]; break
+      case OPS.setTextRenderingMode: st.renderMode = a[0]; break
+      case OPS.setTextMatrix: tm = [a[0], a[1], a[2], a[3], a[4], a[5]]; tx = ty = lineX = lineY = 0; break
+      case OPS.moveText: moveText(a[0], a[1]); break
+      case OPS.setLeadingMoveText: st.leading = a[1]; moveText(a[0], a[1]); break
+      case OPS.nextLine: moveText(0, st.leading); break
+      case OPS.showText: case OPS.showSpacedText: showText(a[0]); break
+      case OPS.nextLineShowText: moveText(0, st.leading); showText(a[0]); break
+      case OPS.nextLineSetSpacingShowText: st.wordSpacing = a[0]; st.charSpacing = a[1]; moveText(0, st.leading); showText(a[2]); break
     }
   }
 
