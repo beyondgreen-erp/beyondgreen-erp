@@ -33,7 +33,7 @@ export interface DesignRow {
 }
 
 /** Custom properties persisted on every fabric object. */
-export const OBJ_PROPS = ['id', 'layerId', 'name', 'cmykFill', 'spotFill', 'cmykStroke', 'spotStroke', 'overprint', 'lockedObj', 'assetPath', 'selectable', 'evented', 'lockMovementX', 'lockMovementY', 'lockRotation', 'lockScalingX', 'lockScalingY', 'hasControls']
+export const OBJ_PROPS = ['id', 'layerId', 'name', 'cmykFill', 'spotFill', 'cmykStroke', 'spotStroke', 'overprint', 'lockedObj', 'assetPath', 'selectable', 'evented', 'lockMovementX', 'lockMovementY', 'lockRotation', 'lockScalingX', 'lockScalingY', 'hasControls', 'sourceFont']
 
 export const STATUSES = ['Draft', 'In Review', 'Printer Review', 'Approved', 'Final', 'Archived'] as const
 export const STATUS_COLORS: Record<string, string> = {
