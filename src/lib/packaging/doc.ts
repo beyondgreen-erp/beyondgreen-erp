@@ -22,6 +22,8 @@ export interface DesignDoc {
   swatches: Swatch[]
   objects: any[]   // fabric object JSON
   proof?: ProofInfo // official approval-proof sheet data (ERP snapshot)
+  /** The uploaded original, stored byte-for-byte (never modified) */
+  source?: { path: string; name: string; size: number; sha256: string; uploaded_at: string; uploaded_by?: string; text?: 'live' | 'outline' }
 }
 
 export interface DesignRow {
@@ -81,4 +83,9 @@ export async function sha1Hex(buf: ArrayBuffer): Promise<string> {
 
 export function safeFileName(s: string) {
   return (s || 'design').replace(/[^\w\- .()]+/g, '_').replace(/\s+/g, '_').slice(0, 80)
+}
+
+export async function sha256Hex(buf: ArrayBuffer): Promise<string> {
+  const h = await crypto.subtle.digest('SHA-256', buf)
+  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
