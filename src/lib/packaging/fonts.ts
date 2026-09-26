@@ -39,6 +39,26 @@ export const DEFAULT_FONT = 'Inter'
 
 export function fontFamilies(): string[] { return Array.from(registry.keys()).sort((a, b) => a.localeCompare(b)) }
 
+/** Best library match for a font name found in an imported file (e.g. "Montserrat-SemiBold", "ArialMT"). */
+export function matchFamily(sourceName: string): string {
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const base = norm(String(sourceName || '').replace(/^[A-Z]{6}\+/, '').split(/[-,]/)[0].replace(/(MT|PS|Std|Pro|LT)$/, ''))
+  if (!base) return DEFAULT_FONT
+  const fams = Array.from(registry.keys())
+  const exact = fams.find(f => norm(f) === base)
+  if (exact) return exact
+  const partial = fams.find(f => base.startsWith(norm(f)) || norm(f).startsWith(base))
+  if (partial) return partial
+  const alias: Record<string, string> = {
+    arial: 'Roboto', helvetica: 'Roboto', helveticaneue: 'Inter', frutiger: 'Open Sans', myriad: 'Source Sans 3', myriadpro: 'Source Sans 3',
+    futura: 'Montserrat', gothambook: 'Montserrat', gotham: 'Montserrat', proximanova: 'Montserrat', avenir: 'Nunito', avenirnext: 'Nunito',
+    timesnewroman: 'Merriweather', times: 'Merriweather', georgia: 'Merriweather', garamond: 'Playfair Display', din: 'Barlow', dinpro: 'Barlow',
+    impact: 'Oswald', franklingothic: 'Archivo Black', segoeui: 'Open Sans', calibri: 'Lato', verdana: 'Open Sans', tahoma: 'Open Sans',
+  }
+  for (const [k, v] of Object.entries(alias)) if (base.startsWith(k)) return v
+  return DEFAULT_FONT
+}
+
 /** Register a team-uploaded font (TTF/OTF). */
 export function registerFont(file: FontFile) {
   const list = registry.get(file.family) || []
