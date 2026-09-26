@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { BUCKET, safeFileName, type DesignRow } from '@/lib/packaging/doc'
-import { FORMATS, DEFAULT_EXPORT, exportDesign, zipFiles, downloadBlob, type ExportFormat, type ExportOptions } from '@/lib/packaging/exporters'
+import { FORMATS, DEFAULT_EXPORT, exportDesign, exportProofSheet, zipFiles, downloadBlob, type ExportFormat, type ExportOptions } from '@/lib/packaging/exporters'
 import type { EditorHandle } from './Editor'
 
 interface FileRow { id: string; design_id: string; version_id: string | null; format: string; file_name: string; file_path: string; size_bytes: number | null; options: any; created_by: string | null; created_at: string }
@@ -18,6 +18,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
   const [opts, setOpts] = useState<ExportOptions>(DEFAULT_EXPORT)
   const [label, setLabel] = useState('')
   const [markFinal, setMarkFinal] = useState(true)
+  const [withProof, setWithProof] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [files, setFiles] = useState<FileRow[]>([])
@@ -32,11 +33,11 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
   const toggle = (f: ExportFormat) => setFormats(s => s.includes(f) ? s.filter(x => x !== f) : [...s, f])
   const base = safeFileName(`${design.name}${design.sku ? '_' + design.sku : ''}`)
 
-  async function build(): Promise<{ name: string; blob: Blob; fmt: ExportFormat }[]> {
+  async function build(): Promise<{ name: string; blob: Blob; fmt: string }[]> {
     const ed = editor.current, canvas = ed?.getCanvas()
     if (!ed || !canvas) throw new Error('Open the Design tab once so the editor can load.')
     const doc = ed.getExportDoc()
-    const out: { name: string; blob: Blob; fmt: ExportFormat }[] = []
+    const out: { name: string; blob: Blob; fmt: string }[] = []
     const warn = new Set<string>()
     for (const fmt of FORMATS.map(f => f.key).filter(k => formats.includes(k))) {
       setBusy(`Rendering ${fmt.toUpperCase()}…`)
@@ -44,12 +45,19 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
       r.warnings.forEach(w => warn.add(w))
       out.push({ name: `${base}.${fmt}`, blob: r.blob, fmt })
     }
+    const info = withProof ? ed.getProofInfo() : null
+    if (info) {
+      setBusy('Building approval proof sheet…')
+      const r = await exportProofSheet(canvas, doc, info, opts)
+      r.warnings.forEach(w => warn.add(w))
+      out.push({ name: `${base}_PROOF${info.proofNo ? '_' + info.proofNo : ''}.pdf`, blob: r.blob, fmt: 'proof' })
+    }
     setWarnings(Array.from(warn))
     return out
   }
 
   const download = async () => {
-    if (!formats.length) return
+    if (!formats.length && !withProof) return
     setMsg(''); setWarnings([])
     try {
       const out = await build()
@@ -59,7 +67,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
   }
 
   const saveFinal = async () => {
-    if (!formats.length) return
+    if (!formats.length && !withProof) return
     setMsg(''); setWarnings([])
     try {
       setBusy('Saving working file…')
@@ -78,7 +86,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
       for (const f of out) {
         setBusy(`Uploading ${f.name}…`)
-        const name = `${base}_v${n}.${f.fmt}`
+        const name = f.fmt === 'proof' ? `${base}_v${n}_APPROVAL_PROOF.pdf` : `${base}_v${n}.${f.fmt}`
         const path = `designs/${design.id}/final/${stamp}/${name}`
         const up = await sb.storage.from(BUCKET).upload(path, f.blob, { upsert: true, contentType: f.blob.type || 'application/octet-stream' })
         if (up.error) throw up.error
@@ -143,13 +151,14 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
           </div>
           <div className="border-t pt-4 space-y-3">
             <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Note for this final set (optional) — e.g. Approved by customer 9/25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={withProof} onChange={e => setWithProof(e.target.checked)} /> Include the official <b>approval proof sheet</b> (PDF with customer, SKU, inks &amp; sign-off)</label>
             <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={markFinal} onChange={e => setMarkFinal(e.target.checked)} /> Set design status to <b>Final</b></label>
             <div className="flex flex-wrap gap-2">
               <button disabled={!!busy || !formats.length} onClick={saveFinal} className="px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50" style={{ background: '#2ABF06' }}>
                 <i className="ti ti-circle-check" /> Save as confirmed final files
               </button>
-              <button disabled={!!busy || !formats.length} onClick={download} className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
-                <i className="ti ti-download" /> Just download{formats.length > 1 ? ' (.zip)' : ''}
+              <button disabled={!!busy || (!formats.length && !withProof)} onClick={download} className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                <i className="ti ti-download" /> Just download{formats.length + (withProof ? 1 : 0) > 1 ? ' (.zip)' : ''}
               </button>
             </div>
             {busy && <p className="text-sm text-gray-600"><i className="ti ti-loader-2 animate-spin" /> {busy}</p>}
