@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ProofInfo } from './proofTemplate'
+import type { DesignSpec } from './specExtract'
 // Packaging design document model + persistence helpers.
 // A design lives in the private `packaging` storage bucket:
 //   designs/{id}/current.json      – the live working file (autosaved)
@@ -24,6 +25,8 @@ export interface DesignDoc {
   proof?: ProofInfo // official approval-proof sheet data (ERP snapshot)
   /** The uploaded original, stored byte-for-byte (never modified) */
   source?: { path: string; name: string; size: number; sha256: string; uploaded_at: string; uploaded_by?: string; text?: 'live' | 'outline' }
+  /** exact colour builds, plates and dieline dimensions read from the original file */
+  spec?: DesignSpec
 }
 
 export interface DesignRow {
