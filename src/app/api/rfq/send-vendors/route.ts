@@ -35,6 +35,91 @@ const RFQ_PORTAL_URL = (process.env.NEXT_PUBLIC_RFQ_PORTAL_URL || 'https://beyon
 /** Rudy is copied on every outbound RFQ, so the thread is never only in the ERP. */
 const ALWAYS_CC = 'rudy@beyondgreenbiotech.com'
 
+/**
+ * Artwork limits. Print-ready dielines run large and mail gateways drop big
+ * attachments silently — especially on mail into China — so anything over these
+ * goes to the supplier as a download on the quote form instead of an attachment.
+ */
+const ART_BUCKET = 'erp-files'
+const ART_MAX_PER_FILE = 8 * 1024 * 1024
+const ART_MAX_TOTAL = 18 * 1024 * 1024
+
+interface ArtFile { id: string; file_name: string; file_size: number | null; file_type: string | null; storage_path: string }
+
+/** Art files uploaded against this RFQ, oldest first. */
+async function loadArtFiles(quotationId: string): Promise<ArtFile[]> {
+  const { data, error } = await supabase
+    .from('file_attachments')
+    .select('id, file_name, file_size, file_type, storage_path')
+    .eq('record_type', 'quotation_art')
+    .eq('record_id', quotationId)
+    .order('created_at')
+  if (error) {
+    console.error('[rfq/send-vendors] art files', error)
+    return []
+  }
+  return (data ?? []) as ArtFile[]
+}
+
+/**
+ * Downloads and base64-encodes the art that fits inside the limits. Returns the
+ * attachments plus the names that were too big, so the email can say so rather
+ * than quietly leaving them out.
+ */
+async function buildArtAttachments(art: ArtFile[]) {
+  const files: { filename: string; content: string }[] = []
+  const linkOnly: string[] = []
+  let total = 0
+
+  for (const a of art) {
+    const size = Number(a.file_size) || 0
+    if (size > ART_MAX_PER_FILE || total + size > ART_MAX_TOTAL) {
+      linkOnly.push(a.file_name)
+      continue
+    }
+    try {
+      const { data, error } = await supabase.storage.from(ART_BUCKET).download(a.storage_path)
+      if (error || !data) {
+        console.error('[rfq/send-vendors] art download', a.storage_path, error)
+        linkOnly.push(a.file_name)
+        continue
+      }
+      const buf = Buffer.from(await data.arrayBuffer())
+      total += buf.byteLength
+      if (total > ART_MAX_TOTAL) {
+        linkOnly.push(a.file_name)
+        continue
+      }
+      files.push({ filename: a.file_name, content: buf.toString('base64') })
+    } catch (e) {
+      console.error('[rfq/send-vendors] art encode', a.storage_path, e)
+      linkOnly.push(a.file_name)
+    }
+  }
+  return { files, linkOnly }
+}
+
+/** The artwork manifest shown under the body, so nothing looks missing. */
+function artworkBlock(art: ArtFile[], linkOnly: string[], portalLink: string) {
+  if (!art.length) return ''
+  const rows = art
+    .map(a => {
+      const big = linkOnly.includes(a.file_name)
+      const mb = a.file_size ? (Number(a.file_size) / 1048576).toFixed(1) + ' MB' : ''
+      return `<li style="margin-bottom:4px;">${a.file_name}${mb ? ` <span style="color:#6B7280;">(${mb})</span>` : ''}${big ? ' <span style="color:#B45309;">— download from the quote form</span>' : ''}</li>`
+    })
+    .join('')
+  return `
+  <div style="margin:24px 0 0 0;font-family:Arial,Helvetica,sans-serif;">
+    <div style="font-size:14px;font-weight:bold;color:#14532D;margin-bottom:6px;">Artwork</div>
+    <div style="font-size:13px;color:#374151;line-height:1.5;">
+      ${art.length} file${art.length === 1 ? '' : 's'} for this RFQ${linkOnly.length ? ' — the larger ones are on the quote form rather than attached' : ' attached to this email'}.
+      Every file is also downloadable from <a href="${portalLink}" style="color:#1F9A3A;">your quote form</a>.
+    </div>
+    <ul style="font-size:13px;color:#374151;margin:10px 0 0 0;padding-left:20px;">${rows}</ul>
+  </div>`
+}
+
 interface VendorTarget {
   vendor_id?: string | null
   vendor_name: string
@@ -115,6 +200,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'RFQ not found' }, { status: 404 })
     }
 
+    // Artwork is encoded once and reused for every vendor, not per send.
+    const art = await loadArtFiles(quotation_id)
+    const { files: artAttachments, linkOnly: artLinkOnly } = art.length
+      ? await buildArtAttachments(art)
+      : { files: [], linkOnly: [] as string[] }
+
     const results: { vendor_name: string; email: string; ok: boolean; error?: string; token?: string }[] = []
 
     for (const v of vendors) {
@@ -125,7 +216,9 @@ export async function POST(req: NextRequest) {
 
       const token = crypto.randomBytes(24).toString('hex')
       const portalLink = `${RFQ_PORTAL_URL}/rfq/supplier/${token}`
-      const html = personalise(body_html, v, portalLink) + portalBlock(portalLink, rfq.quote_number)
+      const html = personalise(body_html, v, portalLink) +
+        artworkBlock(art, artLinkOnly, portalLink) +
+        portalBlock(portalLink, rfq.quote_number)
 
       const { data: sendRow, error: sendErr } = await supabase
         .from('rfq_sends')
@@ -165,6 +258,7 @@ export async function POST(req: NextRequest) {
 
       const files: { filename: string; content: string }[] = []
       if (pdf_base64) files.push({ filename: pdf_filename || `${rfq.quote_number}.pdf`, content: pdf_base64 })
+      files.push(...artAttachments)
       if (Array.isArray(attachments)) files.push(...attachments.filter(a => a?.filename && a?.content))
       if (files.length) payload.attachments = files
 
@@ -197,7 +291,13 @@ export async function POST(req: NextRequest) {
       await supabase.from('quotations').update({ status: 'Quoting' }).eq('id', quotation_id)
     }
 
-    return NextResponse.json({ success: true, sent, failed: results.length - sent, results })
+    return NextResponse.json({
+      success: true,
+      sent,
+      failed: results.length - sent,
+      results,
+      art: { total: art.length, attached: artAttachments.length, link_only: artLinkOnly },
+    })
   } catch (err) {
     console.error('[rfq/send-vendors]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
