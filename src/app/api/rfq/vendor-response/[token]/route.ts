@@ -51,9 +51,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
     const { data: lines } = await supabase
       .from('quotation_lines')
-      .select('id, sku, product_name, description, quantity')
+      .select('id, sku, product_name, description, quantity, line_number')
       .eq('quotation_id', send.quotation_id)
-      .order('id')
+      .order('line_number', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
 
     await supabase
       .from('rfq_sends')

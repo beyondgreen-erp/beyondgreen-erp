@@ -353,7 +353,8 @@ export default function QuotationsPage() {
       .from('quotation_lines')
       .select('*')
       .eq('quotation_id', q.id)
-      .order('id')
+      .order('line_number', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
     setLines((lData ?? []) as QuoteLine[])
   }
 
