@@ -10,6 +10,9 @@ import { importFile, ACCEPT } from '@/lib/packaging/importers'
 import { fontFamilies, loadFamily, DEFAULT_FONT } from '@/lib/packaging/fonts'
 import ColorField, { type ColorValue } from './ColorField'
 import CommentsPanel, { type PkgComment } from './CommentsPanel'
+import ProofPanel from './ProofPanel'
+import { buildProofObjects, collectInks, customerFromRow, productFromRow, loadBrandLogo, sheetLayout, drawProof, CUSTOMER_COLS, PRODUCT_COLS, type ProofInfo } from '@/lib/packaging/proofTemplate'
+import { exportProofSheet, downloadBlob } from '@/lib/packaging/exporters'
 
 type Tool = 'select' | 'direct' | 'pen' | 'rect' | 'ellipse' | 'line' | 'text' | 'hand' | 'zoom' | 'eyedropper' | 'comment'
 const TOOLS: { key: Tool; icon: string; label: string; kbd: string }[] = [
@@ -37,6 +40,7 @@ export interface EditorHandle {
   saveNow: (force?: boolean) => Promise<boolean>
   loadDoc: (doc: DesignDoc) => Promise<void>
   focusComment: (id: string) => void
+  getProofInfo: () => ProofInfo | null
 }
 
 interface Props {
@@ -74,7 +78,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   const [vpt, setVpt] = useState<number[]>([1, 0, 0, 1, 0, 0])
   const [size, setSize] = useState({ w: 800, h: 600 })
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
-  const [panel, setPanel] = useState<'props' | 'layers' | 'comments' | 'import'>(initialPanel || 'props')
+  const [panel, setPanel] = useState<'props' | 'layers' | 'comments' | 'import' | 'proof'>(initialPanel || 'props')
   const [importing, setImporting] = useState<string | null>(null)
   const [importMsg, setImportMsg] = useState<string[]>([])
   const [importTarget, setImportTarget] = useState<'dieline' | 'active' | 'new'>('active')
@@ -87,6 +91,15 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   const [showResolved, setShowResolved] = useState(false)
   const [objList, setObjList] = useState(0)
   const [toast, setToast] = useState<string | null>(null)
+  // ── official approval proof sheet ──
+  const [proof, setProof] = useState<ProofInfo>(() => ({ enabled: true, ...(initialDoc.proof || {}) }))
+  const proofObjsRef = useRef<fabric.FabricObject[]>([])
+  const proofTimer = useRef<any>(null)
+  const logoRef = useRef<HTMLImageElement | null>(null)
+  const versionRef = useRef<number>(1)
+  const designRef = useRef(design)
+  designRef.current = design
+  const [proofBusy, setProofBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const placeRef = useRef<HTMLInputElement>(null)
 
@@ -104,6 +117,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(t => t === m ? null : t), 3500) }
 
   // ── layer helpers ────────────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const layerIndex = useCallback((id: string) => docRef.current.layers.findIndex(l => l.id === id), [])
   const normalizeStack = useCallback(() => {
     const fc = fcRef.current; if (!fc) return
@@ -163,7 +177,72 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       layers: docRef.current.layers, width: docRef.current.width, height: docRef.current.height,
     })
   }
+  const rebuildProof = () => {
+    const fc = fcRef.current; if (!fc) return
+    const d = docRef.current, dz = designRef.current as any
+    const prev: ProofInfo = { enabled: true, ...(d.proof || {}) }
+    const info: ProofInfo = {
+      ...prev,
+      jobName: dz.name, productType: dz.product_type || '', status: dz.status,
+      proofNo: dz.proof_no ? `BG-${dz.proof_no}` : (prev.proofNo || ''),
+      version: versionRef.current, date: new Date().toISOString(),
+      dieline: `${fmtUnit(d.width, d.unit, d.unit === 'mm' ? 1 : 2)} × ${fmtUnit(d.height, d.unit, d.unit === 'mm' ? 1 : 2)} ${d.unit}`,
+      inks: collectInks(fc.getObjects(), d.layers, d.swatches),
+      artist: prev.artist || user.name,
+    }
+    d.proof = info
+    setProof(info)
+    proofObjsRef.current = info.enabled !== false ? buildProofObjects(info, d.width, d.height, logoRef.current) : []
+    fc.requestRenderAll()
+  }
+  const rebuildProofRef = useRef(rebuildProof)
+  rebuildProofRef.current = rebuildProof
+  const updateProof = (patch: Partial<ProofInfo>) => {
+    docRef.current.proof = { enabled: true, ...(docRef.current.proof || {}), ...patch }
+    rebuildProof(); scheduleSave()
+    if ('enabled' in patch) setTimeout(() => fitToScreenRef.current(), 0)
+  }
+  /** Pull the latest customer / lead and product data from the ERP into the proof. */
+  const loadProofFromErp = async () => {
+    const dz = designRef.current as any
+    const [c, p, v] = await Promise.all([
+      dz.customer_id ? sb.from('customers').select(CUSTOMER_COLS).eq('id', dz.customer_id).maybeSingle() : Promise.resolve({ data: null }),
+      dz.product_id ? sb.from('products').select(PRODUCT_COLS).eq('id', dz.product_id).maybeSingle()
+        : dz.sku ? sb.from('products').select(PRODUCT_COLS).ilike('sku', dz.sku).limit(1).maybeSingle() : Promise.resolve({ data: null }),
+      sb.from('packaging_design_versions').select('version_no').eq('design_id', dz.id).order('version_no', { ascending: false }).limit(1),
+    ])
+    versionRef.current = (((v as any).data?.[0]?.version_no) || 0) + 1
+    const prev = docRef.current.proof || { enabled: true }
+    const customer = customerFromRow((c as any).data) || (dz.customer_name ? { ...(prev.customer || {}), name: dz.customer_name } : prev.customer || null)
+    const product = productFromRow((p as any).data) || (dz.sku ? { ...(prev.product || {}), sku: dz.sku } : prev.product || null)
+    docRef.current.proof = { ...prev, enabled: prev.enabled !== false, customer, product }
+    logoRef.current = await loadBrandLogo()
+    rebuildProof()
+  }
+  const pickCustomer = async (row: any | null) => {
+    const patch = { customer_id: row?.id || null, customer_name: row?.company_name || null }
+    const { data } = await sb.from('packaging_designs').update(patch).eq('id', design.id).select().maybeSingle()
+    if (data) { designRef.current = { ...designRef.current, ...(data as any) }; onSaved(data as any) }
+    updateProof({ customer: customerFromRow(row) })
+  }
+  const pickProduct = async (row: any | null) => {
+    const patch: any = { product_id: row?.id || null, sku: row?.sku || null }
+    const { data } = await sb.from('packaging_designs').update(patch).eq('id', design.id).select().maybeSingle()
+    if (data) { designRef.current = { ...designRef.current, ...(data as any) }; onSaved(data as any) }
+    updateProof({ product: productFromRow(row) })
+  }
+  const downloadProofPdf = async () => {
+    const fc = fcRef.current; if (!fc) return
+    setProofBusy(true)
+    try {
+      rebuildProof()
+      const d = docRef.current
+      const r = await exportProofSheet(fc, { width: d.width, height: d.height, title: design.name, layers: d.layers }, d.proof!)
+      downloadBlob(r.blob, `${(design.name || 'design').replace(/[^\w\-]+/g, '_')}_PROOF_${d.proof?.proofNo || ''}_V${d.proof?.version || 1}.pdf`)
+    } catch (e: any) { flash('Proof PDF failed: ' + (e?.message || e)) } finally { setProofBusy(false) }
+  }
   const scheduleSave = useCallback(() => {
+    clearTimeout(proofTimer.current); proofTimer.current = setTimeout(() => rebuildProofRef.current(), 300)
     onSaveState({ status: 'dirty' })
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => { saveNowRef.current() }, 1500)
@@ -255,10 +334,13 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   const fitToScreen = useCallback(() => {
     const fc = fcRef.current; if (!fc) return
     const W = fc.getWidth(), H = fc.getHeight(), d = docRef.current
-    const z = Math.min((W - 80) / d.width, (H - 80) / d.height)
-    fc.setViewportTransform([z, 0, 0, z, (W - d.width * z) / 2, (H - d.height * z) / 2])
+    const r = d.proof?.enabled !== false ? (() => { const L = sheetLayout(d.width, d.height); return { x: L.x, y: L.y, w: L.w, h: L.h } })() : { x: 0, y: 0, w: d.width, h: d.height }
+    const z = Math.min((W - 60) / r.w, (H - 60) / r.h)
+    fc.setViewportTransform([z, 0, 0, z, (W - r.w * z) / 2 - r.x * z, (H - r.h * z) / 2 - r.y * z])
     setVpt(fc.viewportTransform.slice())
   }, [])
+  const fitToScreenRef = useRef(fitToScreen)
+  fitToScreenRef.current = fitToScreen
   const zoomTo = (z: number, at?: { x: number; y: number }) => {
     const fc = fcRef.current; if (!fc) return
     z = Math.max(0.05, Math.min(64, z))
@@ -400,8 +482,16 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       if (ctx !== fc.getContext()) return
       const v = fc.viewportTransform, d = docRef.current
       ctx.save(); ctx.transform(v[0], v[1], v[2], v[3], v[4], v[5])
-      ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 12; ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, d.width, d.height)
+      const pobjs = proofObjsRef.current
+      if (pobjs.length) {
+        const L = sheetLayout(d.width, d.height)
+        ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 16; ctx.fillStyle = '#ffffff'; ctx.fillRect(L.x, L.y, L.w, L.h); ctx.restore()
+        drawProof(ctx, pobjs)
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, d.width, d.height)
+      } else {
+        ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 12; ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, d.width, d.height)
+      }
       ctx.restore()
     }
     fc.on('after:render', ({ ctx }: any) => {
@@ -601,6 +691,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       histRef.current.stack = [snapshot()]; histRef.current.idx = 0
       loadFamily(DEFAULT_FONT).then(() => fc.requestRenderAll())
       setReady(true); readyRef.current = true
+      loadProofFromErp().then(() => { if (fittedRef.current) fitToScreen() }).catch(() => rebuildProof())
       const pending = (window as any).__pkgPendingImport
       if (pending && pending.designId === design.id && pending.file) {
         delete (window as any).__pkgPendingImport
@@ -611,6 +702,9 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     })()
     return () => { fc.dispose(); fcRef.current = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const proofNoDep = (design as any).proof_no
+  useEffect(() => { if (readyRef.current) rebuildProofRef.current() }, [design.name, design.status, design.product_type, proofNoDep])
 
   // resize canvas to container
   useEffect(() => {
@@ -940,7 +1034,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       const layer = docRef.current.layers.find(l => l.id === layerId)
       let placed: any[]
       if (isVectorPage) {
-        let group: any = res.objects.length === 1 ? res.objects[0] : new fabric.Group(res.objects, { subTargetCheck: true, interactive: true } as any)
+        const group: any = res.objects.length === 1 ? res.objects[0] : new fabric.Group(res.objects, { subTargetCheck: true, interactive: true } as any)
         if (!o.fit) group.set({ left: docRef.current.width / 2, top: docRef.current.height / 2, originX: 'center', originY: 'center' })
         group.setCoords()
         if (o.ungroup && res.objects.length > 1) placed = group.removeAll()
@@ -1032,6 +1126,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       histRef.current.lock = false; commit(); fitToScreen()
     },
     focusComment,
+    getProofInfo: () => { if (fcRef.current) rebuildProof(); return docRef.current.proof || null },
   }))
 
   // ── derived UI data ──────────────────────────────────────────────────────
@@ -1164,7 +1259,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
         {/* right panel */}
         <div className="w-[300px] shrink-0 border-l border-gray-200 bg-white flex flex-col min-h-0">
           <div className="flex border-b border-gray-200 text-xs font-medium">
-            {([['props', 'Properties'], ['layers', 'Layers'], ['comments', `Comments${openComments ? ` (${openComments})` : ''}`], ['import', 'Import']] as const).map(([k, l]) => (
+            {([['props', 'Properties'], ['layers', 'Layers'], ['proof', 'Proof'], ['comments', `Comments${openComments ? ` (${openComments})` : ''}`], ['import', 'Import']] as const).map(([k, l]) => (
               <button key={k} onClick={() => setPanel(k)} className={`flex-1 py-2.5 ${panel === k ? 'text-[#3B6FE0] border-b-2 border-[#3B6FE0]' : 'text-gray-500 hover:text-gray-800'}`}>{l}</button>
             ))}
           </div>
@@ -1284,6 +1379,10 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
               </div>
             )}
 
+            {panel === 'proof' && (
+              <ProofPanel sb={sb} info={proof} onChange={updateProof} onPickCustomer={pickCustomer} onPickProduct={pickProduct}
+                onRefresh={() => loadProofFromErp().then(() => flash('Proof refreshed from the ERP'))} onDownload={downloadProofPdf} busy={proofBusy} />
+            )}
             {panel === 'comments' && (
               <CommentsPanel comments={comments} draft={draftComment} onSubmitDraft={submitComment} onCancelDraft={() => setDraftComment(null)}
                 onReply={reply} onResolve={setResolved} onDelete={deleteComment} onFocus={focusComment} focusId={focusCommentId}
