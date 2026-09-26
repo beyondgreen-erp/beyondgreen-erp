@@ -36,6 +36,7 @@ interface GState {
   dash: number[]
   clips: Clip[]
   groupAlpha: number
+  softMask: SoftMask | null
   // text state (part of the graphics state in PDF)
   font: any
   fontSize: number
@@ -47,6 +48,15 @@ interface GState {
   renderMode: number
 }
 
+/** A luminosity soft mask captured from the drawing inside an SMask group (Illustrator opacity masks). */
+interface SoftMask { items: ImportItem[]; backdrop: [number, number, number] }
+
+function invert(m: Mat): Mat | null {
+  const [a, b, c, d, e, f] = m, det = a * d - b * c
+  if (!det) return null
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det]
+}
+
 const CAPS: PathItem['cap'][] = ['butt', 'round', 'square']
 const JOINS: PathItem['join'][] = ['miter', 'round', 'bevel']
 
@@ -56,11 +66,17 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
   const opList = await page.getOperatorList()
   const warnings = new Set<string>()
   const items: ImportItem[] = []
+  // Drawing inside a soft-mask group defines the MASK, not artwork: it is collected into `out` and applied later.
+  let out: ImportItem[] = items
+  const groupKinds: ('mask' | 'plain')[] = []
+  const maskSinks: ImportItem[][] = []
+  let pendingMask: SoftMask | null = null
+  let maskedVectorsWarned = false
 
   let st: GState = {
     ctm: viewport.transform.slice(0, 6) as Mat,
     fill: [0, 0, 0], stroke: [0, 0, 0], fillAlpha: 1, strokeAlpha: 1,
-    lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], clips: [], groupAlpha: 1,
+    lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], clips: [], groupAlpha: 1, softMask: null,
     font: null, fontSize: 0, charSpacing: 0, wordSpacing: 0, hscale: 1, leading: 0, rise: 0, renderMode: 0,
   }
   // text object state (not saved by q/Q)
@@ -93,7 +109,7 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
       const m = multiply(multiply(multiply(st.ctm, tm), [1, 0, 0, 1, tx, ty + st.rise]), [st.hscale, 0, 0, -1, 0, 0])
       const raw = String(font.name || font.loadedName || '')
       const clean = raw.replace(/^[A-Z]{6}\+/, '')
-      items.push({
+      out.push({
         kind: 'text', m, text: text.replace(/\s+$/, ''), fontSize: size, fontName: clean,
         bold: !!font.bold || /bold|black|heavy|semibold|demi/i.test(clean),
         italic: !!font.italic || /italic|oblique/i.test(clean),
@@ -141,7 +157,7 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
   function finishPath(fill: boolean, stroke: boolean, rule: 'nonzero' | 'evenodd', close = false) {
     if (close) path.push(['Z'])
     if (path.length && (fill || stroke)) {
-      items.push({
+      out.push({
         kind: 'path', m: st.ctm.slice() as Mat, segs: path,
         fill: fill ? { rgb: st.fill } : null, fillRule: rule,
         stroke: stroke ? { rgb: st.stroke } : null,
@@ -194,11 +210,44 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
     return { w, h, rgba: out }
   }
 
+  /** Multiply an image's alpha by the luminosity of the soft mask at each pixel (PDF §11.6.5.2). */
+  function applySoftMask(w: number, h: number, src: Uint8ClampedArray, m: Mat, mask: SoftMask): Uint8ClampedArray {
+    const imgs = mask.items.filter((x): x is ImageItem => x.kind === 'image')
+    if (!imgs.length || imgs.length !== mask.items.length) {
+      if (!maskedVectorsWarned) { warnings.add('A vector opacity mask was approximated.'); maskedVectorsWarned = true }
+      if (!imgs.length) return src
+    }
+    const [br, bg, bb] = mask.backdrop
+    const bLum = 0.3 * br + 0.59 * bg + 0.11 * bb
+    const inv = imgs.map(mi => ({ mi, inv: invert(mi.m) }))
+    const out = new Uint8ClampedArray(src)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      // pixel centre → image unit square → document space
+      const u = (x + 0.5) / w, v = (y + 0.5) / h
+      const X = m[0] * u + m[2] * v + m[4], Y = m[1] * u + m[3] * v + m[5]
+      let lum = bLum
+      for (const { mi, inv: iv } of inv) {
+        if (!iv) continue
+        const mu = iv[0] * X + iv[2] * Y + iv[4], mv = iv[1] * X + iv[3] * Y + iv[5]
+        if (mu < 0 || mu >= 1 || mv < 0 || mv >= 1) continue
+        const px = Math.min(mi.w - 1, Math.floor(mu * mi.w)), py = Math.min(mi.h - 1, Math.floor(mv * mi.h))
+        const o = (py * mi.w + px) * 4, a = (mi.rgba[o + 3] / 255) * (mi.opacity ?? 1)
+        const l = 0.3 * mi.rgba[o] + 0.59 * mi.rgba[o + 1] + 0.11 * mi.rgba[o + 2]
+        lum = l * a + lum * (1 - a)
+      }
+      const o = (y * w + x) * 4
+      out[o + 3] = Math.round(src[o + 3] * (lum / 255))
+    }
+    return out
+  }
+
   function pushImage(img: { w: number; h: number; rgba: Uint8ClampedArray } | null) {
     if (!img) { warnings.add('An embedded image could not be decoded and was skipped.'); return }
     const m = multiply(st.ctm, [1 / img.w, 0, 0, -1 / img.h, 0, 1])
-    const it: ImageItem = { kind: 'image', m, w: img.w, h: img.h, rgba: img.rgba, opacity: st.fillAlpha * st.groupAlpha, clips: st.clips.length ? st.clips.slice() : undefined }
-    items.push(it)
+    let rgba = img.rgba
+    if (st.softMask && out === items) rgba = applySoftMask(img.w, img.h, rgba, m, st.softMask)
+    const it: ImageItem = { kind: 'image', m, w: img.w, h: img.h, rgba, opacity: st.fillAlpha * st.groupAlpha, clips: st.clips.length ? st.clips.slice() : undefined }
+    out.push(it)
   }
 
   const { fnArray, argsArray } = opList
@@ -222,7 +271,7 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
           else if (k === 'D') st.dash = (v[0] || []).slice()
           else if (k === 'ca') st.fillAlpha = v
           else if (k === 'CA') st.strokeAlpha = v
-          else if (k === 'SMask' && v) warnings.add('Soft masks (transparency masks) were flattened.')
+          else if (k === 'SMask') st.softMask = v ? pendingMask : null
         }
         break
       case OPS.setFillRGBColor: st.fill = [a[0] / 255, a[1] / 255, a[2] / 255]; break
@@ -255,8 +304,31 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
         break
       }
       case OPS.paintFormXObjectEnd: restore(); break
-      case OPS.beginGroup: save(); st.groupAlpha *= st.fillAlpha; st.fillAlpha = st.strokeAlpha = 1; break
-      case OPS.endGroup: restore(); break
+      case OPS.beginGroup: {
+        const g = a?.[0] || {}
+        save()
+        if (g.smask) {
+          // the mask's own drawing: capture it, never output it as artwork
+          groupKinds.push('mask'); maskSinks.push(out); out = []
+          st.groupAlpha = 1; st.fillAlpha = st.strokeAlpha = 1; st.softMask = null; st.clips = []
+          ;(st as any).__maskBackdrop = g.smask.backdrop
+        } else {
+          groupKinds.push('plain')
+          st.groupAlpha *= st.fillAlpha; st.fillAlpha = st.strokeAlpha = 1
+        }
+        break
+      }
+      case OPS.endGroup: {
+        const kind = groupKinds.pop()
+        if (kind === 'mask') {
+          const bd = (st as any).__maskBackdrop
+          const backdrop: [number, number, number] = bd ? [bd[0] ?? 0, bd[1] ?? 0, bd[2] ?? 0] : [0, 0, 0]
+          pendingMask = { items: out, backdrop }
+          out = maskSinks.pop() || items
+        }
+        restore()
+        break
+      }
       case OPS.paintImageXObject: pushImage(imageToRgba(getObj(a[0]))); break
       case OPS.paintInlineImageXObject: pushImage(imageToRgba(a[0])); break
       case OPS.paintImageMaskXObject: pushImage(imageToRgba(getObj(a[0]?.data ?? a[0]) || a[0], st.fill)); break
