@@ -724,7 +724,8 @@ export async function generateRFQPDF(
     payment_terms?: string | null
   },
   lines: PDFLine[],
-  buyer: PDFCustomer | null
+  buyer: PDFCustomer | null,
+  opts: { output?: 'save' | 'base64' } = {}
 ) {
   // For RFQs the "customer" block is the END-CUSTOMER / project reference.
   // The shipping_address on the order struct is used for the Ship To box on the right side.
@@ -744,9 +745,10 @@ export async function generateRFQPDF(
     shipping_address: rfq.shipping_address ?? rfq.delivery_address ?? null,
     export_country: rfq.export_country ?? null,
   }
-  await renderSalesDocumentPDF('rfq', orderLike, lines, buyer, {
+  return await renderSalesDocumentPDF('rfq', orderLike, lines, buyer, {
     replyToEmail: rfq.reply_to_email ?? null,
     replyToName: rfq.reply_to_name ?? null,
+    output: opts.output,
   })
 }
 
@@ -761,8 +763,8 @@ async function renderSalesDocumentPDF(
   order: PDFOrder,
   lines: PDFLine[],
   customer: PDFCustomer | null,
-  opts: { replyToEmail?: string | null; replyToName?: string | null } = {}
-) {
+  opts: { replyToEmail?: string | null; replyToName?: string | null; output?: 'save' | 'base64' } = {}
+): Promise<string | void> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
@@ -946,5 +948,6 @@ async function renderSalesDocumentPDF(
 
   const _custPart = (customer?.company_name || '').replace(/[^\w.-]+/g, ' ').trim().replace(/\s+/g, ' ')
   const _numPart = (order.order_number || KIND.filePrefix).replace(/[^\w.-]+/g, '_')
+  if (opts.output === 'base64') return doc.output('datauristring').split('base64,')[1]
   doc.save((_custPart ? `${_custPart} - ${_numPart}` : `${KIND.filePrefix}-${_numPart}`) + '.pdf')
 }

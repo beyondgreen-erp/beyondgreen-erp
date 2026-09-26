@@ -9,6 +9,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { generateQuotePDF, generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
+import { RfqSendModal, RfqResponses } from '@/components/RfqSupplierPanel'
 
 interface Quote {
   id: string
@@ -122,6 +123,8 @@ export default function QuotationsPage() {
   const [panelTab, setPanelTab] = useState<'overview' | 'lines' | 'notes' | 'comments'>('overview')
   const [saving, setSaving] = useState(false)
   const [rfqModalOpen, setRfqModalOpen] = useState(false)
+  const [supplierModalOpen, setSupplierModalOpen] = useState(false)
+  const [rfqActivityKey, setRfqActivityKey] = useState(0)
   const [rfqSending, setRfqSending] = useState(false)
   const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set())
   // Record Board: collapsed state per status group
@@ -361,6 +364,7 @@ export default function QuotationsPage() {
     setProductResults([])
     setConfirmConvert(null)
     setRfqModalOpen(false)
+    setSupplierModalOpen(false)
     setSelectedRecipients(new Set())
   }
 
@@ -595,6 +599,21 @@ export default function QuotationsPage() {
       pdfLines,
       customer ? { company_name: customer.company_name } : null
     )
+  }
+
+  /** The RFQ's line items in the shape the PDF and the supplier form both want. */
+  function rfqPdfLines(): PDFLine[] {
+    return lines
+      .filter(l => l.product_name || l.sku || l.description)
+      .map((l, i) => ({
+        line_number: i + 1,
+        sku: l.sku ?? null,
+        description: l.product_name ?? l.description ?? '',
+        quantity: l.quantity ?? 1,
+        unit_of_measure: (l as any).uom ?? (l as any).unit_of_measure ?? null,
+        unit_price: 0,
+        discount_pct: 0,
+      }))
   }
 
   function handleDownloadRfq() {
@@ -1347,6 +1366,30 @@ export default function QuotationsPage() {
                   <p className="text-[11px] text-gray-400">Save the {form.type === 'rfq' ? 'RFQ' : 'quote'} first, then upload art files here.</p>
                 )}
               </div>
+
+              {form.type === 'rfq' && (
+                <div className="pt-5 mt-1 border-t" style={{ borderColor: '#E4E6EE' }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-sm font-bold" style={{ color: '#1A1D2E' }}>Suppliers</h3>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Send this RFQ out and track who has quoted.</p>
+                    </div>
+                    {editing?.id ? (
+                      <button
+                        type="button"
+                        onClick={() => setSupplierModalOpen(true)}
+                        className="px-3 py-1.5 rounded-lg text-white text-xs font-semibold"
+                        style={{ background: '#1F9A3A' }}
+                      >
+                        Send to suppliers
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-gray-400">Save the RFQ first</span>
+                    )}
+                  </div>
+                  {editing?.id && <RfqResponses quotationId={editing.id} refreshKey={rfqActivityKey} />}
+                </div>
+              )}
             </div>
           )}
 
@@ -1544,6 +1587,22 @@ export default function QuotationsPage() {
           </div>
         </div>
       </div>
+      {editing?.id && (
+        <RfqSendModal
+          open={supplierModalOpen}
+          onClose={() => setSupplierModalOpen(false)}
+          quotationId={editing.id}
+          rfqNumber={editing.quote_number}
+          rfqDate={form.quote_date || null}
+          notes={form.notes || null}
+          shippingAddress={form.shipping_address || null}
+          paymentTerms={form.payment_terms || null}
+          exportCountry={form.export_country || null}
+          lines={rfqPdfLines()}
+          onSent={() => setRfqActivityKey(k => k + 1)}
+        />
+      )}
+
     </div>
   )
 }
