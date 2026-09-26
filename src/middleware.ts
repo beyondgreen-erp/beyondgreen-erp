@@ -21,6 +21,22 @@ const PROOF_HOSTS = Array.from(new Set([
   ...(process.env.NEXT_PUBLIC_PROOF_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
 ]))
 
+// Hostnames that serve ONLY the outbound supplier RFQ form. Suppliers get their
+// tokenised link on this host, so they never see an ERP URL and cannot reach the
+// ERP by trimming it — every other path here goes to the public website.
+const RFQ_HOSTS = Array.from(new Set([
+  'beyondgreen-rfq.vercel.app',
+  ...(process.env.NEXT_PUBLIC_RFQ_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+]))
+
+const RFQ_PUBLIC_SITE = 'https://beyondgreenbiotech.com'
+
+function isRfqHostPath(pathname: string): boolean {
+  return pathname.startsWith('/rfq/supplier/') || pathname.startsWith('/api/rfq/vendor-response/') ||
+    pathname.startsWith('/_next') || pathname === '/manifest.json' ||
+    /\.(?:png|jpe?g|gif|svg|ico|webp|css|js|woff2?|ttf|otf|map)$/i.test(pathname)
+}
+
 function isProofPath(pathname: string): boolean {
   return pathname === '/proof' || pathname.startsWith('/proof/') || pathname.startsWith('/api/proof/') ||
     pathname.startsWith('/_next') || pathname === '/manifest.json' ||
@@ -37,6 +53,16 @@ function isPortalPath(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const host = (request.headers.get('host') || '').toLowerCase().split(':')[0]
+
+  // Dedicated supplier-RFQ host: only the quote form is reachable.
+  if (RFQ_HOSTS.includes(host)) {
+    if (isRfqHostPath(pathname)) {
+      const res = NextResponse.next()
+      res.headers.set('X-Robots-Tag', 'noindex, nofollow')
+      return res
+    }
+    return NextResponse.redirect(RFQ_PUBLIC_SITE)
+  }
 
   // Dedicated portal host: only the client portal is reachable; the ERP is invisible.
   if (PORTAL_HOSTS.includes(host)) {
