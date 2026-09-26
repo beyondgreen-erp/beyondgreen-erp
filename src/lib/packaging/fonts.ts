@@ -44,6 +44,9 @@ export function matchFamily(sourceName: string): string {
   const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '')
   const base = norm(String(sourceName || '').replace(/^[A-Z]{6}\+/, '').split(/[-,]/)[0].replace(/(MT|PS|Std|Pro|LT)$/, ''))
   if (!base) return DEFAULT_FONT
+  // condensed / narrow cuts → a condensed library face (keeps line lengths and letter shapes close)
+  const full = norm(String(sourceName || ''))
+  if (/(cond|narrow|compress|comp$|cn$|cnd)/.test(full)) return /(black|heavy|extrabold|ultra)/.test(full) ? 'Oswald' : 'Roboto Condensed'
   const fams = Array.from(registry.keys())
   const exact = fams.find(f => norm(f) === base)
   if (exact) return exact
