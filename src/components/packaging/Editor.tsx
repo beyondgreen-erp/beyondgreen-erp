@@ -5,13 +5,15 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import * as fabric from 'fabric'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { type DesignDoc, type DesignRow, type DocLayer, type Swatch, BUCKET, OBJ_PROPS, UNIT_PT, fmtUnit, uid, safeFileName, sha256Hex } from '@/lib/packaging/doc'
-import { ensureAssets, restore, serialize, thumbnail } from '@/lib/packaging/canvasIO'
+import { ensureAssets, restore, serialize, thumbnail, withWorldCoords } from '@/lib/packaging/canvasIO'
 import { importFile, ACCEPT } from '@/lib/packaging/importers'
+import { extractSpec } from '@/lib/packaging/specExtract'
+import { logActivity } from '@/lib/packaging/activity'
 import { fontFamilies, loadFamily, DEFAULT_FONT } from '@/lib/packaging/fonts'
 import ColorField, { type ColorValue } from './ColorField'
 import CommentsPanel, { type PkgComment } from './CommentsPanel'
 import ProofPanel from './ProofPanel'
-import { buildProofObjects, collectInks, customerFromRow, productFromRow, loadBrandLogo, sheetLayout, drawProof, CUSTOMER_COLS, PRODUCT_COLS, type ProofInfo } from '@/lib/packaging/proofTemplate'
+import { buildProofObjects, collectInks, specInks, customerFromRow, productFromRow, loadBrandLogo, sheetLayout, drawProof, CUSTOMER_COLS, PRODUCT_COLS, type ProofInfo } from '@/lib/packaging/proofTemplate'
 import { exportProofSheet, downloadBlob } from '@/lib/packaging/exporters'
 
 type Tool = 'select' | 'direct' | 'pen' | 'rect' | 'ellipse' | 'line' | 'text' | 'hand' | 'zoom' | 'eyedropper' | 'comment'
@@ -172,10 +174,10 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   // ── history / autosave ───────────────────────────────────────────────────
   const snapshot = () => {
     const fc = fcRef.current!
-    return JSON.stringify({
+    return withWorldCoords(fc, () => JSON.stringify({
       objects: (fc.getObjects() as any[]).map(o => o.toObject(OBJ_PROPS)),
       layers: docRef.current.layers, width: docRef.current.width, height: docRef.current.height,
-    })
+    }))
   }
   const rebuildProof = () => {
     const fc = fcRef.current; if (!fc) return
@@ -186,8 +188,8 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       jobName: dz.name, productType: dz.product_type || '', status: dz.status,
       proofNo: dz.proof_no ? `BG-${dz.proof_no}` : (prev.proofNo || ''),
       version: versionRef.current, date: new Date().toISOString(),
-      dieline: `${fmtUnit(d.width, d.unit, d.unit === 'mm' ? 1 : 2)} × ${fmtUnit(d.height, d.unit, d.unit === 'mm' ? 1 : 2)} ${d.unit}`,
-      inks: collectInks(fc.getObjects(), d.layers, d.swatches),
+      dieline: d.spec?.flat ? `${d.spec.flat.w} × ${d.spec.flat.h} ${d.spec.flat.unit} (largest marked)` : `${fmtUnit(d.width, d.unit, d.unit === 'mm' ? 1 : 2)} × ${fmtUnit(d.height, d.unit, d.unit === 'mm' ? 1 : 2)} ${d.unit}`,
+      inks: d.spec ? specInks(d.spec) : collectInks(fc.getObjects(), d.layers, d.swatches),
       artist: prev.artist || user.name,
     }
     d.proof = info
@@ -218,6 +220,17 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     docRef.current.proof = { ...prev, enabled: prev.enabled !== false, customer, product }
     logoRef.current = await loadBrandLogo()
     rebuildProof()
+  }
+  /** Older designs: read colour codes and dimensions from the stored original once. */
+  const backfillSpec = async () => {
+    const d = docRef.current
+    if (!d.source?.path || (d.spec && d.spec.source_sha256 === d.source.sha256)) return
+    try {
+      const { data, error } = await sb.storage.from(BUCKET).download(d.source.path)
+      if (error || !data) return
+      d.spec = await extractSpec(new Uint8Array(await data.arrayBuffer()), d.source.name, d.source.sha256)
+      rebuildProof(); scheduleSave(); flash('Colour codes and dimensions read from the original file')
+    } catch (e) { console.warn('spec backfill', e) }
   }
   const pickCustomer = async (row: any | null) => {
     const patch = { customer_id: row?.id || null, customer_name: row?.company_name || null }
@@ -692,6 +705,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       loadFamily(DEFAULT_FONT).then(() => fc.requestRenderAll())
       setReady(true); readyRef.current = true
       loadProofFromErp().then(() => { if (fittedRef.current) fitToScreen() }).catch(() => rebuildProof())
+      backfillSpec()
       const pending = (window as any).__pkgPendingImport
       if (pending && pending.designId === design.id && pending.file) {
         delete (window as any).__pkgPendingImport
@@ -1017,6 +1031,8 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
         const up = await sb.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream', cacheControl: '31536000' })
         if (up.error && !/exists/i.test(up.error.message)) throw new Error('Could not store the original file: ' + up.error.message)
         docRef.current.source = { path, name: file.name, size: file.size, sha256: sha, uploaded_at: new Date().toISOString(), uploaded_by: user.email, text: o.text }
+        try { docRef.current.spec = await extractSpec(new Uint8Array(bytes), file.name, sha, s => setImporting(s)) } catch (e: any) { console.warn('spec', e) }
+        logActivity(sb, design.id, user, o.target === 'replace' ? 'artwork_replaced' : 'original_uploaded', { file: file.name, size: file.size, sha256: sha })
       }
       if (o.target === 'replace') {
         histRef.current.lock = true
@@ -1116,14 +1132,16 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       body: body.trim(), author_name: user.name, author_email: user.email, author_type: 'team',
     })
     if (error) { flash(error.message); return }
+    logActivity(sb, design.id, user, 'comment', { pin, text: body.trim().slice(0, 300) })
     setDraftComment(null); loadComments()
   }
   const reply = async (parent: PkgComment, body: string) => {
     const { error } = await sb.from('packaging_comments').insert({ design_id: design.id, parent_id: parent.id, body: body.trim(), author_name: user.name, author_email: user.email, author_type: 'team' })
-    if (error) flash(error.message); else loadComments()
+    if (error) flash(error.message); else { logActivity(sb, design.id, user, 'reply', { pin: parent.pin_no, text: body.trim().slice(0, 300) }, (parent as any).share_link_id); loadComments() }
   }
   const setResolved = async (c: PkgComment, resolved: boolean) => {
     await sb.from('packaging_comments').update(resolved ? { status: 'resolved', resolved_by: user.email, resolved_at: new Date().toISOString() } : { status: 'open', resolved_by: null, resolved_at: null }).eq('id', c.id)
+    if (resolved) logActivity(sb, design.id, user, 'comment_resolved', { pin: c.pin_no }, (c as any).share_link_id)
     loadComments()
   }
   const deleteComment = async (c: PkgComment) => { await sb.from('packaging_comments').delete().eq('id', c.id); loadComments() }
