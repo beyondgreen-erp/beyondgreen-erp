@@ -7,7 +7,8 @@ import {
   type Scene, type SceneItem, type SceneLayer, type Mat, type Seg, type Paint, type Clip, type PathItem,
   multiply, parsePath, rectSegs, ellipseSegs, transformSegs, parseColor, segsToSvgD, segsBounds, rgbToHex, IDENTITY,
 } from './scene'
-import { getOutlineFont } from './fonts'
+import { getOutlineFont, loadFontFace, matchFamily } from './fonts'
+import type { ImportItem, TextRunItem } from './pdfImport'
 import type { DocLayer } from './doc'
 
 const tl = (x: number, y: number): Mat => [1, 0, 0, 1, x, y]
@@ -201,9 +202,36 @@ function tightest(clips: Clip[]): Clip | null {
 
 /** Converts imported items into fabric objects (in document space). Consecutive items that
  *  share a clip are wrapped in a clipped group, like an Illustrator clipping group. */
-export function sceneItemsToFabric(items: SceneItem[], opts: { pageClip?: { w: number; h: number } } = {}): fabric.FabricObject[] {
+async function textRunToFabric(it: TextRunItem): Promise<fabric.FabricObject> {
+  const family = matchFamily(it.fontName)
+  const weight = it.bold ? 'bold' : 'normal', style = it.italic ? 'italic' : 'normal'
+  await loadFontFace(family, weight, style)
+  const t: any = new fabric.IText(it.text, {
+    fontFamily: family, fontWeight: weight, fontStyle: style, fontSize: it.fontSize,
+    fill: rgbToHex(it.fill), opacity: it.opacity, originX: 'left', originY: 'top', left: 0, top: 0, objectCaching: false,
+  } as any)
+  t.initDimensions()
+  // Match the source run width by adjusting tracking (fonts may differ slightly from the original)
+  const n = Array.from(it.text).length
+  if (n > 1 && it.advance > 0 && t.width > 0) {
+    const diff = it.advance - t.width
+    const perChar = (diff / (n - 1)) / it.fontSize * 1000
+    if (Math.abs(perChar) < 300) { t.set({ charSpacing: Math.round(perChar) }); t.initDimensions() }
+  }
+  t.sourceFont = it.fontName
+  const baseline = t.getHeightOfLine ? (t.getHeightOfLine(0) / t.lineHeight) * (1 - t._fontSizeFraction) : it.fontSize * 0.88
+  fabric.util.applyTransformToObject(t, multiply(it.m, tl(t.width / 2, t.height / 2 - baseline)) as any)
+  t.setCoords()
+  return t
+}
+
+/** Converts imported items into fabric objects (in document space). Consecutive items that
+ *  share a clip are wrapped in a clipped group, like an Illustrator clipping group; its
+ *  contents stay individually selectable and editable. */
+export async function sceneItemsToFabric(items: ImportItem[], opts: { pageClip?: { w: number; h: number } } = {}): Promise<fabric.FabricObject[]> {
   const out: fabric.FabricObject[] = []
-  const toObj = (it: SceneItem): fabric.FabricObject | null => {
+  const toObj = async (it: ImportItem): Promise<fabric.FabricObject | null> => {
+    if (it.kind === 'text') return textRunToFabric(it)
     if (it.kind === 'path') {
       const segs = transformSegs(it.segs, it.m)
       if (!segs.length) return null
@@ -230,15 +258,16 @@ export function sceneItemsToFabric(items: SceneItem[], opts: { pageClip?: { w: n
     const c = items[i].clips ? tightest(items[i].clips!) : null
     const b = c ? segsBounds(c.segs) : null
     const isPage = !c || (opts.pageClip && b && b.x0 <= 0.5 && b.y0 <= 0.5 && b.x1 >= opts.pageClip.w - 0.5 && b.y1 >= opts.pageClip.h - 0.5)
-    if (isPage) { const o = toObj(items[i]); if (o) out.push(o); i++; continue }
+    if (isPage) { const o = await toObj(items[i]); if (o) out.push(o); i++; continue }
     const run: fabric.FabricObject[] = []
-    while (i < items.length && clipKey(items[i].clips) === key) { const o = toObj(items[i]); if (o) run.push(o); i++ }
+    while (i < items.length && clipKey(items[i].clips) === key) { const o = await toObj(items[i]); if (o) run.push(o); i++ }
     if (!run.length) continue
-    const g = new fabric.Group(run, { subTargetCheck: false, interactive: false } as any)
+    const g: any = new fabric.Group(run, { subTargetCheck: true, interactive: true } as any)
     // convert the absolute clip into the group's local plane so it moves with the group
     const inv = fabric.util.invertTransform(g.calcTransformMatrix())
     const segsLocal = transformSegs(c!.segs, inv as any)
     g.clipPath = new fabric.Path(segsToSvgD(segsLocal, 3), { fillRule: c!.rule } as any)
+    g.name = 'Clip group'
     out.push(g)
   }
   return out
