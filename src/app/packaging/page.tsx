@@ -122,8 +122,9 @@ export default function PackagingDesignsPage() {
 
 function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => void; onCreated: (id: string) => void; startWithFile?: boolean }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
-  const [customers, setCustomers] = useState<{ id: string; company_name: string }[]>([])
-  const [f, setF] = useState({ name: '', customer_id: '', sku: '', product_type: PRODUCT_TYPES[0], w: '8.5', h: '11', unit: 'in' as 'in' | 'mm' })
+  const [cust, setCust] = useState<any | null>(null)
+  const [prod, setProd] = useState<any | null>(null)
+  const [f, setF] = useState({ name: '', sku: '', product_type: PRODUCT_TYPES[0], w: '8.5', h: '11', unit: 'in' as 'in' | 'mm' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -135,9 +136,6 @@ function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => 
     if (f && !f.name) return
     if (f) setF(prev => ({ ...prev, name: prev.name || f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ') }))
   }
-  useEffect(() => {
-    sb.from('customers').select('id, company_name').order('company_name').limit(2000).then(({ data }) => setCustomers((data || []) as any))
-  }, [sb])
   const create = async () => {
     if (startWithFile && !file) { setErr('Choose the file to open'); return }
     if (!f.name.trim()) { setErr('Give the design a name'); return }
@@ -145,10 +143,9 @@ function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => 
     if (!(w > 0 && h > 0)) { setErr('Enter an artboard size'); return }
     setBusy(true); setErr('')
     const { data: { user } } = await sb.auth.getUser()
-    const cust = customers.find(c => c.id === f.customer_id)
     const wPt = w * UNIT_PT[f.unit], hPt = h * UNIT_PT[f.unit]
     const { data, error } = await sb.from('packaging_designs').insert({
-      name: f.name.trim(), customer_id: cust?.id || null, customer_name: cust?.company_name || null, sku: f.sku.trim() || null,
+      name: f.name.trim(), customer_id: cust?.id || null, customer_name: cust?.company_name || null, sku: prod?.sku || f.sku.trim() || null, product_id: prod?.id || null,
       product_type: f.product_type, width_pt: wPt, height_pt: hPt, unit: f.unit, created_by: user?.email, updated_by: user?.email,
     }).select().single()
     if (error || !data) { setErr(error?.message || 'Could not create'); setBusy(false); return }
@@ -184,15 +181,8 @@ function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => 
           <input autoFocus value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. 6in Fork Retail Carton — v1" className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />
         </label>
         <div className="grid grid-cols-2 gap-3">
-          <label className="block text-sm"><span className="text-gray-600">Customer</span>
-            <select value={f.customer_id} onChange={e => setF({ ...f, customer_id: e.target.value })} className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-2">
-              <option value="">— beyondGREEN / none —</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm"><span className="text-gray-600">SKU / item #</span>
-            <input value={f.sku} onChange={e => setF({ ...f, sku: e.target.value })} className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />
-          </label>
+          <ErpPicker sb={sb} kind="customer" label="Customer / Lead" value={cust} onPick={setCust} />
+          <ErpPicker sb={sb} kind="product" label="SKU / product" value={prod} onPick={r => { setProd(r); if (r) setF(p => ({ ...p, sku: r.sku })) }} freeText={f.sku} onFreeText={v => { setProd(null); setF(p => ({ ...p, sku: v })) }} />
         </div>
         <label className="block text-sm"><span className="text-gray-600">Packaging type</span>
           <select value={f.product_type} onChange={e => setF({ ...f, product_type: e.target.value })} className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-2">
@@ -217,6 +207,51 @@ function NewDesignModal({ onClose, onCreated, startWithFile }: { onClose: () => 
           <button disabled={busy} onClick={create} className="px-4 py-2 rounded-lg text-sm text-white font-semibold disabled:opacity-60" style={{ background: '#3B6FE0' }}>{busy ? 'Creating…' : startWithFile ? 'Open in editor' : 'Create & open editor'}</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Search-as-you-type picker for ERP customers / leads and products (15k+ rows, so never preloaded). */
+function ErpPicker({ sb, kind, label, value, onPick, freeText, onFreeText }: {
+  sb: any; kind: 'customer' | 'product'; label: string; value: any | null; onPick: (r: any | null) => void; freeText?: string; onFreeText?: (v: string) => void
+}) {
+  const [q, setQ] = useState(''), [rows, setRows] = useState<any[]>([]), [open, setOpen] = useState(false)
+  useEffect(() => {
+    const s = q.trim(); if (s.length < 2) { setRows([]); return }
+    const t = setTimeout(async () => {
+      const like = `%${s.replace(/[%,()]/g, ' ')}%`
+      const { data } = kind === 'customer'
+        ? await sb.from('customers').select('id, company_name, contact_name, customer_status, city, state').or(`company_name.ilike.${like},contact_name.ilike.${like}`).not('is_merged', 'is', true).order('company_name').limit(12)
+        : await sb.from('products').select('id, sku, product_name, product_size').or(`sku.ilike.${like},product_name.ilike.${like}`).order('sku').limit(12)
+      setRows(data || [])
+    }, 250)
+    return () => clearTimeout(t)
+  }, [sb, kind, q])
+  const shown = value ? (kind === 'customer' ? value.company_name : `${value.sku} — ${value.product_name || ''}`) : null
+  return (
+    <div className="block text-sm relative"><span className="text-gray-600">{label}</span>
+      {shown ? (
+        <div className="mt-1 flex items-center gap-1 border border-emerald-300 bg-emerald-50 rounded-lg px-2 py-2 text-sm">
+          <span className="truncate flex-1">{shown}</span>
+          {kind === 'customer' && value.customer_status && <span className="text-[10px] px-1.5 rounded bg-white text-gray-600">{value.customer_status}</span>}
+          <button type="button" onClick={() => onPick(null)} className="text-gray-400 hover:text-red-500"><i className="ti ti-x" /></button>
+        </div>
+      ) : (
+        <input value={kind === 'product' && onFreeText ? (q || freeText || '') : q} onChange={e => { setQ(e.target.value); setOpen(true); onFreeText?.(e.target.value) }}
+          onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={kind === 'customer' ? 'Search customers & leads…' : 'Search SKU / product…'} className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />
+      )}
+      {open && !value && rows.length > 0 && (
+        <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {rows.map(r => (
+            <button type="button" key={r.id} onMouseDown={() => { onPick(r); setQ(''); setOpen(false) }} className="w-full text-left px-3 py-1.5 hover:bg-blue-50 text-xs">
+              {kind === 'customer'
+                ? <><span className="font-medium">{r.company_name}</span> <span className="text-gray-400">{[r.customer_status, r.city].filter(Boolean).join(' · ')}</span></>
+                : <><span className="font-mono font-medium">{r.sku}</span> <span className="text-gray-500">{r.product_name}</span></>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
