@@ -22,6 +22,41 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'erp@beyondgreenbiotech.com'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://beyondgreen-erp.vercel.app'
 const NOTIF_EMAIL = 'rudyp@beyondgreenbiotech.com'
 
+const ART_BUCKET = 'erp-files'
+/** Long enough that a factory can come back to the link mid-quote. */
+const ART_LINK_TTL = 60 * 60 * 24 * 45
+
+/**
+ * Artwork for this RFQ, as short-lived signed download links. Large print files
+ * never survive email, so the quote form is the reliable way to hand them over.
+ */
+async function loadArtFiles(quotationId: string) {
+  const { data, error } = await supabase
+    .from('file_attachments')
+    .select('id, file_name, file_size, file_type, storage_path')
+    .eq('record_type', 'quotation_art')
+    .eq('record_id', quotationId)
+    .order('created_at')
+  if (error || !data?.length) return []
+
+  const out: { id: string; name: string; size: number | null; type: string | null; url: string }[] = []
+  for (const a of data) {
+    const { data: signed } = await supabase.storage
+      .from(ART_BUCKET)
+      .createSignedUrl(a.storage_path as string, ART_LINK_TTL)
+    if (signed?.signedUrl) {
+      out.push({
+        id: a.id as string,
+        name: a.file_name as string,
+        size: (a.file_size as number) ?? null,
+        type: (a.file_type as string) ?? null,
+        url: signed.signedUrl,
+      })
+    }
+  }
+  return out
+}
+
 async function loadSend(token: string) {
   const { data, error } = await supabase
     .from('rfq_sends')
@@ -56,6 +91,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .order('line_number', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
 
+    const art_files = await loadArtFiles(send.quotation_id)
+
     await supabase
       .from('rfq_sends')
       .update({ opened_at: new Date().toISOString(), status: send.status === 'Sent' ? 'Opened' : send.status })
@@ -74,6 +111,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       contact_name: send.recipient_name,
       contact_email: send.recipient_email,
       already_responded: !!send.responded_at,
+      art_files,
       lines: (lines ?? []).map(l => ({
         id: l.id,
         sku: l.sku,
