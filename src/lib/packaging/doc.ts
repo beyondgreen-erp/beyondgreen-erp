@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import type { ProofInfo } from './proofTemplate'
 // Packaging design document model + persistence helpers.
 // A design lives in the private `packaging` storage bucket:
 //   designs/{id}/current.json      – the live working file (autosaved)
@@ -20,12 +21,14 @@ export interface DesignDoc {
   activeLayerId: string
   swatches: Swatch[]
   objects: any[]   // fabric object JSON
+  proof?: ProofInfo // official approval-proof sheet data (ERP snapshot)
 }
 
 export interface DesignRow {
   id: string; name: string; customer_id: string | null; customer_name: string | null; sku: string | null; product_type: string | null
   status: string; width_pt: number; height_pt: number; unit: 'in' | 'mm' | 'pt'; rev: number
   doc_path: string | null; thumb_path: string | null; notes: string | null
+  product_id?: string | null; proof_no?: number | null
   created_by: string | null; updated_by: string | null; created_at: string; updated_at: string
 }
 
