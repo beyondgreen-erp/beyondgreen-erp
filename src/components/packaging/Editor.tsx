@@ -54,6 +54,8 @@ export type SaveState = { status: 'idle' | 'dirty' | 'saving' | 'saved' | 'error
 
 interface PenPt { x: number; y: number; hin: { x: number; y: number }; hout: { x: number; y: number } }
 
+const multiSelCount = (o: any) => (o && (o.type === 'activeselection' || o.type === 'activeSelection')) ? o.getObjects().filter((x: any) => x.type === 'path').length : 0
+
 const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initialDoc, user, onSaved, onSaveState, visible, initialPanel, editorRef }, ref) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -144,7 +146,10 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       strokeWidth: first?.strokeWidth ?? 0, dash: (first?.strokeDashArray || []).join(' '), opacity: Math.round((o.opacity ?? 1) * 100),
       overprint: !!first?.overprint, isText, fontFamily: first?.fontFamily, fontSize: first?.fontSize, fontWeight: first?.fontWeight, fontStyle: first?.fontStyle,
       textAlign: first?.textAlign, lineHeight: first?.lineHeight, charSpacing: first?.charSpacing, underline: first?.underline,
-      rx: first?.rx, name: first?.name || '', layerId: first?.layerId, isPath: o.type === 'path', isGroup: o.type === 'group',
+      rx: first?.rx, name: first?.name || '', layerId: (() => { let t: any = first; while (t?.group) t = t.group; return t?.layerId })(), isPath: o.type === 'path', isGroup: o.type === 'group',
+      hasClip: !!o.clipPath, inGroup: !!o.group,
+      multiPart: o.type === 'path' && (o.path || []).filter((c: any[]) => c[0] === 'M').length > 1,
+      pathCount: multiSelCount(o),
       canConvert: ['rect', 'ellipse', 'circle', 'triangle', 'polygon', 'polyline', 'line'].includes(o.type),
       lockProportions: !!o.lockUniScaling,
     })
@@ -183,7 +188,8 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     fc.discardActiveObject()
     fc.remove(...fc.getObjects())
     fc.add(...objs)
-    applyLayerStates(); syncLayersState()
+    isolatedRef.current = null; setIsolated(null)
+    applyLayerStates(); syncLayersState(); syncGroupInteractivity()
     setArtboard(a => ({ ...a, w: data.width, h: data.height }))
     h.lock = false
     refreshSel(); setObjList(n => n + 1); scheduleSave()
@@ -261,6 +267,36 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     setVpt(fc.viewportTransform.slice())
   }
 
+  // ── groups: Illustrator-like selection (click = whole group, double-click = edit inside) ──
+  const isolatedRef = useRef<any>(null)
+  const [isolated, setIsolated] = useState<string | null>(null)
+  const forEachGroup = (objs: any[], fn: (g: any) => void) => { for (const o of objs) if (o.type === 'group') { fn(o); forEachGroup(o.getObjects(), fn) } }
+  const syncGroupInteractivity = () => {
+    const fc = fcRef.current; if (!fc) return
+    const direct = toolRef.current === 'direct'
+    const iso = isolatedRef.current
+    forEachGroup(fc.getObjects(), g => {
+      g.subTargetCheck = true
+      // inside isolation: the isolated group and its ancestors are open; direct-select opens everything
+      let open = direct
+      if (!open && iso) { let p: any = iso; while (p) { if (p === g) { open = true; break } p = p.group } }
+      g.interactive = open
+    })
+  }
+  const enterIsolation = (g: any) => {
+    isolatedRef.current = g; setIsolated(g.name || 'Group')
+    syncGroupInteractivity(); fcRef.current?.requestRenderAll()
+  }
+  const exitIsolation = () => {
+    const fc = fcRef.current; const g = isolatedRef.current
+    if (!g || !fc) return
+    const parent = g.group
+    isolatedRef.current = parent || null; setIsolated(parent ? (parent.name || 'Group') : null)
+    syncGroupInteractivity(); fc.discardActiveObject()
+    if (!parent) fc.setActiveObject(g)
+    fc.requestRenderAll(); refreshSel()
+  }
+
   // ── tool switching ───────────────────────────────────────────────────────
   const restoreControls = (o: any) => { if (o && o.__origControls) { o.controls = o.__origControls; delete o.__origControls; o.hasBorders = true; o.setCoords() } }
   const setTool = useCallback((t: Tool) => {
@@ -273,7 +309,9 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     fc.skipTargetFind = !(interactive || t === 'eyedropper')
     fc.defaultCursor = t === 'hand' ? 'grab' : t === 'zoom' ? 'zoom-in' : t === 'select' || t === 'direct' ? 'default' : 'crosshair'
     fc.hoverCursor = t === 'eyedropper' ? 'copy' : 'move'
-    for (const o of fc.getObjects()) restoreControls(o)
+    const all: any[] = []; const walk = (os: any[]) => os.forEach(o => { all.push(o); if (o.type === 'group') walk(o.getObjects()) }); walk(fc.getObjects())
+    for (const o of all) restoreControls(o)
+    syncGroupInteractivity()
     if (t === 'direct') enterDirect(fc.getActiveObject())
     fc.requestRenderAll()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -341,6 +379,9 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       uniformScaling: false, uniScaleKey: 'shiftKey', controlsAboveOverlay: true, enableRetinaScaling: true,
     } as any)
     fcRef.current = fc
+    // Illustrator-style hit testing: clicks land on painted pixels, not bounding boxes
+    ;(fc as any).perPixelTargetFind = true
+    ;(fc as any).targetFindTolerance = 6
     if (wrapRef.current) {
       const w = wrapRef.current.clientWidth - RULER, h = wrapRef.current.clientHeight - RULER
       if (w > 0 && h > 0) { fc.setDimensions({ width: w, height: h }); setSize({ w, h }) }
@@ -523,8 +564,12 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       const t: any = opt.target
       if (toolRef.current === 'select' && t && t.type === 'path') { setTool('direct'); fc.setActiveObject(t); enterDirect(t) }
       if (toolRef.current === 'select' && t && t.type === 'group') {
-        // step into the group: ungroup temporarily is destructive, so just select its child under the cursor
-        const sub = opt.subTargets?.[0]; if (sub) flash('Tip: use Ungroup (⌘⇧G) to edit items inside a group')
+        // Illustrator isolation mode: double-click a group to edit what's inside it
+        enterIsolation(t)
+        const subs: any[] = opt.subTargets || []
+        const child = subs.length ? subs[subs.length - 1] : null
+        if (child) { fc.discardActiveObject(); fc.setActiveObject(child); if (child.type === 'path') { setTool('direct'); fc.setActiveObject(child); enterDirect(child) } }
+        fc.requestRenderAll(); refreshSel()
       }
     })
     fc.on('mouse:wheel', (opt: any) => {
@@ -551,7 +596,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
         })
       } catch (e: any) { flash('Some content could not be loaded: ' + (e?.message || e)) }
       d.layers = initialDoc.layers; d.activeLayerId = initialDoc.activeLayerId
-      applyLayerStates()
+      applyLayerStates(); syncGroupInteractivity(); setObjList(n => n + 1)
       histRef.current.lock = false
       histRef.current.stack = [snapshot()]; histRef.current.idx = 0
       loadFamily(DEFAULT_FONT).then(() => fc.requestRenderAll())
@@ -611,7 +656,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       if (mod && k === ']') { e.preventDefault(); arrange(e.shiftKey ? 'front' : 'forward'); return }
       if (mod && k === '[') { e.preventDefault(); arrange(e.shiftKey ? 'back' : 'backward'); return }
       if (k === 'delete' || k === 'backspace') { if (active) { e.preventDefault(); deleteSel() } return }
-      if (k === 'escape') { if (toolRef.current === 'pen') finishPen(false); fc.discardActiveObject(); setDraftComment(null); fc.requestRenderAll(); return }
+      if (k === 'escape') { if (toolRef.current === 'pen') finishPen(false); if (isolatedRef.current) { exitIsolation(); return } fc.discardActiveObject(); setDraftComment(null); fc.requestRenderAll(); return }
       if (k === 'enter' && toolRef.current === 'pen') { finishPen(false); return }
       if (k.startsWith('arrow') && active) {
         e.preventDefault()
@@ -636,13 +681,25 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   }
   const deleteSel = () => {
     const fc = fcRef.current!; const list = activeList(); if (!list.length) return
-    fc.discardActiveObject(); fc.remove(...list); fc.requestRenderAll(); commit(); refreshSel()
+    fc.discardActiveObject()
+    for (const o of list) { if (o.group) o.group.remove(o); else fc.remove(o) }
+    fc.requestRenderAll(); commit(); refreshSel(); setObjList(n => n + 1)
   }
-  const copySel = () => { clipboardRef.current = activeList().map(o => o.toObject(OBJ_PROPS)) }
+  // clipboard keeps each object's absolute placement so copies of items inside groups paste in place
+  const copySel = () => {
+    clipboardRef.current = activeList().map(o => {
+      const j: any = o.toObject(OBJ_PROPS)
+      if (o.group) j.__world = o.calcTransformMatrix()
+      if (!j.layerId) { let p = o; while (p.group) p = p.group; j.layerId = p.layerId }
+      return j
+    })
+  }
   const paste = async (offset = 10) => {
     const fc = fcRef.current!; const data = clipboardRef.current; if (!data?.length) return
     const objs = await fabric.util.enlivenObjects(JSON.parse(JSON.stringify(data))) as any[]
     fc.discardActiveObject()
+    const raw = JSON.parse(JSON.stringify(data))
+    objs.forEach((o: any, i: number) => { if (raw[i].__world) fabric.util.applyTransformToObject(o, raw[i].__world) })
     for (const o of objs) {
       o.set({ left: o.left + offset, top: o.top + offset }); o.id = uid()
       const l = docRef.current.layers.find(x => x.id === o.layerId)
@@ -652,6 +709,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     applyLayerStates()
     if (objs.length === 1) fc.setActiveObject(objs[0]); else fc.setActiveObject(new fabric.ActiveSelection(objs, { canvas: fc }))
     clipboardRef.current = objs.map(o => o.toObject(OBJ_PROPS))
+    syncGroupInteractivity(); setObjList(n => n + 1)
     fc.requestRenderAll(); commit(); refreshSel()
   }
   const selectAll = () => {
@@ -668,27 +726,75 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     const layerId = objs[0].layerId
     fc.discardActiveObject()
     fc.remove(...objs)
-    const g: any = new fabric.Group(objs, { subTargetCheck: false } as any)
+    const g: any = new fabric.Group(objs, { subTargetCheck: true, interactive: false } as any)
     g.id = uid(); g.layerId = layerId
-    fc.add(g); applyLayerStates(); fc.setActiveObject(g); fc.requestRenderAll(); commit(); refreshSel()
+    fc.add(g); applyLayerStates(); syncGroupInteractivity(); setObjList(n => n + 1); fc.setActiveObject(g); fc.requestRenderAll(); commit(); refreshSel()
   }
   const ungroup = () => {
     const fc = fcRef.current!; const g: any = fc.getActiveObject()
     if (!g || g.type !== 'group') return
-    const layerId = g.layerId
+    let top: any = g; while (top.group) top = top.group
+    const layerId = top.layerId
+    const parent = g.group
+    if (g.clipPath) flash('Clipping mask released')
+    g.clipPath = undefined
     const objs = g.removeAll()
-    fc.remove(g)
-    for (const o of objs) { o.layerId = layerId; o.id = o.id || uid(); fc.add(o) }
-    applyLayerStates()
-    fc.setActiveObject(new fabric.ActiveSelection(objs, { canvas: fc })); fc.requestRenderAll(); commit(); refreshSel()
+    fc.discardActiveObject()
+    if (parent) { parent.remove(g); parent.add(...objs) }
+    else { fc.remove(g); for (const o of objs) { o.layerId = layerId; o.id = o.id || uid(); fc.add(o) } }
+    if (isolatedRef.current === g) { isolatedRef.current = parent || null; setIsolated(parent ? (parent.name || 'Group') : null) }
+    applyLayerStates(); syncGroupInteractivity(); setObjList(n => n + 1)
+    if (!parent) fc.setActiveObject(new fabric.ActiveSelection(objs, { canvas: fc }))
+    fc.requestRenderAll(); commit(); refreshSel()
+  }
+  const releaseClip = () => {
+    const fc = fcRef.current!; const g: any = fc.getActiveObject()
+    if (!g || !g.clipPath) return
+    g.clipPath = undefined; g.dirty = true; fc.requestRenderAll(); commit(); refreshSel()
+  }
+  // Compound paths: split a multi-part path into separate shapes, or join several into one
+  const releaseCompound = () => {
+    const fc = fcRef.current!; const p: any = fc.getActiveObject()
+    if (!p || p.type !== 'path') return
+    const cmds: any[] = p.path
+    const parts: any[][] = []
+    for (const c of cmds) { if (c[0] === 'M' || !parts.length) parts.push([]); parts[parts.length - 1].push(c) }
+    if (parts.length < 2) { flash('This path has only one part'); return }
+    const m = p.calcTransformMatrix(); const off = p.pathOffset
+    const style = { fill: p.fill, stroke: p.stroke, strokeWidth: p.strokeWidth, strokeDashArray: p.strokeDashArray, strokeLineCap: p.strokeLineCap, strokeLineJoin: p.strokeLineJoin, opacity: p.opacity, fillRule: p.fillRule, cmykFill: p.cmykFill, spotFill: p.spotFill, cmykStroke: p.cmykStroke, spotStroke: p.spotStroke, overprint: p.overprint, objectCaching: false }
+    const pieces = parts.map(cs => {
+      // path commands are in the object's own plane (offset by pathOffset) → bake the transform in
+      const d = cs.map((c: any[]) => { const out = [c[0]]; for (let i = 1; i + 1 < c.length; i += 2) { const pt = new fabric.Point(c[i] - off.x, c[i + 1] - off.y).transform(m); out.push(pt.x, pt.y) } return out.join(' ') }).join(' ')
+      const np: any = new fabric.Path(d, style as any); np.id = uid(); return np
+    })
+    const parent = p.group
+    fc.discardActiveObject()
+    if (parent) { const idx = parent.getObjects().indexOf(p); parent.remove(p); pieces.forEach((np, i) => parent.insertAt(idx + i, np)) }
+    else { const idx = fc.getObjects().indexOf(p); fc.remove(p); pieces.forEach((np, i) => { np.layerId = p.layerId; fc.insertAt(idx + i, np) }) }
+    applyLayerStates(); setObjList(n => n + 1)
+    fc.setActiveObject(new fabric.ActiveSelection(pieces, { canvas: fc })); fc.requestRenderAll(); commit(); refreshSel()
+    flash(`Split into ${pieces.length} shapes`)
+  }
+  const makeCompound = () => {
+    const fc = fcRef.current!; const list = activeList().filter(o => o.type === 'path')
+    if (list.length < 2) { flash('Select two or more paths'); return }
+    const d = list.map(p => { const m = p.calcTransformMatrix(); const off = p.pathOffset; return p.path.map((c: any[]) => { const out = [c[0]]; for (let i = 1; i + 1 < c.length; i += 2) { const pt = new fabric.Point(c[i] - off.x, c[i + 1] - off.y).transform(m); out.push(pt.x, pt.y) } return out.join(' ') }).join(' ') }).join(' ')
+    const first = list[0]
+    const np: any = new fabric.Path(d, { fill: first.fill, stroke: first.stroke, strokeWidth: first.strokeWidth, opacity: first.opacity, fillRule: 'evenodd', cmykFill: first.cmykFill, spotFill: first.spotFill, objectCaching: false } as any)
+    np.id = uid(); np.layerId = first.layerId || docRef.current.activeLayerId
+    fc.discardActiveObject()
+    for (const o of list) { if (o.group) o.group.remove(o); else fc.remove(o) }
+    fc.add(np); applyLayerStates(); setObjList(n => n + 1); fc.setActiveObject(np); fc.requestRenderAll(); commit(); refreshSel()
   }
   const arrange = (how: 'front' | 'back' | 'forward' | 'backward') => {
     const fc = fcRef.current!; const list = activeList(); if (!list.length) return
     for (const o of how === 'front' || how === 'forward' ? list : list.slice().reverse()) {
-      if (how === 'front') fc.bringObjectToFront(o)
-      else if (how === 'back') fc.sendObjectToBack(o)
-      else if (how === 'forward') fc.bringObjectForward(o)
-      else fc.sendObjectBackwards(o)
+      const c: any = o.group || fc
+      if (how === 'front') c.bringObjectToFront(o)
+      else if (how === 'back') c.sendObjectToBack(o)
+      else if (how === 'forward') c.bringObjectForward(o)
+      else c.sendObjectBackwards(o)
+      if (o.group) o.group.triggerLayout?.()
     }
     normalizeStack(); fc.requestRenderAll(); commit()
   }
@@ -848,6 +954,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       histRef.current.lock = true
       for (const obj of placed) { obj.setCoords(); addObject(obj, { layerId, select: false }) }
       histRef.current.lock = false
+      syncGroupInteractivity(); setObjList(n => n + 1)
       commit()
       if (!layer?.locked && placed.length) {
         fc.discardActiveObject()
@@ -970,6 +1077,10 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
             <button onClick={() => flip('y')} title="Flip vertical" className="pk-btn"><i className="ti ti-flip-horizontal" /></button>
             {sel.multi && <button onClick={group} title="Group (⌘G)" className="pk-btn"><i className="ti ti-box-multiple" /></button>}
             {sel.isGroup && <button onClick={ungroup} title="Ungroup (⌘⇧G)" className="pk-btn"><i className="ti ti-box-off" /></button>}
+            {sel.isGroup && !sel.multi && <button onClick={() => { const g: any = fcRef.current?.getActiveObject(); if (g) { enterIsolation(g); fcRef.current?.discardActiveObject(); refreshSel() } }} title="Edit inside this group (or double-click it)" className="pk-btn"><i className="ti ti-arrow-bar-to-down" /></button>}
+            {sel.hasClip && <button onClick={releaseClip} title="Release clipping mask" className="pk-btn"><i className="ti ti-crop" /></button>}
+            {sel.multiPart && <button onClick={releaseCompound} title="Release compound path (split letters / pieces into separate shapes)" className="pk-btn"><i className="ti ti-vector-spline" /></button>}
+            {sel.pathCount > 1 && <button onClick={makeCompound} title="Make compound path" className="pk-btn"><i className="ti ti-link" /></button>}
             <button onClick={() => arrange('front')} title="Bring to front (⌘⇧])" className="pk-btn"><i className="ti ti-stack-front" /></button>
             <button onClick={() => arrange('back')} title="Send to back (⌘⇧[)" className="pk-btn"><i className="ti ti-stack-back" /></button>
             {sel.canConvert && <button onClick={convertToPath} title="Convert to editable path" className="pk-btn"><i className="ti ti-vector" /></button>}
@@ -1031,6 +1142,12 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
             })}
             {draftComment && (() => { const p = toScreen(draftComment.x, draftComment.y); return <div className="absolute -translate-x-1/2 -translate-y-full w-7 h-7 rounded-full rounded-bl-none bg-amber-500 border-2 border-white shadow animate-pulse" style={{ left: p.x, top: p.y }} /> })()}
           </div>
+          {isolated && (
+            <div className="absolute left-1/2 -translate-x-1/2 bg-[#1A2035] text-white text-xs rounded-lg shadow-lg px-3 py-2 flex items-center gap-3" style={{ top: RULER + 8 }}>
+              <span><i className="ti ti-focus-2" /> Editing inside group <b>{isolated}</b> — click any piece to select it</span>
+              <button onClick={() => { while (isolatedRef.current) exitIsolation() }} className="px-2 py-0.5 rounded bg-white/15 hover:bg-white/25">Done (Esc)</button>
+            </div>
+          )}
           {!ready && <div className="absolute inset-0 grid place-items-center text-gray-500 text-sm">Loading design…</div>}
           {toast && <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs px-3 py-2 rounded-lg shadow-lg">{toast}</div>}
           {/* status bar */}
@@ -1149,13 +1266,15 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
                       }} className="text-gray-400 hover:text-red-600"><i className="ti ti-trash" /></button>
                     </div>
                     {(objectsByLayer[l.id] || []).length > 0 && (
-                      <div className="border-t border-gray-100 max-h-48 overflow-y-auto">
+                      <div className="border-t border-gray-100 max-h-72 overflow-y-auto">
                         {(objectsByLayer[l.id] || []).map((o: any) => (
-                          <button key={o.id || Math.random()} onClick={() => { if (l.locked) return flash('Unlock the layer to select'); const fc = fcRef.current!; fc.setActiveObject(o); fc.requestRenderAll(); refreshSel() }}
-                            className={`w-full text-left px-3 py-1 text-[11px] flex items-center gap-2 hover:bg-gray-50 ${fcRef.current?.getActiveObject() === o ? 'bg-blue-50 text-[#3B6FE0]' : 'text-gray-600'}`}>
-                            <i className={`ti ${o.type === 'image' ? 'ti-photo' : o.type.includes('text') ? 'ti-typography' : o.type === 'group' ? 'ti-folder' : 'ti-vector'} text-gray-400`} />
-                            <span className="truncate">{objLabel(o)}</span>
-                          </button>
+                          <ObjRow key={o.id || o.__key || (o.__key = uid())} o={o} depth={0} locked={l.locked} active={fcRef.current?.getActiveObject()} label={objLabel}
+                            onSelect={(t: any) => {
+                              if (l.locked) return flash('Unlock the layer to select')
+                              const fc = fcRef.current!
+                              if (t.group) { enterIsolation(t.group) } else if (isolatedRef.current) { while (isolatedRef.current) exitIsolation() }
+                              fc.discardActiveObject(); fc.setActiveObject(t); fc.requestRenderAll(); refreshSel()
+                            }} />
                         ))}
                       </div>
                     )}
@@ -1226,6 +1345,23 @@ function shapeToD(o: any): string {
     return 'M ' + pts.join(' L ') + (o.type === 'polygon' ? ' Z' : '')
   }
   return ''
+}
+
+function ObjRow({ o, depth, locked, active, label, onSelect }: { o: any; depth: number; locked: boolean; active: any; label: (o: any) => string; onSelect: (o: any) => void }) {
+  const [open, setOpen] = useState(false)
+  const kids: any[] = o.type === 'group' ? o.getObjects().slice().reverse() : []
+  return (
+    <>
+      <div className={`w-full text-left pr-2 py-1 text-[11px] flex items-center gap-1.5 hover:bg-gray-50 ${active === o ? 'bg-blue-50 text-[#3B6FE0]' : 'text-gray-600'}`} style={{ paddingLeft: 10 + depth * 12 }}>
+        {kids.length ? <button onClick={() => setOpen(v => !v)} className="w-3 text-gray-400 hover:text-black"><i className={`ti ${open ? 'ti-chevron-down' : 'ti-chevron-right'}`} /></button> : <span className="w-3" />}
+        <button onClick={() => onSelect(o)} className="flex items-center gap-1.5 min-w-0 flex-1 text-left" disabled={locked}>
+          <i className={`ti ${o.type === 'image' ? 'ti-photo' : o.type.includes('text') ? 'ti-typography' : o.type === 'group' ? (o.clipPath ? 'ti-crop' : 'ti-folder') : 'ti-vector'} text-gray-400`} />
+          <span className="truncate">{o.type.includes('text') && o.text ? `"${String(o.text).slice(0, 24)}"` : label(o)}{kids.length ? ` (${kids.length})` : ''}</span>
+        </button>
+      </div>
+      {open && kids.map((k: any) => <ObjRow key={k.id || k.__key || (k.__key = Math.random().toString(36).slice(2))} o={k} depth={depth + 1} locked={locked} active={active} label={label} onSelect={onSelect} />)}
+    </>
+  )
 }
 
 function NumField({ label, value, onCommit, wide }: { label: string; value: number; onCommit: (v: number) => void; wide?: boolean }) {
