@@ -17,6 +17,22 @@ const PORTAL_HOSTS = Array.from(new Set([
 
 const STATIC_RE = /\.(?:pdf|png|jpe?g|gif|svg|webp|ico|txt|xml|json|webmanifest|woff2?|ttf|csv|zip|map|html)$/i
 
+// Hostnames that serve ONLY the outbound supplier RFQ form. Suppliers get their
+// tokenised link on this host, so they never see an ERP URL and cannot reach the
+// ERP by trimming it — every other path here goes to the public website.
+// NEXT_PUBLIC_RFQ_HOSTS can add more (e.g. a custom domain later).
+const RFQ_HOSTS = Array.from(new Set([
+  'beyondgreen-rfq.vercel.app',
+  ...(process.env.NEXT_PUBLIC_RFQ_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+]))
+
+const RFQ_PUBLIC_SITE = 'https://beyondgreenbiotech.com'
+
+function isRfqPath(pathname: string): boolean {
+  return pathname.startsWith('/rfq/supplier/') || pathname.startsWith('/api/rfq/vendor-response/') ||
+    pathname.startsWith('/_next/') || pathname === '/manifest.json' || STATIC_RE.test(pathname)
+}
+
 // The client portal and its APIs are public — clients authenticate with their own
 // portal session (bg_portal cookie), never the ERP staff login.
 function isPortalPath(pathname: string): boolean {
@@ -37,6 +53,16 @@ export async function middleware(request: NextRequest) {
       portalHosts: PORTAL_HOSTS,
       onPortalHost: PORTAL_HOSTS.includes(host),
     }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
+  }
+
+  // ── Dedicated supplier-RFQ host: only the quote form exists here. ──
+  if (RFQ_HOSTS.length > 0 && RFQ_HOSTS.includes(host)) {
+    if (isRfqPath(pathname)) {
+      const res = NextResponse.next({ request })
+      res.headers.set('X-Robots-Tag', 'noindex, nofollow')
+      return res
+    }
+    return NextResponse.redirect(RFQ_PUBLIC_SITE)
   }
 
   // ── Dedicated portal host: only the portal exists here; the ERP is hidden. ──
