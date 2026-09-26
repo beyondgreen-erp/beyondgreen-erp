@@ -47,6 +47,14 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     ;(signed || []).forEach((s: any) => { if (s.signedUrl && s.path) assets[s.path] = s.signedUrl })
   }
 
+  // the original upload, byte-for-byte
+  let source: any = null
+  if (link.allow_download && doc?.source?.path && String(doc.source.path).startsWith(prefix)) {
+    const { data: s } = await admin.storage.from(BUCKET).createSignedUrl(doc.source.path, 3600, { download: doc.source.name || true })
+    if (s?.signedUrl) source = { name: doc.source.name, size: doc.source.size, sha256: doc.source.sha256, uploaded_at: doc.source.uploaded_at, url: s.signedUrl }
+  }
+  if (doc?.source) doc.source = { name: doc.source.name, size: doc.source.size, sha256: doc.source.sha256, uploaded_at: doc.source.uploaded_at }
+
   let files: any[] = []
   if (link.allow_download) {
     const { data: rows } = await admin.from('packaging_design_files').select('id, format, file_name, file_path, size_bytes, created_at, options').eq('design_id', design.id).order('created_at', { ascending: false })
@@ -69,7 +77,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   return NextResponse.json({
     link: { printer_company: link.printer_company, printer_contact: link.printer_contact, printer_email: link.printer_email, message: link.message, allow_download: link.allow_download, allow_comments: link.allow_comments, expires_at: link.expires_at },
     design: { name: design.name, customer_name: design.customer_name, sku: design.sku, product_type: design.product_type, status: design.status, width_pt: design.width_pt, height_pt: design.height_pt, unit: design.unit, updated_at: design.updated_at },
-    doc, assets, files,
+    doc, assets, files, source,
     comments: [...(threads || []), ...(replies || [])].map(strip),
   }, { headers: NO_STORE })
 }
