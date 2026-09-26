@@ -43,6 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const { data, error } = await admin.from('packaging_comments').insert(row).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: NO_STORE })
 
+  try { await admin.from('packaging_activity').insert({ design_id: link.design_id, share_link_id: link.id, actor_type: 'printer', actor_name: author_name, actor_email: author_email || null, action: row.parent_id ? 'reply' : 'comment', details: { pin: row.pin_no || null, text: body.slice(0, 300) } }) } catch { /* best effort */ }
   // notify the team: ERP bell + email
   const { data: design } = await admin.from('packaging_designs').select('id, name, sku, customer_name, created_by, updated_by').eq('id', link.design_id).maybeSingle()
   const recipients = Array.from(new Set([...PACKAGING_TEAM, design?.created_by, design?.updated_by, link.created_by]
