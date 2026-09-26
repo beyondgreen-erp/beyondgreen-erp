@@ -17,6 +17,7 @@ interface Payload {
   doc: DesignDoc | null
   assets: Record<string, string>
   files: { id: string; format: string; file_name: string; size_bytes: number | null; created_at: string; label: string | null; url: string | null }[]
+  source?: { name: string; size: number; sha256: string; uploaded_at: string; url: string } | null
   comments: PkgComment[]
 }
 
@@ -336,6 +337,21 @@ export default function ProofPortal() {
             )}
             {tab === 'downloads' && data.link.allow_download && (
               <div className="space-y-4">
+                {data.source && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Original artwork file</p>
+                    <a href={data.source.url} className="block p-2.5 rounded-lg border-2 border-emerald-500 bg-emerald-50 hover:bg-emerald-100 text-sm">
+                      <span className="flex items-center gap-2">
+                        <i className="ti ti-shield-check text-emerald-600 text-lg" />
+                        <span className="flex-1 min-w-0 truncate font-medium">{data.source.name}</span>
+                        <span className="text-[11px] text-gray-500">{fmtSize(data.source.size)}</span>
+                        <i className="ti ti-download text-gray-500" />
+                      </span>
+                      <span className="block text-[11px] text-emerald-800 mt-1">Exactly as uploaded by beyondGREEN — unaltered, with original fonts, colours and layers. Use this file for production.</span>
+                      <span className="block text-[10px] text-gray-400 mt-0.5 font-mono break-all">SHA-256 {data.source.sha256}</span>
+                    </a>
+                  </div>
+                )}
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Confirmed print files</p>
                   {!data.files.length && <p className="text-sm text-gray-500">No final files have been released yet.</p>}
@@ -364,6 +380,7 @@ export default function ProofPortal() {
                       {busy === 'PROOF' ? <i className="ti ti-loader-2 animate-spin" /> : <><i className="ti ti-file-certificate" /> Approval proof sheet (PDF)</>}
                     </button>
                   )}
+                  <p className="text-[11px] text-amber-700 mt-2">These are rebuilt from the online proof for reference — for production use the original artwork file or the confirmed print files above.</p>
                   <p className="text-[11px] text-gray-400 mt-2">Vector files have text converted to outlines and open in Adobe Illustrator and CorelDRAW (File ▸ Import).</p>
                 </div>
               </div>
