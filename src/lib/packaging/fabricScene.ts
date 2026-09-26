@@ -200,8 +200,26 @@ function tightest(clips: Clip[]): Clip | null {
   return best
 }
 
-/** Converts imported items into fabric objects (in document space). Consecutive items that
- *  share a clip are wrapped in a clipped group, like an Illustrator clipping group. */
+const CS_LIMIT = 40 // max tracking (1/1000 em) used to fit substituted fonts
+
+/** Repairs text imported before the fit fix: heavy negative tracking made letters overlap.
+ *  Converts it to horizontal scaling that keeps the same width and position. */
+export function fixCrushedText(objs: any[]): number {
+  let n = 0
+  for (const o of objs) {
+    if (o.type === 'group') { n += fixCrushedText(o.getObjects()); continue }
+    if (!(o.type === 'i-text' || o.type === 'text' || o.type === 'textbox')) continue
+    if (!(o.charSpacing < -CS_LIMIT)) continue
+    const w0 = o.width
+    const anchor = o.getPointByOrigin('left', 'center')
+    o.set({ charSpacing: 0 }); o.initDimensions?.()
+    if (o.width > 0 && w0 > 0) o.set({ scaleX: (o.scaleX || 1) * (w0 / o.width) })
+    o.setPositionByOrigin(anchor, 'left', 'center'); o.setCoords?.()
+    n++
+  }
+  return n
+}
+
 async function textRunToFabric(it: TextRunItem): Promise<fabric.FabricObject> {
   const family = matchFamily(it.fontName)
   const weight = it.bold ? 'bold' : 'normal', style = it.italic ? 'italic' : 'normal'
@@ -213,14 +231,18 @@ async function textRunToFabric(it: TextRunItem): Promise<fabric.FabricObject> {
   t.initDimensions()
   // Match the source run width by adjusting tracking (fonts may differ slightly from the original)
   const n = Array.from(it.text).length
-  if (n > 1 && it.advance > 0 && t.width > 0) {
+  let sx = 1
+  if (n > 0 && it.advance > 0 && t.width > 0) {
     const diff = it.advance - t.width
-    const perChar = (diff / (n - 1)) / it.fontSize * 1000
-    if (Math.abs(perChar) < 300) { t.set({ charSpacing: Math.round(perChar) }); t.initDimensions() }
+    const perChar = n > 1 ? (diff / (n - 1)) / it.fontSize * 1000 : 0
+    // small differences: nudge tracking. Big ones (a condensed source font replaced by a wider
+    // library font): squeeze horizontally instead, so letters never overlap.
+    if (n > 1 && Math.abs(perChar) <= CS_LIMIT) { t.set({ charSpacing: Math.round(perChar) }); t.initDimensions() }
+    else sx = Math.max(0.3, Math.min(2, it.advance / t.width))
   }
   t.sourceFont = it.fontName
   const baseline = t.getHeightOfLine ? (t.getHeightOfLine(0) / t.lineHeight) * (1 - t._fontSizeFraction) : it.fontSize * 0.88
-  fabric.util.applyTransformToObject(t, multiply(it.m, tl(t.width / 2, t.height / 2 - baseline)) as any)
+  fabric.util.applyTransformToObject(t, multiply(multiply(it.m, [sx, 0, 0, 1, 0, 0]), tl(t.width / 2, t.height / 2 - baseline)) as any)
   t.setCoords()
   return t
 }
