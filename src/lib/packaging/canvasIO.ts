@@ -4,7 +4,7 @@
 import * as fabric from 'fabric'
 import { type DesignDoc, OBJ_PROPS, sha1Hex } from './doc'
 import { loadFamily } from './fonts'
-import { releaseRedundantClips } from './fabricScene'
+import { releaseRedundantClips, fixCrushedText } from './fabricScene'
 
 export type AssetUploader = (path: string, blob: Blob) => Promise<void>
 export type AssetResolver = (path: string) => Promise<string> // returns an object URL
@@ -71,6 +71,7 @@ export async function restore(canvas: fabric.Canvas | fabric.StaticCanvas, doc: 
   canvas.add(...enlivened)
   // older imports kept Illustrator's invisible placement clips, which crop logos when moved
   try { releaseRedundantClips(canvas as any) } catch { /* best effort */ }
+  try { fixCrushedText(canvas.getObjects() as any[]) } catch { /* best effort */ }
   // keep helpers (artboard shading etc.) at the bottom
   helpers.forEach(h => canvas.sendObjectToBack(h))
 }
