@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import type { DesignRow } from '@/lib/packaging/doc'
 import type { EditorHandle } from './Editor'
+import { logActivity } from '@/lib/packaging/activity'
 import type { PkgComment } from './CommentsPanel'
 
 interface LinkRow {
@@ -53,14 +54,15 @@ export default function ShareTab({ design, editor, user, onDesign, onOpenComment
     }).select().single()
     setBusy(false)
     if (error) { setErr(error.message); return }
+    logActivity(sb, design.id, user, 'link_created', { printer: (data as any).printer_company, email: (data as any).printer_email }, (data as any).id)
     if (['Draft', 'In Review'].includes(design.status)) await onDesign({ status: 'Printer Review' })
     setForm({ ...form, printer_contact: '', printer_email: '', message: '' })
     await load()
     copy((data as any).token)
   }
   const copy = async (token: string) => { try { await navigator.clipboard.writeText(proofUrl(token)); setCopied(token); setTimeout(() => setCopied(null), 2000) } catch { prompt('Copy this link', proofUrl(token)) } }
-  const revoke = async (l: LinkRow, on: boolean) => { await sb.from('packaging_share_links').update({ revoked_at: on ? new Date().toISOString() : null }).eq('id', l.id); load() }
-  const patch = async (l: LinkRow, p: Partial<LinkRow>) => { await sb.from('packaging_share_links').update(p).eq('id', l.id); load() }
+  const revoke = async (l: LinkRow, on: boolean) => { await sb.from('packaging_share_links').update({ revoked_at: on ? new Date().toISOString() : null }).eq('id', l.id); logActivity(sb, design.id, user, on ? 'link_revoked' : 'link_created', { printer: l.printer_company }, l.id); load() }
+  const patch = async (l: LinkRow, p: Partial<LinkRow>) => { await sb.from('packaging_share_links').update(p).eq('id', l.id); if ('expires_at' in p) logActivity(sb, design.id, user, 'link_extended', { printer: l.printer_company, expires_at: p.expires_at }, l.id); load() }
   const mailto = (l: LinkRow) => {
     const subject = `Proof for review: ${design.name}`
     const body = `Hi ${l.printer_contact || ''},\n\nPlease review the packaging proof for "${design.name}"${design.sku ? ` (${design.sku})` : ''}:\n${proofUrl(l.token)}\n\nYou can click any part of the artwork to leave a comment or question${l.allow_download ? ', and download the print files from the same page' : ''}.\n\n${l.message ? l.message + '\n\n' : ''}Thank you,\n${user.name}\nbeyondGREEN biotech`
