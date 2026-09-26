@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 import Comments from '@/components/Comments'
+import { generateSampleLabel, generateSamplePackingList } from '@/lib/pdfHelpers'
 
 interface Line { id?: string; _new?: boolean; name: string | null; sku: string | null; quantity: number | null; uom: string | null; product_id?: string | null }
 interface Sample {
@@ -365,6 +366,23 @@ export default function SamplesPage() {
 
   const detailLines = detail ? (items[detail.id] || []) : []
 
+  async function printLabel() {
+    if (!detail) return
+    await generateSampleLabel({ customerName: detail.name || detail.requesting_facility || '—', requestedBy: detail.requestor || null })
+  }
+  async function downloadPackingList() {
+    if (!detail) return
+    let lines = items[detail.id] || detailLines
+    if (!lines || lines.length === 0) {
+      const { data } = await sb.from('sample_submission_lines').select('id,name,sku,quantity,uom').eq('sample_id', detail.id).order('line_number')
+      lines = (data as Line[]) || []
+    }
+    await generateSamplePackingList(
+      { reference: detail.name || detail.id.slice(0, 8), date: detail.shipped_at ? detail.shipped_at.slice(0, 10) : detail.sample_date, customerName: detail.name || detail.requesting_facility || '—', shipToAddress: detail.ship_to_address, requestedBy: detail.requestor, product: detail.product },
+      lines.map(l => ({ name: l.name || l.sku || 'Item', sku: l.sku, quantity: l.quantity, uom: (l as any).uom }))
+    )
+  }
+
   function startEdit() {
     if (!detail) return
     const f: any = {}
@@ -647,6 +665,8 @@ export default function SamplesPage() {
                   <>
                     <button onClick={() => setShipSample(detail)} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">🚚 Ship</button>
                     {(detail.group_name === 'Shipped Samples' || detail.group_name === 'Delivered Samples') && <button onClick={() => setDeliverSample(detail)} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">📬 Delivered</button>}
+                    <button onClick={printLabel} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">🏷️ Label</button>
+                    <button onClick={downloadPackingList} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">📄 Packing List</button>
                     <button onClick={startEdit} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors">✎ Edit</button>
                     <button onClick={deleteRecord} disabled={deleting} className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-red-500 disabled:opacity-50 transition-colors">{deleting ? 'Deleting…' : '🗑 Delete'}</button>
                   </>
