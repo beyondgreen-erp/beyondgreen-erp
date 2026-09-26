@@ -75,8 +75,10 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   const [panel, setPanel] = useState<'props' | 'layers' | 'comments' | 'import'>(initialPanel || 'props')
   const [importing, setImporting] = useState<string | null>(null)
   const [importMsg, setImportMsg] = useState<string[]>([])
-  const [importTarget, setImportTarget] = useState<'dieline' | 'active' | 'new'>('dieline')
+  const [importTarget, setImportTarget] = useState<'dieline' | 'active' | 'new'>('active')
   const [fitArtboard, setFitArtboard] = useState(true)
+  const [importUngroup, setImportUngroup] = useState(true)
+  const [importText, setImportText] = useState<'live' | 'outline'>('live')
   const [comments, setComments] = useState<PkgComment[]>([])
   const [draftComment, setDraftComment] = useState<{ x: number; y: number; w?: number; h?: number } | null>(null)
   const [focusCommentId, setFocusCommentId] = useState<string | null>(null)
@@ -554,6 +556,11 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       histRef.current.stack = [snapshot()]; histRef.current.idx = 0
       loadFamily(DEFAULT_FONT).then(() => fc.requestRenderAll())
       setReady(true); readyRef.current = true
+      const pending = (window as any).__pkgPendingImport
+      if (pending && pending.designId === design.id && pending.file) {
+        delete (window as any).__pkgPendingImport
+        setTimeout(() => doImportRef.current(pending.file, { target: 'active', fit: true, ungroup: true, text: pending.text || 'live' }), 50)
+      }
       const el = wrapRef.current
       if (el && el.clientWidth > RULER && el.clientHeight > RULER) { fittedRef.current = true; fitToScreen() }
     })()
@@ -793,10 +800,12 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   }
 
   // ── import & place ───────────────────────────────────────────────────────
-  const doImport = async (file: File) => {
-    const fc = fcRef.current!; setImporting('Reading file…'); setImportMsg([])
+  type ImportOpts = { target: 'dieline' | 'active' | 'new'; fit: boolean; ungroup: boolean; text: 'live' | 'outline' }
+  const doImport = async (file: File, override?: Partial<ImportOpts>) => {
+    const o: ImportOpts = { target: importTarget, fit: fitArtboard, ungroup: importUngroup, text: importText, ...override }
+    const fc = fcRef.current!; setImporting('Reading file…'); setImportMsg([]); setPanel('import')
     try {
-      const res = await importFile(file, s => setImporting(s))
+      const res = await importFile(file, s => setImporting(s), { text: o.text })
       // replace canvas-backed images with blob images so snapshots stay light
       const convertImages = async (objs: any[]) => {
         for (const o of objs) {
@@ -812,38 +821,49 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       await convertImages(res.objects)
       if (res.kind === 'png' || res.kind === 'jpg') { (res.objects[0] as any).__srcBlob = file }
       let layerId = docRef.current.activeLayerId
-      if (importTarget === 'dieline') {
+      if (o.target === 'dieline') {
         let die = docRef.current.layers.find(l => l.kind === 'dieline')
         if (!die) { die = { id: uid(), name: 'Dieline', visible: true, locked: true, color: '#EC008C', kind: 'dieline' }; docRef.current.layers = [die, ...docRef.current.layers] }
         layerId = die.id
-      } else if (importTarget === 'new') {
+      } else if (o.target === 'new') {
         const l = { id: uid(), name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), visible: true, locked: false, color: '#10B981' }
         docRef.current.layers = [l, ...docRef.current.layers]; layerId = l.id; docRef.current.activeLayerId = l.id
       }
       const isVectorPage = !(res.kind === 'png' || res.kind === 'jpg')
-      if (fitArtboard && isVectorPage) { docRef.current.width = res.width; docRef.current.height = res.height; setArtboard(a => ({ ...a, w: res.width, h: res.height })) }
-      let group: any
-      if (isVectorPage) {
-        group = res.objects.length === 1 ? res.objects[0] : new fabric.Group(res.objects, { subTargetCheck: false } as any)
-        if (!fitArtboard) { // centre on artboard
-          group.set({ left: docRef.current.width / 2, top: docRef.current.height / 2, originX: 'center', originY: 'center' })
-        }
-      } else {
-        group = res.objects[0]
-        const s = Math.min(1, (docRef.current.width * 0.8) / group.width, (docRef.current.height * 0.8) / group.height)
-        group.set({ scaleX: s, scaleY: s, left: docRef.current.width / 2, top: docRef.current.height / 2, originX: 'center', originY: 'center' })
-      }
-      group.name = file.name
-      group.setCoords()
+      if (o.fit && isVectorPage) { docRef.current.width = res.width; docRef.current.height = res.height; setArtboard(a => ({ ...a, w: res.width, h: res.height })) }
       const layer = docRef.current.layers.find(l => l.id === layerId)
-      addObject(group, { layerId, select: !layer?.locked })
+      let placed: any[]
+      if (isVectorPage) {
+        let group: any = res.objects.length === 1 ? res.objects[0] : new fabric.Group(res.objects, { subTargetCheck: true, interactive: true } as any)
+        if (!o.fit) group.set({ left: docRef.current.width / 2, top: docRef.current.height / 2, originX: 'center', originY: 'center' })
+        group.setCoords()
+        if (o.ungroup && res.objects.length > 1) placed = group.removeAll()
+        else { group.name = file.name; placed = [group] }
+      } else {
+        const img: any = res.objects[0]
+        const sc = Math.min(1, (docRef.current.width * 0.8) / img.width, (docRef.current.height * 0.8) / img.height)
+        img.set({ scaleX: sc, scaleY: sc, left: docRef.current.width / 2, top: docRef.current.height / 2, originX: 'center', originY: 'center' })
+        img.name = file.name; placed = [img]
+      }
+      histRef.current.lock = true
+      for (const obj of placed) { obj.setCoords(); addObject(obj, { layerId, select: false }) }
+      histRef.current.lock = false
+      commit()
+      if (!layer?.locked && placed.length) {
+        fc.discardActiveObject()
+        fc.setActiveObject(placed.length === 1 ? placed[0] : new fabric.ActiveSelection(placed, { canvas: fc }))
+        fc.requestRenderAll(); refreshSel()
+      }
       syncLayersState()
-      setImportMsg([`Imported ${file.name}${layer ? ` onto "${layer.name}"` : ''}.`, ...res.warnings])
+      const textCount = placed.reduce((n: number, x: any) => n + (x.type === 'i-text' ? 1 : x.type === 'group' ? x.getObjects().filter((c: any) => c.type === 'i-text').length : 0), 0)
+      setImportMsg([`Imported ${file.name}${layer ? ` onto "${layer.name}"` : ''} — ${placed.length} object${placed.length === 1 ? '' : 's'}${textCount ? `, ${textCount} editable text` : ''}.`, ...res.warnings])
       fitToScreen()
     } catch (e: any) {
       setImportMsg(['Import failed: ' + (e?.message || String(e))])
     } finally { setImporting(null) }
   }
+  const doImportRef = useRef(doImport)
+  doImportRef.current = doImport
   const placeImage = async (file: File) => {
     const url = URL.createObjectURL(file)
     const img: any = await fabric.FabricImage.fromURL(url)
@@ -1154,19 +1174,25 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
 
             {panel === 'import' && (
               <div className="space-y-3">
-                <p className="text-xs text-gray-600">Import a dieline or artwork. Supported: <b>AI, PDF, EPS, PS, SVG</b> (vector, fonts converted to outlines) and <b>PNG / JPG</b>.</p>
+                <p className="text-xs text-gray-600">Open an existing <b>Illustrator (.ai)</b>, PDF, EPS, PS or SVG file and keep working on it here, or place a <b>PNG / JPG</b>.</p>
                 <div className="space-y-1.5 text-xs">
-                  <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'dieline'} onChange={() => setImportTarget('dieline')} /> Put on the <b>Dieline</b> layer (locked)</label>
-                  <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'active'} onChange={() => setImportTarget('active')} /> Put on the active layer</label>
-                  <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'new'} onChange={() => setImportTarget('new')} /> Put on a new layer</label>
-                  <label className="flex items-center gap-2 pt-1"><input type="checkbox" checked={fitArtboard} onChange={e => setFitArtboard(e.target.checked)} /> Resize artboard to the file&apos;s page</label>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Put it on</p>
+                  <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'active'} onChange={() => setImportTarget('active')} /> The active layer — <b>editable artwork</b></label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'new'} onChange={() => setImportTarget('new')} /> A new layer named after the file</label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={importTarget === 'dieline'} onChange={() => setImportTarget('dieline')} /> The <b>Dieline</b> layer (locked, for cut lines)</label>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 pt-2">Text in the file</p>
+                  <label className="flex items-center gap-2"><input type="radio" checked={importText === 'live'} onChange={() => setImportText('live')} /> Keep text <b>editable</b> (fonts matched to the library)</label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={importText === 'outline'} onChange={() => setImportText('outline')} /> Convert text to outlines (exact look)</label>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 pt-2">Options</p>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={importUngroup} onChange={e => setImportUngroup(e.target.checked)} /> Ungroup — every shape and text can be selected on its own</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={fitArtboard} onChange={e => setFitArtboard(e.target.checked)} /> Resize artboard to the file&apos;s page</label>
                 </div>
                 <button disabled={!!importing} onClick={() => fileRef.current?.click()} className="w-full py-2 rounded-lg bg-[#3B6FE0] text-white text-sm font-medium disabled:opacity-60">
                   {importing ? <><i className="ti ti-loader-2 animate-spin" /> {importing}</> : <><i className="ti ti-upload" /> Choose file…</>}
                 </button>
                 <input ref={fileRef} type="file" accept={ACCEPT} className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) doImport(f); e.target.value = '' }} />
                 {importMsg.length > 0 && <ul className="text-xs space-y-1">{importMsg.map((m, i) => <li key={i} className={i === 0 ? 'text-gray-800' : 'text-amber-700'}>{i === 0 ? '✓ ' : '⚠ '}{m}</li>)}</ul>}
-                <p className="text-[11px] text-gray-400">Files are converted locally in your browser. Text inside imported files becomes vector outlines (like Illustrator&apos;s Create Outlines) so nothing reflows.</p>
+                <p className="text-[11px] text-gray-400">Files are converted locally in your browser — nothing is uploaded until you save. For .ai files, Illustrator&apos;s default &quot;Create PDF Compatible File&quot; must be on (it almost always is).</p>
               </div>
             )}
           </div>
