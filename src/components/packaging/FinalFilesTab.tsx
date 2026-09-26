@@ -5,6 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { BUCKET, safeFileName, type DesignRow } from '@/lib/packaging/doc'
 import { FORMATS, DEFAULT_EXPORT, exportDesign, exportProofSheet, zipFiles, downloadBlob, type ExportFormat, type ExportOptions } from '@/lib/packaging/exporters'
 import type { EditorHandle } from './Editor'
+import { logActivity } from '@/lib/packaging/activity'
 
 interface FileRow { id: string; design_id: string; version_id: string | null; format: string; file_name: string; file_path: string; size_bytes: number | null; options: any; created_by: string | null; created_at: string }
 
@@ -100,6 +101,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
         if (up.error) throw up.error
         await sb.from('packaging_design_files').insert({ design_id: design.id, version_id: (ver as any).id, format: f.fmt, file_name: name, file_path: path, size_bytes: f.blob.size, options: { ...opts, label }, created_by: user.email })
       }
+      logActivity(sb, design.id, user, 'final_files_saved', { version: n, files: out.map(f => f.name) })
       if (markFinal) await onDesign({ status: 'Final' })
       setLabel(''); setMsg(`Saved ${out.length} final file${out.length > 1 ? 's' : ''} as version ${n}. Printers with an active share link can download them.`)
       load()
