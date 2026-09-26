@@ -19,6 +19,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
   const [label, setLabel] = useState('')
   const [markFinal, setMarkFinal] = useState(true)
   const [withProof, setWithProof] = useState(true)
+  const [withOriginal, setWithOriginal] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [files, setFiles] = useState<FileRow[]>([])
@@ -44,6 +45,13 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
       const r = await exportDesign(canvas, doc, fmt, opts)
       r.warnings.forEach(w => warn.add(w))
       out.push({ name: `${base}.${fmt}`, blob: r.blob, fmt })
+    }
+    const src = withOriginal ? (ed.getDoc() as any)?.source : null
+    if (src?.path) {
+      setBusy('Adding the original file (unaltered)…')
+      const { data: blob, error } = await sb.storage.from(BUCKET).download(src.path)
+      if (error || !blob) throw new Error('Could not read the stored original file')
+      out.push({ name: src.name, blob, fmt: 'original' })
     }
     const info = withProof ? ed.getProofInfo() : null
     if (info) {
@@ -86,7 +94,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
       for (const f of out) {
         setBusy(`Uploading ${f.name}…`)
-        const name = f.fmt === 'proof' ? `${base}_v${n}_APPROVAL_PROOF.pdf` : `${base}_v${n}.${f.fmt}`
+        const name = f.fmt === 'proof' ? `${base}_v${n}_APPROVAL_PROOF.pdf` : f.fmt === 'original' ? `ORIGINAL_${safeFileName(f.name)}` : `${base}_v${n}.${f.fmt}`
         const path = `designs/${design.id}/final/${stamp}/${name}`
         const up = await sb.storage.from(BUCKET).upload(path, f.blob, { upsert: true, contentType: f.blob.type || 'application/octet-stream' })
         if (up.error) throw up.error
@@ -151,6 +159,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
           </div>
           <div className="border-t pt-4 space-y-3">
             <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Note for this final set (optional) — e.g. Approved by customer 9/25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={withOriginal} onChange={e => setWithOriginal(e.target.checked)} /> Include the <b>original uploaded file</b>, byte-for-byte unaltered (recommended for production)</label>
             <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={withProof} onChange={e => setWithProof(e.target.checked)} /> Include the official <b>approval proof sheet</b> (PDF with customer, SKU, inks &amp; sign-off)</label>
             <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={markFinal} onChange={e => setMarkFinal(e.target.checked)} /> Set design status to <b>Final</b></label>
             <div className="flex flex-wrap gap-2">
