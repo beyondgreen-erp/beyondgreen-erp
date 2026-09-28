@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import UserAvatar from '@/components/UserAvatar'
+import RichTextEditor from '@/components/RichTextEditor'
 
 interface Comment {
   id: string
@@ -54,18 +55,102 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+/**
+ * The editor writes a mention as <span data-type="mention" data-id="<email>">, so the address is
+ * exact rather than guessed from a display name. Plain @handles are still read as a fallback,
+ * which is what every existing comment uses. /api/notify-mentions resolves either form.
+ */
 function parseMentions(text: string): string[] {
-  const matches = text.match(/@(\w+)/g) ?? []
-  return Array.from(new Set(matches.map(m => m.slice(1).toLowerCase())))
+  const tokens = new Set<string>()
+  if (looksLikeHtml(text) && typeof document !== 'undefined') {
+    const doc = new DOMParser().parseFromString(text, 'text/html')
+    for (const el of Array.from(doc.querySelectorAll('[data-type="mention"]'))) {
+      const id = el.getAttribute('data-id')
+      if (id) tokens.add(id.toLowerCase())
+    }
+  }
+  for (const m of htmlToPlain(text).match(/@([\w.]+)/g) ?? []) tokens.add(m.slice(1).toLowerCase())
+  return Array.from(tokens)
+}
+
+/**
+ * Comments used to be a plain textarea, so a paste arrived as one unbroken string and the
+ * renderer below collapsed even its newlines — the "wall of text" the team reported. Comments
+ * are now written with the rich editor and stored as HTML. Older comments are still plain text
+ * and are left exactly as they were in the database, so both shapes have to render correctly.
+ */
+const looksLikeHtml = (s: string) => /<\/?[a-z][\s\S]*>/i.test(s)
+
+/** An empty editor still serialises to markup like "<p></p>" — that must not count as a comment. */
+function isBlankHtml(s: string): boolean {
+  if (!s) return true
+  if (!looksLikeHtml(s)) return !s.trim()
+  const stripped = s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+  return !stripped && !/<(img|table|hr)\b/i.test(s)
+}
+
+function htmlToPlain(html: string): string {
+  if (typeof document === 'undefined') return html.replace(/<[^>]+>/g, '')
+  const d = new DOMParser().parseFromString(html, 'text/html')
+  return d.body.textContent || ''
+}
+
+/**
+ * Anything a person can paste ends up here, so the markup is rebuilt against an allowlist
+ * rather than trusted: unknown elements are unwrapped and every attribute outside the list
+ * below — including any inline event handler or javascript: URL — is dropped.
+ */
+const ALLOWED_TAGS = new Set(['P','BR','STRONG','B','EM','I','U','S','CODE','PRE','BLOCKQUOTE',
+  'H1','H2','H3','H4','H5','H6','UL','OL','LI','A','TABLE','THEAD','TBODY','TR','TH','TD',
+  'SPAN','IMG','HR','DIV'])
+const DROP_ENTIRELY = new Set(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','LINK','META','FORM','INPUT','BUTTON'])
+const ALLOWED_ATTRS: Record<string, string[]> = {
+  A: ['href', 'target', 'rel'],
+  IMG: ['src', 'alt'],
+  TD: ['colspan', 'rowspan'],
+  TH: ['colspan', 'rowspan'],
+  SPAN: ['class', 'data-type', 'data-id', 'data-label'],
+}
+function sanitizeCommentHtml(html: string): string {
+  if (typeof document === 'undefined') return ''
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const walk = (node: Element) => {
+    for (const child of Array.from(node.children)) {
+      if (DROP_ENTIRELY.has(child.tagName)) { child.remove(); continue }
+      walk(child)
+      if (!ALLOWED_TAGS.has(child.tagName)) { child.replaceWith(...Array.from(child.childNodes)); continue }
+      const keep = ALLOWED_ATTRS[child.tagName] || []
+      for (const attr of Array.from(child.attributes)) {
+        const name = attr.name.toLowerCase()
+        if (!keep.includes(name)) { child.removeAttribute(attr.name); continue }
+        if (name === 'href' && !/^(https?:|mailto:|tel:|#|\/)/i.test(attr.value.trim())) child.removeAttribute(attr.name)
+        if (name === 'src' && !/^(https?:|data:image\/)/i.test(attr.value.trim())) child.removeAttribute(attr.name)
+        if (name === 'class' && attr.value !== 'mention-tag') child.removeAttribute(attr.name)
+      }
+      if (child.tagName === 'A') { child.setAttribute('target', '_blank'); child.setAttribute('rel', 'noopener noreferrer') }
+    }
+  }
+  walk(doc.body)
+  return doc.body.innerHTML
+}
+
+/** Highlights @handles in the legacy plain-text comments, and keeps their line breaks. */
+function renderPlain(text: string) {
+  const parts = text.split(/(@\w+)/g)
+  return (
+    <span className="whitespace-pre-wrap break-words">
+      {parts.map((part, i) =>
+        part.startsWith('@')
+          ? <span key={i} className="font-semibold rounded px-0.5" style={{ color: '#3B6FE0', background: '#EFF6FF' }}>{part}</span>
+          : <span key={i}>{part}</span>
+      )}
+    </span>
+  )
 }
 
 function renderContent(text: string) {
-  const parts = text.split(/(@\w+)/g)
-  return parts.map((part, i) =>
-    part.startsWith('@')
-      ? <span key={i} className="font-semibold rounded px-0.5" style={{ color: '#3B6FE0', background: '#EFF6FF' }}>{part}</span>
-      : <span key={i}>{part}</span>
-  )
+  if (!looksLikeHtml(text)) return renderPlain(text)
+  return <div className="rte-view break-words" dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(text) }} />
 }
 
 export default function Comments({ recordId, recordType, currentUserEmail, title = 'Comments' }: Props) {
@@ -92,7 +177,6 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     return out
   })()
   const [profiles, setProfiles] = useState<Record<string, TeamMember>>({})
-  const [team, setTeam] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   const [posting, setPosting] = useState(false)
@@ -100,11 +184,8 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editBody, setEditBody] = useState('')
-  const [showMention, setShowMention] = useState(false)
-  const [mentionQuery, setMentionQuery] = useState('')
-  const [mentionStart, setMentionStart] = useState(0)
-  const [mentionIdx, setMentionIdx] = useState(0)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Bumped after a post so the editor remounts empty.
+  const [resetKey, setResetKey] = useState(0)
   /**
    * Realtime channel name, unique to this mount.
    *
@@ -115,7 +196,6 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
    * whole page goes to "Application error" rather than one panel failing quietly.
    */
   const channelKey = useRef(Math.random().toString(36).slice(2))
-  const editRef = useRef<HTMLTextAreaElement>(null)
   const [flashId, setFlashId] = useState<string | null>(null)
   const deepLinkDone = useRef(false)
 
@@ -138,7 +218,6 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       .order('full_name')
     if (data) {
       const members = (data as TeamMember[]).filter(m => m.email && m.full_name)
-      setTeam(members)
       const map: Record<string, TeamMember> = {}
       for (const m of members) map[m.email] = m
       setProfiles(map)
@@ -193,78 +272,6 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     return () => { clearTimeout(timer); clearTimeout(clear) }
   }, [loading, comments])
 
-  // Filtered mention suggestions
-  const mentionSuggestions = useMemo(() => {
-    if (!mentionQuery && !showMention) return []
-    const q = mentionQuery.toLowerCase()
-    return team.filter(m =>
-      m.full_name.toLowerCase().replace(/\s+/g, '').includes(q) ||
-      m.full_name.toLowerCase().includes(q) ||
-      m.email.toLowerCase().includes(q)
-    ).slice(0, 6)
-  }, [team, mentionQuery, showMention])
-
-  function handleBodyChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value
-    setBody(val)
-
-    const cursor = e.target.selectionStart
-    const before = val.slice(0, cursor)
-    const atMatch = before.match(/@(\w*)$/)
-    if (atMatch) {
-      setMentionQuery(atMatch[1].toLowerCase())
-      setMentionStart(cursor - atMatch[0].length)
-      setMentionIdx(0)
-      setShowMention(true)
-    } else {
-      setShowMention(false)
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (!showMention || mentionSuggestions.length === 0) return
-    if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => Math.min(i + 1, mentionSuggestions.length - 1)) }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx(i => Math.max(i - 1, 0)) }
-    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionSuggestions[mentionIdx]) }
-    else if (e.key === 'Escape') setShowMention(false)
-  }
-
-  function insertMention(member: TeamMember, ref = textareaRef, setter = setBody) {
-    const cur = ref.current
-    if (!cur) return
-    const currentVal = ref === textareaRef ? body : editBody
-    const cursor = cur.selectionStart
-    const before = currentVal.slice(0, mentionStart)
-    const after = currentVal.slice(cursor)
-    const tag = '@' + member.full_name.replace(/\s+/g, '') + ' '
-    const newVal = before + tag + after
-    setter(newVal)
-    setShowMention(false)
-    setTimeout(() => {
-      if (cur) {
-        const pos = before.length + tag.length
-        cur.setSelectionRange(pos, pos)
-        cur.focus()
-      }
-    }, 0)
-  }
-
-  function handleEditChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value
-    setEditBody(val)
-    const cursor = e.target.selectionStart
-    const before = val.slice(0, cursor)
-    const atMatch = before.match(/@(\w*)$/)
-    if (atMatch) {
-      setMentionQuery(atMatch[1].toLowerCase())
-      setMentionStart(cursor - atMatch[0].length)
-      setMentionIdx(0)
-      setShowMention(true)
-    } else {
-      setShowMention(false)
-    }
-  }
-
   async function uploadToStorage(file: File): Promise<{ name: string; url: string } | null> {
     const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const path = `comments/${recordType}/${recordId}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`
@@ -275,7 +282,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
   }
 
   async function handlePost() {
-    if ((!body.trim() && pendingFiles.length === 0) || !recordId || posting) return
+    if ((isBlankHtml(body) && pendingFiles.length === 0) || !recordId || posting) return
     setPosting(true)
     try {
       // Resolve the author email robustly. Prefer the known-good prop (same value the rest of
@@ -326,6 +333,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       }
 
       setBody('')
+      setResetKey(k => k + 1)
       setPendingFiles([])
       setReplyTo(null)
       fetchComments()
@@ -334,21 +342,13 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     }
   }
 
-  async function handlePostKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault()
-      await handlePost()
-    }
-  }
-
   function startEdit(c: Comment) {
     setEditId(c.id)
     setEditBody(c.content)
-    setShowMention(false)
   }
 
   async function saveEdit() {
-    if (!editId || !editBody.trim()) return
+    if (!editId || isBlankHtml(editBody)) return
     await sb.from('comments').update({
       content: editBody.trim(),
       is_edited: true,
@@ -412,28 +412,16 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                   {isEditing ? (
                     <div className="space-y-2">
                       <div className="relative">
-                        <textarea
-                          ref={editRef}
-                          value={editBody}
-                          onChange={handleEditChange}
-                          onKeyDown={e => {
-                            if (!showMention || mentionSuggestions.length === 0) return
-                            if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => Math.min(i + 1, mentionSuggestions.length - 1)) }
-                            else if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx(i => Math.max(i - 1, 0)) }
-                            else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionSuggestions[mentionIdx], editRef, setEditBody) }
-                            else if (e.key === 'Escape') setShowMention(false)
-                          }}
-                          rows={3}
-                          className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                          style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }}
-                        />
-                        {showMention && editId && mentionSuggestions.length > 0 && (
-                          <MentionDropdown
-                            members={mentionSuggestions}
-                            activeIdx={mentionIdx}
-                            onSelect={m => insertMention(m, editRef, setEditBody)}
+                        <div className="rounded-lg border" style={{ borderColor: '#E4E6EE' }}>
+                          <RichTextEditor
+                            key={`edit-${editId}`}
+                            content={editBody}
+                            onChange={setEditBody}
+                            placeholder="Edit your comment…"
+                            minHeight="64px"
+                            supabase={sb}
                           />
-                        )}
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <button
@@ -444,7 +432,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                           Save
                         </button>
                         <button
-                          onClick={() => { setEditId(null); setEditBody(''); setShowMention(false) }}
+                          onClick={() => { setEditId(null); setEditBody('') }}
                           className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
                           style={{ borderColor: '#E4E6EE', color: '#6B7280' }}
                         >
@@ -472,7 +460,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                       <div className="flex gap-3 mt-1">
                         {!c.parent_id && (
                           <button
-                            onClick={() => { setReplyTo(c); textareaRef.current?.focus() }}
+                            onClick={() => setReplyTo(c)}
                             className="text-[10px] transition-colors hover:underline"
                             style={{ color: '#3B6FE0' }}
                           >
@@ -532,28 +520,21 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                   <button onClick={() => setReplyTo(null)} className="ml-auto hover:underline" style={{ color: '#6B7280' }}>Cancel</button>
                 </div>
               )}
-              <textarea
-                ref={textareaRef}
-                value={body}
-                onChange={handleBodyChange}
-                onKeyDown={e => {
-                  handleKeyDown(e)
-                  handlePostKeyDown(e)
-                }}
-                placeholder="Add a comment… Type @ to mention someone"
-                rows={2}
-                className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }}
-              />
-
-              {/* Mention dropdown */}
-              {showMention && !editId && mentionSuggestions.length > 0 && (
-                <MentionDropdown
-                  members={mentionSuggestions}
-                  activeIdx={mentionIdx}
-                  onSelect={m => insertMention(m)}
+              {/* The editor brings its own @mention list, so the textarea's custom one is gone. */}
+              <div
+                className="rounded-lg border transition-colors focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500"
+                style={{ borderColor: '#E4E6EE' }}
+                onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void handlePost() } }}
+              >
+                <RichTextEditor
+                  key={`new-${replyTo?.id ?? 'root'}-${resetKey}`}
+                  content={body}
+                  onChange={setBody}
+                  placeholder="Add a comment… paste keeps its formatting. Type @ to mention someone"
+                  minHeight="64px"
+                  supabase={sb}
                 />
-              )}
+              </div>
             </div>
           </div>
 
@@ -576,7 +557,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
               </div>
               <button
                 onClick={handlePost}
-                disabled={posting || (!body.trim() && pendingFiles.length === 0)}
+                disabled={posting || (isBlankHtml(body) && pendingFiles.length === 0)}
                 className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40 transition-colors"
                 style={{ background: '#3B6FE0' }}
               >
@@ -590,42 +571,3 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
   )
 }
 
-function MentionDropdown({
-  members,
-  activeIdx,
-  onSelect,
-}: {
-  members: TeamMember[]
-  activeIdx: number
-  onSelect: (m: TeamMember) => void
-}) {
-  return (
-    <div
-      className="absolute left-0 bottom-full mb-1 w-64 bg-white rounded-xl border shadow-xl z-50 overflow-hidden"
-      style={{ borderColor: '#E4E6EE' }}
-    >
-      <div className="px-2 py-1.5 border-b text-[10px] font-semibold uppercase tracking-wider" style={{ borderColor: '#F0F2F7', color: '#9CA3AF' }}>
-        Mention a teammate
-      </div>
-      {members.map((m, i) => (
-        <button
-          key={m.email}
-          onMouseDown={e => { e.preventDefault(); onSelect(m) }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors"
-          style={{ background: i === activeIdx ? '#F0F2F7' : 'transparent' }}
-        >
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0"
-            style={{ background: m.avatar_color || '#6B7280' }}
-          >
-            {m.avatar_initials || avatarInitials(m.full_name)}
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium truncate" style={{ color: '#1A1D2E' }}>{m.full_name}</p>
-            <p className="text-[10px] truncate" style={{ color: '#9CA3AF' }}>{m.email}</p>
-          </div>
-        </button>
-      ))}
-    </div>
-  )
-}
