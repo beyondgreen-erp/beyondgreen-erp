@@ -72,6 +72,7 @@ function blankItem(): LineItem {
 }
 
 const emptyCreate = {
+  custom_name: '',
   group_key: 'group_mkzk3jaa',
   location: 'SAN ANTONIO, TX',
   status: 'Pending Order',
@@ -161,7 +162,7 @@ export default function PurchasingRequestsPage() {
     setEditItems(detail ? items.filter(i => i.parent_id === detail.id).sort((a, b) => (a.position || 0) - (b.position || 0)).map(x => ({ ...x })) : [])
     setDeletedItemIds([])
   }, [detail?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  const DETAIL_KEYS = ['person_requesting','po_required','po_number','customer_project','order_ref','supplier','supplier_pn','po_date','estimated_dock_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
+  const DETAIL_KEYS = ['custom_name','person_requesting','po_required','po_number','customer_project','order_ref','supplier','supplier_pn','po_date','estimated_dock_date','qty_ordered','date_received','qty_received','balance','pkgs_received','condition_received','received_by','batch_lot','location'] as const
   const ITEM_KEYS = ['part_number','description','qty_ordered','date_ordered','total_received','date_received','balance','product_id'] as const
   function updateDetailItem(idx: number, key: string, val: string) { setEditItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: val } : x)) }
   function addDetailLine() { setEditItems(arr => [...arr, { _new: true, part_number: '', description: '', qty_ordered: '', date_ordered: null, total_received: '', date_received: null, balance: '', product_id: null }]) }
@@ -228,7 +229,7 @@ export default function PurchasingRequestsPage() {
 
   async function deleteDetail() {
     if (!detail) return
-    if (!confirm(`Delete purchase order "${detail.name || detail.po_number || 'this record'}"?\n\nIt will be moved to the Recycle Bin \u2014 you can restore it from there if needed.`)) return
+    if (!confirm(`Delete purchase order "${detail.custom_name || detail.name || detail.po_number || 'this record'}"?\n\nIt will be moved to the Recycle Bin \u2014 you can restore it from there if needed.`)) return
     setDeleting(true)
     try {
       const { error } = await sb.from('purchasing_requests').update({ is_active: false }).eq('id', detail.id)
@@ -319,7 +320,7 @@ export default function PurchasingRequestsPage() {
     await sb.from('purchasing_requests').update(patch).eq('id', id)
     if (moveToLog) setCollapsed(c => ({ ...c, [RECEIVING_LOG.key]: false }))
     if (prConfirmed) {
-      void notifyFlowConfirmed('purchase_request', prev!.name || 'purchase request', {
+      void notifyFlowConfirmed('purchase_request', prev!.custom_name || prev!.name || 'purchase request', {
         orderRef: prev!.order_ref ?? null,
         customer: prev!.customer_project ?? null,
         by: userEmail || null,
@@ -496,6 +497,7 @@ th{background:#eef5f0}
     const first = resolvedOk[0]
     const headerName = requestName(resolvedOk.map(r => r.name))
     const { error: reqErr } = await sb.from('purchasing_requests').insert({
+      custom_name: form.custom_name.trim() || null,
       id: reqId,
       name: headerName,
       group_key: group.key,
@@ -596,7 +598,7 @@ th{background:#eef5f0}
                         const nc = commentCounts[r.id] || 0
                         return (
                           <tr key={r.id} id={`item-${r.id}`} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => setDetail(r)}>
-                            <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{r.name}</td>
+                            <td className="px-4 py-2.5 font-semibold text-[#1A1D2E]">{r.custom_name || r.name}</td>
                             <td className="px-3 py-2.5">{r.location ? <span className="text-white text-[10px] font-semibold rounded-full px-2 py-0.5 inline-block whitespace-nowrap" style={{ background: LOC_COLORS[r.location] || '#c4c4c4' }}>{r.location}</span> : <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                               <select value={r.status || ''} onChange={e => updateStatus(r.id, e.target.value)} className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 border-0 cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-black/10 max-w-[180px]" style={{ background: statusColor(r.status) }}>
@@ -644,6 +646,14 @@ th{background:#eef5f0}
             </div>
 
             <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
+              {/* A name the team chooses. Left blank, the board falls back to the generated
+                  "<first item> + N more items" summary, which is what it always showed. */}
+              <TextField
+                label="Request name"
+                value={form.custom_name}
+                onChange={v => setForm(f => ({ ...f, custom_name: v }))}
+                placeholder="e.g. Marriott cold cup packaging — leave blank to name it after the items" />
+
               {/* Items */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -746,7 +756,7 @@ th{background:#eef5f0}
             <div className="flex items-start justify-between px-6 py-4 text-white" style={{ background: (GROUPS.find(g => g.key === detail.group_key)?.color) || '#5559df' }}>
               <div className="min-w-0">
                 <p className="text-white/70 text-xs uppercase tracking-wide">{detail.group_title}</p>
-                <h2 className="text-xl font-bold leading-tight">{detail.name}</h2>
+                <h2 className="text-xl font-bold leading-tight">{detail.custom_name || detail.name}</h2>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <select value={detail.status || ''} onChange={e => updateStatus(detail.id, e.target.value)} className="inline-block text-[11px] font-semibold rounded-full px-2.5 py-0.5 border-0 cursor-pointer appearance-none focus:outline-none text-white" style={{ background: statusColor(detail.status) }}>
                     <option value="" style={{ color: '#111' }}>— Set status —</option>
@@ -759,6 +769,22 @@ th{background:#eef5f0}
             </div>
 
             <div className="px-6 py-4 max-h-[75vh] overflow-y-auto space-y-5">
+              {/* Renaming here sticks. The auto summary keeps updating underneath as lines
+                  change, and reappears if this is cleared. */}
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Request name</p>
+                <input
+                  value={editForm.custom_name ?? ''}
+                  onChange={e => setEditForm((ff: any) => ({ ...ff, custom_name: e.target.value }))}
+                  placeholder={detail.name || 'Name this request'}
+                  className="w-full text-sm border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#3B6FE0]" />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  {editForm.custom_name?.trim()
+                    ? 'Shown on the board instead of the item list.'
+                    : `Blank uses the item list: "${detail.name || '—'}"`}
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Location</p>
