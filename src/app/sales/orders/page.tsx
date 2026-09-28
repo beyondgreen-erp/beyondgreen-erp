@@ -359,6 +359,24 @@ const STATUSES = [
   'Partially Shipped','Ready for Invoice','Shipped','Completed',
   'On Hold','Cancelled','Closed',
 ]
+
+// Statuses a user may NOT set by hand from the Sales Orders screen.
+//
+// These three are outcomes, not choices: they are reached by actually shipping an
+// order (which writes a shipment, deducts inventory and raises an invoice), never by
+// picking them from a dropdown. Setting them by hand skipped all of that and silently
+// filed the order as finished — an order set to Completed drops off the active board
+// into the completed list, which is how SO 31670 appeared to vanish.
+//
+// STATUSES itself is unchanged: it still drives the filter dropdown, the colour map
+// and the display of orders that already hold one of these values.
+const LOCKED_STATUSES = ['Ready for Invoice', 'Shipped', 'Completed'] as const
+const isLockedStatus = (s: string) => (LOCKED_STATUSES as readonly string[]).includes(s)
+
+// What the editable dropdowns offer. An order that already carries a locked status
+// keeps showing it (prepended below) so nothing is silently rewritten on save.
+const SELECTABLE_STATUSES = STATUSES.filter(s => !isLockedStatus(s))
+
 const STATUS_COLORS: Record<string,string> = {
   Pending:             'bg-[#F3F4F6] text-gray-600 border-[#E4E6EE]',
   Confirmed:           'bg-blue-500/15 text-blue-400 border-blue-500/20',
@@ -1167,7 +1185,10 @@ function EditPanel({
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Status</label>
                   <select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))} className={inp + ' cursor-pointer'}>
-                    {(STATUSES.includes(form.status) ? STATUSES : [...STATUSES, form.status]).map(s => <option key={s} value={s}>{s}</option>)}
+                    {(isLockedStatus(form.status) || !STATUSES.includes(form.status)
+                      ? [form.status, ...SELECTABLE_STATUSES]
+                      : SELECTABLE_STATUSES
+                    ).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
@@ -2706,7 +2727,16 @@ export default function OrdersPage() {
             const groupTotal = items.reduce((s, o) => s + orderValue(o), 0)
             const dropInto = (idx: number) => {
               const id = dragId.current; dragId.current = null; if (!id) return
-              if (gb === 'status') { const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp) }
+              if (gb === 'status') {
+                // Dragging a card into a column sets that status, so the locked ones
+                // have to be refused here too — otherwise the dropdown is closed but
+                // the drag target is still an open door to the same mistake.
+                if (isLockedStatus(grp)) {
+                  setFlowToast({ message: `"${grp}" is set by shipping the order, not by moving it here.` })
+                  return
+                }
+                const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp)
+              }
               else { moveOrder(id, grp, idx) }
             }
             return (
@@ -2769,7 +2799,10 @@ export default function OrdersPage() {
                         <select value={o.status} onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); inlineStatus(o, e.target.value) }} onDragStart={e => e.stopPropagation()}
                           style={{ background: sc.bg, color: sc.fg, borderColor: 'transparent' }}
                           className="text-xs rounded-full border px-2.5 py-1 font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30 shrink-0 max-w-[104px] sm:max-w-[170px] truncate">
-                          {(STATUSES.includes(o.status) ? STATUSES : [o.status, ...STATUSES]).map(s => <option key={s} value={s} style={{ color: '#1A1D2E' }}>{s}</option>)}
+                          {(isLockedStatus(o.status) || !STATUSES.includes(o.status)
+                            ? [o.status, ...SELECTABLE_STATUSES]
+                            : SELECTABLE_STATUSES
+                          ).map(s => <option key={s} value={s} style={{ color: '#1A1D2E' }}>{s}</option>)}
                         </select>
                         <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
                           className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-[#00A84F]" title="Required ship date"/>
