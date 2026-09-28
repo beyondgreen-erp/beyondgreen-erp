@@ -28,19 +28,24 @@ export function sanitizePdfText(value: string): string {
 }
 
 /**
- * Applied to jsPDF's shared API so every document in the ERP is covered from one place —
- * packing lists, BOLs, labels, invoices, quotes and the Walmart/Chewy reports. Modules that
- * build a PDF import this file for the side effect; importing it more than once is harmless.
+ * jsPDF builds `text` as an own property of each document rather than on a prototype, so there
+ * is nothing to patch centrally at module level. Its `initialized` event fires with `this` set
+ * to each new document, which is the one place that reaches every builder in the ERP —
+ * packing lists, labels, BOLs, invoices, quotes and the Walmart/Chewy reports.
  */
-type TextArg = string | string[]
-if (!(jsPDF as unknown as { __bgTextSanitised?: boolean }).__bgTextSanitised) {
-  const proto = (jsPDF as unknown as { API: Record<string, unknown> }).API
-  const original = proto.text as (...args: unknown[]) => unknown
-  proto.text = function patchedText(this: unknown, ...args: unknown[]) {
-    const first = args[0] as TextArg
-    if (typeof first === 'string') args[0] = sanitizePdfText(first)
-    else if (Array.isArray(first)) args[0] = first.map(t => (typeof t === 'string' ? sanitizePdfText(t) : t))
-    return original.apply(this, args)
-  }
-  ;(jsPDF as unknown as { __bgTextSanitised?: boolean }).__bgTextSanitised = true
+type JsPdfDoc = { text: (...args: unknown[]) => unknown }
+const api = jsPDF.API as unknown as { events: unknown[][] }
+const flag = jsPDF as unknown as { __bgTextSanitised?: boolean }
+
+if (!flag.__bgTextSanitised) {
+  api.events.push(['initialized', function initSanitiser(this: JsPdfDoc) {
+    const original = this.text.bind(this)
+    this.text = (...args: unknown[]) => {
+      const first = args[0]
+      if (typeof first === 'string') args[0] = sanitizePdfText(first)
+      else if (Array.isArray(first)) args[0] = first.map(t => (typeof t === 'string' ? sanitizePdfText(t) : t))
+      return original(...args)
+    }
+  }])
+  flag.__bgTextSanitised = true
 }
