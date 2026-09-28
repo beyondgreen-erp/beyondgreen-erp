@@ -22,6 +22,7 @@ export default function WalmartRequirements() {
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [sel, setSel] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -116,7 +117,10 @@ export default function WalmartRequirements() {
     return [...m.values()].map(g => ({ ...g, shortCount: g.rows.filter(r => (r.short ?? 0) > 0).length }))
   }, [perPo, q])
 
-  function exportPdf() {
+  function exportPdf(onlySelected = false) {
+    const useGroups = onlySelected ? groups.filter(g => sel[g.po]) : groups
+    const usePerPo = onlySelected ? perPo.filter(r => sel[r.po]) : perPo
+    if (useGroups.length === 0) return
     const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' })
     const W = doc.internal.pageSize.getWidth()
     const M = 40
@@ -130,15 +134,15 @@ export default function WalmartRequirements() {
     doc.text('Walmart PO Requirements', M, y + 18)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120, 120, 120)
     doc.text('Generated ' + new Date().toLocaleString(), M, y + 32)
-    const posWithShort = groups.filter(g => g.shortCount > 0).length
-    const shortLineItems = perPo.filter(r => (r.short ?? 0) > 0).length
-    doc.text(groups.length + ' active POs  \u00b7  ' + shortLineItems + ' short line items across ' + posWithShort + ' POs  \u00b7  shipped POs excluded', M, y + 46)
+    const posWithShort = useGroups.filter(g => g.shortCount > 0).length
+    const shortLineItems = usePerPo.filter(r => (r.short ?? 0) > 0).length
+    doc.text(useGroups.length + ' active POs' + (onlySelected ? ' (selected)' : '') + '  \u00b7  ' + shortLineItems + ' short line items across ' + posWithShort + ' POs  \u00b7  shipped POs excluded', M, y + 46)
     y += 72
 
     const compShort: Record<string, number> = {}
-    for (const r of perPo) { if ((r.short ?? 0) > 0) compShort[r.sku] = (compShort[r.sku] || 0) + (r.short as number) }
+    for (const r of usePerPo) { if ((r.short ?? 0) > 0) compShort[r.sku] = (compShort[r.sku] || 0) + (r.short as number) }
     const topComp = Object.entries(compShort).sort((a, b) => b[1] - a[1]).slice(0, 8)
-    const poShort = groups.filter(g => g.shortCount > 0).map(g => [g.po, g.shortCount] as [string, number]).sort((a, b) => b[1] - a[1]).slice(0, 10)
+    const poShort = useGroups.filter(g => g.shortCount > 0).map(g => [g.po, g.shortCount] as [string, number]).sort((a, b) => b[1] - a[1]).slice(0, 10)
 
     const barChart = (title: string, items: [string, number][], suffix: string) => {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(DARK[0], DARK[1], DARK[2])
@@ -160,7 +164,7 @@ export default function WalmartRequirements() {
     barChart('Top Component Shortages (units short)', topComp, '')
     barChart('Short Components by PO', poShort, ' short')
 
-    const bodyRows = perPo.map(r => [r.po, r.sku, (r.name || ''), Math.round(r.need).toLocaleString(), isNaN(r.onHand) ? '\u2014' : Math.round(r.onHand).toLocaleString(), r.short == null ? 'n/a' : (r.short <= 0 ? 'OK' : Math.round(r.short).toLocaleString())])
+    const bodyRows = usePerPo.map(r => [r.po, r.sku, (r.name || ''), Math.round(r.need).toLocaleString(), isNaN(r.onHand) ? '\u2014' : Math.round(r.onHand).toLocaleString(), r.short == null ? 'n/a' : (r.short <= 0 ? 'OK' : Math.round(r.short).toLocaleString())])
     autoTable(doc, {
       startY: y,
       head: [['PO', 'Component', 'Description', 'Qty Needed', 'On Hand', 'Short']],
@@ -173,8 +177,11 @@ export default function WalmartRequirements() {
       margin: { left: M, right: M },
       didParseCell: (data: any) => { if (data.section === 'body' && data.column.index === 5 && data.cell.raw !== 'OK' && data.cell.raw !== 'n/a') { data.cell.styles.textColor = RED } },
     })
-    doc.save('beyondGREEN_Walmart_PO_Requirements_' + new Date().toISOString().slice(0, 10) + '.pdf')
+    doc.save('beyondGREEN_Walmart_PO_Requirements' + (onlySelected ? '_selected' : '') + '_' + new Date().toISOString().slice(0, 10) + '.pdf')
   }
+
+  const selCount = Object.keys(sel).filter(k => sel[k]).length
+  const allSelected = groups.length > 0 && groups.every(g => sel[g.po])
 
   return (
     <div className="bg-white rounded-2xl border border-[#E4E6EE] overflow-hidden">
@@ -185,13 +192,20 @@ export default function WalmartRequirements() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => load()} disabled={loading} title="Reload latest Walmart PO data" className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-[#F5F6FA] disabled:opacity-50 transition-colors"><i className={'ti ti-refresh' + (loading ? ' animate-spin' : '')} />Refresh</button>
-          <button onClick={exportPdf} disabled={loading || groups.length === 0} title="Download a PDF report with charts" className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg bg-[#0071CE] text-white hover:bg-[#005fa8] disabled:opacity-50 transition-colors"><i className="ti ti-file-type-pdf" />Export PDF</button>
+          <button onClick={() => exportPdf(selCount > 0)} disabled={loading || groups.length === 0} title={selCount > 0 ? `Export a PDF of the ${selCount} selected PO(s)` : 'Download a PDF report of all POs'} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg bg-[#0071CE] text-white hover:bg-[#005fa8] disabled:opacity-50 transition-colors"><i className="ti ti-file-type-pdf" />{selCount > 0 ? `Export Selected (${selCount})` : 'Export PDF'}</button>
           <div className="relative">
             <i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
             <input placeholder="Search PO or component…" value={q} onChange={e => setQ(e.target.value)} className="pl-9 pr-4 py-2 text-sm bg-white border border-[#E4E6EE] rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
       </div>
+      {!loading && groups.length > 0 && (
+        <div className="flex items-center gap-3 px-4 sm:px-6 py-2 bg-[#FBFCFE] border-b border-[#EEF0F4] text-xs text-gray-500">
+          <input type="checkbox" checked={allSelected} onChange={e => { const on = e.target.checked; setSel(() => { const n: Record<string, boolean> = {}; if (on) groups.forEach(g => { n[g.po] = true }); return n }) }} className="w-4 h-4 accent-[#0071CE] cursor-pointer shrink-0" title="Select all POs" />
+          <span>{selCount > 0 ? `${selCount} PO${selCount === 1 ? '' : 's'} selected \u2014 use Export Selected to export just these` : 'Tip: check specific POs to export only those'}</span>
+          {selCount > 0 && <button onClick={() => setSel({})} className="ml-auto text-[#0071CE] font-medium hover:underline">Clear</button>}
+        </div>
+      )}
       <div>
         {loading ? <div className="px-6 py-16 text-center text-gray-400 text-sm">Loading…</div>
          : groups.length === 0 ? <div className="px-6 py-16 text-center text-gray-400 text-sm">No BOM components needed for active Walmart POs.</div>
@@ -199,7 +213,9 @@ export default function WalmartRequirements() {
           const isOpen = !!open[g.po]
           return (
             <div key={g.po} className="border-b border-[#EEF0F4] last:border-b-0">
-              <button onClick={() => setOpen(o => ({ ...o, [g.po]: !o[g.po] }))} className="w-full flex items-center gap-3 px-4 sm:px-6 py-3 hover:bg-[#F8FAFC] text-left transition-colors">
+              <div className="w-full flex items-center gap-3 px-4 sm:px-6 py-3 hover:bg-[#F8FAFC] transition-colors">
+                <input type="checkbox" checked={!!sel[g.po]} onChange={e => setSel(s => ({ ...s, [g.po]: e.target.checked }))} className="w-4 h-4 accent-[#0071CE] cursor-pointer shrink-0" title="Select this PO for export" />
+              <button onClick={() => setOpen(o => ({ ...o, [g.po]: !o[g.po] }))} className="flex-1 flex items-center gap-3 text-left">
                 <span className="text-[11px] text-gray-400 shrink-0" style={{ display: 'inline-block', transition: 'transform .15s', transform: isOpen ? 'rotate(90deg)' : 'none' }}>&#9654;</span>
                 <span className="font-bold text-sm text-[#0F172A] shrink-0">{g.po}</span>
                 {g.poName && g.poName !== g.po && <span className="text-xs text-gray-400 truncate hidden sm:block">{g.poName}</span>}
@@ -208,6 +224,7 @@ export default function WalmartRequirements() {
                   ? <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 shrink-0">{g.shortCount} short</span>
                   : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 shrink-0">OK</span>}
               </button>
+              </div>
               {isOpen && (
                 <div className="overflow-x-auto bg-[#FBFCFE] border-t border-[#EEF0F4]">
                   <table className="w-full min-w-[520px] text-sm">
