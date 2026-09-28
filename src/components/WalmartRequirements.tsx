@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import jsPDF from 'jspdf'
+import '@/lib/pdfSafeText'   // strips invisible pasted characters from every PDF
 import autoTable from 'jspdf-autotable'
 
 interface WOrder { id: string; name: string | null; po_number: string | null; status: string | null; group_name: string | null; ship_due_date: string | null }

@@ -1,5 +1,6 @@
 // Straight Bill of Lading + Master BOL + Packing List PDF generation (client-side, jsPDF).
 import { jsPDF } from 'jspdf'
+import '@/lib/pdfSafeText'   // strips invisible pasted characters from every PDF
 
 export interface BolLine {
   handlingQty?: number

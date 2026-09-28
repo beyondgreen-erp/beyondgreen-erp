@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import jsPDF from 'jspdf'
+import '@/lib/pdfSafeText'   // strips invisible pasted characters from every PDF
 import autoTable from 'jspdf-autotable'
 
 const GREEN: [number,number,number] = [16,185,129]

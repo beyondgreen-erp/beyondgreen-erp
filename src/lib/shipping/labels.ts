@@ -1,5 +1,6 @@
 // Case + pallet label generation (client-side). Uses jsPDF + jsbarcode.
 import { jsPDF } from 'jspdf'
+import '@/lib/pdfSafeText'   // strips invisible pasted characters from every PDF
 import JsBarcode from 'jsbarcode'
 
 export interface LabelOrder { poNumber: string; shipToName: string; shipToAddress: string; shipFromLines?: string[] }
