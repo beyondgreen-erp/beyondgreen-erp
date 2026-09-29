@@ -44,6 +44,7 @@ interface QuoteLine {
   line_total: number
   pcs_per_case?: number | null
   case_price?: number | null
+  unit_of_measure?: string | null
   product_id: string | null
 }
 
@@ -555,6 +556,7 @@ export default function QuotationsPage() {
               line_total: l.line_total ?? 0,
               pcs_per_case: l.pcs_per_case ?? null,
               case_price: l.case_price ?? null,
+              unit_of_measure: (l.unit_of_measure ?? '').trim() || null,
             }))
           )
           if (linesErr) { alert('Quote saved but line items failed: ' + linesErr.message); setSaving(false); fetchQuotes(); return }
@@ -578,7 +580,7 @@ export default function QuotationsPage() {
       sku: l.sku ?? null,
       description: l.product_name ?? l.description ?? '',
       quantity: l.quantity ?? 1,
-      unit_of_measure: null,
+      unit_of_measure: (l as any).unit_of_measure ?? null,
       unit_price: l.unit_price ?? 0,
       discount_pct: 0,
     }))
@@ -1246,7 +1248,7 @@ export default function QuotationsPage() {
                 <table className="w-full">
                   <thead>
                     <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E4E6EE' }}>
-                      {['SKU', 'Description', 'Qty', 'Pcs/Case', 'Case Price', 'Unit Price', 'Total', ''].map(h => (
+                      {['SKU', 'Description', 'UOM', 'Qty', 'Pcs/Case', 'Case Price', 'Unit Price', 'Total', ''].map(h => (
                         <th key={h} className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>{h}</th>
                       ))}
                     </tr>
@@ -1254,7 +1256,7 @@ export default function QuotationsPage() {
                   <tbody>
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-sm" style={{ color: '#9CA3AF' }}>
+                        <td colSpan={9} className="px-4 py-8 text-center text-sm" style={{ color: '#9CA3AF' }}>
                           No line items yet. Search above or click Add Line Item.
                         </td>
                       </tr>
@@ -1262,17 +1264,22 @@ export default function QuotationsPage() {
                       <tr key={i} style={{ borderBottom: '1px solid #F3F4F6' }}>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1">
-                            <input value={line.sku ?? ''} onChange={e => updateLine(i, 'sku', e.target.value)} placeholder="SKU"
-                              className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
+                            <input value={line.sku ?? ''} onChange={e => updateLine(i, 'sku', e.target.value)} placeholder="SKU" title={line.sku ?? ''}
+                              className="w-full min-w-[130px] px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
                               style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
                             {line.product_id
                               ? <span title="Linked to Inventory" style={{ color: '#10B981', fontSize: '11px' }}>●</span>
                               : (line.sku ? <span title="New SKU — added to Inventory when you save" style={{ color: '#F59E0B', fontSize: '11px' }}>●</span> : null)}
                           </div>
                         </td>
+                        <td className="px-3 py-2 min-w-[280px]">
+                          <textarea value={line.product_name ?? line.description ?? ''} onChange={e => updateLine(i, 'product_name', e.target.value)} placeholder="Product / description" rows={2}
+                            className="w-full px-2 py-1.5 rounded-lg border text-xs leading-snug resize-y focus:outline-none focus:border-blue-500"
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E', minHeight: '38px' }} />
+                        </td>
                         <td className="px-3 py-2">
-                          <input value={line.product_name ?? line.description ?? ''} onChange={e => updateLine(i, 'product_name', e.target.value)} placeholder="Product / description"
-                            className="w-full px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
+                          <input value={line.unit_of_measure ?? ''} onChange={e => updateLine(i, 'unit_of_measure', e.target.value)} placeholder="EA" title={line.unit_of_measure ?? ''}
+                            className="w-16 px-2 py-1.5 rounded-lg border text-xs uppercase focus:outline-none focus:border-blue-500"
                             style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
                         </td>
                         <td className="px-3 py-2">
