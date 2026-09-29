@@ -944,7 +944,12 @@ export default function QuotationsPage() {
         onClick={e => e.stopPropagation()}
         className="fixed left-1/2 top-6 z-50 flex flex-col overflow-hidden transition-all duration-200"
         style={{
-          width: 720,
+          // The Line Items grid is nine columns wide (SKU, Description, UOM, Qty, Pcs/Case,
+          // Case Price, Unit Price, Total, remove). Their combined minimum is ~1090px, so at the
+          // old fixed 720px the right-hand money columns were clipped off the edge of the card.
+          // The other tabs are a two-column form and read badly when stretched that far, so the
+          // card widens only while Line Items is open — `transition-all` animates the change.
+          width: panelTab === 'lines' ? 1180 : 720,
           maxWidth: 'calc(100% - 2rem)',
           maxHeight: 'calc(100vh - 48px)',
           background: '#FFFFFF',
@@ -1244,8 +1249,9 @@ export default function QuotationsPage() {
               </div>
 
               {/* Lines table */}
-              <div className="rounded-xl border overflow-hidden" style={{ borderColor: '#E4E6EE' }}>
-                <table className="w-full">
+              {/* overflow-x-auto so a narrow window scrolls the grid instead of cutting fields off */}
+              <div className="rounded-xl border overflow-x-auto" style={{ borderColor: '#E4E6EE' }}>
+                <table className="w-full" style={{ minWidth: 1040 }}>
                   <thead>
                     <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E4E6EE' }}>
                       {['SKU', 'Description', 'UOM', 'Qty', 'Pcs/Case', 'Case Price', 'Unit Price', 'Total', ''].map(h => (
@@ -1275,7 +1281,7 @@ export default function QuotationsPage() {
                         <td className="px-3 py-2 min-w-[280px]">
                           <textarea value={line.product_name ?? line.description ?? ''} onChange={e => updateLine(i, 'product_name', e.target.value)} placeholder="Product / description" rows={2}
                             className="w-full px-2 py-1.5 rounded-lg border text-xs leading-snug resize-y focus:outline-none focus:border-blue-500"
-                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E', minHeight: '38px' }} />
+                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E', minHeight: '48px' }} />
                         </td>
                         <td className="px-3 py-2">
                           <input value={line.unit_of_measure ?? ''} onChange={e => updateLine(i, 'unit_of_measure', e.target.value)} placeholder="EA" title={line.unit_of_measure ?? ''}
