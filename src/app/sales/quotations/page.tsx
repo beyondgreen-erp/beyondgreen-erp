@@ -1278,9 +1278,14 @@ export default function QuotationsPage() {
                               : (line.sku ? <span title="New SKU — added to Inventory when you save" style={{ color: '#F59E0B', fontSize: '11px' }}>●</span> : null)}
                           </div>
                         </td>
-                        <td className="px-3 py-2 min-w-[280px]">
+                        {/* width:100% makes this the flexible column: the others hold their natural
+                            size and the description soaks up whatever the card has left over. */}
+                        <td className="px-3 py-2 min-w-[320px]" style={{ width: '100%' }}>
                           <textarea value={line.product_name ?? line.description ?? ''} onChange={e => updateLine(i, 'product_name', e.target.value)} placeholder="Product / description" rows={2}
-                            className="w-full px-2 py-1.5 rounded-lg border text-xs leading-snug resize-y focus:outline-none focus:border-blue-500"
+                            // Descriptions carry a UPC on a third line, which a fixed two-row box cut
+                            // in half. Growing the box to its content on every render shows all of it.
+                            ref={el => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }}
+                            className="w-full px-2 py-1.5 rounded-lg border text-xs leading-snug resize-none overflow-hidden focus:outline-none focus:border-blue-500"
                             style={{ borderColor: '#E4E6EE', color: '#1A1D2E', minHeight: '48px' }} />
                         </td>
                         <td className="px-3 py-2">
