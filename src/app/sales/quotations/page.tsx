@@ -46,6 +46,82 @@ interface QuoteLine {
   case_price?: number | null
   unit_of_measure?: string | null
   product_id: string | null
+  /** The Inventory board's own case price for this product, so the UI can show when a quote
+   *  overrides it. Never written back to Inventory and never saved on the quote line. */
+  inventory_case_price?: number | null
+}
+
+const num = (v: unknown): number => {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+  return Number.isFinite(n) ? n : 0
+}
+const round = (n: number, dp: number): number => {
+  const f = 10 ** dp
+  return Math.round((n + Number.EPSILON) * f) / f
+}
+
+/**
+ * Is this line's QUANTITY counted in cases? That is the whole question, and the UOM column is the
+ * only honest answer to it. Two quotes on the board prove a case price alone cannot decide it:
+ * Q-2026-0054 is UOM "Case", quantity 1, case price $84.38 — worth $84.38. Q-2026-0025 is UOM
+ * blank, quantity 20,000 PIECES, and carries a case price of $185 purely as reference alongside a
+ * per-piece price of $0.037 — worth $740. Charging the case price per unit of quantity there would
+ * have turned a $4,614 quote into a $4.6 million one.
+ */
+const CASE_UOMS = new Set(['CASE', 'CASES', 'CS', 'CSE', 'CTN', 'CARTON', 'CARTONS'])
+const isCaseUom = (uom?: string | null) => CASE_UOMS.has(String(uom ?? '').trim().toUpperCase())
+
+/** Quantity is in cases AND there is a case price to charge for them. */
+const isCasePriced = (l: Partial<QuoteLine>) => isCaseUom(l.unit_of_measure) && num(l.case_price) > 0
+
+/** The price one unit of QUANTITY is sold at — the case price when the line is quoted by the case,
+ *  otherwise the unit price. This is what multiplies quantity, on screen and in the PDF. */
+const effectivePrice = (l: Partial<QuoteLine>): number =>
+  isCasePriced(l) ? num(l.case_price) : num(l.unit_price)
+
+/**
+ * Keeps a line's two price columns in step and totals it on the right basis.
+ *
+ * Where a case price and a pieces-per-case count both exist, the two price columns are two views
+ * of one number, so whichever the user types the other is derived and they always agree. `anchor`
+ * is the field just edited — the one value never recalculated out from under them. The total then
+ * follows `effectivePrice`, which is where the $0.00 bug lived: the total was always unit price x
+ * quantity, so a line quoted by the case captured its case price and then ignored it.
+ */
+function recalcLine(line: Partial<QuoteLine>, anchor: string | null = null): Partial<QuoteLine> {
+  const out = { ...line }
+  const qty = num(out.quantity)
+  const pcs = num(out.pcs_per_case)
+  const casePrice = out.case_price == null ? null : num(out.case_price)
+  let unitPrice = num(out.unit_price)
+  let nextCase = casePrice
+
+  if (pcs > 0 && casePrice != null && casePrice > 0) {
+    if (anchor === 'unit_price' && unitPrice > 0) nextCase = round(unitPrice * pcs, 4)
+    else unitPrice = round(casePrice / pcs, 4)
+  }
+
+  out.case_price = nextCase
+  out.unit_price = unitPrice
+  out.line_total = round(effectivePrice(out) * qty, 2)
+  return out
+}
+
+/**
+ * What the Inventory board (Ultron) says a product costs. `case_price` is the intended home for
+ * this but is empty across the catalogue today, so wholesale_price — which on this board already
+ * holds case-level figures for case-packed goods — is the working fallback, and unit cost x
+ * pieces-per-case is the last resort. `case_qty` is 1 on a number of products where the real pack
+ * is far larger, so it is only trusted above 1; otherwise whatever the line already carries wins.
+ */
+function costingFromInventory(product: any, existingPcs?: number | null) {
+  const invPcs = num(product?.case_qty)
+  const pcs = invPcs > 1 ? invPcs : (num(existingPcs) > 0 ? num(existingPcs) : null)
+  const casePrice =
+    num(product?.case_price) > 0 ? num(product.case_price)
+      : num(product?.wholesale_price) > 0 ? num(product.wholesale_price)
+        : (num(product?.unit_cost) > 0 && pcs ? round(num(product.unit_cost) * pcs, 4) : null)
+  return { pcs, casePrice }
 }
 
 interface Customer {
@@ -356,7 +432,23 @@ export default function QuotationsPage() {
       .eq('quotation_id', q.id)
       .order('line_number', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
-    setLines((lData ?? []) as QuoteLine[])
+    // Recalculate on the way in so quotes saved before case pricing worked show their real totals
+    // the moment they are opened, and pull each linked product's Inventory price alongside them so
+    // the panel can show where a line has been overridden for this quote.
+    const loaded = ((lData ?? []) as QuoteLine[]).map(l => recalcLine(l) as QuoteLine)
+    const pids = Array.from(new Set(loaded.map(l => l.product_id).filter(Boolean))) as string[]
+    if (pids.length) {
+      const { data: prods } = await supabase
+        .from('products')
+        .select('id, case_qty, case_price, wholesale_price, unit_cost')
+        .in('id', pids)
+      const byId = new Map((prods ?? []).map((p: any) => [p.id, p]))
+      for (const l of loaded) {
+        const p = l.product_id ? byId.get(l.product_id) : null
+        if (p) l.inventory_case_price = costingFromInventory(p, l.pcs_per_case).casePrice
+      }
+    }
+    setLines(loaded)
   }
 
   function closePanel() {
@@ -402,12 +494,7 @@ export default function QuotationsPage() {
   function updateLine(i: number, field: string, value: any) {
     setLines(prev => {
       const next = [...prev]
-      next[i] = { ...next[i], [field]: value }
-      if (field === 'quantity' || field === 'unit_price') {
-        const qty = field === 'quantity' ? value : (next[i].quantity ?? 0)
-        const price = field === 'unit_price' ? value : (next[i].unit_price ?? 0)
-        next[i].line_total = qty * price
-      }
+      next[i] = recalcLine({ ...next[i], [field]: value }, field) as QuoteLine
       return next
     })
   }
@@ -429,29 +516,71 @@ export default function QuotationsPage() {
     if (q.length < 2) { setProductResults([]); return }
     const { data } = await supabase
       .from('products')
-      .select('id, sku, product_name, unit_cost, msrp, wholesale_price, case_qty, upc_gtin')
+      .select('id, sku, product_name, unit_cost, msrp, wholesale_price, case_qty, case_price, unit_of_measure, upc_gtin')
       .or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`)
       .limit(8)
     setProductResults(data ?? [])
   }
 
+  /** Drop an Inventory product onto a line, bringing its costing with it. */
+  function applyProduct(line: Partial<QuoteLine>, product: any): QuoteLine {
+    const { pcs, casePrice } = costingFromInventory(product, line.pcs_per_case)
+    return recalcLine({
+      ...line,
+      sku: product.sku,
+      product_name: product.product_name ?? line.product_name,
+      product_id: product.id,
+      pcs_per_case: pcs ?? line.pcs_per_case ?? null,
+      case_price: casePrice ?? line.case_price ?? null,
+      unit_price: casePrice != null ? 0 : (num(product.wholesale_price) || num(product.unit_cost) || num(line.unit_price)),
+      unit_of_measure: line.unit_of_measure || (casePrice != null ? 'Case' : (product.unit_of_measure ?? null)),
+      inventory_case_price: casePrice,
+    }) as QuoteLine
+  }
+
   function selectProduct(lineIdx: number, product: any) {
     setLines(prev => {
       const next = [...prev]
-      const price = product.wholesale_price ?? product.msrp ?? product.unit_cost ?? 0
-      next[lineIdx] = {
-        ...next[lineIdx],
-        sku: product.sku,
-        product_name: product.product_name,
-        product_id: product.id,
-        unit_price: price,
-        pcs_per_case: product.case_qty ?? next[lineIdx].pcs_per_case ?? null,
-        line_total: (next[lineIdx].quantity ?? 1) * price,
-      }
+      next[lineIdx] = applyProduct(next[lineIdx], product)
       return next
     })
     setProductSearch('')
     setProductResults([])
+  }
+
+  /**
+   * Lines are often keyed in by SKU rather than picked from the search. On leaving the SKU box,
+   * look the code up on the Inventory board and, if it is a real product, link the line and pull
+   * its costing in — the same result as picking it, without making the user go back and do so.
+   * An existing price on the line is left as it is; this only fills the gaps.
+   */
+  async function linkSkuOnBlur(i: number, raw: string) {
+    const sku = (raw ?? '').trim()
+    if (!sku) return
+    const current = lines[i]
+    if (!current || current.product_id) return
+    const { data } = await supabase
+      .from('products')
+      .select('id, sku, product_name, unit_cost, wholesale_price, case_qty, case_price, unit_of_measure')
+      .ilike('sku', sku)
+      .limit(1)
+    const product: any = data?.[0]
+    if (!product) return
+    setLines(prev => {
+      const next = [...prev]
+      const line = next[i]
+      if (!line || line.product_id || (line.sku ?? '').trim().toLowerCase() !== sku.toLowerCase()) return prev
+      const linked = applyProduct(line, product)
+      // Keep anything the user already typed — this fills blanks, it does not overwrite.
+      next[i] = recalcLine({
+        ...linked,
+        product_name: line.product_name || linked.product_name,
+        pcs_per_case: line.pcs_per_case ?? linked.pcs_per_case,
+        case_price: num(line.case_price) > 0 ? line.case_price : linked.case_price,
+        unit_price: num(line.case_price) > 0 ? num(line.unit_price) : linked.unit_price,
+      }) as QuoteLine
+      return next
+    })
   }
 
   // ── ULTRON: Inventory board is the single source of truth ─────────────────
@@ -463,9 +592,11 @@ export default function QuotationsPage() {
       let pid = l.product_id ?? null
       const sku = (l.sku ?? '').trim()
       const name = (l.product_name ?? '').trim()
-      const price = l.unit_price ?? 0
+      const casePrice = num(l.case_price)
+      const price = num(l.unit_price)
       // Inventory prices are the set default and are NEVER overwritten from a quote/RFQ.
-      // The quote keeps its own (possibly negotiated) price on its line.
+      // A price typed on a quote line — including one typed over an Inventory default — belongs to
+      // that quote alone and is written only to quotation_lines.
       if (pid) {
         // Already linked to an Inventory product — read-only, leave Inventory untouched.
       } else if (sku) {
@@ -474,11 +605,14 @@ export default function QuotationsPage() {
           pid = (found[0] as any).id // link only — do not modify the existing product
         } else {
           // Brand-new SKU: add it to the Inventory board so it stays the complete source of truth.
-          // Seed its default price from this first quote (nothing is being overwritten).
+          // Seed its defaults from this first quote — the product does not exist yet, so there is
+          // no established price being overwritten. A case-packed line seeds case_price, which is
+          // where auto-costing reads from, rather than burying a per-piece figure in wholesale.
           const { data: created, error: cErr } = await supabase.from('products').insert({
             sku, product_name: name || sku,
-            wholesale_price: price > 0 ? price : null,
-            unit_of_measure: 'EA', is_active: true, inventory_status: 'Active',
+            case_price: casePrice > 0 ? casePrice : null,
+            wholesale_price: casePrice > 0 ? null : (price > 0 ? price : null),
+            unit_of_measure: casePrice > 0 ? 'Case' : 'EA', is_active: true, inventory_status: 'Active',
             case_qty: l.pcs_per_case ?? null,
           }).select('id').single()
           if (!cErr && created) pid = (created as any).id
@@ -541,7 +675,7 @@ export default function QuotationsPage() {
       }
 
       if (quoteId && lines.length > 0) {
-        const validLines = lines.filter(l => l.product_name || l.sku || l.description || (l.unit_price ?? 0) > 0)
+        const validLines = lines.filter(l => l.product_name || l.sku || l.description || num(l.unit_price) > 0 || num(l.case_price) > 0)
         if (validLines.length > 0) {
           const syncedLines = await ultronSyncLines(validLines)
           const { error: linesErr } = await supabase.from('quotation_lines').insert(
@@ -581,7 +715,9 @@ export default function QuotationsPage() {
       description: l.product_name ?? l.description ?? '',
       quantity: l.quantity ?? 1,
       unit_of_measure: (l as any).unit_of_measure ?? null,
-      unit_price: l.unit_price ?? 0,
+      // The PDF multiplies quantity by this, so a case-packed line has to hand it the CASE price —
+      // the per-piece price against a quantity of cases would understate the line badly.
+      unit_price: effectivePrice(l),
       discount_pct: 0,
     }))
     generateQuotePDF(
@@ -1270,7 +1406,7 @@ export default function QuotationsPage() {
                       <tr key={i} style={{ borderBottom: '1px solid #F3F4F6' }}>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1">
-                            <input value={line.sku ?? ''} onChange={e => updateLine(i, 'sku', e.target.value)} placeholder="SKU" title={line.sku ?? ''}
+                            <input value={line.sku ?? ''} onChange={e => updateLine(i, 'sku', e.target.value)} onBlur={e => linkSkuOnBlur(i, e.target.value)} placeholder="SKU" title={line.sku ?? ''}
                               className="w-full min-w-[130px] px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-blue-500"
                               style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
                             {line.product_id
@@ -1304,20 +1440,42 @@ export default function QuotationsPage() {
                             className="w-16 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
                             style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
                         </td>
-                        <td className="px-3 py-2">
-                          <input type="number" step="0.01" value={line.case_price ?? ''} onChange={e => updateLine(i, 'case_price', e.target.value === '' ? null : parseFloat(e.target.value))}
-                            placeholder="—"
-                            className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
-                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input type="number" value={line.unit_price ?? ''} onChange={e => updateLine(i, 'unit_price', parseFloat(e.target.value) || 0)}
-                            className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
-                            style={{ borderColor: '#E4E6EE', color: '#1A1D2E' }} />
-                        </td>
-                        <td className="px-3 py-2 text-xs font-semibold text-right" style={{ color: '#1A1D2E' }}>
-                          {fmt$(line.line_total)}
-                        </td>
+                        {(() => {
+                          // A line is overridden when it carries a case price that differs from the
+                          // one the Inventory board holds. The override lives on this quote only —
+                          // Inventory keeps its own price untouched.
+                          const invCase = line.inventory_case_price
+                          const overridden = invCase != null && num(line.case_price) > 0 && Math.abs(num(line.case_price) - num(invCase)) > 0.005
+                          const casePriced = isCasePriced(line)
+                          const linked = num(line.case_price) > 0 && num(line.pcs_per_case) > 0
+                          return (
+                            <>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-1">
+                                  <input type="number" step="0.01" value={line.case_price ?? ''} onChange={e => updateLine(i, 'case_price', e.target.value === '' ? null : parseFloat(e.target.value))}
+                                    placeholder="—"
+                                    title={invCase != null ? `Inventory price: ${fmt$(invCase)}${overridden ? ' — overridden for this quote only' : ''}` : undefined}
+                                    className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
+                                    style={{ borderColor: overridden ? '#F59E0B' : '#E4E6EE', color: '#1A1D2E' }} />
+                                  {overridden && (
+                                    <span title={`Overridden for this quote only. Inventory still holds ${fmt$(invCase)}.`}
+                                      style={{ color: '#F59E0B', fontSize: '11px' }}>●</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <input type="number" step="0.0001" value={line.unit_price ?? ''} onChange={e => updateLine(i, 'unit_price', parseFloat(e.target.value) || 0)}
+                                  title={linked ? 'Case price ÷ pieces per case. Type here to price per piece and the case price follows.' : undefined}
+                                  className="w-24 px-2 py-1.5 rounded-lg border text-xs focus:outline-none text-right focus:border-blue-500"
+                                  style={{ borderColor: '#E4E6EE', color: linked ? '#6B7280' : '#1A1D2E' }} />
+                              </td>
+                              <td className="px-3 py-2 text-xs font-semibold text-right" style={{ color: '#1A1D2E' }}
+                                title={`${fmt$(effectivePrice(line))} per ${casePriced ? 'case' : (line.unit_of_measure || 'unit')} x ${num(line.quantity)}`}>
+                                {fmt$(line.line_total)}
+                              </td>
+                            </>
+                          )
+                        })()}
                         <td className="px-3 py-2">
                           <button onClick={() => removeLine(i)} className="p-1 rounded-lg transition-colors hover:bg-red-50" style={{ color: '#DC2626' }}>
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
