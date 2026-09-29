@@ -354,6 +354,25 @@ export default function ShippingQueuePage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const draft: any = (od as any)?.pack_draft
       if (draft && (Array.isArray(draft.configs) || Array.isArray(draft.lines))) {
+        // If the order's quantities / pack sizes changed since this draft was saved, the saved
+        // pallet layout + BOL (which bake in case counts) are stale. Don't restore them — start
+        // fresh from the live lines so every document reflects the new quantities.
+        let stale = false
+        if (draft.sig && typeof draft.sig === 'object') {
+          const liveSig: Record<string, string> = {}
+          for (const r of rowsOut) liveSig[r.sku] = `${r.units}|${r.unitsPerCase}`
+          const saved = draft.sig as Record<string, string>
+          const keys = new Set([...Object.keys(liveSig), ...Object.keys(saved)])
+          for (const k of keys) { if (liveSig[k] !== saved[k]) { stale = true; break } }
+        }
+        if (stale) {
+          try { await sb.from('sales_orders').update({ pack_draft: null, ship_docs: null, docs_token: null }).eq('id', item.sales_order_id) } catch { /* */ }
+          setPlan(rowsOut)
+          setDraftMsg('Order quantities changed — packing was reset to match. Re-lay pallets, then regenerate the BOL & labels.')
+          setTimeout(() => setDraftMsg(''), 9000)
+          setBusy('')
+          return
+        }
         if (Array.isArray(draft.configs)) setConfigs(draft.configs as PalletConfig[])
         if (Array.isArray(draft.boxConfigs)) setBoxConfigs(draft.boxConfigs as BoxConfig[])
         if (typeof draft.parcel === 'boolean') setParcel(draft.parcel)
@@ -380,6 +399,7 @@ export default function ShippingQueuePage() {
       configs,
       boxConfigs,
       lines: plan.map(r => ({ sku: r.sku, cases: r.cases, unitsPerCase: r.unitsPerCase })),
+      sig: Object.fromEntries(plan.map(r => [r.sku, `${r.units}|${r.unitsPerCase}`])),
       bol: bolForm,
     }
     try {
