@@ -849,15 +849,20 @@ export default function ShippingQueuePage() {
       setBusy(''); markDoc('caseLabels'); return
     }
     const cases: CaseLabel[] = []
+    // Case labels print the FULL ORDER-TOTAL case count per SKU (not the remaining
+    // balance) — one label per case in the whole order. Everything else (recorded
+    // shipped qty, invoice, ship report, pallet allocation) still uses the actual
+    // shipped amount; only the printed labels reflect the order total.
+    const orderCasesFor = (r: PlanRow) => Math.max(r.cases || 0, Math.ceil((r.units || 0) / (r.unitsPerCase || 1)))
     // Number cases continuously across the WHOLE order (1..grandTotal),
     // grouped by SKU so each case keeps its own part number + UPC.
-    const grandTotalCases = plan.reduce((s, r) => s + r.cases, 0)
+    const grandTotalCases = plan.reduce((s, r) => s + orderCasesFor(r), 0)
     let runningCase = 0
-    for (const r of plan) for (let n = 1; n <= r.cases; n++) { runningCase++; cases.push({
+    for (const r of plan) { const orderCases = orderCasesFor(r); for (let n = 1; n <= orderCases; n++) { runningCase++; cases.push({
       sku: r.sku, description: r.description, upcGtin: r.upc,
       gtinImageDataUrl: r.gtinImageUrl ? map[r.gtinImageUrl] || null : null,
       customerPartNumber: r.customerPart, vendorPartNumber: r.sku, caseNumber: runningCase, totalCases: grandTotalCases, unitsInCase: r.unitsPerCase,
-    }) }
+    }) } }
     const miss = missingUpcSkus(cases)
     if (miss.length) { setMissing(miss); setBusy(''); return }
     setMissing([])
