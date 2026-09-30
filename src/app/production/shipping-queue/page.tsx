@@ -65,6 +65,9 @@ interface PlanRow {
   // Manually-added line (order had no line items, e.g. a Faire/manual order).
   manual?: boolean
 }
+// A line moved to inventory stock: still billed on the order, but excluded from the
+// shipping plan / completion math so it can't hold the order on the pipeline.
+interface StockLine { id: string; sku: string; description: string; qty: number; unitPrice: number; productId: string | null; uom: string | null }
 // Build the per-case box list from a shipped quantity and units-per-case.
 // Full cases hold `upc`; the last case holds the remainder. Existing box
 // dimensions/weights are preserved by index; new boxes seed their weight from defWt.
@@ -145,6 +148,7 @@ export default function ShippingQueuePage() {
   const [priorShipments, setPriorShipments] = useState(0)
   const [draftMsg, setDraftMsg] = useState('')
   const [plan, setPlan] = useState<PlanRow[]>([])
+  const [stockLines, setStockLines] = useState<StockLine[]>([])
   const [configs, setConfigs] = useState<PalletConfig[]>([])
   const [cfgDraft, setCfgDraft] = useState<PalletConfig | null>(null)   // config being added/edited in the pop-up
   const [boxConfigs, setBoxConfigs] = useState<BoxConfig[]>([])          // parcel: boxes packed by units (mixed contents)
@@ -263,7 +267,7 @@ export default function ShippingQueuePage() {
   }, [load, loadBols])
 
   function resetPackState() {
-    setPlan([]); setConfigs([]); setCfgDraft(null); setBoxConfigs([]); setBoxDraft(null); setParcel(false)
+    setPlan([]); setStockLines([]); setConfigs([]); setCfgDraft(null); setBoxConfigs([]); setBoxDraft(null); setParcel(false)
     setBolForm(null); setFinalized(false); setMissing([]); setNotes('')
     if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' }
     setPreviewUrl('')
@@ -276,10 +280,19 @@ export default function ShippingQueuePage() {
     if (openId === item.id) { setOpenId(null); resetPackState(); return }
     setOpenId(item.id); resetPackState(); setBusy('load')
     setShipPrep(item.sales_orders?.ship_prep || {})
+    await loadPack(item)
+  }
+
+  async function loadPack(item: QueueItem) {
     void sb.from('shipments').select('id', { count: 'exact', head: true }).eq('sales_order_id', item.sales_order_id).then(({ count }) => setPriorShipments(count || 0))
     const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', item.sales_order_id).order('line_number', { ascending: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ls = (lines as any[]) || []
+    const allLs = (lines as any[]) || []
+    // Lines already moved to inventory stock: billed, but out of the shipping plan.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setStockLines(allLs.filter((l: any) => l.stock_item).map((l: any) => ({ id: l.id, sku: l.sku || '', description: l.description || '', qty: Number(l.quantity ?? l.qty) || 0, unitPrice: Number(l.unit_price) || 0, productId: l.product_id || null, uom: l.unit_of_measure || null })))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ls = allLs.filter((l: any) => !l.stock_item)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pids = [...new Set(ls.map((l: any) => l.product_id).filter(Boolean))]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -563,6 +576,45 @@ export default function ShippingQueuePage() {
     const { error } = await sb.from('sales_orders').update({ is_active: false }).eq('id', activeItem.sales_order_id)
     if (error) { alert('Could not delete: ' + error.message); return }
     setOpenId(null); resetPackState(); load()
+  }
+  async function moveLineToStock(lineId: string, qty: number, sku: string, productId: string | null, uom: string | null) {
+    if (!activeItem) return
+    if (!confirm(`Move "${sku || 'this item'}"${qty ? ' (qty ' + qty + ')' : ''} to inventory stock? It stays on the order for billing but no longer has to ship, so the order can complete.`)) return
+    setBusy('load')
+    try {
+      await sb.from('sales_order_lines').update({ stock_item: true }).eq('id', lineId)
+      if (qty > 0) {
+        try {
+          let pid = productId
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (!pid && sku) { const { data: pf } = await sb.from('products').select('id').ilike('sku', sku).limit(1); pid = (pf?.[0] as any)?.id ?? null }
+          await sb.from('inventory_movements').insert({ product_id: pid, sku: sku || null, movement_type: 'stock', qty, uom: uom || null, ref_table: 'sales_order_lines', ref_id: lineId, note: `Moved to inventory stock from order ${o?.order_number || ''}`.trim(), created_by: userEmail || 'system' })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (pid) { const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle(); await sb.from('products').update({ on_hand_qty: Number((pr as any)?.on_hand_qty || 0) + qty }).eq('id', pid) }
+        } catch { /* ledger posting is best-effort */ }
+      }
+      invalidateBol()
+      await loadPack(activeItem)
+    } catch (e) { alert('Could not move to stock: ' + (e as Error).message); setBusy('') }
+  }
+  async function returnLineToOrder(l: StockLine) {
+    if (!activeItem) return
+    setBusy('load')
+    try {
+      await sb.from('sales_order_lines').update({ stock_item: false }).eq('id', l.id)
+      if (l.qty > 0) {
+        try {
+          let pid = l.productId
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (!pid && l.sku) { const { data: pf } = await sb.from('products').select('id').ilike('sku', l.sku).limit(1); pid = (pf?.[0] as any)?.id ?? null }
+          await sb.from('inventory_movements').insert({ product_id: pid, sku: l.sku || null, movement_type: 'stock', qty: -l.qty, uom: l.uom || null, ref_table: 'sales_order_lines', ref_id: l.id, note: `Returned to order ${o?.order_number || ''} from inventory stock`.trim(), created_by: userEmail || 'system' })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (pid) { const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle(); await sb.from('products').update({ on_hand_qty: Number((pr as any)?.on_hand_qty || 0) - l.qty }).eq('id', pid) }
+        } catch { /* best-effort */ }
+      }
+      invalidateBol()
+      await loadPack(activeItem)
+    } catch (e) { alert('Could not return to order: ' + (e as Error).message); setBusy('') }
   }
   const activeW = wItems.find(i => i.id === openW)
   const o = activeItem?.sales_orders
@@ -1264,13 +1316,14 @@ export default function ShippingQueuePage() {
       for (const r of plan) shipNow[r.sku] = (shipNow[r.sku] || 0) + (Number(r.shippedUnits) || 0)
       // Roll the shipped qty into each order line's completed_qty and decide full vs partial.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped, unit_price').eq('sales_order_id', activeItem.sales_order_id)
+      const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped, unit_price, stock_item').eq('sales_order_id', activeItem.sales_order_id)
       // Value of THIS shipment only. createShipment otherwise stamps the whole
       // order's value on every shipment, so a partial reported the full order amount.
       let shippedValue = 0
       let fully = true
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const l of ((curLines as any[]) || [])) {
+        if (l.stock_item) continue   // moved to inventory stock — not part of the must-ship balance
         const ordered = Number(l.quantity ?? l.qty) || 0
         // quantity_shipped is the shipped balance every other screen reads;
         // completed_qty is production progress. They are not the same field.
@@ -1577,6 +1630,21 @@ export default function ShippingQueuePage() {
                             <button onClick={addManualLine} className="text-[11px] font-semibold text-[#0086C0] hover:underline">+ Add line</button>
                             <span className="ml-auto text-[11px] text-gray-400">Set UOM, units per case, and the qty shipped — the boxes below fill automatically. Give each case its own size &amp; weight.</span>
                           </div>
+                          {stockLines.length > 0 && (
+                            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                              <div className="text-[11px] font-semibold text-amber-800 mb-1.5">📦 Moved to inventory stock — billed on this order, not shipping with it</div>
+                              <div className="space-y-1.5">
+                                {stockLines.map(l => (
+                                  <div key={l.id} className="flex items-center gap-2 text-xs">
+                                    <span className="font-mono text-[11px] text-amber-900">{l.sku || '(no sku)'}</span>
+                                    <span className="text-gray-600 truncate max-w-[240px]" title={l.description}>{l.description || '—'}</span>
+                                    <span className="text-gray-500">qty {l.qty}</span>
+                                    <button onClick={() => returnLineToOrder(l)} className="ml-auto text-[10px] px-2 py-0.5 rounded border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 whitespace-nowrap" title="Put this item back on the shipping plan and reverse the inventory stock entry">↩ Return to order</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           <div className="space-y-2">
                             {plan.map((r, i) => {
                               const over = r.shippedUnits > r.units
@@ -1601,7 +1669,10 @@ export default function ShippingQueuePage() {
                                     <div className="w-[72px]"><label className={lbl}>Ordered ({r.uom || 'ea'})</label><input type="number" min={0} value={r.units} onChange={e => setOrdered(i, parseInt(e.target.value) || 0)} className={nf} /></div>
                                     <div className="w-[72px]"><label className={lbl}>Shipped ({r.uom || 'ea'})</label><input type="number" min={0} value={r.shippedUnits} onChange={e => setShipped(i, parseInt(e.target.value) || 0)} className={`${nf} ${over ? 'border-red-400 text-red-600' : ''}`} /></div>
                                     <div className="text-center w-[64px]"><label className={lbl}>Total Cases</label><div className="text-sm font-semibold text-[#1A1D2E] py-1">{r.boxes.length}</div></div>
-                                    <button onClick={() => removeLine(i)} className="ml-auto text-gray-300 hover:text-red-500 text-sm self-start" title="Remove this SKU from the shipment">✕</button>
+                                    {r.lineId && !r.manual && (
+                                      <button onClick={() => moveLineToStock(r.lineId as string, r.units, r.sku, r.productId, r.uom)} className="ml-auto self-start text-[10px] px-2 py-1 rounded border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 whitespace-nowrap" title="Bill this item on the order but move it to inventory stock so it doesn't have to ship (e.g. a print plate, extras, or a stocked BOM the customer paid for)">📦 Move to stock</button>
+                                    )}
+                                    <button onClick={() => removeLine(i)} className={`${r.lineId && !r.manual ? 'ml-2' : 'ml-auto'} text-gray-300 hover:text-red-500 text-sm self-start`} title="Remove this SKU from the shipment">✕</button>
                                   </div>
                                   {over && <div className="text-[11px] text-red-600 mt-1">Shipped can&apos;t exceed ordered — it&apos;s capped automatically.</div>}
                                   {parcel && boxConfigs.length === 0 && (
