@@ -450,6 +450,19 @@ function urgencyStyle(u: { level: string; days: number } | null): React.CSSPrope
   const hue = 45 * frac
   return { background: `hsla(${hue}, 92%, 50%, 0.13)`, borderLeft: `4px solid hsl(${hue}, 90%, 48%)` }
 }
+// Ship-date cell coloring (row itself stays neutral): green before the date, yellow on the
+// date, red once it has passed, and blue with a prompt when no ship date has been entered.
+function shipDateVisual(o: SalesOrder): { cls: string; emoji?: string; title: string } {
+  const d = (o as any).required_ship_date || (o as any).ship_date
+  if (!d) return { cls: 'bg-blue-50 text-blue-700 border-blue-300', emoji: '❓', title: 'No ship date yet — click to set one' }
+  const t = new Date(); t.setHours(0, 0, 0, 0)
+  const ship = new Date(String(d) + 'T00:00:00')
+  if (isNaN(ship.getTime())) return { cls: 'bg-blue-50 text-blue-700 border-blue-300', emoji: '❓', title: 'No ship date yet — click to set one' }
+  const days = Math.round((ship.getTime() - t.getTime()) / 86400000)
+  if (days > 0) return { cls: 'bg-emerald-50 text-emerald-700 border-emerald-300', title: `Ships in ${days} day${days === 1 ? '' : 's'}` }
+  if (days === 0) return { cls: 'bg-amber-50 text-amber-800 border-amber-400', title: 'Ships today' }
+  return { cls: 'bg-red-50 text-red-700 border-red-300', title: `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} past ship date` }
+}
 
 function StatusBadge({ status }: { status: string }) {
   const c = statusColor(status)
@@ -2798,9 +2811,9 @@ export default function OrdersPage() {
                     {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400 italic">Drop orders here</div>}
                     {items.map((o, idx) => {
                       const sc = statusColor(o.status)
-                      const u = shipUrgency(o)
+                      const sv = shipDateVisual(o)
                       return (
-                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} style={urgencyStyle(u)} className={`group flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 mon-row ${u?.level === 'overdue' ? 'so-blink' : ''}`}>
+                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 mon-row">
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
@@ -2815,7 +2828,6 @@ export default function OrdersPage() {
                           <input key={col.id} type={col.ftype === 'number' ? 'number' : col.ftype === 'date' ? 'date' : 'text'} value={cf[col.id] ?? ''} onClick={e => e.stopPropagation()} onChange={e => setCell(o.id, col.id, e.target.value)} onDragStart={e => e.stopPropagation()} placeholder="—"
                             className="w-[110px] shrink-0 hidden md:block text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 focus:outline-none focus:border-[#00A84F]" />
                         ) })}
-                        {u && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${u.level === 'overdue' ? 'bg-[#E2445C] text-white' : 'bg-amber-400/20 text-amber-700'}`} title="Ship-date urgency">{u.level === 'overdue' ? `${Math.abs(u.days)}d late` : `${u.days}d`}</span>}
                         {/* Compares every line against on-hand stock, and raises a work order for
                             each short one. Lives on the board because this is where orders are worked. */}
                         <button
@@ -2833,8 +2845,11 @@ export default function OrdersPage() {
                             : SELECTABLE_STATUSES
                           ).map(s => <option key={s} value={s} style={{ color: '#1A1D2E' }}>{s}</option>)}
                         </select>
-                        <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
-                          className="text-xs text-gray-600 bg-transparent border border-transparent hover:border-[#E4E6EE] rounded px-1 py-0.5 w-[120px] hidden sm:block focus:outline-none focus:border-[#00A84F]" title="Required ship date"/>
+                        <div className={`relative w-[120px] hidden sm:block rounded border ${sv.cls}`} title={sv.title}>
+                          <input type="date" value={o.required_ship_date || ''} onClick={e => e.stopPropagation()} onChange={e => inlineField(o.id, 'required_ship_date', e.target.value)} onDragStart={e => e.stopPropagation()}
+                            className="text-xs bg-transparent border-0 rounded px-1 py-0.5 w-full focus:outline-none font-medium" style={{ color: 'inherit' }} />
+                          {sv.emoji && <span className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-[12px]">{sv.emoji}</span>}
+                        </div>
                         <span className="text-xs font-semibold text-gray-700 w-14 sm:w-20 text-right shrink-0">{fmt$(orderValue(o)) ?? ''}</span>
                       </div>
                     )})}
