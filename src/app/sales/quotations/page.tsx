@@ -1564,7 +1564,7 @@ export default function QuotationsPage() {
                       <span className="text-[11px] text-gray-400">Save the RFQ first</span>
                     )}
                   </div>
-                  {editing?.id && <RfqResponses quotationId={editing.id} refreshKey={rfqActivityKey} />}
+                  {editing?.id && <RfqResponses quotationId={editing.id} refreshKey={rfqActivityKey} currentUserEmail={userEmail} />}
                 </div>
               )}
             </div>

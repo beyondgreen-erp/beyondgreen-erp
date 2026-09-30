@@ -4,6 +4,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
+import FileUpload from '@/components/FileUpload'
+import { downloadFile, formatFileSize } from '@/lib/fileHelpers'
 
 /**
  * Outbound supplier RFQ, from inside the quotations page.
@@ -75,7 +77,27 @@ interface Resp {
   notes: string | null
   total_value: number | null
   submitted_at: string
+  method?: string | null
+  rfq_send_id?: string | null
+  vendor_id?: string | null
+  contact_email?: string | null
   rfq_response_lines?: RespLine[]
+}
+
+interface RespFile {
+  id: string
+  record_id: string
+  file_name: string
+  file_size: number | null
+  storage_path: string
+}
+
+interface QLine {
+  id: string
+  sku: string | null
+  product_name: string | null
+  description: string | null
+  quantity: number | null
 }
 
 /** The house RFQ covering note. Editable before every send. */
@@ -437,13 +459,261 @@ export function RfqSendModal({
   )
 }
 
+/* ------------------------------------------------- Manual quote entry (emailed replies) */
+
+const inputCls = 'w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm'
+
+function Field({ label, children, span2 }: { label: string; children: any; span2?: boolean }) {
+  return (
+    <label className={`block ${span2 ? 'sm:col-span-2' : ''}`}>
+      <span className="block text-xs font-semibold text-gray-700 mb-1">{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function RfqManualQuoteModal({
+  send,
+  existing,
+  quotationId,
+  currentUserEmail,
+  onClose,
+  onSaved,
+}: {
+  send: SendRow
+  existing: Resp | null
+  quotationId: string
+  currentUserEmail: string
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const supabase = createSupabaseBrowserClient()
+  // Pre-minted so files can be attached before the quote is saved.
+  const [responseId] = useState<string>(() => existing?.id || crypto.randomUUID())
+  const [qlines, setQlines] = useState<QLine[]>([])
+  const [prices, setPrices] = useState<Record<string, { unit_price: string; pcs_per_case: string; case_price: string; notes: string }>>({})
+  const [f, setF] = useState({
+    contact_name: existing?.contact_name || '',
+    contact_email: existing?.contact_email || send.recipient_email || '',
+    currency: existing?.currency || 'USD',
+    incoterm: existing?.incoterm || '',
+    payment_terms: existing?.payment_terms || '',
+    lead_time_days: existing?.lead_time_days != null ? String(existing.lead_time_days) : '',
+    moq_note: existing?.moq_note || '',
+    validity_days: existing?.validity_days != null ? String(existing.validity_days) : '',
+    plate_die_charges: existing?.plate_die_charges || '',
+    overrun_tolerance: existing?.overrun_tolerance || '',
+    certifications: existing?.certifications || '',
+    sample_available: existing?.sample_available == null ? '' : existing.sample_available ? 'yes' : 'no',
+    exclusions: existing?.exclusions || '',
+    notes: existing?.notes || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('quotation_lines')
+      .select('id, sku, product_name, description, quantity, line_number')
+      .eq('quotation_id', quotationId)
+      .order('line_number', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .then(({ data }: any) => {
+        if (cancelled) return
+        const rows = (data ?? []) as QLine[]
+        setQlines(rows)
+        const init: Record<string, any> = {}
+        rows.forEach(l => {
+          const prev = (existing?.rfq_response_lines ?? []).find((x: any) => x.quotation_line_id === l.id)
+          init[l.id] = {
+            unit_price: prev?.unit_price != null ? String(prev.unit_price) : '',
+            pcs_per_case: prev?.pcs_per_case != null ? String(prev.pcs_per_case) : '',
+            case_price: prev?.case_price != null ? String(prev.case_price) : '',
+            notes: prev?.notes || '',
+          }
+        })
+        setPrices(init)
+      })
+    return () => { cancelled = true }
+  }, [supabase, quotationId, existing])
+
+  const set = (k: keyof typeof f) => (e: any) => setF(p => ({ ...p, [k]: e.target.value }))
+  const setLine = (id: string, k: string, v: string) =>
+    setPrices(p => ({ ...p, [id]: { ...p[id], [k]: v } }))
+
+  const num = (v: string) => (v.trim() === '' || isNaN(Number(v)) ? null : Number(v))
+
+  async function save() {
+    setSaving(true); setErr('')
+    try {
+      const lineRows = qlines.map((l, i) => {
+        const pr = prices[l.id] || { unit_price: '', pcs_per_case: '', case_price: '', notes: '' }
+        const unit = num(pr.unit_price)
+        const qty = l.quantity != null ? Number(l.quantity) : null
+        return {
+          response_id: responseId,
+          quotation_line_id: l.id,
+          sku: l.sku,
+          description: l.product_name || l.description || null,
+          quantity: qty,
+          unit_price: unit,
+          pcs_per_case: num(pr.pcs_per_case),
+          case_price: num(pr.case_price),
+          line_total: unit != null && qty ? unit * qty : null,
+          notes: pr.notes.trim() || null,
+          sort_order: i,
+        }
+      }).filter(r => r.unit_price != null || r.case_price != null || r.notes)
+
+      const total = lineRows.reduce((sum, r) => sum + (r.line_total || 0), 0)
+
+      const payload: any = {
+        contact_name: f.contact_name.trim() || null,
+        contact_email: f.contact_email.trim() || null,
+        currency: f.currency.trim() || 'USD',
+        incoterm: f.incoterm.trim() || null,
+        payment_terms: f.payment_terms.trim() || null,
+        lead_time_days: num(f.lead_time_days),
+        moq_note: f.moq_note.trim() || null,
+        validity_days: num(f.validity_days),
+        plate_die_charges: f.plate_die_charges.trim() || null,
+        overrun_tolerance: f.overrun_tolerance.trim() || null,
+        certifications: f.certifications.trim() || null,
+        sample_available: f.sample_available === '' ? null : f.sample_available === 'yes',
+        exclusions: f.exclusions.trim() || null,
+        notes: f.notes.trim() || null,
+        total_value: total || null,
+      }
+
+      if (existing) {
+        const { error } = await supabase.from('rfq_vendor_responses').update(payload).eq('id', responseId)
+        if (error) throw error
+        const { error: delErr } = await supabase.from('rfq_response_lines').delete().eq('response_id', responseId)
+        if (delErr) throw delErr
+      } else {
+        const { error } = await supabase.from('rfq_vendor_responses').insert({
+          ...payload,
+          id: responseId,
+          rfq_send_id: send.id,
+          quotation_id: quotationId,
+          vendor_id: send.vendor_id,
+          vendor_name: send.vendor_name,
+          method: 'email',
+        })
+        if (error) throw error
+      }
+
+      if (lineRows.length) {
+        const { error } = await supabase.from('rfq_response_lines').insert(lineRows)
+        if (error) throw error
+      }
+
+      if (send.status !== 'Responded') {
+        await supabase.from('rfq_sends')
+          .update({ status: 'Responded', responded_at: new Date().toISOString() })
+          .eq('id', send.id)
+      }
+      onSaved()
+    } catch (e: any) {
+      setErr(e?.message || 'Could not save the quote.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">{existing ? 'Edit' : 'Enter'} quote — {send.vendor_name}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {existing
+                ? `Logged ${existing.method === 'portal' ? 'from their form' : 'by hand'} · edits replace what is shown on the RFQ`
+                : 'Type in what they sent by email and attach their files. It shows up in the comparison table like a form response.'}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <section>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Item pricing</h3>
+            {qlines.length === 0 ? (
+              <p className="text-xs text-gray-400">This RFQ has no line items yet. You can still log terms and attach files below.</p>
+            ) : (
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                {qlines.map(l => (
+                  <div key={l.id} className="px-3 py-3 border-b border-gray-100 last:border-0">
+                    <div className="text-sm font-medium text-gray-900">{l.product_name || l.description || l.sku}</div>
+                    <div className="text-[11px] text-gray-400 mb-2">{l.sku ? `${l.sku} · ` : ''}Qty {l.quantity ?? '—'}</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <input inputMode="decimal" placeholder={`Unit price (${f.currency || 'USD'})`} value={prices[l.id]?.unit_price ?? ''} onChange={e => setLine(l.id, 'unit_price', e.target.value)} className={inputCls} />
+                      <input inputMode="numeric" placeholder="Pcs / case" value={prices[l.id]?.pcs_per_case ?? ''} onChange={e => setLine(l.id, 'pcs_per_case', e.target.value)} className={inputCls} />
+                      <input inputMode="decimal" placeholder="Case price" value={prices[l.id]?.case_price ?? ''} onChange={e => setLine(l.id, 'case_price', e.target.value)} className={inputCls} />
+                      <input placeholder="Line note" value={prices[l.id]?.notes ?? ''} onChange={e => setLine(l.id, 'notes', e.target.value)} className={inputCls} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Terms</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Contact name"><input value={f.contact_name} onChange={set('contact_name')} className={inputCls} /></Field>
+              <Field label="Contact email"><input value={f.contact_email} onChange={set('contact_email')} className={inputCls} /></Field>
+              <Field label="Currency"><input value={f.currency} onChange={set('currency')} className={inputCls} /></Field>
+              <Field label="Incoterm"><input value={f.incoterm} onChange={set('incoterm')} placeholder="FOB, DDP, EXW…" className={inputCls} /></Field>
+              <Field label="Lead time (days)"><input inputMode="numeric" value={f.lead_time_days} onChange={set('lead_time_days')} className={inputCls} /></Field>
+              <Field label="Quote valid (days)"><input inputMode="numeric" value={f.validity_days} onChange={set('validity_days')} className={inputCls} /></Field>
+              <Field label="MOQ"><input value={f.moq_note} onChange={set('moq_note')} className={inputCls} /></Field>
+              <Field label="Payment terms"><input value={f.payment_terms} onChange={set('payment_terms')} className={inputCls} /></Field>
+              <Field label="Plate / die charges"><input value={f.plate_die_charges} onChange={set('plate_die_charges')} className={inputCls} /></Field>
+              <Field label="Over / under run"><input value={f.overrun_tolerance} onChange={set('overrun_tolerance')} className={inputCls} /></Field>
+              <Field label="Certifications"><input value={f.certifications} onChange={set('certifications')} className={inputCls} /></Field>
+              <Field label="Samples available">
+                <select value={f.sample_available} onChange={set('sample_available')} className={inputCls}>
+                  <option value="">—</option><option value="yes">Yes</option><option value="no">No</option>
+                </select>
+              </Field>
+              <Field label="Exclusions" span2><textarea rows={2} value={f.exclusions} onChange={set('exclusions')} className={inputCls} /></Field>
+              <Field label="Notes" span2><textarea rows={3} value={f.notes} onChange={set('notes')} placeholder="Anything else from their email" className={inputCls} /></Field>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Files from {send.vendor_name}</h3>
+            <p className="text-[11px] text-gray-400 mb-2">Quote sheets, PDFs, proofs, certificates — anything they attached to their email.</p>
+            <FileUpload supabase={supabase} recordType="rfq_response" recordId={responseId} currentUserEmail={currentUserEmail} />
+          </section>
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+          <div className="text-xs text-red-600">{err}</div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700">Cancel</button>
+            <button onClick={save} disabled={saving} className="px-5 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50" style={{ background: GREEN }}>
+              {saving ? 'Saving…' : existing ? 'Save changes' : 'Save quote'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ------------------------------------------------- Sends + responses, in-panel */
 
-export function RfqResponses({ quotationId, refreshKey }: { quotationId: string; refreshKey: number }) {
+export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }: { quotationId: string; refreshKey: number; currentUserEmail?: string }) {
   const supabase = createSupabaseBrowserClient()
   const [sends, setSends] = useState<SendRow[]>([])
   const [responses, setResponses] = useState<Resp[]>([])
+  const [files, setFiles] = useState<RespFile[]>([])
   const [loading, setLoading] = useState(true)
+  const [entering, setEntering] = useState<SendRow | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -455,8 +725,20 @@ export function RfqResponses({ quotationId, refreshKey }: { quotationId: string;
         .select('*, rfq_response_lines(*)')
         .eq('quotation_id', quotationId).order('submitted_at', { ascending: false }),
     ])
+    const resp = (r ?? []) as Resp[]
     setSends((s ?? []) as SendRow[])
-    setResponses((r ?? []) as Resp[])
+    setResponses(resp)
+    if (resp.length) {
+      const { data: fl } = await supabase
+        .from('file_attachments')
+        .select('id, record_id, file_name, file_size, storage_path')
+        .eq('record_type', 'rfq_response')
+        .in('record_id', resp.map(x => x.id))
+        .order('created_at')
+      setFiles((fl ?? []) as RespFile[])
+    } else {
+      setFiles([])
+    }
     setLoading(false)
   }, [supabase, quotationId])
 
@@ -478,7 +760,7 @@ export function RfqResponses({ quotationId, refreshKey }: { quotationId: string;
     <div className="space-y-5">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-xs font-bold uppercase tracking-wide text-gray-500">Suppliers contacted</h4>
+          <h4 className="text-xs font-bold uppercase tracking-wide text-gray-500">Suppliers contacted <span className="normal-case font-normal text-gray-400">— click a name to enter a quote they emailed</span></h4>
           <button onClick={load} className="text-[11px] text-emerald-700 hover:underline">Refresh</button>
         </div>
         <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -487,11 +769,23 @@ export function RfqResponses({ quotationId, refreshKey }: { quotationId: string;
             return (
               <div key={s.id} className="flex items-center justify-between px-3 py-2 text-sm border-b border-gray-100 last:border-0">
                 <div className="min-w-0">
-                  <div className="font-medium text-gray-900 truncate">{s.vendor_name}</div>
+                  <button
+                    type="button"
+                    onClick={() => setEntering(s)}
+                    title="Enter or edit this supplier's quote"
+                    className="font-medium text-gray-900 truncate text-left hover:text-emerald-700 hover:underline"
+                  >
+                    {s.vendor_name}
+                  </button>
                   <div className="text-[11px] text-gray-400 truncate">{s.recipient_email} · sent {new Date(s.sent_at).toLocaleDateString()}</div>
                   {s.error && <div className="text-[11px] text-red-600">{s.error}</div>}
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: c.bg, color: c.text }}>{s.status}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button type="button" onClick={() => setEntering(s)} className="text-[11px] text-emerald-700 hover:underline">
+                    {responses.some(r => r.rfq_send_id === s.id || (r.vendor_id && r.vendor_id === s.vendor_id)) ? 'Edit quote' : 'Enter quote'}
+                  </button>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: c.bg, color: c.text }}>{s.status}</span>
+                </div>
               </div>
             )
           })}
@@ -542,6 +836,23 @@ export function RfqResponses({ quotationId, refreshKey }: { quotationId: string;
               </tbody>
             </table>
           </div>
+          {files.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {responses.filter(r => files.some(x => x.record_id === r.id)).map(r => (
+                <div key={r.id} className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <span className="font-semibold text-gray-800">{r.vendor_name}</span>
+                  <span className="text-gray-400"> · files{r.method === 'email' ? ' (received by email)' : ''}</span>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                    {files.filter(x => x.record_id === r.id).map(x => (
+                      <button key={x.id} type="button" onClick={() => downloadFile(supabase, x.storage_path, x.file_name)} className="text-emerald-700 hover:underline">
+                        {x.file_name}{x.file_size ? ` (${formatFileSize(x.file_size)})` : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {responses.some(r => r.exclusions || r.notes) && (
             <div className="mt-3 space-y-2">
               {responses.filter(r => r.exclusions || r.notes).map(r => (
@@ -554,6 +865,21 @@ export function RfqResponses({ quotationId, refreshKey }: { quotationId: string;
             </div>
           )}
         </div>
+      )}
+
+      {entering && (
+        <RfqManualQuoteModal
+          send={entering}
+          existing={
+            responses.find(r => r.rfq_send_id === entering.id) ||
+            responses.find(r => r.vendor_id && r.vendor_id === entering.vendor_id) ||
+            null
+          }
+          quotationId={quotationId}
+          currentUserEmail={currentUserEmail}
+          onClose={() => setEntering(null)}
+          onSaved={() => { setEntering(null); load() }}
+        />
       )}
     </div>
   )
