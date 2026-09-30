@@ -343,6 +343,7 @@ interface OrderLine {
   production_status: string | null
   sku_flagged: boolean | null
   line_number: number | null
+  stock_item?: boolean | null
 }
 
 interface Product { id: string; sku: string; product_name: string; unit_cost: number | null; wholesale_price: number | null; msrp: number | null; unit_of_measure: string | null; our_part_number: string | null; supplier_part_number: string | null; pieces_per_pack?: number | null; packs_per_case?: number | null; cases_per_pallet?: number | null; case_qty?: number | null }
@@ -536,6 +537,29 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
 
   useEffect(() => { load() }, [load])
 
+  // Move a line to inventory stock (or return it): still billed on the order, but excluded
+  // from the shipping-queue must-ship math. Books the qty into on-hand + posts a ledger entry.
+  async function toggleStock(line: OrderLine) {
+    const toStock = !line.stock_item
+    const qty = Number(line.quantity) || 0
+    if (toStock && !confirm(`Move "${line.sku || line.description || 'this item'}"${qty ? ' (qty ' + qty + ')' : ''} to inventory stock? It stays on the order for billing but no longer has to ship, so the order can complete.`)) return
+    await sb.from('sales_order_lines').update({ stock_item: toStock }).eq('id', line.id)
+    if (qty > 0) {
+      try {
+        let pid = line.product_id
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (!pid && line.sku) { const { data: pf } = await sb.from('products').select('id').ilike('sku', line.sku).limit(1); pid = (pf?.[0] as any)?.id ?? null }
+        const { data: au } = await sb.auth.getUser()
+        const signed = toStock ? qty : -qty
+        await sb.from('inventory_movements').insert({ product_id: pid, sku: line.sku || null, movement_type: 'stock', qty: signed, uom: line.unit_of_measure || null, ref_table: 'sales_order_lines', ref_id: line.id, note: toStock ? 'Moved to inventory stock (sales order line)' : 'Returned to order from inventory stock', created_by: au?.user?.email || 'system' })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (pid) { const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle(); await sb.from('products').update({ on_hand_qty: Number((pr as any)?.on_hand_qty || 0) + signed }).eq('id', pid) }
+      } catch { /* ledger posting is best-effort */ }
+    }
+    setLines(ls => ls.map(l => l.id === line.id ? { ...l, stock_item: toStock } : l))
+    onLineUpdated()
+  }
+
   if (loading) return <tr><td colSpan={13} className="px-6 py-4 text-center text-gray-600 text-xs">Loading lines…</td></tr>
   if (lines.length === 0) return <tr><td colSpan={13} className="px-6 py-4 text-center text-gray-600 text-xs">No line items.</td></tr>
 
@@ -546,7 +570,7 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
         const done = line.completed_qty ?? line.quantity_shipped ?? 0
         const pct = qty > 0 ? Math.min(100, Math.round((done / qty) * 100)) : 0
         return (
-          <tr key={line.id} className="bg-[#F0F2F7] border-b border-[#E4E6EE]/40 last:border-0">
+          <tr key={line.id} className={`border-b border-[#E4E6EE]/40 last:border-0 ${line.stock_item ? 'bg-amber-50' : 'bg-[#F0F2F7]'}`}>
             <td className="pl-12 pr-2 py-2.5 w-8">
               {line.sku_flagged
                 ? <span className="text-amber-400 text-xs" title="Needs SKU assignment">⚠</span>
@@ -596,6 +620,11 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
                 </div>
                 <span className={`text-xs font-medium w-8 text-right ${pct === 100 ? 'text-emerald-400' : 'text-gray-500'}`}>{pct}%</span>
               </div>
+              {line.stock_item ? (
+                <button onClick={() => toggleStock(line)} className="mt-1.5 text-[10px] px-1.5 py-0.5 rounded border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 whitespace-nowrap" title="Put this item back on the shipping plan and reverse the inventory stock entry">📦 In stock · ↩ return</button>
+              ) : (
+                <button onClick={() => toggleStock(line)} className="mt-1.5 text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 whitespace-nowrap" title="Bill this item on the order but move it to inventory stock so it doesn't have to ship (e.g. a print plate, extras, or a stocked BOM the customer paid for)">📦 Move to stock</button>
+              )}
             </td>
           </tr>
         )
