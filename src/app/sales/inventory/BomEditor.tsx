@@ -24,6 +24,12 @@ import { conversionFactor, describeLadder } from '@/lib/uom'
 
 type Basis = 'percentage' | 'pcs_unit' | 'pcs_pack' | 'pcs_case'
 
+/**
+ * The row label the production team's build sheet uses. It is presentation only: every cost in
+ * this editor is driven by `basis`, so relabelling a row never moves a number.
+ */
+type Role = 'rm' | 'color' | 'ink' | 'pack' | 'case' | 'print_plate' | 'paper_core' | 'label' | 'other'
+
 interface BomRow {
   id: string
   component_sku: string
@@ -33,6 +39,8 @@ interface BomRow {
   basis: Basis
   qty_value: number  // percentage (0-100) or pcs count
   linked: boolean    // component_sku resolves to a live Inventory product (Ultron)
+  role: Role         // stored label, or the auto-classified one when the row has none yet
+  roleAuto: boolean  // true while the label is still a guess the user has not confirmed
 }
 
 interface SearchResult {
@@ -68,6 +76,52 @@ const BASIS_LABEL: Record<Basis, string> = {
   pcs_case: 'pcs / case',
 }
 
+// ── Build-sheet roles ───────────────────────────────────────────────────────
+// Listed in the order the production team fills them in, so the components table reads down the
+// page the same way their sheet does: resins first, then colour and ink, then what it is packed
+// into, then the tooling and consumables.
+const ROLES: { key: Role; label: string }[] = [
+  { key: 'rm',          label: 'RM (KG/LB)' },
+  { key: 'color',       label: 'Color' },
+  { key: 'ink',         label: 'INK' },
+  { key: 'pack',        label: 'Packs' },
+  { key: 'case',        label: 'Cases' },
+  { key: 'print_plate', label: 'Print Plate' },
+  { key: 'paper_core',  label: 'Paper Core' },
+  { key: 'label',       label: 'Custom Labels' },
+  { key: 'other',       label: 'Other' },
+]
+const ROLE_ORDER = Object.fromEntries(ROLES.map((r, i) => [r.key, i])) as Record<Role, number>
+
+/**
+ * Best guess at a row's label from what Inventory already knows.
+ *
+ * The component's category settles most of it, but a colour masterbatch, an ink and a resin are
+ * all filed under Raw Material or Additives, so the name and SKU are checked for the words the
+ * team actually uses first. Whatever this returns is only a default — the row's own dropdown
+ * overrides it and that choice is what gets saved.
+ */
+const CONTENT_CATEGORIES = ['Finished Goods', 'WIP', 'Component', 'Composter Components', 'Molded Fiber', 'Mold']
+
+function classifyRole(sku: string, name: string, category: string | null, basis: Basis): Role {
+  const hay = `${sku} ${name}`.toLowerCase()
+  if (/\bink\b|\bink[- ]/.test(hay)) return 'ink'
+  if (/colou?r|masterbatch|master batch|pigment|\bmb\b/.test(hay)) return 'color'
+  if (/paper\s*core|\bcore\b/.test(hay)) return 'paper_core'
+  if (/label/.test(hay)) return 'label'
+  if (/print\s*plate|\bplate\b|cylinder/.test(hay)) return 'print_plate'
+  if (category === 'Print Plates') return 'print_plate'
+  if (category === 'Raw Material' || category === 'Additives') return 'rm'
+  // A sub-assembly is the contents, not what it is packed into — a kit built from loose cutlery
+  // is counted per case but is nobody's idea of a "Case" row, so it lands in Other until labelled.
+  if (CONTENT_CATEGORIES.includes(category ?? '')) return 'other'
+  if (basis === 'pcs_case') return 'case'
+  if (basis === 'pcs_pack') return 'pack'
+  if (category === 'Packaging') return 'pack'
+  return 'other'
+}
+const isRole = (v: unknown): v is Role => typeof v === 'string' && v in ROLE_ORDER
+
 const CAT_COLORS: Record<string, { bg: string; fg: string }> = {
   'Raw Material':         { bg: '#FEF3C7', fg: '#92400E' },
   'Packaging':            { bg: '#DBEAFE', fg: '#1E40AF' },
@@ -99,6 +153,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const [addSkuName, setAddSkuName] = useState('')
   const [addSkuCat, setAddSkuCat] = useState<string | null>(null)
   const [addBasis, setAddBasis] = useState<Basis>('percentage')
+  const [addRole, setAddRole] = useState<Role>('rm')
   const [addQty, setAddQty] = useState('')
   const [addErr, setAddErr] = useState('')
   const [adding, setAdding] = useState(false)
@@ -142,6 +197,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
         : r.is_case_level ? 'pcs_case'
         : r.uom_type === 'pcs_pack' ? 'pcs_pack'
         : 'pcs_unit'
+      const name = comp?.product_name ?? ''
       return {
         id: r.id,
         component_sku: r.component_sku,
@@ -151,8 +207,11 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
         basis,
         qty_value: r.qty_value != null ? Number(r.qty_value) : Number(r.percentage ?? 0),
         linked,
+        role: isRole(r.role) ? r.role : classifyRole(r.component_sku, name, cat, basis),
+        roleAuto: !isRole(r.role),
       }
     })
+    rows.sort((a, b) => (ROLE_ORDER[a.role] - ROLE_ORDER[b.role]) || a.component_sku.localeCompare(b.component_sku))
     setComponents(rows)
     setLoading(false)
   }, [sb, product.sku])
@@ -217,8 +276,11 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   }, [addQuery, sb, product.sku])
 
   function selectResult(r: SearchResult) {
+    const basis = defaultBasis(r.category)
     setAddSku(r.sku); setAddSkuName(r.product_name); setAddSkuCat(r.category)
-    setAddBasis(defaultBasis(r.category)); setAddQuery(''); setShowDrop(false)
+    setAddBasis(basis)
+    setAddRole(classifyRole(r.sku, r.product_name, r.category, basis))
+    setAddQuery(''); setShowDrop(false)
     setTimeout(() => addQtyRef.current?.focus(), 50)
   }
 
@@ -269,10 +331,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     const db = basisToDb(addBasis)
     const { error } = await sb.from('product_bom').insert({
       finished_good_sku: product.sku, component_sku: addSku,
-      percentage: addBasis === 'percentage' ? qty : 0, qty_value: qty, ...db,
+      percentage: addBasis === 'percentage' ? qty : 0, qty_value: qty, role: addRole, ...db,
     })
     if (error) { setAddErr(error.message); setAdding(false); return }
-    setAddSku(''); setAddSkuName(''); setAddSkuCat(null); setAddQuery(''); setAddQty(''); setAddBasis('percentage'); setAdding(false)
+    setAddSku(''); setAddSkuName(''); setAddSkuCat(null); setAddQuery(''); setAddQty(''); setAddBasis('percentage'); setAddRole('rm'); setAdding(false)
     loadBom()
   }
   async function deleteRow(id: string) {
@@ -283,6 +345,17 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     setComponents(cs => cs.map(c => c.id === id ? { ...c, basis: b } : c))
     await sb.from('product_bom').update(basisToDb(b)).eq('id', id)
   }
+  /** Pin a row's build-sheet label. Costs are untouched — only how the row is filed changes. */
+  async function updateRole(id: string, role: Role) {
+    setComponents(cs => {
+      const next = cs.map(c => c.id === id ? { ...c, role, roleAuto: false } : c)
+      next.sort((a, b) => (ROLE_ORDER[a.role] - ROLE_ORDER[b.role]) || a.component_sku.localeCompare(b.component_sku))
+      return next
+    })
+    const { error } = await sb.from('product_bom').update({ role }).eq('id', id)
+    if (error) flash('Error: ' + error.message)
+  }
+
   async function updateQtyValue(id: string, rawVal: string) {
     const v = parseFloat(rawVal)
     if (isNaN(v) || v < 0) return
@@ -300,7 +373,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     <>
       <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
-        className="bg-[#F7F8FB] rounded-2xl w-full max-w-[1000px] max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        // Widened from 1000px when the Material column was added, so the components table still
+        // shows every field without the horizontal scrollbar kicking in on a laptop screen.
+        className="bg-[#F7F8FB] rounded-2xl w-full max-w-[1180px] max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E4E6EE] bg-white shrink-0">
@@ -318,7 +393,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
 
         <div className="flex-1 flex overflow-hidden min-h-0">
           {/* LEFT: components */}
-          <div className="flex flex-col overflow-hidden border-r border-[#E4E6EE]" style={{ width: '58%' }}>
+          <div className="flex flex-col overflow-hidden border-r border-[#E4E6EE]" style={{ width: '63%' }}>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {/* Weight */}
               <div className="flex items-center gap-2 flex-wrap">
@@ -346,9 +421,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
               {/* Components table */}
               <div className="bg-white border border-[#ECEEF3] rounded-xl overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs min-w-[560px]">
+                  <table className="w-full text-xs min-w-[680px]">
                     <thead>
                       <tr className="bg-[#FBFCFE] border-b border-[#EEF0F4] text-[10px] uppercase tracking-wide text-gray-400">
+                        <th className="text-left font-semibold px-2.5 py-2 w-[116px]">Material</th>
                         <th className="text-left font-semibold px-2.5 py-2">Component</th>
                         <th className="text-left font-semibold px-2 py-2 w-[128px]">Basis</th>
                         <th className="text-right font-semibold px-2 py-2 w-[70px]">Qty</th>
@@ -358,10 +434,22 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F3F4F8]">
-                      {loading && <tr><td colSpan={6} className="px-3 py-5 text-center text-gray-400">Loading…</td></tr>}
-                      {!loading && computedRows.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400 italic">No components yet — add one below.</td></tr>}
-                      {!loading && computedRows.map(c => (
-                        <tr key={c.id} className="hover:bg-[#FBFCFE]">
+                      {loading && <tr><td colSpan={7} className="px-3 py-5 text-center text-gray-400">Loading…</td></tr>}
+                      {!loading && computedRows.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 italic">No components yet — add one below.</td></tr>}
+                      {!loading && computedRows.map((c, i) => (
+                        // A line above each change of material type bands the rows into the same
+                        // groups the build sheet uses, without spending a whole row on a heading.
+                        <tr key={c.id} className={'hover:bg-[#FBFCFE]' + (i > 0 && computedRows[i - 1].role !== c.role ? ' border-t-2 border-t-[#E4E6EE]' : '')}>
+                          <td className="px-2.5 py-2 align-top">
+                            <select
+                              value={c.role}
+                              onChange={e => updateRole(c.id, e.target.value as Role)}
+                              title={c.roleAuto ? 'Worked out from the component’s category — pick one to confirm it' : 'Material type on the build sheet'}
+                              className={inp + ' w-full !py-1 !px-1.5 text-[11px] cursor-pointer' + (c.roleAuto ? ' !text-gray-400 italic' : ' font-semibold')}
+                            >
+                              {ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                            </select>
+                          </td>
                           <td className="px-2.5 py-2">
                             <div className="flex items-center gap-1.5">
                               <span title={c.linked ? 'Connected to Inventory item' : 'Not found in Inventory — link it'} className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: c.linked ? '#10B981' : '#F59E0B', boxShadow: c.linked ? '0 0 0 2px rgba(16,185,129,0.2)' : 'none' }} />
@@ -394,7 +482,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                       ))}
                       {!loading && computedRows.length > 0 && (
                         <tr className="bg-[#FBFCFE] border-t border-[#EEF0F4]">
-                          <td className="px-2.5 py-2 text-right text-gray-500" colSpan={2}>Material total →</td>
+                          <td className="px-2.5 py-2 text-right text-gray-500" colSpan={3}>Material total →</td>
                           <td className={`px-2 py-2 text-right font-bold ${anyPct && Math.abs(totalPct - 100) > 0.1 ? 'text-amber-600' : 'text-emerald-600'}`}>{anyPct ? totalPct.toFixed(1) + '%' : ''}</td>
                           <td />
                           <td className="px-2.5 py-2 text-right font-bold text-[#1A1D2E]">{fmt4(totals.totalMat)}</td>
@@ -433,6 +521,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                     </div>
                   )}
                 </div>
+                <select value={addRole} onChange={e => setAddRole(e.target.value as Role)} title="Material type on the build sheet" className={inp + ' cursor-pointer'}>
+                  {ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                </select>
                 <select value={addBasis} onChange={e => setAddBasis(e.target.value as Basis)} className={inp + ' cursor-pointer'}>
                   <option value="percentage">% by weight</option>
                   <option value="pcs_unit">pcs / unit</option>
