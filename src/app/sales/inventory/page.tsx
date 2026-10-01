@@ -1275,8 +1275,8 @@ export default function InventoryPage() {
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: color + '26', color }}>{items.length}</span>
                     {gVal > 0 && <span className="ml-auto text-[11px] text-gray-400">{fmtV(gVal)}</span>}
                   </div>
-                  {!isCol && (
-                    <div>
+                  {!isCol && (<>
+                    <div className="hidden md:block">
                       <table className="w-full text-sm min-w-[920px]">
                         <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                           <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
@@ -1291,10 +1291,9 @@ export default function InventoryPage() {
                             <th className="text-right font-semibold px-3 py-2.5 w-[110px]">Inv. Value</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[150px]">UPC</th>
                             <th className="text-center font-semibold px-2 py-2.5 w-[54px]">BOM</th>
-                            <th className="text-left font-semibold px-3 py-2.5 w-[184px]">Actions</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#F1F3F7]">
+                        <tbody>
                           {items.map((p, i) => {
                             const invValue = (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0)
                             const isOut = !p.on_hand_qty || p.on_hand_qty === 0
@@ -1306,11 +1305,12 @@ export default function InventoryPage() {
                             // Only finished products (that aren't imported) need a BOM.
                             const needsBom = isFG && !isImport && bomCount === 0
                             const acts = activityData[p.id]
+                            const rowBg = ms.isSelected(p.id) ? 'bg-blue-50' : i % 2 ? 'bg-[#FBFCFE]' : 'bg-white'
                             return (
                               <Fragment key={p.id}>
                               <tr id={'item-'+p.id}
                                 style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }}
-                                className={`transition-colors ${ms.isSelected(p.id) ? 'bg-blue-50' : i % 2 ? 'bg-[#FBFCFE]' : 'bg-white'} hover:bg-[#F2F6FF] ${isDisc ? 'opacity-60' : ''}`}>
+                                className={`transition-colors ${rowBg} hover:bg-[#F2F6FF] ${isDisc ? 'opacity-60' : ''}`}>
                                 <td className="px-3 py-3" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></td>
                                 <td className="px-3 py-3"><div className="flex items-center gap-2"><button title={zonedSet.has(p.id)?'Storage zone set — click to edit':'No storage zone — click to set'} onClick={e=>{e.stopPropagation(); setZoneProduct(p)}} className={`shrink-0 rounded-full ${zonedSet.has(p.id)?'':'animate-pulse'}`} style={{width:11,height:11,border:'none',cursor:'pointer',background:zonedSet.has(p.id)?'#10b981':'#3B82F6',boxShadow:zonedSet.has(p.id)?'none':'0 0 0 3px rgba(59,130,246,0.35)'}}/><span className="font-mono font-semibold text-[13px] text-[#0F7A4E] truncate block max-w-[130px] cursor-pointer" onClick={()=>openEdit(p)}>{p.sku}</span></div></td>
                                 <td className={`px-3 py-3 cursor-pointer text-[#1A1D2E] font-medium ${isDisc ? 'line-through text-gray-400' : ''}`} onClick={()=>openEdit(p)}><span className="block truncate max-w-[320px]">{p.product_name}</span>{lastRecv[p.sku] && <span className="block text-[10px] text-gray-400 font-normal mt-0.5">Rcvd {fmtDT(lastRecv[p.sku])}</span>}</td>
@@ -1348,21 +1348,23 @@ export default function InventoryPage() {
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="text-gray-500 text-xs font-mono truncate block max-w-[140px]">{p.upc_gtin ?? '-'}</span></td>
                                 <td className="px-2 py-3 text-center">{bomCount > 0 ? <svg className="w-4 h-4 text-emerald-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg> : (isFG && isImport) ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FBF0DD] text-[#8A5A0B] whitespace-nowrap" title="Import Product — No BOM required">Import</span> : needsBom ? <span title="Finished product — BOM required"><svg className="w-4 h-4 text-amber-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></span> : <span className="text-gray-300 text-xs">-</span>}</td>
-                                <td className="px-3 py-3" onClick={e=>e.stopPropagation()}>
-                                  <div className="flex items-center gap-1">
-                                    <button onClick={() => openEdit(p)} className="text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
-                                    {isFG && !isImport && <button onClick={() => setBomProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>}
-                                    <button onClick={() => setZoneProduct(p)} className={`text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
-                                    {isFG && <button onClick={() => setLabelProduct(p)} className="text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
-                                    <button onClick={() => toggleActivity(p)} title="Receiving & movement history" className={`text-[11px] px-2 py-1 rounded transition-colors ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E] hover:bg-[#DDF3E8]'}`}>Activity {activityOpen[p.id] ? '▾' : '▸'}</button>
-                                    <button onClick={() => setAllocProduct(p)} title="Reserve stock to an order/job" className="text-[11px] px-2 py-1 rounded bg-[#E7EAFB] hover:bg-[#D6DCF8] text-[#4338CA] transition-colors">Alloc</button>
-                                    <button onClick={() => handleDelete(p.id, p.sku)} className="text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
+                              </tr>
+                              <tr style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }} className={`${rowBg} ${activityOpen[p.id] ? '' : 'border-b border-[#F1F3F7]'}`} onClick={e=>e.stopPropagation()}>
+                                <td colSpan={12} className="px-3 pb-3 pt-0">
+                                  <div className="flex items-center gap-1 flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                    <button onClick={() => openEdit(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
+                                    {isFG && !isImport && <button onClick={() => setBomProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>}
+                                    <button onClick={() => setZoneProduct(p)} className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
+                                    {isFG && <button onClick={() => setLabelProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
+                                    <button onClick={() => toggleActivity(p)} title="Receiving & movement history" className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E] hover:bg-[#DDF3E8]'}`}>Activity {activityOpen[p.id] ? '▾' : '▸'}</button>
+                                    <button onClick={() => setAllocProduct(p)} title="Reserve stock to an order/job" className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#E7EAFB] hover:bg-[#D6DCF8] text-[#4338CA] transition-colors">Alloc</button>
+                                    <button onClick={() => handleDelete(p.id, p.sku)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
                                   </div>
                                 </td>
                               </tr>
                               {activityOpen[p.id] && (
-                                <tr className="bg-[#F7FBF9]">
-                                  <td colSpan={13} className="px-6 py-3">
+                                <tr className="bg-[#F7FBF9] border-b border-[#F1F3F7]">
+                                  <td colSpan={12} className="px-6 py-3">
                                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-2">Activity · {p.sku}</p>
                                     {acts === undefined ? <p className="text-xs text-gray-400 italic">Loading movements…</p> : acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
                                       <table className="w-full text-xs">
@@ -1400,7 +1402,79 @@ export default function InventoryPage() {
                         </tbody>
                       </table>
                     </div>
-                  )}
+                    {/* Mobile: card layout — product details stacked, action buttons on their
+                        own single line below (no wrap, scrolls sideways if needed). */}
+                    <div className="md:hidden divide-y divide-[#F1F3F7]">
+                      {items.map((p) => {
+                        const invValue = (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0)
+                        const isOut = !p.on_hand_qty || p.on_hand_qty === 0
+                        const isLow = !isOut && (p.on_hand_qty ?? 0) <= 10
+                        const isDisc = p.is_discontinued === true
+                        const bomCount = bomMap[p.sku] ?? 0
+                        const isFG = isFinished(p)
+                        const isImport = p.is_import === true
+                        const needsBom = isFG && !isImport && bomCount === 0
+                        const acts = activityData[p.id]
+                        const k = String(p.sku ?? '').trim().toUpperCase()
+                        const so = soAlloc[k]?.qty || 0
+                        const a = allocMap[k]?.qty || 0
+                        const ma = manualAlloc[k] || 0
+                        const tot = so + a + ma
+                        const avail = (p.on_hand_qty ?? 0) - tot
+                        return (
+                          <div key={p.id} id={'item-m-'+p.id}
+                            className={`px-3 py-3 ${ms.isSelected(p.id) ? 'bg-blue-50' : 'bg-white'} ${isDisc ? 'opacity-60' : ''}`}
+                            style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }}>
+                            <div className="flex items-start gap-2">
+                              <input type="checkbox" checked={ms.isSelected(p.id)} onChange={()=>ms.toggle(p.id)} className="accent-emerald-500 w-4 h-4 cursor-pointer mt-0.5 shrink-0"/>
+                              <div className="flex-1 min-w-0" onClick={()=>openEdit(p)}>
+                                <div className="flex items-center gap-2">
+                                  <button title={zonedSet.has(p.id)?'Storage zone set':'No storage zone — tap to set'} onClick={e=>{e.stopPropagation(); setZoneProduct(p)}} className={`shrink-0 rounded-full ${zonedSet.has(p.id)?'':'animate-pulse'}`} style={{width:10,height:10,border:'none',cursor:'pointer',background:zonedSet.has(p.id)?'#10b981':'#3B82F6'}}/>
+                                  <span className="font-mono font-semibold text-[13px] text-[#0F7A4E] truncate">{p.sku}</span>
+                                  {p.category && <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#EEF2FB] text-[#3A4A6B] border border-[#DCE3F2] shrink-0">{p.category}</span>}
+                                </div>
+                                <p className={`text-[13px] font-medium text-[#1A1D2E] mt-0.5 ${isDisc ? 'line-through text-gray-400' : ''}`}>{p.product_name}</p>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-gray-500">
+                                  <span>On hand <b className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}>{p.on_hand_qty ?? 0}</b> {p.unit_of_measure ?? ''}</span>
+                                  {tot > 0 && <span className={avail < 0 ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'}>{avail.toLocaleString()} avail</span>}
+                                  <span>{fmt$(p.unit_cost)}</span>
+                                  {invValue > 0 && <span className="text-emerald-600">{fmtV(invValue)}</span>}
+                                  {needsBom && <span className="text-amber-600 font-semibold">BOM needed</span>}
+                                </div>
+                              </div>
+                            </div>
+                            {/* Action buttons — one line, no wrap */}
+                            <div className="mt-2 flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" onClick={e=>e.stopPropagation()}>
+                              <button onClick={() => openEdit(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600">Edit</button>
+                              {isFG && !isImport && <button onClick={() => setBomProduct(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0]">BOM</button>}
+                              <button onClick={() => setZoneProduct(p)} className={`shrink-0 text-[11px] px-2.5 py-1 rounded ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
+                              {isFG && <button onClick={() => setLabelProduct(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B]">Label</button>}
+                              <button onClick={() => toggleActivity(p)} className={`shrink-0 text-[11px] px-2.5 py-1 rounded ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E]'}`}>Activity {activityOpen[p.id] ? '\u25be' : '\u25b8'}</button>
+                              <button onClick={() => setAllocProduct(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#E7EAFB] hover:bg-[#D6DCF8] text-[#4338CA]">Alloc</button>
+                              <button onClick={() => handleDelete(p.id, p.sku)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E]">Del</button>
+                            </div>
+                            {activityOpen[p.id] && (
+                              <div className="mt-2 rounded-lg bg-[#F7FBF9] border border-[#E4EFEA] px-3 py-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-1.5">Activity</p>
+                                {acts === undefined ? <p className="text-xs text-gray-400 italic">Loading movements…</p> : acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
+                                  <div className="space-y-1.5">
+                                    {acts.map((av: any) => (
+                                      <div key={av.id} className="flex items-center justify-between gap-2 text-[11px] border-t border-[#E4EFEA] pt-1.5 first:border-0 first:pt-0">
+                                        <span className="text-gray-500 whitespace-nowrap">{fmtDT(av.created_at)}</span>
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${av.movement_type==='receive'?'bg-[#DDF3E8] text-[#0F7A4E]':av.movement_type==='ship'?'bg-[#FBE9E9] text-[#B3261E]':'bg-[#EEF2FB] text-[#3A4A6B]'}`}>{av.movement_type}</span>
+                                        <span className={`font-semibold ${Number(av.qty)<0?'text-red-600':'text-[#0F7A4E]'}`}>{Number(av.qty)>0?'+':''}{av.qty}</span>
+                                        <span className="text-gray-400 truncate flex-1 text-right">{av.created_by || '\u2014'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>)}
                 </div>
               )
             })}
