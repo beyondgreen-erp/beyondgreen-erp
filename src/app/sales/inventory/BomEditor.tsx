@@ -431,7 +431,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
               {/* Components table */}
               <div className="bg-white border border-[#ECEEF3] rounded-xl overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs min-w-[800px]">
+                  <table className="w-full text-xs min-w-[760px]">
                     <thead>
                       <tr className="bg-[#FBFCFE] border-b border-[#EEF0F4] text-[10px] uppercase tracking-wide text-gray-400">
                         <th className="text-left font-semibold px-2.5 py-2 w-[116px]">Material</th>
