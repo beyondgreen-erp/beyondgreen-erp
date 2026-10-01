@@ -1349,7 +1349,7 @@ export default function InventoryPage() {
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="text-gray-500 text-xs font-mono truncate block max-w-[140px]">{p.upc_gtin ?? '-'}</span></td>
                                 <td className="px-2 py-3 text-center">{bomCount > 0 ? <svg className="w-4 h-4 text-emerald-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg> : (isFG && isImport) ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FBF0DD] text-[#8A5A0B] whitespace-nowrap" title="Import Product — No BOM required">Import</span> : needsBom ? <span title="Finished product — BOM required"><svg className="w-4 h-4 text-amber-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></span> : <span className="text-gray-300 text-xs">-</span>}</td>
                               </tr>
-                              <tr style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }} className={`${rowBg} ${activityOpen[p.id] ? '' : 'border-b border-[#F1F3F7]'}`} onClick={e=>e.stopPropagation()}>
+                              <tr style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }} className={`${rowBg} ${activityOpen[p.id] ? '' : 'border-b-2 border-[#E4E6EE]'}`} onClick={e=>e.stopPropagation()}>
                                 <td colSpan={12} className="px-3 pb-3 pt-0">
                                   <div className="flex items-center gap-1 flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                     <button onClick={() => openEdit(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
@@ -1363,7 +1363,7 @@ export default function InventoryPage() {
                                 </td>
                               </tr>
                               {activityOpen[p.id] && (
-                                <tr className="bg-[#F7FBF9] border-b border-[#F1F3F7]">
+                                <tr className="bg-[#F7FBF9] border-b-2 border-[#E4E6EE]">
                                   <td colSpan={12} className="px-6 py-3">
                                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-2">Activity · {p.sku}</p>
                                     {acts === undefined ? <p className="text-xs text-gray-400 italic">Loading movements…</p> : acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
@@ -1404,7 +1404,7 @@ export default function InventoryPage() {
                     </div>
                     {/* Mobile: card layout — product details stacked, action buttons on their
                         own single line below (no wrap, scrolls sideways if needed). */}
-                    <div className="lg:hidden divide-y divide-[#F1F3F7]">
+                    <div className="lg:hidden divide-y-2 divide-[#E4E6EE]">
                       {items.map((p) => {
                         const invValue = (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0)
                         const isOut = !p.on_hand_qty || p.on_hand_qty === 0
