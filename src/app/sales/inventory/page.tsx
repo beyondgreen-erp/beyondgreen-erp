@@ -164,7 +164,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string;
 // ── Edit panel (memo'd so typing doesn't re-render table) ────
 const EditPanel = memo(function EditPanel({
   open, editing, form, setForm, err, saving, busy,
-  onClose, onSave, onDelete, onToggleActive, userEmail,
+  onClose, onSave, onDelete, onToggleActive, onProduce, userEmail,
 }: {
   open: boolean
   editing: Product | null
@@ -175,11 +175,14 @@ const EditPanel = memo(function EditPanel({
   busy: boolean
   onClose: () => void
   onSave: () => void
+  onProduce: (addQty: number) => void
   onDelete: () => void
   onToggleActive: () => void
   userEmail: string
 }) {
   const liveValue = (parseFloat(form.on_hand_qty) || 0) * (parseFloat(form.unit_cost) || 0)
+  const [addQty, setAddQty] = useState('')
+  const curOnHand = parseFloat(form.on_hand_qty) || 0
   const [gtinUploading, setGtinUploading] = useState(false)
   const gsb = useMemo(() => createSupabaseBrowserClient(), [])
   async function uploadGtinImage(file: File) {
@@ -329,13 +332,25 @@ const EditPanel = memo(function EditPanel({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={lblCalc}>On Hand Qty <span className="text-blue-400 font-normal">· counted in {baseUom}</span></label>
-                <input type="number" min="0" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inpCalc}/>
+                <input type="number" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inpCalc}/>
+                {curOnHand < 0 && <p className="text-[10px] text-amber-600 mt-1 font-medium">Negative = {Math.abs(curOnHand)} {baseUom} shipped before production was posted.</p>}
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Reorder Point</label>
                 <input type="number" min="0" value={form.reorder_point} onChange={e => setForm(p => ({ ...p, reorder_point: e.target.value }))} className={inp}/>
               </div>
             </div>
+            {editing && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2.5">
+                <label className="block text-[11px] font-semibold text-emerald-700 mb-1">Record production / receipt <span className="font-normal text-emerald-600">· adds to on-hand, never overwrites</span></label>
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-600 font-bold text-lg leading-none">+</span>
+                  <input type="number" min="0" step="any" value={addQty} onChange={e => setAddQty(e.target.value)} placeholder={`qty in ${baseUom}`} className={`${inp} flex-1`}/>
+                  <button type="button" disabled={saving || !((parseFloat(addQty) || 0) > 0)} onClick={() => { onProduce(parseFloat(addQty) || 0); setAddQty('') }} className="px-3 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 whitespace-nowrap">Add to stock</button>
+                </div>
+                <p className="text-[10px] text-emerald-700/70 mt-1">Adds to current on-hand ({curOnHand} {baseUom}){(parseFloat(addQty) || 0) > 0 ? ` → new on-hand ${curOnHand + (parseFloat(addQty) || 0)} ${baseUom}` : ''}. Use this for FG completions so shipment debits aren't erased.</p>
+              </div>
+            )}
             <div>
               <label className={lblCalc}>Unit Cost <span className="text-blue-400 font-normal">· $ per one {baseUom}</span></label>
               <input type="number" min="0" step="0.0001" value={form.unit_cost} onChange={e => setForm(p => ({ ...p, unit_cost: e.target.value }))} className={inpCalc}/>
@@ -871,6 +886,25 @@ export default function InventoryPage() {
     setTimeout(() => { setEditing(null); setForm(emptyForm) }, 300)
   }
 
+  async function recordProduction(addQty: number) {
+    if (!editing) return
+    const add = Number(addQty)
+    if (!add || add === 0) return
+    const cur = Number(editing.on_hand_qty ?? 0)
+    const next = cur + add
+    setSaving(true)
+    const { error } = await sb.from('products').update({ on_hand_qty: next }).eq('id', editing.id)
+    if (error) { setErr(error.message); setSaving(false); return }
+    try {
+      await sb.from('inventory_movements').insert({
+        product_id: editing.id, sku: editing.sku, movement_type: 'produce',
+        qty: add, uom: normalizeUom(form.unit_of_measure) || editing.unit_of_measure || null, ref_table: 'manual',
+        note: `Finished-goods completion (+${add}) \u2014 on-hand ${cur} \u2192 ${next}`, created_by: userEmail || null,
+      })
+    } catch { /* never block on activity logging */ }
+    setSaving(false); closeEdit(); load()
+  }
+
   async function save() {
     if (!form.sku.trim() || !form.product_name.trim()) { setErr('SKU and Product Name are required.'); return }
     // Zero on a rung is not "unset" — it is a conversion that multiplies stock by nothing.
@@ -878,6 +912,14 @@ export default function InventoryPage() {
       .some(k => String((form as any)[k] ?? '').trim() === '0')) {
       setErr('Pieces Per Pack, Packs Per Case and Cases Per Pallet cannot be 0 — a container that holds nothing makes every conversion come out as zero. Use 1 where there is no inner pack.')
       return
+    }
+    if (editing) {
+      const oldOH = Number(editing.on_hand_qty ?? 0)
+      const newOH = parseFloat(form.on_hand_qty) || 0
+      if (oldOH < 0 && newOH !== oldOH) {
+        const ok = confirm(`On-hand for ${form.sku} is currently ${oldOH} (negative = ${Math.abs(oldOH)} units already shipped before production was posted).\n\nSaving SETS on-hand to ${newOH}, which erases that shipment debt. If you are posting production, cancel and use the green "Add to stock" box instead so it adds to the balance.\n\nSet absolute value anyway?`)
+        if (!ok) { return }
+      }
     }
     setErr(''); setSaving(true)
     const payload: Record<string, any> = {
@@ -1375,6 +1417,7 @@ export default function InventoryPage() {
         onClose={closeEdit} onSave={save}
         onDelete={() => { if (editing) handleDelete(editing.id, editing.sku).then(closeEdit) }}
         onToggleActive={toggleActive}
+        onProduce={recordProduction}
         userEmail={userEmail}
       />
 
