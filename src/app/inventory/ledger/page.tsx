@@ -69,16 +69,18 @@ export default function InventoryLedgerPage() {
   const perSku = useMemo(() => {
     const bySku: Record<string, Mv[]> = {}
     for (const m of moves) { (bySku[m.sku] ||= []).push(m) }
-    const out: Record<string, { rows: (Mv & { signed: number; balance: number })[]; net: number; totalIn: number; totalOut: number; opening: number; current: number }> = {}
+    const out: Record<string, { rows: (Mv & { signed: number; balance: number })[]; net: number; totalIn: number; totalOut: number; opening: number; current: number; ledgerBalance: number; drift: number }> = {}
     for (const sku of Object.keys(bySku)) {
       const asc = [...bySku[sku]].sort((a, b) => a.created_at.localeCompare(b.created_at))
       let net = 0, totalIn = 0, totalOut = 0
       for (const m of asc) { const s = signedQty(m); net += s; if (s >= 0) totalIn += s; else totalOut += -s }
       const current = onHand(sku)
-      const opening = current - net
+      const opening = 0
       let run = opening
       const rows = asc.map(m => { const signed = signedQty(m); run += signed; return { ...m, signed, balance: run } })
-      out[sku] = { rows, net, totalIn, totalOut, opening, current }
+      const ledgerBalance = net          // true running balance from movements
+      const drift = current - ledgerBalance  // stored on-hand minus ledger; nonzero = timing/entry gap
+      out[sku] = { rows, net, totalIn, totalOut, opening, current, ledgerBalance, drift }
     }
     return out
   }, [moves, prods]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -114,7 +116,7 @@ export default function InventoryLedgerPage() {
           <button onClick={() => setView('txns')} className={`px-3 py-1.5 text-xs font-semibold border-l border-[#E4E6EE] ${view === 'txns' ? 'bg-[#00863F] text-white' : 'bg-white text-gray-600'}`}>All transactions</button>
         </div>
       </div>
-      <p className="text-gray-500 text-sm mb-4">Inbound credits and outbound debits for every item, with the resulting new stock. {loading ? '' : `${Object.keys(perSku).length} items · ${moves.length} entries`}</p>
+      <p className="text-gray-500 text-sm mb-4">Inbound credits and outbound debits for every item. The running balance is the true sum of recorded movements; it is flagged when it does not match the stored on-hand. {loading ? '' : `${Object.keys(perSku).length} items · ${moves.length} entries`}</p>
 
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
@@ -160,7 +162,9 @@ export default function InventoryLedgerPage() {
                     </div>
                     <div className="hidden sm:block text-right w-24"><p className="text-[10px] text-gray-400 uppercase">In</p><p className="text-sm font-semibold text-emerald-600">+{fmt(d.totalIn)}</p></div>
                     <div className="hidden sm:block text-right w-24"><p className="text-[10px] text-gray-400 uppercase">Out</p><p className="text-sm font-semibold text-red-600">−{fmt(d.totalOut)}</p></div>
+                    <div className="hidden md:block text-right w-24"><p className="text-[10px] text-gray-400 uppercase">Ledger</p><p className="text-sm font-semibold text-[#1A1D2E]">{fmt(d.ledgerBalance)}</p></div>
                     <div className="text-right w-28"><p className="text-[10px] text-gray-400 uppercase">On hand</p><p className="text-base font-bold text-[#1A1D2E]">{fmt(d.current)}<span className="text-[11px] text-gray-400 font-medium"> {prods[sku]?.uom || ''}</span></p></div>
+                    <div className="w-24 text-right">{Math.abs(d.drift) > 0.001 ? <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#FEF3C7', color: '#B45309' }} title="Stored on-hand does not match the sum of recorded movements (timing gap, overwrite, or mixed units).">\u26A0 off {fmtSigned(d.drift)}</span> : <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#DCFCE7', color: '#15803D' }}>\u2713 ties out</span>}</div>
                   </button>
                   {isOpen && (
                     <div className="border-t border-[#EEF0F4] overflow-x-auto">
@@ -177,7 +181,7 @@ export default function InventoryLedgerPage() {
                         </thead>
                         <tbody>
                           <tr className="border-b border-[#F3F4F8] bg-[#FBFCFE]">
-                            <td className="px-4 py-2 text-gray-400 italic" colSpan={5}>Opening balance</td>
+                            <td className="px-4 py-2 text-gray-400 italic" colSpan={5}>Starting balance</td>
                             <td className="px-4 py-2 text-right font-semibold text-gray-500">{fmt(d.opening)}</td>
                           </tr>
                           {[...rows].reverse().map(m => (
@@ -190,6 +194,14 @@ export default function InventoryLedgerPage() {
                               <td className="px-4 py-2 text-right font-bold text-[#1A1D2E]">{fmt(m.balance)}</td>
                             </tr>
                           ))}
+                          <tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE]">
+                            <td className="px-4 py-2 font-semibold text-[#1A1D2E]" colSpan={5}>Ledger balance (sum of movements)</td>
+                            <td className="px-4 py-2 text-right font-bold text-[#1A1D2E]">{fmt(d.ledgerBalance)}</td>
+                          </tr>
+                          <tr className="bg-[#FBFCFE]">
+                            <td className="px-4 py-2 text-gray-500" colSpan={5}>Stored on-hand{Math.abs(d.drift) > 0.001 ? <span className="ml-2 text-amber-700 font-semibold">\u26A0 differs by {fmtSigned(d.drift)} \u2014 likely a timing gap, an overwrite, or mixed units (cases vs packs)</span> : <span className="ml-2 text-emerald-700 font-semibold">\u2713 matches the ledger</span>}</td>
+                            <td className="px-4 py-2 text-right font-bold" style={{ color: Math.abs(d.drift) > 0.001 ? '#B45309' : '#1A1D2E' }}>{fmt(d.current)}</td>
+                          </tr>
                         </tbody>
                       </table>
                     </div>
