@@ -68,6 +68,9 @@ interface PlanRow {
 // A line moved to inventory stock: still billed on the order, but excluded from the
 // shipping plan / completion math so it can't hold the order on the pipeline.
 interface StockLine { id: string; sku: string; description: string; qty: number; unitPrice: number; productId: string | null; uom: string | null }
+// Units of a line already moved to inventory stock (new stock_qty col; legacy stock_item = whole line).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stockQtyOf(l: any): number { return Number(l?.stock_qty) || (l?.stock_item ? Number(l?.quantity ?? l?.qty ?? 0) : 0) }
 // Build the per-case box list from a shipped quantity and units-per-case.
 // Full cases hold `upc`; the last case holds the remainder. Existing box
 // dimensions/weights are preserved by index; new boxes seed their weight from defWt.
@@ -290,9 +293,9 @@ export default function ShippingQueuePage() {
     const allLs = (lines as any[]) || []
     // Lines already moved to inventory stock: billed, but out of the shipping plan.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setStockLines(allLs.filter((l: any) => l.stock_item).map((l: any) => ({ id: l.id, sku: l.sku || '', description: l.description || '', qty: Number(l.quantity ?? l.qty) || 0, unitPrice: Number(l.unit_price) || 0, productId: l.product_id || null, uom: l.unit_of_measure || null })))
+    setStockLines(allLs.filter((l: any) => stockQtyOf(l) > 0).map((l: any) => ({ id: l.id, sku: l.sku || '', description: l.description || '', qty: stockQtyOf(l), unitPrice: Number(l.unit_price) || 0, productId: l.product_id || null, uom: l.unit_of_measure || null })))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ls = allLs.filter((l: any) => !l.stock_item)
+    const ls = allLs.filter((l: any) => (Number(l.quantity ?? l.qty ?? 0) - stockQtyOf(l)) > 0)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pids = [...new Set(ls.map((l: any) => l.product_id).filter(Boolean))]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -332,7 +335,7 @@ export default function ShippingQueuePage() {
       // Cases = ordered quantity unless the line explicitly bundles units per case.
       // (product.case_qty is the retail count e.g. "1,000CT" — not a shipping case grouping.)
       const upc = l.qty_per_case || 1
-      const units = l.quantity ?? l.qty ?? 0
+      const units = Math.max(0, (Number(l.quantity ?? l.qty ?? 0)) - stockQtyOf(l))   // shippable = ordered minus units moved to stock
       const gpu = prod?.weight_per_unit_grams || 0
       const done = l.quantity_shipped || l.completed_qty || 0
       const remaining = Math.max(0, units - done)                // ship the remaining qty by default
@@ -577,22 +580,28 @@ export default function ShippingQueuePage() {
     if (error) { alert('Could not delete: ' + error.message); return }
     setOpenId(null); resetPackState(); load()
   }
-  async function moveLineToStock(lineId: string, qty: number, sku: string, productId: string | null, uom: string | null) {
+  async function moveLineToStock(lineId: string, maxUnits: number, sku: string, productId: string | null, uom: string | null) {
     if (!activeItem) return
-    if (!confirm(`Move "${sku || 'this item'}"${qty ? ' (qty ' + qty + ')' : ''} to inventory stock? It stays on the order for billing but no longer has to ship, so the order can complete.`)) return
+    const unitWord = uom || 'units'
+    const ans = window.prompt(`How many ${unitWord} of "${sku || 'this item'}" to move to inventory stock? (up to ${maxUnits})\n\nThose units become positive on-hand inventory and no longer have to ship; the rest still ships. The line stays on the order for billing.`, String(maxUnits))
+    if (ans == null) return
+    const n = Math.floor(Number(ans))
+    if (!(n > 0)) { alert('Enter a quantity greater than 0.'); return }
+    const moveN = Math.min(n, maxUnits)
     setBusy('load')
     try {
-      await sb.from('sales_order_lines').update({ stock_item: true }).eq('id', lineId)
-      if (qty > 0) {
-        try {
-          let pid = productId
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if (!pid && sku) { const { data: pf } = await sb.from('products').select('id').ilike('sku', sku).limit(1); pid = (pf?.[0] as any)?.id ?? null }
-          await sb.from('inventory_movements').insert({ product_id: pid, sku: sku || null, movement_type: 'stock', qty, uom: uom || null, ref_table: 'sales_order_lines', ref_id: lineId, note: `Moved to inventory stock from order ${o?.order_number || ''}`.trim(), created_by: userEmail || 'system' })
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if (pid) { const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle(); await sb.from('products').update({ on_hand_qty: Number((pr as any)?.on_hand_qty || 0) + qty }).eq('id', pid) }
-        } catch { /* ledger posting is best-effort */ }
-      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: cur } = await sb.from('sales_order_lines').select('stock_qty').eq('id', lineId).maybeSingle()
+      const curStock = Number((cur as any)?.stock_qty) || 0
+      await sb.from('sales_order_lines').update({ stock_qty: curStock + moveN, stock_item: (maxUnits - moveN) <= 0 }).eq('id', lineId)
+      try {
+        let pid = productId
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (!pid && sku) { const { data: pf } = await sb.from('products').select('id').ilike('sku', sku).limit(1); pid = (pf?.[0] as any)?.id ?? null }
+        await sb.from('inventory_movements').insert({ product_id: pid, sku: sku || null, movement_type: 'stock', qty: moveN, uom: uom || null, ref_table: 'sales_order_lines', ref_id: lineId, note: `Moved ${moveN} ${unitWord} to inventory stock from order ${o?.order_number || ''}`.trim(), created_by: userEmail || 'system' })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (pid) { const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle(); await sb.from('products').update({ on_hand_qty: Number((pr as any)?.on_hand_qty || 0) + moveN }).eq('id', pid) }
+      } catch { /* ledger posting is best-effort */ }
       invalidateBol()
       await loadPack(activeItem)
     } catch (e) { alert('Could not move to stock: ' + (e as Error).message); setBusy('') }
@@ -601,7 +610,7 @@ export default function ShippingQueuePage() {
     if (!activeItem) return
     setBusy('load')
     try {
-      await sb.from('sales_order_lines').update({ stock_item: false }).eq('id', l.id)
+      await sb.from('sales_order_lines').update({ stock_qty: 0, stock_item: false }).eq('id', l.id)
       if (l.qty > 0) {
         try {
           let pid = l.productId
@@ -1316,15 +1325,16 @@ export default function ShippingQueuePage() {
       for (const r of plan) shipNow[r.sku] = (shipNow[r.sku] || 0) + (Number(r.shippedUnits) || 0)
       // Roll the shipped qty into each order line's completed_qty and decide full vs partial.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped, unit_price, stock_item').eq('sales_order_id', activeItem.sales_order_id)
+      const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped, unit_price, stock_item, stock_qty').eq('sales_order_id', activeItem.sales_order_id)
       // Value of THIS shipment only. createShipment otherwise stamps the whole
       // order's value on every shipment, so a partial reported the full order amount.
       let shippedValue = 0
       let fully = true
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const l of ((curLines as any[]) || [])) {
-        if (l.stock_item) continue   // moved to inventory stock — not part of the must-ship balance
-        const ordered = Number(l.quantity ?? l.qty) || 0
+        const sq = Number(l.stock_qty) || (l.stock_item ? (Number(l.quantity ?? l.qty) || 0) : 0)
+        const ordered = Math.max(0, (Number(l.quantity ?? l.qty) || 0) - sq)
+        if (ordered <= 0) continue   // fully moved to inventory stock — not part of the must-ship balance
         // quantity_shipped is the shipped balance every other screen reads;
         // completed_qty is production progress. They are not the same field.
         const prior = Number(l.quantity_shipped ?? l.completed_qty) || 0
