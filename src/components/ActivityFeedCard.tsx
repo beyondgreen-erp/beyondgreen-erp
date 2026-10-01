@@ -8,19 +8,21 @@ const sb = createSupabaseBrowserClient()
 
 type Ev = {
   event_time: string; event_date: string; direction: string; source: string; label: string
-  reference: string; party: string; sku: string; item: string; qty: number; uom: string; who: string
+  reference: string; party: string; sku: string; item: string; qty: number; uom: string
+  who: string; onhand_after: number | null
 }
 
-const SRC: Record<string, { chip: string; dot: string }> = {
-  po_placed: { chip: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
-  received:  { chip: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
-  shipped:   { chip: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500' },
-  consumed:  { chip: 'bg-violet-100 text-violet-700', dot: 'bg-violet-500' },
-  produced:  { chip: 'bg-sky-100 text-sky-700', dot: 'bg-sky-500' },
-  adjusted:  { chip: 'bg-slate-100 text-slate-700', dot: 'bg-slate-500' },
-  stocked:   { chip: 'bg-teal-100 text-teal-700', dot: 'bg-teal-500' },
+const CHIP: Record<string, string> = {
+  po_placed: 'bg-amber-100 text-amber-700',
+  received:  'bg-emerald-100 text-emerald-700',
+  shipped:   'bg-rose-100 text-rose-700',
+  consumed:  'bg-violet-100 text-violet-700',
+  produced:  'bg-sky-100 text-sky-700',
+  adjusted:  'bg-slate-100 text-slate-700',
+  stocked:   'bg-teal-100 text-teal-700',
 }
 const fmtQty = (n: number) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+const fmtOnHand = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }))
 function ago(iso: string) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
   if (s < 60) return 'just now'
@@ -36,7 +38,7 @@ export default function ActivityFeedCard() {
 
   const load = useCallback(async () => {
     const { data } = await sb.from('v_activity_feed')
-      .select('event_time,event_date,direction,source,label,reference,party,sku,item,qty,uom,who')
+      .select('event_time,event_date,direction,source,label,reference,party,sku,item,qty,uom,who,onhand_after')
       .order('event_time', { ascending: false })
       .limit(8)
     setRows((data as any[]) || [])
@@ -67,7 +69,7 @@ export default function ActivityFeedCard() {
         <div className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <h2 className="text-sm font-bold text-[#0F1C2E]">Live Activity</h2>
-          <span className="text-xs text-[#8A9FC0]">inbound · receiving · shipping · production · inventory</span>
+          <span className="hidden md:inline text-xs text-[#8A9FC0]">inbound · receiving · shipping · production · inventory</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold text-emerald-600">↓ {today.inN} in</span>
@@ -82,32 +84,47 @@ export default function ActivityFeedCard() {
       ) : rows.length === 0 ? (
         <p className="px-5 py-6 text-sm text-[#8A9FC0]">No activity yet.</p>
       ) : (
-        <div className="divide-y divide-[#F1F3F7]">
-          {rows.map((r, i) => {
-            const st = SRC[r.source] || { chip: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' }
-            const inbound = r.direction === 'in'
-            return (
-              <div key={i} className="flex items-center gap-3 px-5 py-2.5 hover:bg-[#F8FAFF]">
-                <span className={`shrink-0 w-6 h-6 rounded-full grid place-items-center text-xs font-bold ${inbound ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{inbound ? '↓' : '↑'}</span>
-                <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${st.chip}`}>{r.label}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-[#0F1C2E] truncate">
-                    <span className="font-semibold">{r.sku || r.item || '—'}</span>
-                    {r.item && r.sku ? <span className="text-[#8A9FC0]">  {r.item}</span> : null}
-                  </p>
-                  <p className="text-xs text-[#8A9FC0] truncate">{r.party}{r.reference && r.reference !== '—' ? `  ·  ${r.reference}` : ''}</p>
-                </div>
-                <div className="hidden sm:block text-right shrink-0 w-24 mr-1">
-                  <p className="text-xs font-medium text-[#5A6E8A] truncate" title={r.who || undefined}>{r.who ? r.who.split('@')[0] : '—'}</p>
-                  <p className="text-[9px] text-[#B5C0D0] uppercase tracking-wide">by</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className={`text-sm font-bold ${inbound ? 'text-emerald-600' : 'text-rose-600'}`}>{inbound ? '+' : '−'}{fmtQty(r.qty)} <span className="text-[10px] font-normal text-[#8A9FC0]">{r.uom}</span></p>
-                  <p className="text-[10px] text-[#8A9FC0]">{ago(r.event_time)}</p>
-                </div>
-              </div>
-            )
-          })}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[720px]">
+            <thead>
+              <tr className="text-left text-[10px] font-semibold uppercase tracking-wide text-[#8A9FC0] border-b border-[#EEF0F4] bg-[#FAFBFD]">
+                <th className="px-4 py-2 w-6"></th>
+                <th className="px-2 py-2 w-24">Type</th>
+                <th className="px-2 py-2 w-24">SKU</th>
+                <th className="px-2 py-2">Item</th>
+                <th className="px-2 py-2 w-28">Party / Ref</th>
+                <th className="px-2 py-2 w-24">By</th>
+                <th className="px-2 py-2 w-20 text-right">Qty</th>
+                <th className="px-2 py-2 w-20 text-right">On hand</th>
+                <th className="px-3 py-2 w-16 text-right">When</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#F1F3F7]">
+              {rows.map((r, i) => {
+                const inbound = r.direction === 'in'
+                const chip = CHIP[r.source] || 'bg-gray-100 text-gray-600'
+                return (
+                  <tr key={i} className="hover:bg-[#F8FAFF]">
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-grid place-items-center w-6 h-6 rounded-full text-xs font-bold ${inbound ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{inbound ? '↓' : '↑'}</span>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <span className={`text-[10px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${chip}`}>{r.label}</span>
+                    </td>
+                    <td className="px-2 py-2.5 font-mono font-semibold text-[#0F1C2E] whitespace-nowrap">{r.sku || '—'}</td>
+                    <td className="px-2 py-2.5 text-[#5A6E8A] truncate max-w-[220px]" title={r.item || undefined}>{r.item || '—'}</td>
+                    <td className="px-2 py-2.5 text-[#8A9FC0] truncate max-w-[130px]" title={`${r.party}${r.reference && r.reference !== '—' ? ' · ' + r.reference : ''}`}>
+                      {r.party}{r.reference && r.reference !== '—' ? <span className="text-[#B5C0D0]"> · {r.reference}</span> : null}
+                    </td>
+                    <td className="px-2 py-2.5 text-[#5A6E8A] text-xs truncate max-w-[110px]" title={r.who || undefined}>{r.who ? r.who.split('@')[0] : '—'}</td>
+                    <td className={`px-2 py-2.5 text-right font-bold whitespace-nowrap ${inbound ? 'text-emerald-600' : 'text-rose-600'}`}>{inbound ? '+' : '−'}{fmtQty(r.qty)} <span className="text-[10px] font-normal text-[#8A9FC0]">{r.uom}</span></td>
+                    <td className="px-2 py-2.5 text-right font-semibold text-[#0F1C2E] whitespace-nowrap">{fmtOnHand(r.onhand_after)}</td>
+                    <td className="px-3 py-2.5 text-right text-[10px] text-[#8A9FC0] whitespace-nowrap">{ago(r.event_time)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

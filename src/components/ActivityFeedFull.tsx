@@ -8,7 +8,7 @@ const sb = createSupabaseBrowserClient()
 
 type Ev = {
   event_time: string; event_date: string; direction: string; source: string; label: string
-  reference: string; party: string; sku: string; item: string; qty: number; uom: string; who: string; note: string | null
+  reference: string; party: string; sku: string; item: string; qty: number; uom: string; who: string; note: string | null; onhand_after: number | null
 }
 
 const SOURCES: { key: string; label: string }[] = [
@@ -31,6 +31,7 @@ const SRC: Record<string, string> = {
 }
 const PAGE = 100
 const fmtQty = (n: number) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+const fmtOnHand = (n: number | null) => (n == null ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }))
 const fmtTime = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function ActivityFeedFull() {
@@ -47,7 +48,7 @@ export default function ActivityFeedFull() {
   const load = useCallback(async (append = false) => {
     setLoading(true)
     let query = sb.from('v_activity_feed')
-      .select('event_time,event_date,direction,source,label,reference,party,sku,item,qty,uom,who,note')
+      .select('event_time,event_date,direction,source,label,reference,party,sku,item,qty,uom,who,note,onhand_after')
       .order('event_time', { ascending: false })
     const srcArr = Array.from(active)
     if (srcArr.length && srcArr.length < SOURCES.length) query = query.in('source', srcArr)
@@ -131,6 +132,7 @@ export default function ActivityFeedFull() {
                   <th className="px-3 py-2 font-semibold">Type</th>
                   <th className="px-3 py-2 font-semibold">SKU / Item</th>
                   <th className="px-3 py-2 font-semibold text-right">Qty</th>
+                  <th className="px-3 py-2 font-semibold text-right">On hand</th>
                   <th className="px-3 py-2 font-semibold">Party</th>
                   <th className="px-3 py-2 font-semibold">Reference</th>
                   <th className="px-3 py-2 font-semibold">By</th>
@@ -150,6 +152,7 @@ export default function ActivityFeedFull() {
                         {r.item ? <span className="text-[#8A9FC0]">  {r.item}</span> : null}
                       </td>
                       <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${inbound ? 'text-emerald-600' : 'text-rose-600'}`}>{inbound ? '+' : '−'}{fmtQty(r.qty)} <span className="text-[10px] font-normal text-[#8A9FC0]">{r.uom}</span></td>
+                      <td className="px-3 py-2 text-right font-semibold text-[#0F1C2E] whitespace-nowrap">{fmtOnHand(r.onhand_after)}</td>
                       <td className="px-3 py-2 text-[#0F1C2E] truncate max-w-[180px]">{r.party}</td>
                       <td className="px-3 py-2 text-[#5A6E8A] truncate max-w-[160px]">{r.reference}</td>
                       <td className="px-3 py-2 text-[#8A9FC0] text-xs truncate max-w-[150px]">{(r.who || '').split('@')[0]}</td>
@@ -157,7 +160,7 @@ export default function ActivityFeedFull() {
                   )
                 })}
                 {!loading && rows.length === 0 && (
-                  <tr><td colSpan={7} className="px-3 py-8 text-center text-[#8A9FC0]">No activity matches these filters.</td></tr>
+                  <tr><td colSpan={8} className="px-3 py-8 text-center text-[#8A9FC0]">No activity matches these filters.</td></tr>
                 )}
               </tbody>
             </table>
