@@ -49,11 +49,20 @@ export default function InventoryLedgerPage() {
 
   useEffect(() => { (async () => {
     const since = new Date(); since.setFullYear(since.getFullYear() - 1)
-    const { data: mv } = await sb.from('inventory_movements')
-      .select('id, sku, product_id, movement_type, qty, uom, pack_qty, lot_number, note, ref_table, created_by, created_at')
-      .gte('created_at', since.toISOString())
-      .order('created_at', { ascending: true }).range(0, 4999)
-    const rows = (mv as Mv[]) || []
+    // Page through in 1000-row batches — Supabase caps a single response at 1000 rows,
+    // so a plain range(0,4999) silently dropped the newest movements and the ledger
+    // appeared to "not reflect" recent shipments/completions. Fetch every row.
+    const rows: Mv[] = []
+    const PAGE = 1000
+    for (let from = 0; ; from += PAGE) {
+      const { data: batch, error } = await sb.from('inventory_movements')
+        .select('id, sku, product_id, movement_type, qty, uom, pack_qty, lot_number, note, ref_table, created_by, created_at')
+        .gte('created_at', since.toISOString())
+        .order('created_at', { ascending: true }).range(from, from + PAGE - 1)
+      if (error || !batch || batch.length === 0) break
+      rows.push(...(batch as Mv[]))
+      if (batch.length < PAGE) break
+    }
     setMoves(rows)
     const { data: ps } = await sb.from('products').select('sku, product_name, on_hand_qty, unit_of_measure').range(0, 9999)
     const map: Record<string, Prod> = {}
