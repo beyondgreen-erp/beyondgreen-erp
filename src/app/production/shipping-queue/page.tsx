@@ -68,9 +68,11 @@ interface PlanRow {
 // A line moved to inventory stock: still billed on the order, but excluded from the
 // shipping plan / completion math so it can't hold the order on the pipeline.
 interface StockLine { id: string; sku: string; description: string; qty: number; unitPrice: number; productId: string | null; uom: string | null }
-// Units of a line already moved to inventory stock (new stock_qty col; legacy stock_item = whole line).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function stockQtyOf(l: any): number { return Number(l?.stock_qty) || (l?.stock_item ? Number(l?.quantity ?? l?.qty ?? 0) : 0) }
+// The ship/stock split now happens on the Sales Order line, where it reduces the line's
+// quantity to the ship amount. So the Shipping Queue treats quantity as the ship quantity
+// and no longer subtracts anything here (that double-counted and broke ship/label/billing qty).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+function stockQtyOf(_l: any): number { return 0 }
 // Build the per-case box list from a shipped quantity and units-per-case.
 // Full cases hold `upc`; the last case holds the remainder. Existing box
 // dimensions/weights are preserved by index; new boxes seed their weight from defWt.
@@ -1679,10 +1681,7 @@ export default function ShippingQueuePage() {
                                     <div className="w-[72px]"><label className={lbl}>Ordered ({r.uom || 'ea'})</label><input type="number" min={0} value={r.units} onChange={e => setOrdered(i, parseInt(e.target.value) || 0)} className={nf} /></div>
                                     <div className="w-[72px]"><label className={lbl}>Shipped ({r.uom || 'ea'})</label><input type="number" min={0} value={r.shippedUnits} onChange={e => setShipped(i, parseInt(e.target.value) || 0)} className={`${nf} ${over ? 'border-red-400 text-red-600' : ''}`} /></div>
                                     <div className="text-center w-[64px]"><label className={lbl}>Total Cases</label><div className="text-sm font-semibold text-[#1A1D2E] py-1">{r.boxes.length}</div></div>
-                                    {r.lineId && !r.manual && (
-                                      <button onClick={() => moveLineToStock(r.lineId as string, r.units, r.sku, r.productId, r.uom)} className="ml-auto self-start text-[10px] px-2 py-1 rounded border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 whitespace-nowrap" title="Bill this item on the order but move it to inventory stock so it doesn't have to ship (e.g. a print plate, extras, or a stocked BOM the customer paid for)">📦 Move to stock</button>
-                                    )}
-                                    <button onClick={() => removeLine(i)} className={`${r.lineId && !r.manual ? 'ml-2' : 'ml-auto'} text-gray-300 hover:text-red-500 text-sm self-start`} title="Remove this SKU from the shipment">✕</button>
+                                    <button onClick={() => removeLine(i)} className="ml-auto text-gray-300 hover:text-red-500 text-sm self-start" title="Remove this SKU from the shipment">✕</button>
                                   </div>
                                   {over && <div className="text-[11px] text-red-600 mt-1">Shipped can&apos;t exceed ordered — it&apos;s capped automatically.</div>}
                                   {parcel && boxConfigs.length === 0 && (
