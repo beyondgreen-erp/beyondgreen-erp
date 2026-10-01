@@ -173,7 +173,7 @@ export default function InventoryLedgerPage() {
                     <div className="hidden sm:block text-right w-24"><p className="text-[10px] text-gray-400 uppercase">Out</p><p className="text-sm font-semibold text-red-600">−{fmt(d.totalOut)}</p></div>
                     <div className="hidden md:block text-right w-24"><p className="text-[10px] text-gray-400 uppercase">Ledger</p><p className="text-sm font-semibold text-[#1A1D2E]">{fmt(d.ledgerBalance)}</p></div>
                     <div className="text-right w-28"><p className="text-[10px] text-gray-400 uppercase">On hand</p><p className="text-base font-bold text-[#1A1D2E]">{fmt(d.current)}<span className="text-[11px] text-gray-400 font-medium"> {prods[sku]?.uom || ''}</span></p></div>
-                    <div className="w-24 text-right">{Math.abs(d.drift) > 0.001 ? <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#FEF3C7', color: '#B45309' }} title="Stored on-hand does not match the sum of recorded movements (timing gap, overwrite, or mixed units).">\u26A0 off {fmtSigned(d.drift)}</span> : <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#DCFCE7', color: '#15803D' }}>\u2713 ties out</span>}</div>
+                    <div className="w-24 text-right">{Math.abs(d.drift) > 0.001 ? <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#FEF3C7', color: '#B45309' }} title="Stored on-hand does not match the sum of recorded movements (timing gap, overwrite, or mixed units).">⚠ off {fmtSigned(d.drift)}</span> : <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#DCFCE7', color: '#15803D' }}>✓ ties out</span>}</div>
                   </button>
                   {isOpen && (
                     <div className="border-t border-[#EEF0F4] overflow-x-auto">
@@ -208,7 +208,7 @@ export default function InventoryLedgerPage() {
                             <td className="px-4 py-2 text-right font-bold text-[#1A1D2E]">{fmt(d.ledgerBalance)}</td>
                           </tr>
                           <tr className="bg-[#FBFCFE]">
-                            <td className="px-4 py-2 text-gray-500" colSpan={5}>Stored on-hand{Math.abs(d.drift) > 0.001 ? <span className="ml-2 text-amber-700 font-semibold">\u26A0 differs by {fmtSigned(d.drift)} \u2014 likely a timing gap, an overwrite, or mixed units (cases vs packs)</span> : <span className="ml-2 text-emerald-700 font-semibold">\u2713 matches the ledger</span>}</td>
+                            <td className="px-4 py-2 text-gray-500" colSpan={5}>Stored on-hand{Math.abs(d.drift) > 0.001 ? <span className="ml-2 text-amber-700 font-semibold">⚠ differs by {fmtSigned(d.drift)} — likely a timing gap, an overwrite, or mixed units (cases vs packs)</span> : <span className="ml-2 text-emerald-700 font-semibold">✓ matches the ledger</span>}</td>
                             <td className="px-4 py-2 text-right font-bold" style={{ color: Math.abs(d.drift) > 0.001 ? '#B45309' : '#1A1D2E' }}>{fmt(d.current)}</td>
                           </tr>
                         </tbody>
