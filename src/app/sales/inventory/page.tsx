@@ -1278,7 +1278,7 @@ export default function InventoryPage() {
                   {!isCol && (<>
                     <div className="hidden lg:block overflow-x-auto">
                       <table className="w-full text-sm min-w-[920px]">
-                        <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
+                        <thead className="[&_th]:bg-[#FBFCFE]">
                           <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                             <th className="w-9 px-3 py-2.5"><input type="checkbox" checked={items.length>0 && items.every(p=>ms.isSelected(p.id))} onChange={()=>ms.toggleAll(items)} className="accent-emerald-500 w-4 h-4 cursor-pointer"/></th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[140px]">SKU</th>
