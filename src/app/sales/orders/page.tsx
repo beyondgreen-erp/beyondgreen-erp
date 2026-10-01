@@ -542,6 +542,9 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
   const [lines, setLines] = useState<OrderLine[]>([])
   const [loading, setLoading] = useState(true)
   const [assigningId, setAssigningId] = useState<string | null>(null)
+  const [splitLine, setSplitLine] = useState<OrderLine | null>(null)
+  const [splitInv, setSplitInv] = useState<string>('0')
+  const [splitBusy, setSplitBusy] = useState(false)
 
   const load = useCallback(async () => {
     const { data } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', orderId).order('line_number', { ascending: true })
@@ -564,33 +567,34 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
       if (pid) { const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle(); await sb.from('products').update({ on_hand_qty: Number((pr as any)?.on_hand_qty || 0) + signed }).eq('id', pid) }
     } catch { /* ledger posting is best-effort */ }
   }
-  // Move N units of a line to inventory stock (positive on-hand). The rest still ships; the line
-  // stays on the order for billing. N can be the whole line or a partial amount.
-  async function moveToStock(line: OrderLine) {
-    const ordered = Number(line.quantity) || 0
-    const curStock = stockedOf(line)
-    const remaining = Math.max(0, ordered - curStock)
-    if (remaining <= 0) { alert('All units on this line are already in stock.'); return }
-    const unitWord = line.unit_of_measure || 'units'
-    const ans = window.prompt(`How many ${unitWord} of "${line.sku || line.description || 'this item'}" to move to inventory stock? (up to ${remaining})\n\nThose units become positive on-hand inventory and no longer have to ship; the rest still ships. The line stays on the order for billing.`, String(remaining))
-    if (ans == null) return
-    const n = Math.floor(Number(ans))
-    if (!(n > 0)) { alert('Enter a quantity greater than 0.'); return }
-    const moveN = Math.min(n, remaining)
-    const newStock = curStock + moveN
-    await sb.from('sales_order_lines').update({ stock_qty: newStock, stock_item: (ordered - newStock) <= 0 }).eq('id', line.id)
-    await postStockMovement(line, moveN, `Moved ${moveN} ${unitWord} to inventory stock (sales order line)`)
-    setLines(ls => ls.map(l => l.id === line.id ? { ...l, stock_qty: newStock, stock_item: (ordered - newStock) <= 0 } : l))
-    onLineUpdated()
+  // Original ordered amount = what still ships (quantity) + what was pulled to inventory (stock_qty).
+  const orderedTotalOf = (l: OrderLine) => (Number(l.quantity) || 0) + (Number(l.stock_qty) || 0)
+  function openSplit(line: OrderLine) { setSplitLine(line); setSplitInv(String(Number(line.stock_qty) || 0)) }
+  // Split a line into: ship now (quantity, which drives labels, packing, BOL and billing) and
+  // move to inventory (stock_qty, added to on-hand and off the order). invQty is the inventory part.
+  async function applySplit(line: OrderLine, invQtyRaw: number) {
+    const orderedTotal = orderedTotalOf(line)
+    const invQty = Math.max(0, Math.min(Number(invQtyRaw) || 0, orderedTotal))
+    const shipQty = orderedTotal - invQty
+    const curStock = Number(line.stock_qty) || 0
+    const delta = invQty - curStock            // on-hand change (+ moves more to stock, - returns to order)
+    setSplitBusy(true)
+    const shippedSoFar = Number(line.quantity_shipped ?? line.completed_qty) || 0
+    const clampedDone = Math.min(shippedSoFar, shipQty)
+    await sb.from('sales_order_lines').update({
+      quantity: shipQty, stock_qty: invQty, stock_item: shipQty <= 0,
+      quantity_shipped: clampedDone, completed_qty: clampedDone,
+    }).eq('id', line.id)
+    if (delta !== 0) {
+      const word = line.unit_of_measure || 'units'
+      await postStockMovement(line, delta, delta > 0
+        ? `Moved ${delta} ${word} to inventory stock (held in warehouse, off the order)`
+        : `Returned ${-delta} ${word} from inventory stock back to the order`)
+    }
+    setLines(ls => ls.map(l => l.id === line.id ? { ...l, quantity: shipQty, stock_qty: invQty, stock_item: shipQty <= 0, quantity_shipped: clampedDone, completed_qty: clampedDone } : l))
+    setSplitBusy(false); setSplitLine(null); onLineUpdated()
   }
-  async function returnFromStock(line: OrderLine) {
-    const curStock = stockedOf(line)
-    if (curStock <= 0) return
-    await sb.from('sales_order_lines').update({ stock_qty: 0, stock_item: false }).eq('id', line.id)
-    await postStockMovement(line, -curStock, 'Returned to order from inventory stock')
-    setLines(ls => ls.map(l => l.id === line.id ? { ...l, stock_qty: 0, stock_item: false } : l))
-    onLineUpdated()
-  }
+  async function undoSplit(line: OrderLine) { await applySplit(line, 0) }
 
   if (loading) return <tr><td colSpan={13} className="px-6 py-4 text-center text-gray-600 text-xs">Loading lines…</td></tr>
   if (lines.length === 0) return <tr><td colSpan={13} className="px-6 py-4 text-center text-gray-600 text-xs">No line items.</td></tr>
@@ -628,7 +632,7 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
               )}
             </td>
             <td className="px-2 py-2.5 text-gray-500 text-xs max-w-[180px] truncate">{line.description ?? line.added_details ?? '—'}</td>
-            <td className="px-2 py-2.5 text-gray-500 text-xs font-semibold">{qty}</td>
+            <td className="px-2 py-2.5 text-gray-500 text-xs font-semibold">{qty}{stocked > 0 && <span className="block text-[10px] font-normal text-amber-700">of {orderedTotalOf(line).toLocaleString('en-US')} ordered</span>}</td>
             <td className={`px-2 py-2.5 text-xs font-medium ${pct === 100 ? 'text-emerald-400' : pct > 0 ? 'text-blue-400' : 'text-gray-600'}`}>{done}</td>
             <td className="px-2 py-2.5 text-gray-500 text-xs whitespace-nowrap">
               {line.unit_of_measure ?? '—'}
@@ -653,19 +657,58 @@ function LinesTable({ orderId, onLineUpdated }: { orderId: string; onLineUpdated
                 </div>
                 <span className={`text-xs font-medium w-8 text-right ${pct === 100 ? 'text-emerald-400' : 'text-gray-500'}`}>{pct}%</span>
               </div>
-              {stocked > 0 && <div className="mt-1 text-[10px] font-semibold text-amber-700">📦 {stocked.toLocaleString('en-US')} in stock</div>}
+              {stocked > 0 && <div className="mt-1 text-[10px] font-semibold text-amber-700">📦 {stocked.toLocaleString('en-US')} held in inventory</div>}
               <div className="mt-1 flex items-center gap-1">
-                {(qty - stocked) > 0 && (
-                  <button onClick={() => moveToStock(line)} className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 whitespace-nowrap" title="Move some or all of this line's units to inventory stock (positive on-hand). The rest still ships; the line stays on the order for billing.">📦 Move to stock</button>
-                )}
+                <button onClick={() => openSplit(line)} className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 whitespace-nowrap" title="Split this line: choose how many units ship now (labeled, packed and billed) and how many move to inventory (added to on-hand, off the order).">✂ Split ship / stock</button>
                 {stocked > 0 && (
-                  <button onClick={() => returnFromStock(line)} className="text-[10px] px-1.5 py-0.5 rounded border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 whitespace-nowrap" title="Return all stocked units to the shipping plan and reverse the inventory entry">↩ return</button>
+                  <button onClick={() => undoSplit(line)} className="text-[10px] px-1.5 py-0.5 rounded border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 whitespace-nowrap" title="Put all held units back on the order and reverse the inventory entry">↩ undo</button>
                 )}
               </div>
             </td>
           </tr>
         )
       })}
+      {splitLine && (() => {
+        const orderedTotal = orderedTotalOf(splitLine)
+        const inv = Math.max(0, Math.min(Math.floor(Number(splitInv) || 0), orderedTotal))
+        const ship = orderedTotal - inv
+        const word = splitLine.unit_of_measure || 'units'
+        return (
+          <tr>
+            <td colSpan={13}>
+              <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={() => !splitBusy && setSplitLine(null)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-base font-bold text-[#0F1C2E]">Split line — ship now vs. move to inventory</h3>
+                  <p className="mt-0.5 text-xs text-gray-500"><span className="font-mono font-semibold text-emerald-600">{splitLine.sku || splitLine.description || 'Item'}</span> · ordered <span className="font-semibold">{orderedTotal.toLocaleString('en-US')}</span> {word}</p>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-emerald-700 mb-1">Ship now</label>
+                      <input type="number" min={0} max={orderedTotal} value={ship}
+                        onChange={e => setSplitInv(String(Math.max(0, Math.min(orderedTotal, orderedTotal - (Math.floor(Number(e.target.value) || 0))))))}
+                        className="w-full border border-emerald-300 rounded-lg px-3 py-2 text-sm" />
+                      <p className="text-[10px] text-gray-500 mt-1">Labeled, packed, shipped &amp; billed.</p>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-amber-700 mb-1">Move to inventory</label>
+                      <input type="number" min={0} max={orderedTotal} value={inv}
+                        onChange={e => setSplitInv(e.target.value)}
+                        className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm" />
+                      <p className="text-[10px] text-gray-500 mt-1">Added to on-hand, held in warehouse, off the order.</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-xs rounded-lg bg-[#F5F6FA] border border-[#E4E6EE] px-3 py-2 text-gray-600">
+                    Shipping &amp; billing <span className="font-semibold text-emerald-700">{ship.toLocaleString('en-US')}</span> {word} · to inventory <span className="font-semibold text-amber-700">{inv.toLocaleString('en-US')}</span> {word}. The order completes at {ship.toLocaleString('en-US')}.
+                  </div>
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <button onClick={() => setSplitLine(null)} disabled={splitBusy} className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50">Cancel</button>
+                    <button onClick={() => applySplit(splitLine, inv)} disabled={splitBusy} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50">{splitBusy ? 'Saving…' : 'Apply split'}</button>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        )
+      })()}
     </>
   )
 }
