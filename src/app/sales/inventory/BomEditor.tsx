@@ -41,6 +41,7 @@ interface BomRow {
   linked: boolean    // component_sku resolves to a live Inventory product (Ultron)
   role: Role         // stored label, or the auto-classified one when the row has none yet
   roleAuto: boolean  // true while the label is still a guess the user has not confirmed
+  notes: string      // free text, same field the collection spreadsheet asks for
 }
 
 interface SearchResult {
@@ -155,6 +156,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const [addBasis, setAddBasis] = useState<Basis>('percentage')
   const [addRole, setAddRole] = useState<Role>('rm')
   const [addQty, setAddQty] = useState('')
+  const [addNotes, setAddNotes] = useState('')
   const [addErr, setAddErr] = useState('')
   const [adding, setAdding] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -209,6 +211,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
         linked,
         role: isRole(r.role) ? r.role : classifyRole(r.component_sku, name, cat, basis),
         roleAuto: !isRole(r.role),
+        notes: r.notes ?? '',
       }
     })
     rows.sort((a, b) => (ROLE_ORDER[a.role] - ROLE_ORDER[b.role]) || a.component_sku.localeCompare(b.component_sku))
@@ -331,10 +334,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     const db = basisToDb(addBasis)
     const { error } = await sb.from('product_bom').insert({
       finished_good_sku: product.sku, component_sku: addSku,
-      percentage: addBasis === 'percentage' ? qty : 0, qty_value: qty, role: addRole, ...db,
+      percentage: addBasis === 'percentage' ? qty : 0, qty_value: qty, role: addRole, notes: addNotes.trim() || null, ...db,
     })
     if (error) { setAddErr(error.message); setAdding(false); return }
-    setAddSku(''); setAddSkuName(''); setAddSkuCat(null); setAddQuery(''); setAddQty(''); setAddBasis('percentage'); setAddRole('rm'); setAdding(false)
+    setAddSku(''); setAddSkuName(''); setAddSkuCat(null); setAddQuery(''); setAddQty(''); setAddNotes(''); setAddBasis('percentage'); setAddRole('rm'); setAdding(false)
     loadBom()
   }
   async function deleteRow(id: string) {
@@ -353,6 +356,13 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
       return next
     })
     const { error } = await sb.from('product_bom').update({ role }).eq('id', id)
+    if (error) flash('Error: ' + error.message)
+  }
+
+  /** Free-text note on a component — matches the Notes column on the collection spreadsheet. */
+  async function updateNotes(id: string, text: string) {
+    setComponents(cs => cs.map(c => c.id === id ? { ...c, notes: text } : c))
+    const { error } = await sb.from('product_bom').update({ notes: text || null }).eq('id', id)
     if (error) flash('Error: ' + error.message)
   }
 
@@ -375,7 +385,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
       <div onClick={e => e.stopPropagation()}
         // Widened from 1000px when the Material column was added, so the components table still
         // shows every field without the horizontal scrollbar kicking in on a laptop screen.
-        className="bg-[#F7F8FB] rounded-2xl w-full max-w-[1180px] max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        className="bg-[#F7F8FB] rounded-2xl w-full max-w-[1300px] max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E4E6EE] bg-white shrink-0">
@@ -421,7 +431,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
               {/* Components table */}
               <div className="bg-white border border-[#ECEEF3] rounded-xl overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs min-w-[680px]">
+                  <table className="w-full text-xs min-w-[800px]">
                     <thead>
                       <tr className="bg-[#FBFCFE] border-b border-[#EEF0F4] text-[10px] uppercase tracking-wide text-gray-400">
                         <th className="text-left font-semibold px-2.5 py-2 w-[116px]">Material</th>
@@ -430,12 +440,13 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                         <th className="text-right font-semibold px-2 py-2 w-[70px]">Qty</th>
                         <th className="text-right font-semibold px-2 py-2 w-[92px]">Unit cost</th>
                         <th className="text-right font-semibold px-2.5 py-2 w-[96px]">Ext / unit</th>
+                        <th className="text-left font-semibold px-2 py-2 w-[130px]">Notes</th>
                         <th className="w-8 px-1 py-2" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F3F4F8]">
-                      {loading && <tr><td colSpan={7} className="px-3 py-5 text-center text-gray-400">Loading…</td></tr>}
-                      {!loading && computedRows.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 italic">No components yet — add one below.</td></tr>}
+                      {loading && <tr><td colSpan={8} className="px-3 py-5 text-center text-gray-400">Loading…</td></tr>}
+                      {!loading && computedRows.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400 italic">No components yet — add one below.</td></tr>}
                       {!loading && computedRows.map((c, i) => (
                         // A line above each change of material type bands the rows into the same
                         // groups the build sheet uses, without spending a whole row on a heading.
@@ -475,6 +486,11 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                             {c.basis === 'percentage' ? <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/lb</span></span> : <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/ea</span></span>}
                           </td>
                           <td className="px-2.5 py-2 text-right font-semibold text-[#1A1D2E] whitespace-nowrap">{fmt4(c.extended_cost)}</td>
+                          <td className="px-2 py-2">
+                            <input defaultValue={c.notes} key={c.id + '-n'} onBlur={e => updateNotes(c.id, e.target.value)}
+                              placeholder="—" title={c.notes || 'Note for this component'}
+                              className={inp + ' w-full !py-1 !px-1.5 text-[11px]'} />
+                          </td>
                           <td className="px-1 py-2 text-center">
                             <button onClick={() => deleteRow(c.id)} className="text-red-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                           </td>
@@ -486,6 +502,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                           <td className={`px-2 py-2 text-right font-bold ${anyPct && Math.abs(totalPct - 100) > 0.1 ? 'text-amber-600' : 'text-emerald-600'}`}>{anyPct ? totalPct.toFixed(1) + '%' : ''}</td>
                           <td />
                           <td className="px-2.5 py-2 text-right font-bold text-[#1A1D2E]">{fmt4(totals.totalMat)}</td>
+                          <td />
                           <td />
                         </tr>
                       )}
@@ -531,6 +548,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                   <option value="pcs_case">pcs / case</option>
                 </select>
                 <input ref={addQtyRef} type="number" min="0" step="0.01" value={addQty} onChange={e => setAddQty(e.target.value)} onKeyDown={e => e.key === 'Enter' && addComponent()} placeholder={addBasis === 'percentage' ? '%' : 'pcs'} className={inp + ' w-20 text-right'} />
+                <input value={addNotes} onChange={e => setAddNotes(e.target.value)} onKeyDown={e => e.key === 'Enter' && addComponent()} placeholder="Notes (optional)" className={inp + ' w-36'} />
                 <button onClick={addComponent} disabled={adding || !addSku || !addQty} className="px-3 py-1.5 bg-[#00863F] hover:bg-[#0b7a3d] disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-lg text-xs font-semibold whitespace-nowrap">{adding ? '…' : '+ Add'}</button>
               </div>
               {addErr && <p className="text-red-600 text-xs mt-1.5">{addErr}</p>}
@@ -569,15 +587,14 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 <button onClick={saveAll} disabled={savingAll} className="text-xs px-3 py-1 rounded-lg bg-[#7A3FB0] hover:bg-[#6a35a0] text-white font-semibold disabled:opacity-50">{savingAll ? '…' : 'Save All'}</button>
               </div>
               <table className="w-full text-xs">
-                <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400"><th className="text-left font-semibold py-1">Tier</th><th className="text-center font-semibold py-1 w-8">×</th><th className="text-right font-semibold py-1">Suggested</th><th className="text-right font-semibold py-1">Current</th><th className="w-8" /></tr></thead>
+                <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400"><th className="text-left font-semibold py-1">Tier</th><th className="text-right font-semibold py-1">Suggested</th><th className="text-right font-semibold py-1">Current</th><th className="w-[52px]" /></tr></thead>
                 <tbody>
                   {TIERS.map(t => (
                     <tr key={t.key} className="border-t border-[#F3F4F8]">
-                      <td className="py-1.5 text-gray-600 font-medium">{t.label}</td>
-                      <td className="py-1.5 text-center text-gray-400">{t.mult}</td>
+                      <td className="py-1.5 text-gray-600 font-medium whitespace-nowrap">{t.label}<span className="text-gray-400 font-normal ml-1">&times;{t.mult}</span></td>
                       <td className="py-1.5 text-right text-emerald-600 font-semibold font-mono">{fmt2(suggested[t.key])}</td>
                       <td className="py-1.5 text-right text-gray-400 font-mono">{product[t.key] != null ? fmt2(Number(product[t.key])) : '—'}</td>
-                      <td className="py-1.5 text-right"><button onClick={() => saveTier(t.key, suggested[t.key])} disabled={savingTier === t.key} className="text-xs px-2 py-0.5 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] disabled:opacity-50">{savingTier === t.key ? '…' : 'Save'}</button></td>
+                      <td className="py-1.5 text-right"><button onClick={() => saveTier(t.key, suggested[t.key])} disabled={savingTier === t.key} className="text-xs px-1.5 py-0.5 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] disabled:opacity-50">{savingTier === t.key ? '…' : 'Save'}</button></td>
                     </tr>
                   ))}
                 </tbody>
