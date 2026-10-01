@@ -466,8 +466,8 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                               <span title={c.linked ? 'Connected to Inventory item' : 'Not found in Inventory — link it'} className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: c.linked ? '#10B981' : '#F59E0B', boxShadow: c.linked ? '0 0 0 2px rgba(16,185,129,0.2)' : 'none' }} />
                               <span className="font-mono font-semibold text-[#0F7A4E] text-[12px]">{c.component_sku}</span>
                             </div>
-                            <div className="flex items-center gap-1.5 mt-0.5 pl-3.5">
-                              <span className="text-gray-500 truncate max-w-[150px] inline-block align-middle">{c.product_name}</span>
+                            <div className="flex items-start gap-1.5 mt-0.5 pl-3.5">
+                              <span title={c.product_name} className="text-gray-500 leading-snug break-words min-w-0">{c.product_name}</span>
                               <CatBadge c={c.category} />
                             </div>
                           </td>
