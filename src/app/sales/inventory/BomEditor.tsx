@@ -456,7 +456,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                               value={c.role}
                               onChange={e => updateRole(c.id, e.target.value as Role)}
                               title={c.roleAuto ? 'Worked out from the component’s category — pick one to confirm it' : 'Material type on the build sheet'}
-                              className={inp + ' w-full !py-1 !px-1.5 text-[11px] cursor-pointer' + (c.roleAuto ? ' !text-gray-400 italic' : ' font-semibold')}
+                              className={inp + ' w-full !min-w-[136px] !py-1 !px-1.5 text-[11px] cursor-pointer' + (c.roleAuto ? ' !text-gray-400 italic' : ' font-semibold')}
                             >
                               {ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
                             </select>
@@ -472,7 +472,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <select value={c.basis} onChange={e => updateBasis(c.id, e.target.value as Basis)} className={inp + ' w-full !py-1 !px-1.5 text-[11px] cursor-pointer'}>
+                            <select value={c.basis} onChange={e => updateBasis(c.id, e.target.value as Basis)} className={inp + ' w-full !min-w-[112px] !py-1 !px-1.5 text-[11px] cursor-pointer'}>
                               <option value="percentage">% by weight</option>
                               <option value="pcs_unit">pcs / unit</option>
                               <option value="pcs_pack">pcs / pack</option>
