@@ -904,36 +904,22 @@ async function renderSalesDocumentPDF(
   const grand = lines.reduce((sum, l) => sum + lineTotalOf(l), 0) || (order.total ?? 0)
   let afterY = (doc as any).lastAutoTable.finalY + 22
 
-  // Footer notes (left) — user-typed notes render FIRST (bold "Notes:" label), then the boilerplate.
-  doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
-  const trimmedNotes = (order.notes || '').trim()
-  // Measure the footer height up front so the notes + Total box can never overlap the last
-  // table rows. If they won't fit under the table on this page, move them to a fresh page.
-  let footerH = 0
-  if (trimmedNotes) footerH += 12 + (doc.splitTextToSize(trimmedNotes, 330) as string[]).length * 11 + 6
-  KIND.footerNotes.forEach(n => { footerH += (doc.splitTextToSize(n, 330) as string[]).length * 11 + 3 })
-  footerH = Math.max(footerH, 48)
-  if (afterY + footerH > H - 40) { doc.addPage(); afterY = 54 }
-  let ny = afterY
-  if (trimmedNotes) {
-    doc.setFont('times', 'bold')
-    doc.text('Notes:', L, ny); ny += 12
-    doc.setFont('times', 'normal')
-    const wrapped = doc.splitTextToSize(trimmedNotes, 330) as string[]
-    doc.text(wrapped, L, ny)
-    ny += wrapped.length * 11 + 6
-  }
-  KIND.footerNotes.forEach(n => {
-    const wrapped = doc.splitTextToSize(n, 330) as string[]
-    doc.text(wrapped, L, ny)
-    ny += wrapped.length * 11 + 3
-  })
+  const BOTTOM = H - 40
+  const TOTAL_W = 200, TOTAL_H = 40
 
-  // Right side box: Total (SO/Quote) or Reply-To (RFQ)
-  const tbW = 200, tbX = R - tbW, tbY = afterY - 8
+  // The Total is placed BEFORE the notes, and moves to a new page only when the table itself runs
+  // to the bottom of this one.
+  //
+  // It used to be the other way round: the notes and the Total were measured as one block, so a
+  // long Notes field pushed both of them over. Q-2026-0055 carried its payment terms in Notes and
+  // printed five line items on page 1, a page of empty space beneath them, and the $15,579.16
+  // total alone on page 2. A total belongs on the page carrying the figures it adds up.
+  if (KIND.showPricing && afterY - 8 + TOTAL_H > BOTTOM) { doc.addPage(); afterY = 54 }
+
+  const tbW = TOTAL_W, tbX = R - tbW, tbY = afterY - 8
   if (KIND.showPricing) {
     doc.setDrawColor(0); doc.setLineWidth(0.8)
-    doc.rect(tbX, tbY, tbW, 40)
+    doc.rect(tbX, tbY, tbW, TOTAL_H)
     doc.setFont('times', 'bold'); doc.setFontSize(16)
     doc.text('Total', tbX + 14, tbY + 26)
     doc.setFontSize(14)
@@ -943,6 +929,34 @@ async function renderSalesDocumentPDF(
     // (Kept the plumbing so it can be toggled back on later.)
     void opts; void tbX; void tbY; void tbW
   }
+
+  // Footer notes run down the left column at width 330, which ends well clear of the Total box, so
+  // the two sit side by side. They now break onto further pages a line at a time rather than
+  // demanding room for the whole block up front — a long terms block fills the page it starts on
+  // and continues overleaf instead of leaving one mostly blank.
+  doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
+  const trimmedNotes = (order.notes || '').trim()
+  let ny = afterY
+  const noteFont = () => { doc.setFont('times', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0) }
+  const breakIfNeeded = (needed: number) => {
+    if (ny + needed > BOTTOM) { doc.addPage(); ny = 54; noteFont() }
+  }
+  const writeNote = (text: string, gapAfter: number) => {
+    for (const ln of doc.splitTextToSize(text, 330) as string[]) {
+      breakIfNeeded(0)
+      doc.text(ln, L, ny)
+      ny += 11
+    }
+    ny += gapAfter
+  }
+  if (trimmedNotes) {
+    breakIfNeeded(23)   // keep the label with at least its first line
+    doc.setFont('times', 'bold')
+    doc.text('Notes:', L, ny); ny += 12
+    noteFont()
+    writeNote(trimmedNotes, 6)
+  }
+  KIND.footerNotes.forEach(n => writeNote(n, 3))
 
   // ---- Page 2: Terms & Conditions (SO/Quote only) ----
   if (KIND.includeTerms) drawTermsPage(doc, order)
