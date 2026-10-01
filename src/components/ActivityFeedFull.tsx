@@ -16,12 +16,18 @@ const SOURCES: { key: string; label: string }[] = [
   { key: 'received', label: 'Received' },
   { key: 'shipped', label: 'Shipped' },
   { key: 'consumed', label: 'Consumed' },
+  { key: 'produced', label: 'Produced' },
+  { key: 'adjusted', label: 'Adjusted' },
+  { key: 'stocked', label: 'Stocked' },
 ]
 const SRC: Record<string, string> = {
   po_placed: 'bg-amber-100 text-amber-700',
   received: 'bg-emerald-100 text-emerald-700',
   shipped: 'bg-rose-100 text-rose-700',
   consumed: 'bg-violet-100 text-violet-700',
+  produced: 'bg-sky-100 text-sky-700',
+  adjusted: 'bg-slate-100 text-slate-700',
+  stocked: 'bg-teal-100 text-teal-700',
 }
 const PAGE = 100
 const fmtQty = (n: number) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })

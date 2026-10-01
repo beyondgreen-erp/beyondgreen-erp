@@ -16,6 +16,9 @@ const SRC: Record<string, { chip: string; dot: string }> = {
   received:  { chip: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
   shipped:   { chip: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500' },
   consumed:  { chip: 'bg-violet-100 text-violet-700', dot: 'bg-violet-500' },
+  produced:  { chip: 'bg-sky-100 text-sky-700', dot: 'bg-sky-500' },
+  adjusted:  { chip: 'bg-slate-100 text-slate-700', dot: 'bg-slate-500' },
+  stocked:   { chip: 'bg-teal-100 text-teal-700', dot: 'bg-teal-500' },
 }
 const fmtQty = (n: number) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
 function ago(iso: string) {
@@ -64,7 +67,7 @@ export default function ActivityFeedCard() {
         <div className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <h2 className="text-sm font-bold text-[#0F1C2E]">Live Activity</h2>
-          <span className="text-xs text-[#8A9FC0]">inbound · receiving · shipping · production</span>
+          <span className="text-xs text-[#8A9FC0]">inbound · receiving · shipping · production · inventory</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold text-emerald-600">↓ {today.inN} in</span>
@@ -93,6 +96,10 @@ export default function ActivityFeedCard() {
                     {r.item && r.sku ? <span className="text-[#8A9FC0]">  {r.item}</span> : null}
                   </p>
                   <p className="text-xs text-[#8A9FC0] truncate">{r.party}{r.reference && r.reference !== '—' ? `  ·  ${r.reference}` : ''}</p>
+                </div>
+                <div className="hidden sm:block text-right shrink-0 w-24 mr-1">
+                  <p className="text-xs font-medium text-[#5A6E8A] truncate" title={r.who || undefined}>{r.who ? r.who.split('@')[0] : '—'}</p>
+                  <p className="text-[9px] text-[#B5C0D0] uppercase tracking-wide">by</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className={`text-sm font-bold ${inbound ? 'text-emerald-600' : 'text-rose-600'}`}>{inbound ? '+' : '−'}{fmtQty(r.qty)} <span className="text-[10px] font-normal text-[#8A9FC0]">{r.uom}</span></p>
