@@ -1276,7 +1276,7 @@ export default function InventoryPage() {
                     {gVal > 0 && <span className="ml-auto text-[11px] text-gray-400">{fmtV(gVal)}</span>}
                   </div>
                   {!isCol && (<>
-                    <div className="hidden md:block">
+                    <div className="hidden lg:block overflow-x-auto">
                       <table className="w-full text-sm min-w-[920px]">
                         <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                           <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
@@ -1404,7 +1404,7 @@ export default function InventoryPage() {
                     </div>
                     {/* Mobile: card layout — product details stacked, action buttons on their
                         own single line below (no wrap, scrolls sideways if needed). */}
-                    <div className="md:hidden divide-y divide-[#F1F3F7]">
+                    <div className="lg:hidden divide-y divide-[#F1F3F7]">
                       {items.map((p) => {
                         const invValue = (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0)
                         const isOut = !p.on_hand_qty || p.on_hand_qty === 0
