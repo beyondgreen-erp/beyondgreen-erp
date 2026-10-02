@@ -21,6 +21,10 @@ export interface ShortageItem {
   /** Carried onto the work order so the finished goods can actually be booked. */
   product_id?: string | null
   uom?: string | null
+  /** Category from the product record, which is what decides make vs buy. */
+  category?: string | null
+  /** True when we manufacture this item, so a shortage earns a work order. */
+  make?: boolean
 }
 
 export interface SufficientItem {
@@ -34,6 +38,34 @@ export interface InventoryCheckResult {
   shortages: ShortageItem[]
   sufficient: SufficientItem[]
   allSufficient: boolean
+}
+
+/**
+ * Categories beyondGREEN actually produces. Everything else on a sales order
+ * - print plates, packaging, moulds, raw material, additives, components, and
+ * anything flagged as an import - is bought, so a shortage belongs on the
+ * purchasing board rather than in the production queue.
+ */
+const MADE_IN_HOUSE = new Set(['finished goods', 'bags', 'wraps', 'molded fiber', 'wip'])
+
+export function isMadeInHouse(p: { category?: string | null; is_import?: boolean | null } | null | undefined) {
+  if (!p) return false
+  if (p.is_import) return false
+  return MADE_IN_HOUSE.has(String(p.category ?? '').trim().toLowerCase())
+}
+
+/** Short lines we do not make, shaped so the purchase request writer can take them. */
+export function purchaseLinesFromShortages(shortages: ShortageItem[]): ComponentShortage[] {
+  return shortages.filter(s => s.make === false).map(s => ({
+    component_sku: s.sku,
+    component_name: s.product_name,
+    qty_required: s.qty_required,
+    qty_on_hand: s.qty_on_hand,
+    qty_short: s.qty_short,
+    uom: s.uom ?? '',
+    product_id: s.product_id ?? null,
+    from_fgs: [s.category ? `ordered directly (${s.category})` : 'ordered directly'],
+  }))
 }
 
 export async function checkInventoryForOrder(orderId: string): Promise<InventoryCheckResult> {
@@ -50,7 +82,7 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
   const skus = Array.from(new Set(rows.map(l => String(l.sku).trim())))
   const { data: prods } = await sb
     .from('products')
-    .select('id, sku, product_name, on_hand_qty, unit_of_measure')
+    .select('id, sku, product_name, on_hand_qty, unit_of_measure, category, is_import')
     .in('sku', skus)
   const bySku: Record<string, any> = {}
   for (const p of (prods ?? []) as any[]) bySku[String(p.sku).trim().toLowerCase()] = p
@@ -74,6 +106,8 @@ export async function checkInventoryForOrder(orderId: string): Promise<Inventory
         order_line_id: line.id,
         product_id: line.product_id ?? prod?.id ?? null,
         uom: line.unit_of_measure ?? prod?.unit_of_measure ?? null,
+        category: prod?.category ?? null,
+        make: isMadeInHouse(prod),
       })
     } else {
       sufficient.push({ sku: line.sku, product_name: productName, qty_required: required, qty_on_hand: onHand })
@@ -127,6 +161,8 @@ export async function createWorkOrdersForShortages(
   let skipped = 0
 
   for (const s of shortages) {
+    // Only things we make get a work order. Bought items go to purchasing.
+    if (s.make === false) { skipped++; continue }
     if (openParts.has(String(s.sku).trim().toLowerCase())) { skipped++; continue }
     const { data: wo, error } = await sb
       .from('work_orders')

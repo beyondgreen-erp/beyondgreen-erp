@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
-import { checkInventoryForOrder, createWorkOrdersForShortages, checkComponentShortages, createPurchaseRequestForShortages, onStatusChange } from '@/lib/orderFlow'
+import { checkInventoryForOrder, createWorkOrdersForShortages, checkComponentShortages, createPurchaseRequestForShortages, purchaseLinesFromShortages, onStatusChange } from '@/lib/orderFlow'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface Props {
@@ -23,7 +23,12 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
       setResult(r)
       setLoading(false)
       if (r.shortages.length) {
-        try { setComponents(await checkComponentShortages(r.shortages)) } catch { /* best-effort */ }
+        try {
+          // Short lines we make get their BOM exploded; short lines we buy go
+          // on the purchase request as themselves.
+          const comps = await checkComponentShortages(r.shortages.filter(s => s.make !== false))
+          setComponents([...purchaseLinesFromShortages(r.shortages), ...comps])
+        } catch { setComponents(purchaseLinesFromShortages(r.shortages)) }
       }
     })
   }, [orderId])
@@ -201,7 +206,7 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
                   style={{ background: '#FEF3F2', border: '1px solid #FECDCA' }}>
                   <p className="text-sm font-semibold mb-2" style={{ color: '#B42318' }}>
                     <i className="ti ti-package-off mr-1.5" />
-                    {components.length} BOM component{components.length !== 1 ? 's' : ''} also short — a Purchase Request is needed
+                    {components.length} item{components.length !== 1 ? 's' : ''} to buy — a Purchase Request is needed
                   </p>
                   <div className="rounded-lg border overflow-hidden bg-white" style={{ borderColor: '#FECDCA' }}>
                     <table className="w-full">

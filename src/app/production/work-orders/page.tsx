@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import WorkOrderMaterials from './WorkOrderMaterials'
+import RunHoursHint from './RunHoursHint'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
@@ -1060,6 +1061,13 @@ export default function WorkOrdersPage() {
                         className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     )}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <RunHoursHint
+                      machineId={(detail as any).machine_id}
+                      sku={detail.item_part_number}
+                      qty={(detail as any).qty_required ?? (detail as any).qty_ordered}
+                    />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs text-gray-400 mb-1">Runs</label>
