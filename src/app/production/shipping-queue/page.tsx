@@ -1261,7 +1261,7 @@ export default function ShippingQueuePage() {
       customer_name: st.name, po_number: o.po_number || null,
       carrier: (shipCarrier || o.carrier) || null, tracking_number: (shipTracking || o.tracking_number) || null,
       ship_cost: shipCost ? parseFloat(shipCost) : null, broker_cost: shipBrokerCost ? parseFloat(shipBrokerCost) : null,
-      ship_date: now.toISOString().slice(0, 10), order_date: o.order_date || null,
+      ship_date: now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }), order_date: o.order_date || null,  // Pacific calendar date, not UTC — an evening-PT closeout must not roll to the next day
       total_value: shipmentValue, ship_to_address: st.addr || null,
       bol_number: bolForm?.bolNumber || null, packing_slip_url: coSlipUrl || null, pod_file_url: coBolUrl || null,
       month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
