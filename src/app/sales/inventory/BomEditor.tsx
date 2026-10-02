@@ -70,6 +70,33 @@ const PKG_CATEGORIES = ['Packaging', 'Print Plates']
 const defaultBasis = (cat: string | null): Basis =>
   cat && PKG_CATEGORIES.includes(cat) ? 'pcs_unit' : 'percentage'
 
+/**
+ * Basis labels carrying this product's real pack and case counts, so whoever picks "pcs / case"
+ * can see they are entering a number that gets divided by 12 and not guess at it.
+ */
+function basisOptions(packQty: number, caseQty: number) {
+  return [
+    { v: 'percentage' as Basis, label: '% by weight' },
+    { v: 'pcs_unit' as Basis,   label: 'pcs / unit' },
+    { v: 'pcs_pack' as Basis,   label: packQty > 1 ? `pcs / pack (${packQty})` : 'pcs / pack' },
+    { v: 'pcs_case' as Basis,   label: caseQty > 1 ? `pcs / case (${caseQty})` : 'pcs / case' },
+  ]
+}
+
+/** The stocking UOM and pack/case ladder, written out the way the warehouse states it. */
+function uomSummary(p: ProductProp, packQty: number, caseQty: number): string {
+  const bits: string[] = []
+  const uom = String(p.unit_of_measure ?? '').trim()
+  if (uom) bits.push(`UOM: ${uom}`)
+  const pcsPack = Number(p.pieces_per_pack ?? 0)
+  const packsCase = Number(p.packs_per_case ?? 0)
+  if (pcsPack > 0) bits.push(`${pcsPack.toLocaleString()} pcs/pack`)
+  else if (packQty > 1) bits.push(`${packQty.toLocaleString()} per pack`)
+  if (packsCase > 0) bits.push(`${packsCase.toLocaleString()} packs/case`)
+  bits.push(`Case = ${caseQty.toLocaleString()} unit${caseQty === 1 ? '' : 's'}`)
+  return bits.join('  \u00b7  ')
+}
+
 const BASIS_LABEL: Record<Basis, string> = {
   percentage: '% by weight',
   pcs_unit: 'pcs / unit',
@@ -154,12 +181,15 @@ const inp = 'bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-2.5 p
  * the way the team fills a cell on the sheet, instead of scrolling to the add bar for every part.
  * The row only writes once a SKU and a quantity are both in hand.
  */
-function SlotRow({ role, label, excludeSku, badge, onAdd }: {
+function SlotRow({ role, label, excludeSku, badge, onAdd, packQty, caseQty, register }: {
   role: Role
   label: string
   excludeSku: string
   badge: (c: string | null) => React.ReactNode
   onAdd: (sku: string, basis: Basis, qty: number, notes: string) => Promise<string | null>
+  packQty: number
+  caseQty: number
+  register: (key: string, flush: (() => Promise<void>) | null) => void
 }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [q, setQ] = useState('')
@@ -198,17 +228,33 @@ function SlotRow({ role, label, excludeSku, badge, onAdd }: {
     setTimeout(() => qtyRef.current?.focus(), 50)
   }
 
+  // One in-flight write at a time. Without this an auto-save on blur and a click on the tick can
+  // both fire for the same line and file the component twice.
+  const sending = useRef(false)
   async function commit() {
     const n = parseFloat(qty)
-    if (!picked || !n || n <= 0) return
+    if (!picked || !n || n <= 0 || sending.current) return
+    sending.current = true
     setBusy(true); setErr('')
     const e = await onAdd(picked.sku, basis, n, notes.trim())
+    sending.current = false
     setBusy(false)
     if (e) { setErr(e); return }
     setPicked(null); setQty(''); setNotes('')
   }
 
   const ready = !!picked && !!parseFloat(qty)
+
+  // The line saves itself the moment it has a SKU and a quantity and you move on, so nobody has to
+  // find a button. The parent also holds a handle to it, so "Save BOM" can flush a half-typed row.
+  const commitRef = useRef(commit)
+  commitRef.current = commit
+  const rowKey = `${role}-${label}-${excludeSku}`
+  useEffect(() => {
+    register(rowKey, async () => { await commitRef.current() })
+    return () => register(rowKey, null)
+  }, [register, rowKey])
+  const autoSave = () => { if (ready && !sending.current) setTimeout(() => commitRef.current(), 120) }
 
   return (
     <tr className="bg-[#FCFCFD]">
@@ -244,22 +290,19 @@ function SlotRow({ role, label, excludeSku, badge, onAdd }: {
         </div>
       </td>
       <td className="px-2 py-2 align-top">
-        <select value={basis} onChange={e => setBasis(e.target.value as Basis)} className={inp + ' w-full !min-w-[100px] !py-1 !px-1.5 text-[11px] cursor-pointer !bg-transparent border-dashed'}>
-          <option value="percentage">% by weight</option>
-          <option value="pcs_unit">pcs / unit</option>
-          <option value="pcs_pack">pcs / pack</option>
-          <option value="pcs_case">pcs / case</option>
+        <select value={basis} onChange={ev => setBasis(ev.target.value as Basis)} className={inp + ' w-full !min-w-[124px] !py-1 !px-1.5 text-[11px] cursor-pointer !bg-transparent border-dashed'}>
+          {basisOptions(packQty, caseQty).map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
         </select>
       </td>
       <td className="px-2 py-2 align-top">
         <input ref={qtyRef} type="number" min="0" step="0.01" value={qty} onChange={e => setQty(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && commit()} placeholder={basis === 'percentage' ? '%' : 'pcs'}
+          onKeyDown={e => e.key === 'Enter' && commit()} onBlur={autoSave} placeholder={basis === 'percentage' ? '%' : 'pcs'}
           className={inp + ' w-full !min-w-[52px] text-right !py-1 !px-1.5 text-[11px] !bg-transparent border-dashed'} />
       </td>
       <td className="px-2 py-2 text-right text-gray-300 align-top">{picked?.unit_cost != null ? fmt2(picked.unit_cost) : '—'}</td>
       <td className="px-2.5 py-2 text-right text-gray-300 align-top">&#8212;</td>
       <td className="px-2 py-2 align-top">
-        <input value={notes} onChange={e => setNotes(e.target.value)} onKeyDown={e => e.key === 'Enter' && commit()}
+        <input value={notes} onChange={e => setNotes(e.target.value)} onKeyDown={e => e.key === 'Enter' && commit()} onBlur={autoSave}
           placeholder="&#8212;" className={inp + ' w-full !min-w-[96px] !py-1 !px-1.5 text-[11px] !bg-transparent border-dashed'} />
       </td>
       <td className="px-1 py-2 text-center align-top">
@@ -393,6 +436,21 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   }, [components])
 
   /** Save a filled-in slot. Returns an error message, or null when the row went in. */
+  // Handles onto the blank rows, so "Save BOM" can file a line someone typed but never tabbed out of.
+  const slotFlush = useRef<Map<string, () => Promise<void>>>(new Map())
+  const registerSlot = useCallback((key: string, flush: (() => Promise<void>) | null) => {
+    if (flush) slotFlush.current.set(key, flush)
+    else slotFlush.current.delete(key)
+  }, [])
+  const [savingBom, setSavingBom] = useState(false)
+  async function saveBom() {
+    setSavingBom(true)
+    for (const f of Array.from(slotFlush.current.values())) { try { await f() } catch { /* row shows its own error */ } }
+    await loadBom()
+    setSavingBom(false)
+    flash('BOM saved.')
+  }
+
   const addFromSlot = useCallback(async (role: Role, sku: string, basis: Basis, qty: number, notes: string) => {
     const pctSoFar = components.filter(c => c.basis === 'percentage').reduce((t, c) => t + c.qty_value, 0)
     if (basis === 'percentage' && pctSoFar + qty > 100.001) return 'Total % would be ' + (pctSoFar + qty).toFixed(2) + ' (max 100)'
@@ -572,9 +630,8 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 <label className="text-xs text-gray-500 whitespace-nowrap font-medium">Unit weight (g)</label>
                 <input type="number" min="0" step="0.001" value={weightGrams} onChange={e => setWeightGrams(e.target.value)} className={inp + ' w-28'} />
                 <button onClick={saveWeight} disabled={savingWeight} className="text-xs px-2.5 py-1.5 bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 rounded-lg disabled:opacity-50">{savingWeight ? '…' : 'Save'}</button>
-                <span className="text-xs text-gray-400 ml-auto" title={describeLadder(product) || 'No pack/case conversions set on this product.'}>
-                  Case = {caseQty} unit{caseQty === 1 ? '' : 's'}
-                  {packConv.known && packQty > 1 ? <> &middot; Pack = {packQty} unit{packQty === 1 ? '' : 's'}</> : null}
+                <span className="text-xs text-gray-500 ml-auto font-medium" title={describeLadder(product) || 'No pack/case conversions set on this product.'}>
+                    {uomSummary(product, packQty, caseQty)}
                 </span>
               </div>
 
@@ -659,6 +716,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                       ))}
                       {!loading && emptySlots.map(sl => (
                         <SlotRow key={sl.key} role={sl.role} label={sl.label} excludeSku={product.sku} badge={c => <CatBadge c={c} />}
+                          packQty={packQty} caseQty={caseQty} register={registerSlot}
                           onAdd={(sku, basis, qty, notes) => addFromSlot(sl.role, sku, basis, qty, notes)} />
                       ))}
                       {!loading && computedRows.length > 0 && (
@@ -716,6 +774,14 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 <input value={addNotes} onChange={e => setAddNotes(e.target.value)} onKeyDown={e => e.key === 'Enter' && addComponent()} placeholder="Notes (optional)" className={inp + ' w-36'} />
                 <button onClick={addComponent} disabled={adding || !addSku || !addQty} className="px-3 py-1.5 bg-[#00863F] hover:bg-[#0b7a3d] disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-lg text-xs font-semibold whitespace-nowrap">{adding ? '…' : '+ Add'}</button>
               </div>
+              <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-[#F1F3F7]">
+                <span className="text-[11px] text-gray-400">Lines save as you fill them in.</span>
+                <button onClick={saveBom} disabled={savingBom}
+                  title="File every line that has a component and a quantity, then reload the BOM"
+                  className="ml-auto px-3 py-1.5 bg-[#00863F] hover:bg-[#0b7a3d] disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-lg text-xs font-semibold whitespace-nowrap">
+                  {savingBom ? 'Saving…' : 'Save BOM'}
+                </button>
+              </div>
               {addErr && <p className="text-red-600 text-xs mt-1.5">{addErr}</p>}
               {addBasis === 'percentage' && anyPct && totalPct < 100 && <p className="text-[11px] text-gray-400 mt-1">{(100 - totalPct).toFixed(2)}% of weight remaining.</p>}
             </div>
@@ -749,7 +815,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
             <div className="bg-white border border-[#ECEEF3] rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pricing</p>
-                <button onClick={saveAll} disabled={savingAll} className="text-xs px-3 py-1 rounded-lg bg-[#7A3FB0] hover:bg-[#6a35a0] text-white font-semibold disabled:opacity-50">{savingAll ? '…' : 'Save All'}</button>
+                <button onClick={saveAll} disabled={savingAll} className="text-xs px-3 py-1 rounded-lg bg-[#7A3FB0] hover:bg-[#6a35a0] text-white font-semibold disabled:opacity-50">{savingAll ? '…' : 'Save Prices'}</button>
               </div>
               <table className="w-full text-xs">
                 <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400"><th className="text-left font-semibold py-1">Tier</th><th className="text-right font-semibold py-1">Suggested</th><th className="text-right font-semibold py-1">Current</th><th className="w-[52px]" /></tr></thead>
