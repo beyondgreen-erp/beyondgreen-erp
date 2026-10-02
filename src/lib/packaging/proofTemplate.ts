@@ -25,7 +25,7 @@ export interface ProofCustomer {
 export interface ProofProduct {
   id?: string | null; sku: string; name?: string; size?: string; pack?: string; upc?: string; customerPart?: string; color?: string; thickness?: string; caseSize?: string
 }
-export interface ProofInk { name: string; hex: string; cmyk?: number[] | null; spot?: boolean; technical?: boolean }
+export interface ProofInk { name: string; hex: string; cmyk?: number[] | null; spot?: boolean; technical?: boolean; rgbOnly?: boolean }
 
 /** Stored in the design document so the printer portal can draw the same sheet. */
 export interface ProofInfo {
@@ -110,6 +110,7 @@ export function specInks(spec: DesignSpec): ProofInk[] {
   const out: ProofInk[] = []
   for (const p of spec.plates.filter(p => !p.technical)) out.push({ name: p.name + (p.cmyk ? ` (${p.cmyk.map(v => Math.round(v)).join('/')})` : ''), hex: p.hex, cmyk: p.cmyk, spot: true })
   for (const c of spec.colors) out.push({ name: c.label, hex: c.hex, cmyk: [c.c, c.m, c.y, c.k] })
+  for (const c of spec.rgb || []) out.push({ name: `${c.label} (RGB)`, hex: c.hex, rgbOnly: true })
   for (const p of spec.plates.filter(p => p.technical)) out.push({ name: `${p.name} — die / non-printing`, hex: p.hex, cmyk: p.cmyk, spot: true, technical: true })
   return out
 }
@@ -210,7 +211,7 @@ export function buildProofObjects(info: ProofInfo, w: number, h: number, logo: H
     ] },
     { title: 'PRINT SPECIFICATIONS', rows: [
       ['Dieline', info.dieline || ''], ['Method', info.printMethod || ''], ['Substrate', info.substrate || prod?.color || ''],
-      ['Finish', info.finish || ''], ['Inks', info.inks?.length ? `${info.inks.filter(i => !i.technical).length} colour builds (${info.inks.filter(i => i.spot && !i.technical).length} spot)` : ''], ['Artist', info.artist || ''],
+      ['Finish', info.finish || ''], ['Inks', info.inks?.length ? (info.inks.some(i => i.rgbOnly) && !info.inks.some(i => !i.technical && !i.rgbOnly) ? `${info.inks.filter(i => i.rgbOnly).length} RGB colours — file is not CMYK` : `${info.inks.filter(i => !i.technical).length} colour builds (${info.inks.filter(i => i.spot && !i.technical).length} spot)`) : ''], ['Artist', info.artist || ''],
     ] },
   ]
   const headH = 15 * S
