@@ -11,6 +11,7 @@
  */
 
 import { Suspense, useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { formFor, computeAll, type Field } from '@/lib/workOrderForms'
@@ -83,6 +84,11 @@ function Sheet() {
   const [machine, setMachine] = useState<Any | null>(null)
   const [bom, setBom] = useState<Any[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'missing'>('loading')
+  // The sheet renders into document.body. The ERP shell is h-screen with
+  // overflow hidden, so anything inside it is clipped to one viewport when
+  // printed - which is what produced a blank page.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   const load = useCallback(async () => {
     if (!id) { setState('missing'); return }
@@ -164,7 +170,7 @@ function Sheet() {
   const qty = wo.qty_required ?? wo.qty_ordered ?? null
   const hours = wo.scheduled_hours
 
-  return (
+  const sheet = (
     <div className="sheet">
       <style>{CSS}</style>
 
@@ -315,6 +321,8 @@ function Sheet() {
       </div>
     </div>
   )
+
+  return mounted ? createPortal(sheet, document.body) : null
 }
 
 export default function WorkOrderPrintPage() {
@@ -327,7 +335,9 @@ export default function WorkOrderPrintPage() {
 
 const CSS = `
 .sheet { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
-  color: #111; max-width: 8.1in; margin: 0 auto; padding: 18px 20px 40px; font-size: 11px; background: #fff; }
+  color: #111; font-size: 11px; background: #fff;
+  position: fixed; inset: 0; z-index: 60; overflow: auto;
+  padding: 18px max(20px, calc(50% - 4.05in)) 48px; }
 .msg { font-family: ui-sans-serif, system-ui, sans-serif; padding: 40px; color: #555; }
 .sheet header { display: flex; justify-content: space-between; align-items: flex-start;
   border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
@@ -359,11 +369,11 @@ footer { margin-top: 14px; border-top: 1px solid #d1d5db; padding-top: 6px;
 .actions button { font-size: 12px; font-weight: 600; padding: 7px 18px; border-radius: 8px;
   border: 2px solid #d1d5db; background: #fff; cursor: pointer; }
 @media print {
+  html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+  body > *:not(.sheet) { display: none !important; }
   .noprint { display: none !important; }
-  body * { visibility: hidden !important; }
-  .sheet, .sheet * { visibility: visible !important; }
-  .sheet { position: absolute !important; left: 0; top: 0; width: 100%;
-    max-width: none; padding: 0; font-size: 10.5px; }
+  .sheet { position: static !important; overflow: visible !important;
+    padding: 0 !important; font-size: 10.5px; }
   @page { size: letter portrait; margin: 0.45in; }
 }
 `
