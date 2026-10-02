@@ -1168,7 +1168,7 @@ export default function WorkOrdersPage() {
               </div>
 
               <div className="border-t border-gray-100 pt-4">
-                <label className="block text-xs text-gray-400 mb-2">Materials / BOM · live from the Inventory board</label>
+                <label className="block text-xs text-gray-400 mb-2">Material lot numbers</label>
                 {bom.length > 0 ? (
                   <div className="rounded-lg border border-gray-100 overflow-hidden">
                     <table className="w-full text-sm">

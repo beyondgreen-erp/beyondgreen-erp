@@ -88,7 +88,7 @@ export default function WorkOrderMaterials({
 
     const { data: bd } = await sb
       .from('product_bom')
-      .select('component_sku,role,uom_type,qty_value,percentage,notes')
+      .select('component_sku,role,uom_type,qty_value,percentage,notes,is_case_level')
       .ilike('finished_good_sku', clean)
     const bom = ((bd ?? []) as Any[])
 
@@ -122,7 +122,9 @@ export default function WorkOrderMaterials({
   const fgShort = qty > 0 && fgOnHand < qty
 
   const computed: Any[] = rows.map((r: Any) => {
+    // Older rows store 'pcs' plus is_case_level; newer ones name the basis.
     const basis = String(r.uom_type ?? '').trim()
+    const caseLevel = r.is_case_level === true
     const v = num(r.qty_value ?? r.percentage)
     let need = 0
     let unit = ''
@@ -130,12 +132,12 @@ export default function WorkOrderMaterials({
     if (basis === 'percentage') {
       if (runKg > 0) { need = (runKg * v) / 100; unit = 'kg'; why = `${fmt(v)}% of ${fmt(runKg)} kg` }
       else { why = unitG ? 'run size unknown' : 'unit weight not set on the SKU' }
-    } else if (basis === 'pcs_unit') {
-      need = v * counts.pieces; unit = 'pcs'; why = `${fmt(v)} per piece`
+    } else if (basis === 'pcs_case' || (basis === 'pcs' && caseLevel)) {
+      need = v * counts.cases; unit = 'pcs'; why = `${fmt(v)} per case`
     } else if (basis === 'pcs_pack') {
       need = v * counts.packs; unit = 'pcs'; why = `${fmt(v)} per pack`
-    } else if (basis === 'pcs_case') {
-      need = v * counts.cases; unit = 'pcs'; why = `${fmt(v)} per case`
+    } else if (basis === 'pcs_unit' || basis === 'pcs') {
+      need = v * counts.pieces; unit = 'pcs'; why = `${fmt(v)} per piece`
     } else {
       need = v; unit = ''; why = basis || 'no basis set'
     }
