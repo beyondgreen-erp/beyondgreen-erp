@@ -472,7 +472,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <select value={c.basis} onChange={e => updateBasis(c.id, e.target.value as Basis)} className={inp + ' w-full !min-w-[112px] !py-1 !px-1.5 text-[11px] cursor-pointer'}>
+                            <select value={c.basis} onChange={e => updateBasis(c.id, e.target.value as Basis)} className={inp + ' w-full !min-w-[100px] !py-1 !px-1.5 text-[11px] cursor-pointer'}>
                               <option value="percentage">% by weight</option>
                               <option value="pcs_unit">pcs / unit</option>
                               <option value="pcs_pack">pcs / pack</option>
@@ -480,7 +480,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                             </select>
                           </td>
                           <td className="px-2 py-2">
-                            <input type="number" min="0" step="0.01" defaultValue={c.qty_value} key={c.id + c.basis + '-q'} onBlur={e => updateQtyValue(c.id, e.target.value)} className={inp + ' w-full text-right !py-1 !px-1.5 text-[11px]'} />
+                            <input type="number" min="0" step="0.01" defaultValue={c.qty_value} key={c.id + c.basis + '-q'} onBlur={e => updateQtyValue(c.id, e.target.value)} className={inp + ' w-full !min-w-[52px] text-right !py-1 !px-1.5 text-[11px]'} />
                           </td>
                           <td className="px-2 py-2 text-right text-gray-500 whitespace-nowrap">
                             {c.basis === 'percentage' ? <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/lb</span></span> : <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/ea</span></span>}
@@ -489,7 +489,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                           <td className="px-2 py-2">
                             <input defaultValue={c.notes} key={c.id + '-n'} onBlur={e => updateNotes(c.id, e.target.value)}
                               placeholder="—" title={c.notes || 'Note for this component'}
-                              className={inp + ' w-full !py-1 !px-1.5 text-[11px]'} />
+                              className={inp + ' w-full !min-w-[96px] !py-1 !px-1.5 text-[11px]'} />
                           </td>
                           <td className="px-1 py-2 text-center">
                             <button onClick={() => deleteRow(c.id)} className="text-red-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
