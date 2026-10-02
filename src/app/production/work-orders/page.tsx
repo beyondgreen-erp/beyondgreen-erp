@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import WorkOrderMaterials from './WorkOrderMaterials'
 import RunHoursHint from './RunHoursHint'
+import { usePrefill, type Pulled } from './usePrefill'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
@@ -77,19 +78,31 @@ function FieldInput({ f, live, onChange }: { f: Field; live: Record<string, any>
   )
 }
 
-function FormBody({ form, live, onChange }: { form: FormDef; live: Record<string, any>; onChange: (key: string, value: any) => void }) {
+function FormBody({ form, live, onChange, pulled }: { form: FormDef; live: Record<string, any>; onChange: (key: string, value: any) => void; pulled?: Pulled }) {
   return (
     <div className="space-y-6">
       {form.sections.map((sec, si) => (
         <div key={si}>
           {sec.title && <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-2">{sec.title}</p>}
           <div className={`grid gap-3 ${sec.columns === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
-            {sec.fields.map(f => (
-              <div key={f.key} className={f.wide ? 'sm:col-span-2' : ''}>
-                <label className="block text-xs text-gray-400 mb-1">{f.label}</label>
-                <FieldInput f={f} live={live} onChange={onChange} />
-              </div>
-            ))}
+            {sec.fields.map(f => {
+              // Known from the item record or the BOM, so it is shown rather
+              // than asked for. Fix it at the source, not on the sheet.
+              const p = f.type === 'computed' ? undefined : pulled?.[f.key]
+              return (
+                <div key={f.key} className={f.wide ? 'sm:col-span-2' : ''}>
+                  <label className="block text-xs text-gray-400 mb-1">{f.label}</label>
+                  {p ? (
+                    <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 flex items-center justify-between gap-2">
+                      <span className="truncate">{String(live[f.key] ?? p.value ?? '') || '\u2014'}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400 shrink-0">{p.from}</span>
+                    </div>
+                  ) : (
+                    <FieldInput f={f} live={live} onChange={onChange} />
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       ))}
@@ -612,6 +625,30 @@ export default function WorkOrdersPage() {
 
   // ── Form rendering ─────────────────────────────────────────────────────────
 
+  // Anything the item record or the BOM already holds is filled in for the
+  // crew instead of typed again on every job. usePrefill holds the mapping.
+  const pulledSpec = usePrefill(
+    detail?.item_part_number,
+    (detail as any)?.qty_required ?? (detail as any)?.qty_ordered,
+    detail?.uom,
+  )
+  useEffect(() => {
+    const keys = Object.keys(pulledSpec)
+    if (!keys.length) return
+    setSpec(s => {
+      let changed = false
+      const next = { ...s }
+      for (const k of keys) {
+        const cur = next[k]
+        if (cur === undefined || cur === null || String(cur).trim() === '') {
+          next[k] = pulledSpec[k].value
+          changed = true
+        }
+      }
+      return changed ? next : s
+    })
+  }, [pulledSpec])
+
   const setField = (key: string, value: any) => { setSpec(s => ({ ...s, [key]: value })); setDirty(true) }
 
   // FormBody is rendered straight from the sheet below. There is deliberately no wrapper
@@ -1121,7 +1158,7 @@ export default function WorkOrdersPage() {
                 </div>
               )}
 
-              <FormBody form={form} live={spec} onChange={setField} />
+              <FormBody form={form} live={spec} onChange={setField} pulled={pulledSpec} />
 
               <div className="border-t border-gray-100 pt-4">
                 <label className="block text-xs text-gray-400 mb-2">Production Steps &amp; Actual Run Time</label>
