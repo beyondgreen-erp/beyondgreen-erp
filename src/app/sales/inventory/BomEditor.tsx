@@ -385,7 +385,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
       <div onClick={e => e.stopPropagation()}
         // Widened from 1000px when the Material column was added, so the components table still
         // shows every field without the horizontal scrollbar kicking in on a laptop screen.
-        className="bg-[#F7F8FB] rounded-2xl w-full max-w-[1300px] max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        className="bg-[#F7F8FB] rounded-2xl w-full max-w-[1380px] max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#E4E6EE] bg-white shrink-0">
@@ -403,7 +403,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
 
         <div className="flex-1 flex overflow-hidden min-h-0">
           {/* LEFT: components */}
-          <div className="flex flex-col overflow-hidden border-r border-[#E4E6EE]" style={{ width: '63%' }}>
+          <div className="flex flex-col overflow-hidden border-r border-[#E4E6EE]" style={{ width: '65%' }}>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {/* Weight */}
               <div className="flex items-center gap-2 flex-wrap">
