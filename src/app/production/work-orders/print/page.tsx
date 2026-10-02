@@ -134,11 +134,13 @@ function Sheet() {
   useEffect(() => { load() }, [load])
 
   // Open the browser print dialog once the sheet has actually rendered.
+  // ?preview=1 shows the sheet on screen without opening the dialog.
+  const autoPrint = params.get('preview') !== '1'
   useEffect(() => {
-    if (state !== 'ready') return
+    if (state !== 'ready' || !autoPrint) return
     const t = setTimeout(() => window.print(), 400)
     return () => clearTimeout(t)
-  }, [state])
+  }, [state, autoPrint])
 
   if (state === 'loading') return <div className="msg">Loading work order&hellip;</div>
   if (state === 'missing' || !wo) return <div className="msg">That work order could not be found.</div>
