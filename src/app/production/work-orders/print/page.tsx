@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Printable work order travelling sheet.
+ * Printable work order traveling sheet.
  *
  * The operator is handed this on paper. Everything the ERP already knows is
  * printed; everything the operator records by hand prints as a ruled blank.
@@ -195,7 +195,7 @@ function Sheet() {
         <Filled label="Our Part No." value={product?.our_part_number} />
         <Filled label="Customer Part No." value={product?.customer_part_number} />
         <Filled label="Size" value={product?.product_size} />
-        <Filled label="Colour / Print" value={[product?.product_color, product?.print_color].filter(Boolean).join(' / ')} />
+        <Filled label="Color / Print" value={[product?.product_color, product?.print_color].filter(Boolean).join(' / ')} />
         <Filled label="Qty Required" value={fmtNum(qty)} />
         <Filled label="Pieces / Pack" value={fmtNum(product?.pieces_per_pack)} />
         <Filled label="Packs / Case" value={fmtNum(product?.packs_per_case)} />
