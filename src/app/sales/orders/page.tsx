@@ -1640,7 +1640,7 @@ function EditPanel({
             </div>
             {linesMissingBom.length > 0 && (
               <div className="rounded-lg px-3 py-2 bg-red-50 border border-red-200 text-[11px] text-red-700">
-                <span className="font-semibold">{linesMissingBom.length} line{linesMissingBom.length === 1 ? '' : 's'} need a BOM before production can run:</span>{' '}
+                <span className="font-semibold">{linesMissingBom.length === 1 ? '1 line needs' : linesMissingBom.length + ' lines need'} a BOM before production can run:</span>{' '}
                 <span className="font-mono">{linesMissingBom.join(', ')}</span>
                 {BOM_GATE === 'warn' && <span className="text-red-500"> &#8212; you can still save, but it will ask first.</span>}
               </div>

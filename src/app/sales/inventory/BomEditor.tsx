@@ -213,7 +213,7 @@ function SlotRow({ role, label, excludeSku, badge, onAdd }: {
   return (
     <tr className="bg-[#FCFCFD]">
       <td className="px-2.5 py-2 align-top">
-        <span className="inline-block text-[11px] font-semibold text-gray-400 border border-dashed border-[#D7DAE3] rounded-lg px-2 py-1 w-full">{label}</span>
+        <span className="inline-block text-[11px] font-semibold text-gray-400 border border-dashed border-[#D7DAE3] rounded-lg px-2 py-1 w-full min-w-[136px] whitespace-nowrap">{label}</span>
       </td>
       <td className="px-2.5 py-2 align-top">
         <div className="relative" ref={boxRef}>
