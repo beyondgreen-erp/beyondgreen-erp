@@ -1008,10 +1008,11 @@ function EditPanel({
   const [bomLoading, setBomLoading] = useState(false)
   const loadBomCoverage = useCallback(async () => {
     const [fg, bom] = await Promise.all([
-      sb.from('products').select('sku').in('category', FINISHED_CATEGORY_VALUES),
+      sb.from('products').select('sku, is_import').in('category', FINISHED_CATEGORY_VALUES),
       sb.from('product_bom').select('finished_good_sku'),
     ])
-    setFgSkus(new Set(((fg.data ?? []) as any[]).map(r => String(r.sku).trim().toUpperCase())))
+    // Import finished goods are bought, not made, so they never need a BOM — exclude them from the gate.
+    setFgSkus(new Set(((fg.data ?? []) as any[]).filter(r => r.is_import !== true).map(r => String(r.sku).trim().toUpperCase())))
     setBomSkus(new Set(((bom.data ?? []) as any[]).map(r => String(r.finished_good_sku).trim().toUpperCase())))
   }, [sb])
   useEffect(() => { if (open) loadBomCoverage() }, [open, loadBomCoverage])
