@@ -145,7 +145,7 @@ export default function ProofPanel({ sb, info, onChange, onPickCustomer, onPickP
         {(info.inks || []).length ? (info.inks || []).map(i => (
           <div key={i.name} className="flex items-center gap-2 text-xs"><span className="w-3.5 h-3.5 rounded-sm border border-gray-300" style={{ background: i.hex }} />{i.name}{i.spot && <span className="text-[10px] text-gray-400">spot</span>}</div>
         )) : <p className="text-[11px] text-gray-400">None yet — import or draw artwork.</p>}
-        <p className="text-[10px] text-gray-400">Name a spot colour in the Fill picker (e.g. PANTONE 16-6444 TCX) and it appears here automatically.</p>
+        <p className="text-[10px] text-gray-400">Name a spot color in the Fill picker (e.g. PANTONE 16-6444 TCX) and it appears here automatically.</p>
       </div>
 
       <div className="flex gap-2 pt-1">

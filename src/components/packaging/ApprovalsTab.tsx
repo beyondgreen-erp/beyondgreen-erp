@@ -111,7 +111,7 @@ export default function ApprovalsTab({ design, editor, user }: { design: DesignR
                         <div className="space-y-2 pt-1">
                           <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Note (required if requesting changes)" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                           <div className="flex gap-2">
-                            <button disabled={busy} onClick={() => act(r.id, 'confirmed')} className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"><i className="ti ti-circle-check" /> Confirm — sizes, colours &amp; file are correct</button>
+                            <button disabled={busy} onClick={() => act(r.id, 'confirmed')} className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"><i className="ti ti-circle-check" /> Confirm — sizes, colors &amp; file are correct</button>
                             <button disabled={busy} onClick={() => act(r.id, 'changes')} className="px-4 py-2 rounded-lg text-sm font-medium border border-orange-300 text-orange-700 hover:bg-orange-50 disabled:opacity-50"><i className="ti ti-alert-triangle" /> Request changes</button>
                           </div>
                         </div>

@@ -135,7 +135,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
         <section className="bg-white rounded-2xl border border-gray-200 p-5 space-y-5">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Export final files</h2>
-            <p className="text-sm text-gray-500">Vector formats keep every path editable, convert text to outlines and carry CMYK &amp; spot colours. All formats open in CorelDRAW (File ▸ Import) and Adobe Illustrator.</p>
+            <p className="text-sm text-gray-500">Vector formats keep every path editable, convert text to outlines and carry CMYK &amp; spot colors. All formats open in CorelDRAW (File ▸ Import) and Adobe Illustrator.</p>
           </div>
           <div className="grid sm:grid-cols-2 gap-2">
             {FORMATS.map(f => (
@@ -147,7 +147,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
           </div>
           <div className="grid sm:grid-cols-2 gap-3 text-sm">
             <label className="flex items-center gap-2"><input type="checkbox" checked={opts.includeDieline} onChange={e => setOpts({ ...opts, includeDieline: e.target.checked })} /> Include dieline layer</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={opts.convertToCmyk} onChange={e => setOpts({ ...opts, convertToCmyk: e.target.checked })} /> Convert RGB colours to CMYK</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={opts.convertToCmyk} onChange={e => setOpts({ ...opts, convertToCmyk: e.target.checked })} /> Convert RGB colors to CMYK</label>
             <label className="flex items-center gap-2">Raster resolution
               <select value={opts.dpi} onChange={e => setOpts({ ...opts, dpi: Number(e.target.value) })} className="border border-gray-300 rounded px-2 py-1">
                 {[72, 150, 300, 600].map(d => <option key={d} value={d}>{d} dpi</option>)}
@@ -202,7 +202,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
           <div className="text-[11px] text-gray-500 bg-white rounded-xl border border-gray-200 p-3 space-y-1">
             <p className="font-semibold text-gray-700">CorelDRAW tips</p>
             <p>• Use File ▸ Import (not Open) for .AI, .EPS and .PDF. Choose &quot;Curves&quot; if asked about text — text is already outlined.</p>
-            <p>• The dieline arrives as a separate spot colour (&quot;Dieline&quot;) set to overprint.</p>
+            <p>• The dieline arrives as a separate spot color (&quot;Dieline&quot;) set to overprint.</p>
             <p>• PDF/AI keep layers; EPS/PS flatten layers into one.</p>
           </div>
         </section>

@@ -1,6 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Exact specification read from the original file: flat size, dimension callouts, colour builds, plates.
+// Exact specification read from the original file: flat size, dimension callouts, color builds, plates.
 import type { DesignSpec } from '@/lib/packaging/specExtract'
 
 export default function SpecSheet({ spec, source, compact }: { spec: DesignSpec; source?: { name: string; sha256: string } | null; compact?: boolean }) {
@@ -28,7 +28,7 @@ export default function SpecSheet({ spec, source, compact }: { spec: DesignSpec;
         )}
       </section>
       <section>
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Colour codes (exact values from the file)</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Color codes (exact values from the file)</p>
         <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
           {printingPlates.map(p => (
             <div key={p.name} className="flex items-center gap-2 px-2.5 py-1.5 text-sm">
@@ -54,7 +54,7 @@ export default function SpecSheet({ spec, source, compact }: { spec: DesignSpec;
             </div>
           ))}
           {spec.paper && <div className="flex items-center gap-2 px-2.5 py-1.5 text-sm text-gray-500"><span className="w-5 h-5 rounded border border-gray-300 bg-white shrink-0" />No ink (substrate shows through) — C0 M0 Y0 K0</div>}
-          {!spec.colors.length && !printingPlates.length && !(spec.rgb || []).length && <p className="px-2.5 py-2 text-sm text-gray-500">No colour values found.</p>}
+          {!spec.colors.length && !printingPlates.length && !(spec.rgb || []).length && <p className="px-2.5 py-2 text-sm text-gray-500">No color values found.</p>}
         </div>
         <p className="text-[11px] text-gray-400 mt-1">{(spec.rgb || []).length && !spec.colors.length ? 'Exact RGB values as defined in the artwork file.' : 'Process CMYK builds as defined in the artwork file.'} On-screen swatches are approximations — print to the values.</p>
       </section>

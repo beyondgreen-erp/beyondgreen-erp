@@ -5,7 +5,7 @@ import { parseColor, rgbToHex, rgbToCmyk, cmykToRgb } from '@/lib/packaging/scen
 
 export interface ColorValue { hex: string | null; cmyk?: number[] | null; spot?: string | null }
 
-/** Fill / stroke editor: hex, CMYK (0–100) and optional spot-colour name. */
+/** Fill / stroke editor: hex, CMYK (0–100) and optional spot-color name. */
 export default function ColorField({ label, value, onChange, allowNone = true }: {
   label: string; value: ColorValue; onChange: (v: ColorValue) => void; allowNone?: boolean
 }) {
@@ -59,7 +59,7 @@ export default function ColorField({ label, value, onChange, allowNone = true }:
               </label>
             ))}
           </div>
-          <input value={spot} placeholder="Spot colour name (optional, e.g. PMS 7482 C)"
+          <input value={spot} placeholder="Spot color name (optional, e.g. PMS 7482 C)"
             onChange={e => setSpot(e.target.value)} onBlur={() => onChange({ ...value, spot: spot.trim() || null })}
             onKeyDown={e => e.key === 'Enter' && onChange({ ...value, spot: spot.trim() || null })}
             className="w-full px-2 py-1 text-xs border border-gray-300 rounded" />

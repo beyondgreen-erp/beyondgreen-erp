@@ -221,7 +221,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     logoRef.current = await loadBrandLogo()
     rebuildProof()
   }
-  /** Older designs: read colour codes and dimensions from the stored original once. */
+  /** Older designs: read color codes and dimensions from the stored original once. */
   const backfillSpec = async () => {
     const d = docRef.current
     if (!d.source?.path || (d.spec && d.spec.source_sha256 === d.source.sha256 && (d.spec.version || 1) >= SPEC_VERSION)) return
@@ -229,7 +229,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       const { data, error } = await sb.storage.from(BUCKET).download(d.source.path)
       if (error || !data) return
       d.spec = await extractSpec(new Uint8Array(await data.arrayBuffer()), d.source.name, d.source.sha256)
-      rebuildProof(); scheduleSave(); flash('Colour codes and dimensions read from the original file')
+      rebuildProof(); scheduleSave(); flash('Color codes and dimensions read from the original file')
     } catch (e) { console.warn('spec backfill', e) }
   }
   const pickCustomer = async (row: any | null) => {
@@ -559,7 +559,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
           const apply = (o: any) => o.set({ fill: target.fill, stroke: target.stroke, strokeWidth: target.strokeWidth, cmykFill: target.cmykFill, spotFill: target.spotFill, cmykStroke: target.cmykStroke, spotStroke: target.spotStroke, opacity: target.opacity })
           if (active.type === 'activeselection' || active.type === 'activeSelection') active.getObjects().forEach(apply); else apply(active)
           fc.requestRenderAll(); commit(); refreshSel()
-        } else if (target) { fc.setActiveObject(target); refreshSel(); flash('Now select a target first, then click the colour source with the eyedropper') }
+        } else if (target) { fc.setActiveObject(target); refreshSel(); flash('Now select a target first, then click the color source with the eyedropper') }
         return
       }
       if (t === 'pen') {
@@ -1416,7 +1416,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
                     )}
                   </div>
                 ))}
-                <p className="text-[11px] text-gray-400">The dieline layer is exported as a spot-colour overprint layer; you can leave it out of printer files from the Final Files tab.</p>
+                <p className="text-[11px] text-gray-400">The dieline layer is exported as a spot-color overprint layer; you can leave it out of printer files from the Final Files tab.</p>
               </div>
             )}
 
@@ -1478,7 +1478,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
 export default Editor
 
 function shapeToD(o: any): string {
-  // local centred geometry for simple shapes → path d in the object's own plane
+  // local centered geometry for simple shapes → path d in the object's own plane
   const w = o.width, h = o.height
   if (o.type === 'rect') {
     const rx = Math.min(o.rx || 0, w / 2), ry = Math.min(o.ry || o.rx || 0, h / 2)

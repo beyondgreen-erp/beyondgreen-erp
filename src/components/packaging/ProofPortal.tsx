@@ -318,7 +318,7 @@ export default function ProofPortal() {
         return (
           <div className="shrink-0 px-4 py-2 bg-gray-50 border-b border-gray-200 text-sm text-gray-700 flex items-center gap-2 flex-wrap">
             {a?.status === 'changes_requested' ? <span className="text-orange-800"><i className="ti ti-alert-triangle" /> beyondGREEN requested changes{a.closed_note ? `: ${a.closed_note}` : ''}</span>
-              : <span><i className="ti ti-info-circle" /> Review the artwork, sizes and colour codes. When everything is correct, send it back for approval.</span>}
+              : <span><i className="ti ti-info-circle" /> Review the artwork, sizes and color codes. When everything is correct, send it back for approval.</span>}
             {canSubmit && <button onClick={() => { if (!who) return; setSubmitOpen(true) }} className="ml-auto text-sm font-semibold text-white bg-[#3B6FE0] hover:bg-[#2f5bc0] rounded-lg px-3 py-1.5"><i className="ti ti-send" /> Submit for approval</button>}
           </div>
         )
@@ -383,7 +383,7 @@ export default function ProofPortal() {
             )}
             {tab === 'specs' && (
               (docRef.current as any)?.spec ? <SpecSheet spec={(docRef.current as any).spec} source={data.source ? { name: data.source.name, sha256: data.source.sha256 } : null} compact />
-                : <p className="text-sm text-gray-500">The exact sizes and colour codes will appear here once beyondGREEN attaches the original artwork file.</p>
+                : <p className="text-sm text-gray-500">The exact sizes and color codes will appear here once beyondGREEN attaches the original artwork file.</p>
             )}
             {tab === 'activity' && (
               <ol className="space-y-2.5">
@@ -412,7 +412,7 @@ export default function ProofPortal() {
                         <span className="text-[11px] text-gray-500">{fmtSize(data.source.size)}</span>
                         <i className="ti ti-download text-gray-500" />
                       </span>
-                      <span className="block text-[11px] text-emerald-800 mt-1">Exactly as uploaded by beyondGREEN — unaltered, with original fonts, colours and layers. Use this file for production.</span>
+                      <span className="block text-[11px] text-emerald-800 mt-1">Exactly as uploaded by beyondGREEN — unaltered, with original fonts, colors and layers. Use this file for production.</span>
                       <span className="block text-[10px] text-gray-400 mt-0.5 font-mono break-all">SHA-256 {data.source.sha256}</span>
                     </a>
                   </div>
@@ -460,7 +460,7 @@ export default function ProofPortal() {
             <h2 className="text-lg font-bold">Submit for approval</h2>
             <p className="text-sm text-gray-600">beyondGREEN will review and confirm. You will receive the approval — with the exact file to print — only after every approver has confirmed. <b>Do not print before that.</b></p>
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={sub.sizes} onChange={e => setSub({ ...sub, sizes: e.target.checked })} /> <span>I have checked all sizes and dieline dimensions (see the <b>Specs</b> tab).</span></label>
-            <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={sub.colours} onChange={e => setSub({ ...sub, colours: e.target.checked })} /> <span>I have checked the colour codes (CMYK / spot) and can print them.</span></label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={sub.colours} onChange={e => setSub({ ...sub, colours: e.target.checked })} /> <span>I have checked the color codes (CMYK / spot) and can print them.</span></label>
             <textarea value={sub.note} onChange={e => setSub({ ...sub, note: e.target.value })} rows={3} placeholder="Anything we should know? (optional)" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             {sub.err && <p className="text-sm text-red-600">{sub.err}</p>}
             <div className="flex gap-2 justify-end">
