@@ -13,7 +13,7 @@ export interface SpecRgb { r: number; g: number; b: number; uses: number; hex: s
 export interface SpecMeasured { unit: 'in'; extents: { w: number; h: number }; across: number[]; down: number[]; box: { w: number; d: number; h: number } | null; plate: string }
 export interface SpecDim { text: string; value: number; unit: string; vertical: boolean; uses: number }
 export interface DesignSpec {
-  version: 1 | 2
+  version: 1 | 2 | 3
   extracted_at: string
   source_sha256: string
   source_name: string
@@ -28,7 +28,7 @@ export interface DesignSpec {
   notes: string[]
 }
 
-export const SPEC_VERSION = 2
+export const SPEC_VERSION = 3
 const DIE = /(cut|crease|perf|die ?line|dieline|fold|score)/i
 const NOT_DIE = /(bleed|dimension|annot|safety|varnish|glue)/i
 const hex2 = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')
@@ -348,6 +348,9 @@ export async function extractSpec(bytes: Uint8Array, name: string, sha256: strin
     if (hit) hit.uses += e.uses
     else rgbList.push({ r: e.v[0], g: e.v[1], b: e.v[2], uses: e.uses, hex: rgbHex(e.v[0], e.v[1], e.v[2]), label: `R${e.v[0]} G${e.v[1]} B${e.v[2]}` })
   }
+  // strong (brand) colours first, then tints, then black / white
+  const chroma = (c: SpecRgb) => Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b)
+  rgbList.sort((a, b) => chroma(b) - chroma(a) || b.uses - a.uses)
   const plateList: SpecPlate[] = [
     ...Array.from(plates.entries()).map(([n, v]) => ({ name: n, cmyk: v, hex: v ? cmykHex(v[0], v[1], v[2], v[3]) : '#999999', technical: TECH.test(n) })),
     ...Array.from(labPlates.entries()).map(([n, l]) => ({ name: n, cmyk: null, lab: l, hex: labHex(l[0], l[1], l[2]), technical: TECH.test(n) })),
