@@ -122,6 +122,13 @@ const ROLES: { key: Role; label: string }[] = [
 const ROLE_ORDER = Object.fromEntries(ROLES.map((r, i) => [r.key, i])) as Record<Role, number>
 
 /**
+ * What the 100% of unit weight is made of: the resins and the colour. Ink is costed by weight the
+ * same way, but it is laid on top of a finished part rather than blended into it, so counting it
+ * would push the blend over 100 and force whoever is entering it to fudge the figure down.
+ */
+const countsTowardWeight = (role: Role, basis: Basis) => basis === 'percentage' && role !== 'ink'
+
+/**
  * The blank rows every finished good starts with, in the order and the quantity the collection
  * spreadsheet lays them out - two resin lines, then colour, ink, and what it is packed into.
  * A slot disappears as soon as a component is filed under it, so a product that only needs one
@@ -453,8 +460,8 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   }
 
   const addFromSlot = useCallback(async (role: Role, sku: string, basis: Basis, qty: number, notes: string) => {
-    const pctSoFar = components.filter(c => c.basis === 'percentage').reduce((t, c) => t + c.qty_value, 0)
-    if (basis === 'percentage' && pctSoFar + qty > 100.001) return 'Total % would be ' + (pctSoFar + qty).toFixed(2) + ' (max 100)'
+    const pctSoFar = components.filter(c => countsTowardWeight(c.role, c.basis)).reduce((t, c) => t + c.qty_value, 0)
+    if (countsTowardWeight(role, basis) && pctSoFar + qty > 100.001) return 'Total % would be ' + (pctSoFar + qty).toFixed(2) + ' (max 100)'
     const { error } = await sb.from('product_bom').insert({
       finished_good_sku: product.sku, component_sku: sku,
       percentage: basis === 'percentage' ? qty : 0, qty_value: qty, role, notes: notes || null,
@@ -476,8 +483,8 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     return { rawMat, unitPkg, casePkg, totalMat: rawMat + unitPkg + casePkg }
   }, [computedRows])
 
-  const totalPct = computedRows.filter(c => c.basis === 'percentage').reduce((s, c) => s + c.qty_value, 0)
-  const anyPct = computedRows.some(c => c.basis === 'percentage')
+  const totalPct = computedRows.filter(c => countsTowardWeight(c.role, c.basis)).reduce((s, c) => s + c.qty_value, 0)
+  const anyPct = computedRows.some(c => countsTowardWeight(c.role, c.basis))
   const missingCost = computedRows.filter(c => (c.unit_cost || 0) === 0)
   const prodCostNum = parseFloat(productionCost) || 0
   const totalCost = totals.totalMat + prodCostNum
@@ -550,7 +557,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     if (!addSku) { setAddErr('Pick a component from search'); return }
     const qty = parseFloat(addQty)
     if (!qty || qty <= 0) { setAddErr('Enter a value greater than 0'); return }
-    if (addBasis === 'percentage' && totalPct + qty > 100.001) { setAddErr(`Total % would be ${(totalPct + qty).toFixed(2)} (max 100)`); return }
+    if (countsTowardWeight(addRole, addBasis) && totalPct + qty > 100.001) { setAddErr(`Total % would be ${(totalPct + qty).toFixed(2)} (max 100)`); return }
     setAdding(true)
     const db = basisToDb(addBasis)
     const { error } = await sb.from('product_bom').insert({
