@@ -7,7 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { type DesignDoc, type DesignRow, type DocLayer, type Swatch, BUCKET, OBJ_PROPS, UNIT_PT, fmtUnit, uid, safeFileName, sha256Hex } from '@/lib/packaging/doc'
 import { ensureAssets, restore, serialize, thumbnail, withWorldCoords } from '@/lib/packaging/canvasIO'
 import { importFile, ACCEPT } from '@/lib/packaging/importers'
-import { extractSpec } from '@/lib/packaging/specExtract'
+import { extractSpec, SPEC_VERSION } from '@/lib/packaging/specExtract'
 import { logActivity } from '@/lib/packaging/activity'
 import { fontFamilies, loadFamily, DEFAULT_FONT } from '@/lib/packaging/fonts'
 import ColorField, { type ColorValue } from './ColorField'
@@ -188,7 +188,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       jobName: dz.name, productType: dz.product_type || '', status: dz.status,
       proofNo: dz.proof_no ? `BG-${dz.proof_no}` : (prev.proofNo || ''),
       version: versionRef.current, date: new Date().toISOString(),
-      dieline: d.spec?.flat ? `${d.spec.flat.w} × ${d.spec.flat.h} ${d.spec.flat.unit} (largest marked)` : `${fmtUnit(d.width, d.unit, d.unit === 'mm' ? 1 : 2)} × ${fmtUnit(d.height, d.unit, d.unit === 'mm' ? 1 : 2)} ${d.unit}`,
+      dieline: d.spec?.flat ? `${d.spec.flat.w} × ${d.spec.flat.h} ${d.spec.flat.unit} (largest marked)` : d.spec?.measured?.box ? `${d.spec.measured.box.w} × ${d.spec.measured.box.d} × ${d.spec.measured.box.h} in box (measured)` : `${fmtUnit(d.width, d.unit, d.unit === 'mm' ? 1 : 2)} × ${fmtUnit(d.height, d.unit, d.unit === 'mm' ? 1 : 2)} ${d.unit}`,
       inks: d.spec ? specInks(d.spec) : collectInks(fc.getObjects(), d.layers, d.swatches),
       artist: prev.artist || user.name,
     }
@@ -224,7 +224,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   /** Older designs: read colour codes and dimensions from the stored original once. */
   const backfillSpec = async () => {
     const d = docRef.current
-    if (!d.source?.path || (d.spec && d.spec.source_sha256 === d.source.sha256)) return
+    if (!d.source?.path || (d.spec && d.spec.source_sha256 === d.source.sha256 && (d.spec.version || 1) >= SPEC_VERSION)) return
     try {
       const { data, error } = await sb.storage.from(BUCKET).download(d.source.path)
       if (error || !data) return

@@ -13,6 +13,10 @@ export default function SpecSheet({ spec, source, compact }: { spec: DesignSpec;
       <section>
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Sizes</p>
         {spec.flat && <Row k="Largest marked"><b>{spec.flat.w} {spec.flat.unit} (W) × {spec.flat.h} {spec.flat.unit} (H)</b> <span className="text-gray-500 text-xs">— the largest horizontal and vertical dimensions written on the dieline</span></Row>}
+        {spec.measured?.box && <Row k="Box size"><b>{spec.measured.box.w} × {spec.measured.box.d} × {spec.measured.box.h} in</b> <span className="text-gray-500 text-xs">(W × D × H) — measured from the die lines</span></Row>}
+        {spec.measured && spec.measured.across.length > 0 && <Row k="Panels across"><span className="font-mono text-xs">{spec.measured.across.map(v => v + ' in').join('  ·  ')}</span> <span className="text-gray-500 text-xs">— left to right, between fold / cut lines</span></Row>}
+        {spec.measured && spec.measured.down.length > 0 && <Row k="Panels down"><span className="font-mono text-xs">{spec.measured.down.map(v => v + ' in').join('  ·  ')}</span> <span className="text-gray-500 text-xs">— top to bottom</span></Row>}
+        {spec.measured && <Row k="Die extents">{spec.measured.extents.w} × {spec.measured.extents.h} in <span className="text-gray-500 text-xs">— outermost line of the “{spec.measured.plate}” plate{compact ? '' : ' (may include a bleed outline)'}</span></Row>}
         {spec.page.w > 0 && <Row k="File page">{pageIn(spec.page.w)} × {pageIn(spec.page.h)} in</Row>}
         {spec.dims.length > 0 && (
           <div className={`grid ${compact ? 'grid-cols-1' : 'sm:grid-cols-2'} gap-3 mt-2`}>
@@ -32,6 +36,14 @@ export default function SpecSheet({ spec, source, compact }: { spec: DesignSpec;
               <b className="flex-1 min-w-0 truncate">{p.name}</b><span className="text-[10px] px-1.5 rounded bg-blue-50 text-blue-700">SPOT</span>
               {p.cmyk && <span className="font-mono text-xs text-gray-600">C{p.cmyk[0]} M{p.cmyk[1]} Y{p.cmyk[2]} K{p.cmyk[3]}</span>}
               {p.lab && <span className="font-mono text-xs text-gray-600">L*{p.lab[0]} a*{p.lab[1]} b*{p.lab[2]}</span>}
+              {p.rgb && <span className="font-mono text-xs text-gray-600">R{p.rgb[0]} G{p.rgb[1]} B{p.rgb[2]}</span>}
+            </div>
+          ))}
+          {(spec.rgb || []).map((c, i) => (
+            <div key={c.hex + i} className="flex items-center gap-2 px-2.5 py-1.5 text-sm">
+              <span className="w-5 h-5 rounded border border-gray-300 shrink-0" style={{ background: c.hex }} />
+              <span className="font-mono text-xs text-gray-900 flex-1 whitespace-nowrap">{c.label} · {c.hex}</span>
+              <span className="text-[10px] px-1.5 rounded bg-amber-50 text-amber-700">RGB</span>
             </div>
           ))}
           {spec.colors.map((c, i) => (
@@ -42,14 +54,14 @@ export default function SpecSheet({ spec, source, compact }: { spec: DesignSpec;
             </div>
           ))}
           {spec.paper && <div className="flex items-center gap-2 px-2.5 py-1.5 text-sm text-gray-500"><span className="w-5 h-5 rounded border border-gray-300 bg-white shrink-0" />No ink (substrate shows through) — C0 M0 Y0 K0</div>}
-          {!spec.colors.length && !printingPlates.length && <p className="px-2.5 py-2 text-sm text-gray-500">No colour values found.</p>}
+          {!spec.colors.length && !printingPlates.length && !(spec.rgb || []).length && <p className="px-2.5 py-2 text-sm text-gray-500">No colour values found.</p>}
         </div>
-        <p className="text-[11px] text-gray-400 mt-1">Process CMYK builds as defined in the artwork file. On-screen swatches are approximations — print to the values.</p>
+        <p className="text-[11px] text-gray-400 mt-1">{(spec.rgb || []).length && !spec.colors.length ? 'Exact RGB values as defined in the artwork file.' : 'Process CMYK builds as defined in the artwork file.'} On-screen swatches are approximations — print to the values.</p>
       </section>
       {techPlates.length > 0 && (
         <section>
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Die / technical plates (non-printing)</p>
-          <div className="flex flex-wrap gap-1.5">{techPlates.map(p => <span key={p.name} className="text-xs px-2 py-1 rounded border border-gray-200 flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: p.hex }} />{p.name}{p.cmyk ? <span className="font-mono text-gray-400">{p.cmyk.join('/')}</span> : p.lab ? <span className="font-mono text-gray-400">Lab {p.lab.join('/')}</span> : null}</span>)}</div>
+          <div className="flex flex-wrap gap-1.5">{techPlates.map(p => <span key={p.name} className="text-xs px-2 py-1 rounded border border-gray-200 flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: p.hex }} />{p.name}{p.cmyk ? <span className="font-mono text-gray-400">{p.cmyk.join('/')}</span> : p.lab ? <span className="font-mono text-gray-400">Lab {p.lab.join('/')}</span> : p.rgb ? <span className="font-mono text-gray-400">RGB {p.rgb.join('/')}</span> : null}</span>)}</div>
         </section>
       )}
       {source && <p className="text-[11px] text-gray-400 break-all">Read from <b>{source.name}</b> · SHA-256 {source.sha256}</p>}
