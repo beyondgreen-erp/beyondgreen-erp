@@ -181,7 +181,8 @@ const inp = 'bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-2.5 p
  * the way the team fills a cell on the sheet, instead of scrolling to the add bar for every part.
  * The row only writes once a SKU and a quantity are both in hand.
  */
-function SlotRow({ role, label, excludeSku, badge, onAdd, packQty, caseQty, register }: {
+function SlotRow({ slotKey, role, label, excludeSku, badge, onAdd, packQty, caseQty, register }: {
+  slotKey: string
   role: Role
   label: string
   excludeSku: string
@@ -249,7 +250,7 @@ function SlotRow({ role, label, excludeSku, badge, onAdd, packQty, caseQty, regi
   // find a button. The parent also holds a handle to it, so "Save BOM" can flush a half-typed row.
   const commitRef = useRef(commit)
   commitRef.current = commit
-  const rowKey = `${role}-${label}-${excludeSku}`
+  const rowKey = `${excludeSku}::${slotKey}`
   useEffect(() => {
     register(rowKey, async () => { await commitRef.current() })
     return () => register(rowKey, null)
@@ -715,7 +716,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                         </tr>
                       ))}
                       {!loading && emptySlots.map(sl => (
-                        <SlotRow key={sl.key} role={sl.role} label={sl.label} excludeSku={product.sku} badge={c => <CatBadge c={c} />}
+                        <SlotRow key={sl.key} slotKey={sl.key} role={sl.role} label={sl.label} excludeSku={product.sku} badge={c => <CatBadge c={c} />}
                           packQty={packQty} caseQty={caseQty} register={registerSlot}
                           onAdd={(sku, basis, qty, notes) => addFromSlot(sl.role, sku, basis, qty, notes)} />
                       ))}
