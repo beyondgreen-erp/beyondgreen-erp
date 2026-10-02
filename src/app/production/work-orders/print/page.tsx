@@ -101,7 +101,7 @@ function Sheet() {
     const [p, m, b] = await Promise.all([
       sku
         ? sb.from('products')
-            .select('sku,product_name,description,unit_of_measure,sell_uom,pieces_per_pack,packs_per_case,product_size,product_color,print_color,bag_length_in,bag_width_in,weight_per_unit_grams,our_part_number,customer_part_number,special_instructions')
+            .select('sku,product_name,unit_of_measure,case_qty,pieces_per_pack,packs_per_case,product_size,product_color,print_color,bag_length_in,bag_width_in,weight_per_unit_grams,our_part_number,customer_part_number,special_instructions')
             .ilike('sku', sku).limit(1)
         : Promise.resolve({ data: [] as Any[] }),
       w.machine_id
@@ -190,8 +190,8 @@ function Sheet() {
 
       <Section title="Item">
         <Filled label="SKU" value={wo.item_part_number || product?.sku} />
-        <Filled label="Description" value={product?.product_name || product?.description} span={2} />
-        <Filled label="UOM" value={wo.uom || product?.sell_uom || product?.unit_of_measure} />
+        <Filled label="Description" value={product?.product_name} span={2} />
+        <Filled label="UOM" value={wo.uom || product?.unit_of_measure} />
         <Filled label="Our Part No." value={product?.our_part_number} />
         <Filled label="Customer Part No." value={product?.customer_part_number} />
         <Filled label="Size" value={product?.product_size} />
@@ -360,7 +360,10 @@ footer { margin-top: 14px; border-top: 1px solid #d1d5db; padding-top: 6px;
   border: 2px solid #d1d5db; background: #fff; cursor: pointer; }
 @media print {
   .noprint { display: none !important; }
-  .sheet { max-width: none; padding: 0; font-size: 10.5px; }
+  body * { visibility: hidden !important; }
+  .sheet, .sheet * { visibility: visible !important; }
+  .sheet { position: absolute !important; left: 0; top: 0; width: 100%;
+    max-width: none; padding: 0; font-size: 10.5px; }
   @page { size: letter portrait; margin: 0.45in; }
 }
 `
