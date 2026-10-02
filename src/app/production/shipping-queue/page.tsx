@@ -458,7 +458,7 @@ export default function ShippingQueuePage() {
     setPlan(p => p.map((r, idx) => {
       if (idx !== i) return r
       const upc = r.unitsPerCase || 1
-      const shipped = Math.min(shipCap(r), Math.max(1, v || 1) * upc)
+      const shipped = Math.max(1, v || 1) * upc   // boxes the user asks for; overage allowed
       const boxes = makeBoxes(shipped, upc, r.boxes, r.caseWeightLb)
       return { ...r, shippedUnits: sumBoxUnits(boxes), cases: boxes.length }
     }))
@@ -490,23 +490,16 @@ export default function ShippingQueuePage() {
     setPlan(p => p.map((r, idx) => idx === i ? { ...r, uom: v } : r)); invalidateBol()
   }
   function setOrdered(i: number, v: number) {
-    setPlan(p => p.map((r, idx) => {
-      if (idx !== i) return r
-      const units = Math.max(0, v || 0)
-      // Shipped can never exceed ordered — clamp it down and rebuild boxes if needed.
-      if (r.shippedUnits > units) {
-        const boxes = makeBoxes(units, r.unitsPerCase || 1, r.boxes, r.caseWeightLb)
-        return { ...r, units, shippedUnits: sumBoxUnits(boxes), cases: boxes.length, boxes }
-      }
-      return { ...r, units }
-    }))
+    // Ordered stays the original order quantity; shipped is independent and may exceed it (overages).
+    setPlan(p => p.map((r, idx) => idx === i ? { ...r, units: Math.max(0, v || 0) } : r))
     invalidateBol()
   }
-  // Set the shipped quantity (in the UOM); it is capped at the remaining/ordered qty.
+  // Set the shipped quantity (in the UOM) — this is the ACTUAL amount shipped and may exceed
+  // the ordered qty (overages). Billing, labels, packing slip and BOL all follow this number.
   function setShipped(i: number, v: number) {
     setPlan(p => p.map((r, idx) => {
       if (idx !== i) return r
-      const shipped = Math.min(shipCap(r), Math.max(0, v || 0))
+      const shipped = Math.max(0, v || 0)
       const boxes = makeBoxes(shipped, r.unitsPerCase || 1, r.boxes, r.caseWeightLb)
       return { ...r, shippedUnits: sumBoxUnits(boxes), cases: boxes.length, boxes }
     }))
@@ -517,7 +510,7 @@ export default function ShippingQueuePage() {
     setPlan(p => p.map((r, idx) => {
       if (idx !== i) return r
       const boxes = r.boxes.map((b, k) => k === bi ? { ...b, units: Math.max(0, v || 0) } : b)
-      const shipped = Math.min(shipCap(r), sumBoxUnits(boxes))
+      const shipped = sumBoxUnits(boxes)   // overage allowed — actual boxed quantity
       return { ...r, boxes, shippedUnits: shipped }
     }))
     invalidateBol()
@@ -1679,11 +1672,11 @@ export default function ShippingQueuePage() {
                                     <div className="w-[84px]"><label className={lbl}>UOM</label><input list="uom-options" value={r.uom} onChange={e => setUom(i, e.target.value)} className="w-full rounded border border-gray-300 px-1.5 py-1 text-xs" /></div>
                                     <div className="w-[70px]"><label className={lbl}>Units / Case</label><input type="number" min={1} value={r.unitsPerCase} onChange={e => setUnitsPerCase(i, parseInt(e.target.value) || 1)} className={nf} /></div>
                                     <div className="w-[72px]"><label className={lbl}>Ordered ({r.uom || 'ea'})</label><input type="number" min={0} value={r.units} onChange={e => setOrdered(i, parseInt(e.target.value) || 0)} className={nf} /></div>
-                                    <div className="w-[72px]"><label className={lbl}>Shipped ({r.uom || 'ea'})</label><input type="number" min={0} value={r.shippedUnits} onChange={e => setShipped(i, parseInt(e.target.value) || 0)} className={`${nf} ${over ? 'border-red-400 text-red-600' : ''}`} /></div>
+                                    <div className="w-[72px]"><label className={lbl}>Shipped ({r.uom || 'ea'})</label><input type="number" min={0} value={r.shippedUnits} onChange={e => setShipped(i, parseInt(e.target.value) || 0)} className={`${nf} ${over ? 'border-amber-400 text-amber-700' : ''}`} /></div>
                                     <div className="text-center w-[64px]"><label className={lbl}>Total Cases</label><div className="text-sm font-semibold text-[#1A1D2E] py-1">{r.boxes.length}</div></div>
                                     <button onClick={() => removeLine(i)} className="ml-auto text-gray-300 hover:text-red-500 text-sm self-start" title="Remove this SKU from the shipment">✕</button>
                                   </div>
-                                  {over && <div className="text-[11px] text-red-600 mt-1">Shipped can&apos;t exceed ordered — it&apos;s capped automatically.</div>}
+                                  {over && <div className="text-[11px] text-amber-700 mt-1">Overage — shipping {(r.shippedUnits - r.units).toLocaleString('en-US')} {r.uom || 'ea'} more than ordered. Billing &amp; docs will reflect the shipped quantity; the order quantity stays {r.units.toLocaleString('en-US')}.</div>}
                                   {parcel && boxConfigs.length === 0 && (
                                   <div className="mt-2 border-t border-gray-200 pt-2">
                                     <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
