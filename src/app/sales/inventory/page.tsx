@@ -101,7 +101,7 @@ const fmtV = (n: number) =>
 
 const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 
-// Fields the stock maths reads. Anything wrong in one of these moves the wrong
+// Fields the stock math reads. Anything wrong in one of these moves the wrong
 // quantity of stock, so they are marked out from the descriptive fields around them.
 const inpCalc = 'w-full bg-white border-2 border-blue-400 text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
 const lblCalc = 'block text-xs font-semibold text-blue-700 mb-1.5'
@@ -299,7 +299,7 @@ const EditPanel = memo(function EditPanel({
               <input type="checkbox" checked={!!form.is_import} onChange={e => setForm(p => ({ ...p, is_import: e.target.checked }))} className="accent-amber-500 w-4 h-4 mt-0.5" />
               <span className="text-xs text-[#1A1D2E]">
                 <span className="font-semibold">Import Product — No BOM</span>
-                <span className="block text-gray-400 mt-0.5">Finished products need a BOM. Tick this if it&apos;s imported (bought finished) so it&apos;s exempt from the BOM requirement.</span>
+                <span className="block text-gray-400 mt-0.5">Finished products need a BOM. Check this if it&apos;s imported (bought finished) so it&apos;s exempt from the BOM requirement.</span>
               </span>
             </label>
           )}
@@ -377,7 +377,7 @@ const EditPanel = memo(function EditPanel({
               <div>
                 <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Pack &amp; Case Conversion</p>
                 <p className="text-[11px] text-blue-900/70 mt-1">
-                  Everything outlined in blue feeds the stock maths. These three turn an order in
+                  Everything outlined in blue feeds the stock math. These three turn an order in
                   packs, cases or pallets into {baseUom} when inventory is deducted.
                 </p>
               </div>
@@ -658,7 +658,7 @@ export default function InventoryPage() {
       for (const r of b as any[]) { const k = r.finished_good_sku; if (k) counts[k] = (counts[k] ?? 0) + 1 }
       setBomMap(counts)
     }
-    // Key both allocation maps by the same normalised SKU as manualAlloc — order lines and
+    // Key both allocation maps by the same normalized SKU as manualAlloc — order lines and
     // products disagree on case ("bG23FRK1000" vs "BG23FRK1000"), which hid real allocations.
     const am: Record<string, { qty: number; orders: number }> = {}
     for (const r of (alloc as any[]) || []) { if (r.component_sku) am[String(r.component_sku).trim().toUpperCase()] = { qty: Number(r.allocated_qty) || 0, orders: Number(r.open_orders) || 0 } }
@@ -698,7 +698,7 @@ export default function InventoryPage() {
    * the system moved it — so the figure can be trusted without asking anyone.
    *
    * Amber is a hand-entered number; green is a shipment, receipt, production run or
-   * FBA move. Grey means the quantity changed but nothing recorded how.
+   * FBA move. Gray means the quantity changed but nothing recorded how.
    */
   function qtyStamp(p: Product) {
     if (!p.qty_updated_at) return <span className="text-gray-300 text-xs">—</span>
@@ -1167,7 +1167,7 @@ export default function InventoryPage() {
 
                   {!!uomImport.unknown_skus?.length && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                      <p className="text-[12px] font-semibold text-amber-800 mb-1">{uomImport.unknown_skus.length} SKU(s) are not in the catalogue — nothing is created for these</p>
+                      <p className="text-[12px] font-semibold text-amber-800 mb-1">{uomImport.unknown_skus.length} SKU(s) are not in the catalog — nothing is created for these</p>
                       <p className="text-[11px] text-amber-800">{uomImport.unknown_skus.slice(0, 25).map((u: any) => u.sku).join(', ')}</p>
                     </div>
                   )}
