@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import WorkOrderMaterials from './WorkOrderMaterials'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
@@ -860,7 +861,7 @@ export default function WorkOrdersPage() {
       {detail && form && (
         <>
           <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setDetail(null)} />
-          <div className="fixed inset-y-0 right-0 w-full md:w-[640px] bg-white z-50 shadow-2xl flex flex-col">
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-[960px] max-h-[92vh] bg-white z-50 shadow-2xl rounded-2xl flex flex-col overflow-hidden">
             <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100 shrink-0" style={{ borderTop: `4px solid ${detailGroup?.accent ?? '#10b981'}` }}>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -904,7 +905,13 @@ export default function WorkOrdersPage() {
                   </div>
                 </div>
               )}
-              {detail.approval_state === 'approved' && detail.approved_by && (
+              <WorkOrderMaterials
+            sku={detail.item_part_number}
+            qtyRequired={(detail as any).qty_required ?? (detail as any).qty_ordered}
+            uom={detail.uom}
+          />
+
+          {detail.approval_state === 'approved' && detail.approved_by && (
                 <p className="text-[11px] text-gray-400">
                   ✓ Approved {detail.approved_at ? new Date(detail.approved_at).toLocaleString() : ''} by {detail.approved_by}
                 </p>
