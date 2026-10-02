@@ -66,7 +66,7 @@ function OrderShipmentLog({ orderId, currentUserEmail }: { orderId: string; curr
         <div className="flex items-baseline justify-between gap-3 mb-2">
           <span className="text-xs text-gray-500"><b className="text-[#1A1D2E] text-sm">{tot.shipped.toLocaleString()}</b> of {tot.ordered.toLocaleString()} units shipped</span>
           <span className={`text-xs font-semibold ${remaining > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {remaining > 0 ? `${remaining.toLocaleString()} still to fulfil` : 'Fully fulfilled'}
+            {remaining > 0 ? `${remaining.toLocaleString()} still to fulfill` : 'Fully fulfilled'}
           </span>
         </div>
         <div className="h-1.5 w-full rounded-full bg-[#E4E6EE] overflow-hidden">
@@ -385,7 +385,7 @@ const FINISHED_CATEGORY_VALUES = ['Finished Goods', 'Finished Products', 'Bags',
 // filed the order as finished — an order set to Completed drops off the active board
 // into the completed list, which is how SO 31670 appeared to vanish.
 //
-// STATUSES itself is unchanged: it still drives the filter dropdown, the colour map
+// STATUSES itself is unchanged: it still drives the filter dropdown, the color map
 // and the display of orders that already hold one of these values.
 const LOCKED_STATUSES = ['Ready for Invoice', 'Shipped', 'Completed'] as const
 const isLockedStatus = (s: string) => (LOCKED_STATUSES as readonly string[]).includes(s)
@@ -768,7 +768,7 @@ interface EditLineState {
   added_details: string
   sku_flagged: boolean
   product_id: string | null
-  /** Blank = use the catalogue ladder. A value here is a one-off, line-only conversion. */
+  /** Blank = use the catalog ladder. A value here is a one-off, line-only conversion. */
   uom_factor: string
   /** Someone confirmed this line is a deliberate partial/broken case. */
   partial_ack: boolean
@@ -784,7 +784,7 @@ interface EditLineState {
 /**
  * What one unit of `uom` is worth on this line, and whether the ERP actually knows.
  *
- * The catalogue ladder answers it for every SKU the worklist covers. An override
+ * The catalog ladder answers it for every SKU the worklist covers. An override
  * typed on the line wins, because a one-off repack for one customer must never
  * rewrite the product everyone else orders against.
  */
@@ -816,7 +816,7 @@ function lineConversion(prod: Product | undefined, line: { unit_of_measure: stri
  * on two different orders for the same SKU. Now the list is the product's own
  * ladder, the conversion is shown as you pick, a partial case has to be
  * acknowledged before the order saves, and a one-off conversion is typed on the
- * line and logged rather than edited into the catalogue.
+ * line and logged rather than edited into the catalog.
  */
 function UomCell({ line, prod, onChange }: {
   line: EditLineState
@@ -855,7 +855,7 @@ function UomCell({ line, prod, onChange }: {
             className="w-20 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-400"/>
           <span>{c.base}</span>
           {c.overridden && (
-            <button type="button" onClick={() => onChange({ uom_factor: '', partial_ack: false })} className="ml-auto text-purple-600 hover:text-purple-800 underline">use catalogue</button>
+            <button type="button" onClick={() => onChange({ uom_factor: '', partial_ack: false })} className="ml-auto text-purple-600 hover:text-purple-800 underline">use catalog</button>
           )}
         </div>
       )}
@@ -873,7 +873,7 @@ function UomCell({ line, prod, onChange }: {
           <input type="checkbox" checked={line.partial_ack} onChange={e => onChange({ partial_ack: e.target.checked })} className="mt-0.5 accent-amber-600"/>
           <span>
             <span className="font-semibold">Broken case.</span>{' '}
-            {n(c.whole)} full {c.want} + {n(c.remainder)} {c.base} loose. Tick to confirm this is intended.
+            {n(c.whole)} full {c.want} + {n(c.remainder)} {c.base} loose. Check to confirm this is intended.
           </span>
         </label>
       )}
@@ -2514,7 +2514,7 @@ export default function OrdersPage() {
       return c.partial && !l.partial_ack && l.touched !== false
     })
     if (unconfirmed.length) {
-      setErr(`Confirm the broken case on ${unconfirmed.map(l => l.sku || l.description).join(', ')} before saving — tick the amber box on the line.`)
+      setErr(`Confirm the broken case on ${unconfirmed.map(l => l.sku || l.description).join(', ')} before saving — check the amber box on the line.`)
       return
     }
 
@@ -2665,7 +2665,7 @@ export default function OrdersPage() {
       // packs — and "12" almost certainly meant twelve packs. Writing that number would be
       // worse than writing nothing, because anything downstream would believe it. So the
       // conversion is stored when the line was edited in this session, or when it is one
-      // for one and cannot be wrong; otherwise it stays null and behaviour is unchanged.
+      // for one and cannot be wrong; otherwise it stays null and behavior is unchanged.
       const trusted = line.touched !== false || conv.factor === 1
       const extLine: Record<string,any> = {
         completed_qty: parseFloat(line.completed_qty) || 0,
@@ -2687,7 +2687,7 @@ export default function OrdersPage() {
       }
     }
 
-    // Anything that departs from the catalogue ladder goes in the order's activity log,
+    // Anything that departs from the catalog ladder goes in the order's activity log,
     // named and attributed, so a conversion nobody can explain later is not possible.
     if (orderId) {
       for (const line of editLines) {
@@ -2697,7 +2697,7 @@ export default function OrdersPage() {
         const label = line.sku || line.description
         if (c.overridden) {
           const cat = prod ? conversionFactor(prod, c.want) : null
-          try { await logActivity(orderId, userEmail, `UOM override on ${label}: 1 ${c.want} = ${c.factor.toLocaleString('en-US')} ${c.base}${cat?.known ? ` (catalogue says ${cat.factor.toLocaleString('en-US')})` : ' (catalogue has no conversion)'}. This line only — the product was not changed.`) } catch { /* best-effort */ }
+          try { await logActivity(orderId, userEmail, `UOM override on ${label}: 1 ${c.want} = ${c.factor.toLocaleString('en-US')} ${c.base}${cat?.known ? ` (catalog says ${cat.factor.toLocaleString('en-US')})` : ' (catalog has no conversion)'}. This line only — the product was not changed.`) } catch { /* best-effort */ }
         }
         if (c.partial && line.partial_ack) {
           try { await logActivity(orderId, userEmail, `Broken case confirmed on ${label}: ${c.qty} ${c.want} = ${c.qtyBase.toLocaleString('en-US')} ${c.base} (${Math.floor(c.whole).toLocaleString('en-US')} full ${c.want} + ${c.remainder.toLocaleString('en-US')} ${c.base} loose).`) } catch { /* best-effort */ }
