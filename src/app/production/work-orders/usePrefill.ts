@@ -117,7 +117,10 @@ export function usePrefill(
       if (colour) {
         put('color_type', colour.component_sku, FROM_BOM)
         put('color_material', colour.component_sku, FROM_BOM)
+        put('color_material_type', colour.component_sku, FROM_BOM)
         put('color_pct', colour.qty_value ?? colour.percentage, FROM_BOM)
+        // The extrusion and straw calculators read color_material_pct.
+        put('color_material_pct', colour.qty_value ?? colour.percentage, FROM_BOM)
       }
 
       const plate = byRole('print_plate')[0]

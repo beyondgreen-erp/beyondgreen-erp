@@ -69,16 +69,18 @@ const SPECIAL_NOTES: Section = {
   fields: [{ key: 'special_notes', label: 'Special Notes', type: 'textarea', wide: true }],
 }
 
-/** Material n / percentage / lot#, as printed on the extrusion sheets. */
+/**
+ * Lot numbers only. What each material is and what share of the blend it takes
+ * live on the BOM, so the sheet shows them from there rather than asking the
+ * shop to type them again. The lot changes every run, so it stays an entry.
+ */
 function materials(rows: { key: string; label: string }[]): Section {
   return {
-    title: 'Materials',
+    title: 'Material Lots',
     columns: 2,
-    fields: rows.flatMap(r => ([
-      { key: `${r.key}_type`, label: `${r.label} — Type`, type: 'text' as FieldType },
-      { key: `${r.key}_pct`, label: `${r.label} — Percentage`, type: 'number' as FieldType },
-      { key: `${r.key}_lot`, label: `${r.label} — Lot #`, type: 'text' as FieldType, wide: true },
-    ])),
+    fields: rows.map(r => (
+      { key: `${r.key}_lot`, label: `${r.label} — Lot #`, type: 'text' as FieldType }
+    )),
   }
 }
 
@@ -98,20 +100,6 @@ const MOLDING: FormDef = {
         { key: 'wo_code', label: 'WO No.', type: 'text', placeholder: '260810-MLD-1' },
         { key: 'wo_qty', label: 'WO Qty', type: 'number' },
         { key: 'uom', label: 'UOM', type: 'select', options: ['Pks', 'Pcs', 'Cs', 'Ea', 'Lbs'] },
-      ],
-    },
-    {
-      title: 'Product Instructions',
-      columns: 2,
-      fields: [
-        { key: 'material_1_type', label: 'Material 1', type: 'text' },
-        { key: 'material_1_pct', label: '% Blend', type: 'number' },
-        { key: 'material_2_type', label: 'Material 2', type: 'text' },
-        { key: 'material_2_pct', label: '% Blend', type: 'number' },
-        { key: 'material_3_type', label: 'Material 3', type: 'text' },
-        { key: 'material_3_pct', label: '% Blend', type: 'number' },
-        { key: 'color_type', label: 'Color', type: 'text' },
-        { key: 'color_pct', label: '% Blend', type: 'number' },
       ],
     },
     {
