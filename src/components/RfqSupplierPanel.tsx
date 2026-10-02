@@ -121,7 +121,7 @@ ${summary ? `<p>${summary}</p>` : ''}
   <li>Packaging — pieces per case, case dimensions and weight</li>
   <li>Coating and construction confirmation for each item as specified</li>
   <li>Food-contact and compostability certifications you hold, with certificate numbers</li>
-  <li>Print registration tolerance on any multi-colour print</li>
+  <li>Print registration tolerance on any multi-color print</li>
 </ul>
 
 <p>Two more things while you are pricing it: please send a digital proof for approval before any full run, and flag any assumptions or exclusions in your quote — duties, freight surcharges, plate or die charges, and overrun or underrun tolerance.</p>
