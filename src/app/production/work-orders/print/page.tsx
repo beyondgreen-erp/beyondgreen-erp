@@ -372,8 +372,11 @@ footer { margin-top: 14px; border-top: 1px solid #d1d5db; padding-top: 6px;
   html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
   body > *:not(.sheet) { display: none !important; }
   .noprint { display: none !important; }
-  .sheet { position: static !important; overflow: visible !important;
-    padding: 0 !important; font-size: 10.5px; }
+  /* globals.css hides every direct child of body when printing so that only
+     the shipping label shows. The sheet is a direct child too, so it has to
+     opt back in explicitly or the page comes out empty. */
+  .sheet { display: block !important; position: static !important;
+    overflow: visible !important; padding: 0 !important; font-size: 10.5px; }
   @page { size: letter portrait; margin: 0.45in; }
 }
 `
