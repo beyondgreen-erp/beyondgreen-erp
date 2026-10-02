@@ -95,6 +95,14 @@ const ROLES: { key: Role; label: string }[] = [
 const ROLE_ORDER = Object.fromEntries(ROLES.map((r, i) => [r.key, i])) as Record<Role, number>
 
 /**
+ * The blank rows every finished good starts with, in the order and the quantity the collection
+ * spreadsheet lays them out - two resin lines, then colour, ink, and what it is packed into.
+ * A slot disappears as soon as a component is filed under it, so a product that only needs one
+ * resin is never nagged about the second. Nothing here is stored: these are prompts, not data.
+ */
+const SLOT_TEMPLATE: Role[] = ['rm', 'rm', 'color', 'ink', 'pack', 'case', 'print_plate', 'paper_core', 'label']
+
+/**
  * Best guess at a row's label from what Inventory already knows.
  *
  * The component's category settles most of it, but a colour masterbatch, an ink and a resin are
@@ -139,6 +147,130 @@ const fmt4 = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', 
 
 const GRAMS_PER_LB = 453.592
 const inp = 'bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#00863F]/40 transition'
+
+
+/**
+ * One blank build-sheet line. It carries its own SKU search so a row can be filled where it sits,
+ * the way the team fills a cell on the sheet, instead of scrolling to the add bar for every part.
+ * The row only writes once a SKU and a quantity are both in hand.
+ */
+function SlotRow({ role, label, excludeSku, badge, onAdd }: {
+  role: Role
+  label: string
+  excludeSku: string
+  badge: (c: string | null) => React.ReactNode
+  onAdd: (sku: string, basis: Basis, qty: number, notes: string) => Promise<string | null>
+}) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [q, setQ] = useState('')
+  const [picked, setPicked] = useState<SearchResult | null>(null)
+  const [basis, setBasis] = useState<Basis>(role === 'rm' || role === 'color' ? 'percentage' : 'pcs_unit')
+  const [qty, setQty] = useState('')
+  const [notes, setNotes] = useState('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const boxRef = useRef<HTMLDivElement>(null)
+  const qtyRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    function h(e: MouseEvent) { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  useEffect(() => {
+    if (q.length < 2) { setResults([]); setOpen(false); return }
+    const t = setTimeout(async () => {
+      const { data } = await sb.from('products')
+        .select('sku,product_name,category,unit_cost')
+        .or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`)
+        .neq('sku', excludeSku).neq('category', 'Finished Goods')
+        .order('sku').limit(8)
+      setResults((data ?? []) as SearchResult[]); setOpen(true)
+    }, 180)
+    return () => clearTimeout(t)
+  }, [q, sb, excludeSku])
+
+  function pick(r: SearchResult) {
+    setPicked(r); setBasis(defaultBasis(r.category)); setQ(''); setOpen(false)
+    setTimeout(() => qtyRef.current?.focus(), 50)
+  }
+
+  async function commit() {
+    const n = parseFloat(qty)
+    if (!picked || !n || n <= 0) return
+    setBusy(true); setErr('')
+    const e = await onAdd(picked.sku, basis, n, notes.trim())
+    setBusy(false)
+    if (e) { setErr(e); return }
+    setPicked(null); setQty(''); setNotes('')
+  }
+
+  const ready = !!picked && !!parseFloat(qty)
+
+  return (
+    <tr className="bg-[#FCFCFD]">
+      <td className="px-2.5 py-2 align-top">
+        <span className="inline-block text-[11px] font-semibold text-gray-400 border border-dashed border-[#D7DAE3] rounded-lg px-2 py-1 w-full">{label}</span>
+      </td>
+      <td className="px-2.5 py-2 align-top">
+        <div className="relative" ref={boxRef}>
+          {picked ? (
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono font-semibold text-[#0F7A4E] text-[12px]">{picked.sku}</span>
+              {badge(picked.category)}
+              <button onClick={() => setPicked(null)} title="Clear" className="text-gray-400 hover:text-gray-700 ml-auto">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+          ) : (
+            <input value={q} onChange={e => setQ(e.target.value)} onFocus={() => q.length >= 2 && setOpen(true)}
+              placeholder="Search SKU..." className={inp + ' w-full !py-1 !px-1.5 text-[11px] !bg-transparent border-dashed'} />
+          )}
+          {picked && <div className="text-gray-500 leading-snug break-words mt-0.5">{picked.product_name}</div>}
+          {open && results.length > 0 && !picked && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E4E6EE] rounded-lg shadow-xl z-30 overflow-hidden max-h-52 overflow-y-auto min-w-[240px]">
+              {results.map(r => (
+                <button key={r.sku} onMouseDown={() => pick(r)} className="w-full text-left px-3 py-2 border-b border-[#F1F3F7] last:border-0 hover:bg-[#F2F6FF]">
+                  <div className="flex items-center gap-2"><span className="text-[#0F7A4E] font-mono font-bold text-xs">{r.sku}</span>{badge(r.category)}</div>
+                  <div className="flex items-center justify-between mt-0.5"><p className="text-gray-600 truncate text-xs">{r.product_name}</p>{r.unit_cost != null && <p className="text-gray-400 text-xs ml-2 whitespace-nowrap">{fmt2(r.unit_cost)}</p>}</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {err && <p className="text-red-600 text-[10px] mt-0.5">{err}</p>}
+        </div>
+      </td>
+      <td className="px-2 py-2 align-top">
+        <select value={basis} onChange={e => setBasis(e.target.value as Basis)} className={inp + ' w-full !min-w-[100px] !py-1 !px-1.5 text-[11px] cursor-pointer !bg-transparent border-dashed'}>
+          <option value="percentage">% by weight</option>
+          <option value="pcs_unit">pcs / unit</option>
+          <option value="pcs_pack">pcs / pack</option>
+          <option value="pcs_case">pcs / case</option>
+        </select>
+      </td>
+      <td className="px-2 py-2 align-top">
+        <input ref={qtyRef} type="number" min="0" step="0.01" value={qty} onChange={e => setQty(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && commit()} placeholder={basis === 'percentage' ? '%' : 'pcs'}
+          className={inp + ' w-full !min-w-[52px] text-right !py-1 !px-1.5 text-[11px] !bg-transparent border-dashed'} />
+      </td>
+      <td className="px-2 py-2 text-right text-gray-300 align-top">{picked?.unit_cost != null ? fmt2(picked.unit_cost) : '—'}</td>
+      <td className="px-2.5 py-2 text-right text-gray-300 align-top">&#8212;</td>
+      <td className="px-2 py-2 align-top">
+        <input value={notes} onChange={e => setNotes(e.target.value)} onKeyDown={e => e.key === 'Enter' && commit()}
+          placeholder="&#8212;" className={inp + ' w-full !min-w-[96px] !py-1 !px-1.5 text-[11px] !bg-transparent border-dashed'} />
+      </td>
+      <td className="px-1 py-2 text-center align-top">
+        <button onClick={commit} disabled={!ready || busy} title={ready ? 'Save this line' : 'Pick a SKU and a quantity'}
+          className="text-[#00863F] disabled:text-gray-200 hover:bg-emerald-50 rounded p-0.5">
+          {busy ? <span className="text-[10px]">...</span> : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg>}
+        </button>
+      </td>
+    </tr>
+  )
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function BomEditor({ product, onClose, onUpdate }: Props) {
@@ -244,6 +376,36 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   }, [wG, caseQty, packQty])
 
   const computedRows = useMemo(() => components.map(c => ({ ...c, extended_cost: extOf(c) })), [components, extOf])
+
+  /**
+   * The build-sheet slots this product has not filled yet. Each template entry is cancelled out by
+   * one saved component of the same role, so the blanks on screen are exactly the ones still owed.
+   */
+  const emptySlots = useMemo(() => {
+    const left: Record<string, number> = {}
+    for (const r of SLOT_TEMPLATE) left[r] = (left[r] ?? 0) + 1
+    for (const c of components) if (left[c.role] > 0) left[c.role] -= 1
+    const out: { role: Role; label: string; key: string }[] = []
+    for (const r of ROLES) {
+      for (let i = 0; i < (left[r.key] ?? 0); i++) out.push({ role: r.key, label: r.label, key: r.key + '-' + i })
+    }
+    return out
+  }, [components])
+
+  /** Save a filled-in slot. Returns an error message, or null when the row went in. */
+  const addFromSlot = useCallback(async (role: Role, sku: string, basis: Basis, qty: number, notes: string) => {
+    const pctSoFar = components.filter(c => c.basis === 'percentage').reduce((t, c) => t + c.qty_value, 0)
+    if (basis === 'percentage' && pctSoFar + qty > 100.001) return 'Total % would be ' + (pctSoFar + qty).toFixed(2) + ' (max 100)'
+    const { error } = await sb.from('product_bom').insert({
+      finished_good_sku: product.sku, component_sku: sku,
+      percentage: basis === 'percentage' ? qty : 0, qty_value: qty, role, notes: notes || null,
+      uom_type: basis === 'percentage' ? 'percentage' : basis === 'pcs_pack' ? 'pcs_pack' : 'pcs',
+      is_case_level: basis === 'pcs_case',
+    })
+    if (error) return error.message
+    loadBom()
+    return null
+  }, [sb, product.sku, components, loadBom])
 
   const totals = useMemo(() => {
     let rawMat = 0, unitPkg = 0, casePkg = 0
@@ -446,7 +608,6 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                     </thead>
                     <tbody className="divide-y divide-[#F3F4F8]">
                       {loading && <tr><td colSpan={8} className="px-3 py-5 text-center text-gray-400">Loading…</td></tr>}
-                      {!loading && computedRows.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400 italic">No components yet — add one below.</td></tr>}
                       {!loading && computedRows.map((c, i) => (
                         // A line above each change of material type bands the rows into the same
                         // groups the build sheet uses, without spending a whole row on a heading.
@@ -495,6 +656,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                             <button onClick={() => deleteRow(c.id)} className="text-red-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                           </td>
                         </tr>
+                      ))}
+                      {!loading && emptySlots.map(sl => (
+                        <SlotRow key={sl.key} role={sl.role} label={sl.label} excludeSku={product.sku} badge={c => <CatBadge c={c} />}
+                          onAdd={(sku, basis, qty, notes) => addFromSlot(sl.role, sku, basis, qty, notes)} />
                       ))}
                       {!loading && computedRows.length > 0 && (
                         <tr className="bg-[#FBFCFE] border-t border-[#EEF0F4]">

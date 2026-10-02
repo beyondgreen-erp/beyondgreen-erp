@@ -18,6 +18,7 @@ import FileUpload from '@/components/FileUpload'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
 import { statusColor } from '@/lib/statusColors'
 import { generateOrderPDF, generateAcknowledgementPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
+import BomEditor from '@/app/sales/inventory/BomEditor'
 import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
 import { orderDisplayName } from '@/lib/orderName'
@@ -361,6 +362,20 @@ const STATUSES = [
   'Partially Shipped','Ready for Invoice','Shipped','Completed',
   'On Hold','Cancelled','Closed',
 ]
+
+/**
+ * A finished good cannot be built, costed or scheduled without a BOM, so an order line for one
+ * that has none is a gap someone has to close before production sees it.
+ *
+ * 'warn' flags the line and makes you confirm on save; 'block' refuses the save outright. We run
+ * on 'warn' while coverage is still being filled in from the collection sheet - on the day this
+ * was written only 13 of 204 finished goods had a BOM, and blocking would have stopped roughly
+ * nine orders in ten. Change the one word below to 'block' once the sheet is back and imported.
+ */
+const BOM_GATE: 'warn' | 'block' = 'warn'
+
+/** What Inventory counts as a finished good - wider than the single 'Finished Goods' category. */
+const FINISHED_CATEGORY_VALUES = ['Finished Goods', 'Finished Products', 'Bags', 'Wraps', 'Molded Fiber']
 
 // Statuses a user may NOT set by hand from the Sales Orders screen.
 //
@@ -984,6 +999,52 @@ function EditPanel({
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [skuDropdown, setSkuDropdown] = useState<number | null>(null)
   const [skuQ, setSkuQ] = useState('')
+
+  // BOM gate: which SKUs on this order are finished goods, and which of those already have a BOM.
+  // Loaded when the panel opens and refreshed whenever a BOM is saved from here.
+  const [fgSkus, setFgSkus] = useState<Set<string>>(new Set())
+  const [bomSkus, setBomSkus] = useState<Set<string>>(new Set())
+  const [bomProduct, setBomProduct] = useState<any | null>(null)
+  const [bomLoading, setBomLoading] = useState(false)
+  const loadBomCoverage = useCallback(async () => {
+    const [fg, bom] = await Promise.all([
+      sb.from('products').select('sku').in('category', FINISHED_CATEGORY_VALUES),
+      sb.from('product_bom').select('finished_good_sku'),
+    ])
+    setFgSkus(new Set(((fg.data ?? []) as any[]).map(r => String(r.sku).trim().toUpperCase())))
+    setBomSkus(new Set(((bom.data ?? []) as any[]).map(r => String(r.finished_good_sku).trim().toUpperCase())))
+  }, [sb])
+  useEffect(() => { if (open) loadBomCoverage() }, [open, loadBomCoverage])
+
+  /** True when this line sells a finished good that has no BOM behind it yet. */
+  const lineNeedsBom = useCallback((sku: string) => {
+    const k = (sku || '').trim().toUpperCase()
+    return !!k && fgSkus.has(k) && !bomSkus.has(k)
+  }, [fgSkus, bomSkus])
+
+  const linesMissingBom = useMemo(
+    () => editLines.filter(l => lineNeedsBom(l.sku)).map(l => l.sku.trim()),
+    [editLines, lineNeedsBom])
+
+  /** Open the BOM editor over this order for one line's SKU. */
+  async function openBomFor(sku: string) {
+    setBomLoading(true)
+    const { data } = await sb.from('products').select('*').ilike('sku', sku.trim()).limit(1).maybeSingle()
+    setBomLoading(false)
+    if (!data) { alert(sku + ' is not in Inventory yet - save the order to add it, then build its BOM.'); return }
+    setBomProduct(data)
+  }
+
+  /** Save, but make the missing BOMs impossible to miss first. */
+  function guardedSave() {
+    if (linesMissingBom.length === 0) { onSave(); return }
+    const list = linesMissingBom.join(', ')
+    if (BOM_GATE === 'block') {
+      alert('These finished goods have no BOM yet, so this order cannot be saved:\n\n' + list + '\n\nUse "Create BOM" on each line, then save.')
+      return
+    }
+    if (confirm('No BOM on file for:\n\n' + list + '\n\nProduction cannot cost or schedule these without one. Use "Create BOM" on the line to build it now.\n\nSave the order anyway?')) onSave()
+  }
   // Customer / lead linking
   const [custMode, setCustMode] = useState<'customer' | 'lead'>('customer')
   const [custQ, setCustQ] = useState('')
@@ -1577,6 +1638,13 @@ function EditPanel({
               <span>🔗</span>
               <span><b>Inventory-linked (Ultron).</b> SKUs pull live from the Inventory board (prices are the set default). A price you set here stays on this order only — Inventory is never overwritten. Brand-new SKUs are added to Inventory on save.</span>
             </div>
+            {linesMissingBom.length > 0 && (
+              <div className="rounded-lg px-3 py-2 bg-red-50 border border-red-200 text-[11px] text-red-700">
+                <span className="font-semibold">{linesMissingBom.length} line{linesMissingBom.length === 1 ? '' : 's'} need a BOM before production can run:</span>{' '}
+                <span className="font-mono">{linesMissingBom.join(', ')}</span>
+                {BOM_GATE === 'warn' && <span className="text-red-500"> &#8212; you can still save, but it will ask first.</span>}
+              </div>
+            )}
             <div className="space-y-2">
               {editLines.map((line, i) => (
                 <div key={line._key} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); reorderLine(line._key) }} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-[#E4E6EE] bg-[#F9FAFB]/30'}`}>
@@ -1631,6 +1699,18 @@ function EditPanel({
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                   </div>
+                  {lineNeedsBom(line.sku) && (
+                    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-red-50 border border-red-200">
+                      <span className="text-red-600 text-xs shrink-0" aria-hidden>&#9888;</span>
+                      <span className="text-[11px] text-red-700 font-medium min-w-0 flex-1">
+                        No BOM on file for <span className="font-mono font-bold">{line.sku}</span> &#8212; production cannot cost or schedule it.
+                      </span>
+                      <button type="button" onClick={() => openBomFor(line.sku)} disabled={bomLoading}
+                        className="shrink-0 text-[11px] font-semibold px-2 py-1 rounded-md bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white transition-colors">
+                        {bomLoading ? '...' : 'Create BOM'}
+                      </button>
+                    </div>
+                  )}
                   <div className="grid grid-cols-4 gap-2 items-start">
                     {([['quantity','Qty'],['completed_qty','Done']] as const).map(([key, label]) => (
                       <input key={key} value={(line as any)[key]} onChange={e => updateLine(line._key, { [key]: e.target.value, ...(key === 'quantity' ? { partial_ack: false } : {}) })}
@@ -1731,7 +1811,7 @@ function EditPanel({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
               Sales Order
             </button>
-            <button onClick={onSave} disabled={saving}
+            <button onClick={guardedSave} disabled={saving}
               className="mon-btn flex-1 justify-center !py-2.5">
               {saving ? 'Saving…' : 'Save Order'}
             </button>
@@ -1739,6 +1819,11 @@ function EditPanel({
         </div>
       </div>
       </div>
+      {bomProduct && (
+        <div className="fixed inset-0 z-[60]">
+          <BomEditor product={bomProduct} onClose={() => { setBomProduct(null); loadBomCoverage() }} onUpdate={loadBomCoverage} />
+        </div>
+      )}
     </>
   )
 }
