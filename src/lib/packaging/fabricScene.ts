@@ -22,7 +22,7 @@ function paintOf(obj: any, kind: 'fill' | 'stroke', warn: Set<string>): Paint | 
     if (!c || c.alpha === 0) return null
     rgb = c.rgb
   } else if (v && Array.isArray(v.colorStops) && v.colorStops.length) {
-    warn.add('Gradients were exported as a flat colour (first stop).')
+    warn.add('Gradients were exported as a flat color (first stop).')
     const c = parseColor(v.colorStops[0].color); rgb = c ? c.rgb : [0, 0, 0]
   } else return null
   const p: Paint = { rgb }
@@ -47,7 +47,7 @@ function styleOf(obj: any, warn: Set<string>) {
   }
 }
 
-/** Geometry of a primitive fabric object in its own (centred) local space. */
+/** Geometry of a primitive fabric object in its own (centered) local space. */
 function localSegs(obj: any): Seg[] | null {
   const t = obj.type
   if (t === 'path') return transformSegs(parsePath(obj.path), tl(-obj.pathOffset.x, -obj.pathOffset.y))

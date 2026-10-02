@@ -2,7 +2,7 @@
 // EPS is the lowest-common-denominator format printers ask for: it opens in Illustrator,
 // imports into CorelDRAW (File ▸ Import ▸ EPS), and RIPs directly.
 // • Paths vector, text already outlined.
-// • Process CMYK / spot colours (Separation colour space + DSC custom-colour comments).
+// • Process CMYK / spot colors (Separation color space + DSC custom-color comments).
 // • Images: ASCII85 + Flate (LanguageLevel 3); alpha via an ImageType 3 interleaved mask.
 // • PostScript has no live transparency: object opacity < 100 % is written at full strength.
 import { zlibSync } from 'fflate'

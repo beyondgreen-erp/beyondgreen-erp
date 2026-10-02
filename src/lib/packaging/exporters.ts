@@ -16,7 +16,7 @@ export type ExportFormat = 'ai' | 'eps' | 'pdf' | 'ps' | 'svg' | 'png' | 'jpg'
 export const FORMATS: { key: ExportFormat; label: string; desc: string; mime: string }[] = [
   { key: 'ai', label: 'AI', desc: 'Adobe Illustrator (PDF-compatible) — opens in Illustrator, imports into CorelDRAW', mime: 'application/postscript' },
   { key: 'eps', label: 'EPS', desc: 'Encapsulated PostScript — universal for printers, CorelDRAW & Illustrator', mime: 'application/postscript' },
-  { key: 'pdf', label: 'PDF', desc: 'Print-ready vector PDF with layers & spot colours', mime: 'application/pdf' },
+  { key: 'pdf', label: 'PDF', desc: 'Print-ready vector PDF with layers & spot colors', mime: 'application/pdf' },
   { key: 'ps', label: 'PS', desc: 'PostScript — send straight to a RIP', mime: 'application/postscript' },
   { key: 'svg', label: 'SVG', desc: 'Scalable vector — web & CorelDRAW import', mime: 'image/svg+xml' },
   { key: 'png', label: 'PNG', desc: 'Raster image, transparent background', mime: 'image/png' },

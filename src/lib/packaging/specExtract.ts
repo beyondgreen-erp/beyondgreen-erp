@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Reads the exact print specification out of the ORIGINAL uploaded file (never the rebuilt
-// preview): CMYK colour builds exactly as defined in Illustrator, spot / technical plates
+// preview): CMYK color builds exactly as defined in Illustrator, spot / technical plates
 // (Cut, Crease, Perf…) with their CMYK equivalents, and every dimension callout written on
 // the dieline. Runs in the browser; the file never leaves the ERP.
 import { unzlibSync } from 'fflate'
@@ -13,7 +13,7 @@ export interface SpecRgb { r: number; g: number; b: number; uses: number; hex: s
 export interface SpecMeasured { unit: 'in'; extents: { w: number; h: number }; across: number[]; down: number[]; box: { w: number; d: number; h: number } | null; plate: string }
 export interface SpecDim { text: string; value: number; unit: string; vertical: boolean; uses: number }
 export interface DesignSpec {
-  version: 1 | 2 | 3
+  version: 1 | 2 | 3 | 4
   extracted_at: string
   source_sha256: string
   source_name: string
@@ -23,12 +23,12 @@ export interface DesignSpec {
   colors: SpecColor[]                       // process CMYK builds, most used first
   plates: SpecPlate[]                       // spot / technical plates
   paper: boolean                            // file contains 0/0/0/0 (no-ink / paper) areas
-  rgb?: SpecRgb[]                           // RGB colours, when the artwork is not (only) CMYK
+  rgb?: SpecRgb[]                           // RGB colors, when the artwork is not (only) CMYK
   measured?: SpecMeasured | null            // panel sizes measured from the die lines
   notes: string[]
 }
 
-export const SPEC_VERSION = 3
+export const SPEC_VERSION = 4
 const DIE = /(cut|crease|perf|die ?line|dieline|fold|score)/i
 const NOT_DIE = /(bleed|dimension|annot|safety|varnish|glue)/i
 const hex2 = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')
@@ -61,7 +61,7 @@ function add(t: Tally, v: number[]) {
 
 // ── PostScript / EPS (Illustrator) ─────────────────────────────────────────
 function scanPostScript(s: string, t: Tally, plates: Map<string, number[] | null>) {
-  // custom (spot) colours declared in the DSC header
+  // custom (spot) colors declared in the DSC header
   const hdr = s.slice(0, 200000)
   const block = hdr.match(/%%CMYKCustomColor:([^\n]*(?:\n%%\+[^\n]*)*)/)
   if (block) for (const line of block[1].split(/\n%%\+/)) {
@@ -70,7 +70,7 @@ function scanPostScript(s: string, t: Tally, plates: Map<string, number[] | null
   }
   const names = hdr.match(/%%DocumentCustomColors:([^\n]*(?:\n%%\+[^\n]*)*)/)
   if (names) for (const m of names[1].matchAll(/\(([^)]*)\)/g)) if (!plates.has(m[1])) plates.set(m[1], null)
-  // artwork body only (skip procsets, which contain test colours)
+  // artwork body only (skip procsets, which contain test colors)
   const start = Math.max(s.indexOf('%%EndSetup'), 0)
   const body = s.slice(start)
   const re = /(?<![\w.])(\.?\d[\d.]*)\s+(\.?\d[\d.]*)\s+(\.?\d[\d.]*)\s+(\.?\d[\d.]*)\s+(cmyk|setcmykcolor|k|K)\b/g
@@ -84,7 +84,7 @@ function scanPostScript(s: string, t: Tally, plates: Map<string, number[] | null
 const labPlates = new Map<string, number[]>(), cmykPlates = new Map<string, number[]>(), rgbPlates = new Map<string, number[]>()
 interface PdfScan { raw: string; texts: string[]; rgb: Map<string, { v: number[]; uses: number }>; csKind: Map<string, string>; csSep: Map<string, string> }
 const objBody = (raw: string, n: string) => { const o = raw.match(new RegExp(`(?:^|[\\r\\n\\s])${n}\\s+0\\s+obj([^]*?)endobj`)); return o ? o[1] : '' }
-/** Resource colour-space names (/CS0 …) → kind ('rgb' | 'cmyk' | 'lab' | 'sep' | 'gray') and separation name. */
+/** Resource color-space names (/CS0 …) → kind ('rgb' | 'cmyk' | 'lab' | 'sep' | 'gray') and separation name. */
 function colourSpaces(raw: string, texts: string[], kind: Map<string, string>, sep: Map<string, string>) {
   const classify = (name: string, def: string, depth = 0) => {
     let d = def.trim()
@@ -138,8 +138,8 @@ function scanPdf(bytes: Uint8Array, t: Tally, plates: Map<string, number[] | nul
     const key = c.join('/'); const e = rgb.get(key)
     if (e) e.uses++; else rgb.set(key, { v: c, uses: 1 })
   }
-  // RGB colours: `r g b rg`, or `r g b scn` while an RGB colour space is selected.
-  // A page's content is often split over several streams, so the selected colour space carries over.
+  // RGB colors: `r g b rg`, or `r g b scn` while an RGB color space is selected.
+  // A page's content is often split over several streams, so the selected color space carries over.
   let fill = '', stroke = ''
   for (const s of texts.slice(1)) {
     for (const x of s.matchAll(/\/([^\s/[\]<>()]+)\s+(cs|CS)\b|(?<![\w.])((?:-?\.?\d[\d.]*\s+){3,4})(scn|SCN|sc|SC|rg|RG)\b/g)) {
@@ -305,7 +305,7 @@ export async function extractSpec(bytes: Uint8Array, name: string, sha256: strin
   const notes: string[] = []
   const tally: Tally = new Map()
   const plates = new Map<string, number[] | null>()
-  onStatus?.('Reading exact colour codes…')
+  onStatus?.('Reading exact color codes…')
   let psText: string | null = null
   let scan: PdfScan | null = null
   let measured: SpecMeasured | null = null
@@ -340,7 +340,7 @@ export async function extractSpec(bytes: Uint8Array, name: string, sha256: strin
   })
   labPlates.forEach((_, n) => plates.delete(n)); cmykPlates.forEach((v, n) => plates.set(n, v))
   rgbPlates.forEach((_, n) => { if (plates.get(n) == null) plates.delete(n); else rgbPlates.delete(n) })
-  // RGB colours (artwork saved in RGB): merge near-identical values, most used first
+  // RGB colors (artwork saved in RGB): merge near-identical values, most used first
   const rgbAll = Array.from(scan?.rgb.values() || []).sort((a, b) => b.uses - a.uses)
   const rgbList: SpecRgb[] = []
   for (const e of rgbAll) {
@@ -348,7 +348,7 @@ export async function extractSpec(bytes: Uint8Array, name: string, sha256: strin
     if (hit) hit.uses += e.uses
     else rgbList.push({ r: e.v[0], g: e.v[1], b: e.v[2], uses: e.uses, hex: rgbHex(e.v[0], e.v[1], e.v[2]), label: `R${e.v[0]} G${e.v[1]} B${e.v[2]}` })
   }
-  // strong (brand) colours first, then tints, then black / white
+  // strong (brand) colors first, then tints, then black / white
   const chroma = (c: SpecRgb) => Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b)
   rgbList.sort((a, b) => chroma(b) - chroma(a) || b.uses - a.uses)
   const plateList: SpecPlate[] = [
@@ -363,8 +363,8 @@ export async function extractSpec(bytes: Uint8Array, name: string, sha256: strin
   const h = dims.filter(d => !d.vertical && d.unit === main), v = dims.filter(d => d.vertical && d.unit === main)
   const flat = h.length && v.length ? { w: h[0].value, h: v[0].value, unit: main! } : null
   if (!dims.length) notes.push(measured ? 'No dimension callouts are written in the file — sizes were measured from the die lines.' : 'No dimension callouts (e.g. “9.78 in”) were found as text in the file.')
-  if (rgbList.length && !colors.length) notes.push('This artwork is saved in RGB, not CMYK. The values shown are the exact RGB colours in the file — the printer will need CMYK or Pantone values, so ask the designer for a CMYK file or agree the conversion before printing.')
-  else if (rgbList.length) notes.push('This artwork mixes RGB and CMYK colours.')
+  if (rgbList.length && !colors.length) notes.push('This artwork is saved in RGB, not CMYK. The values shown are the exact RGB colors in the file — the printer will need CMYK or Pantone values, so ask the designer for a CMYK file or agree the conversion before printing.')
+  else if (rgbList.length) notes.push('This artwork mixes RGB and CMYK colors.')
   return {
     version: SPEC_VERSION, rgb: rgbList, measured, extracted_at: new Date().toISOString(), source_sha256: sha256, source_name: name,
     page, flat, dims, colors, plates: plateList, paper, notes,

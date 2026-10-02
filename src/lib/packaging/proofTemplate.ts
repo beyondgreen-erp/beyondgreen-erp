@@ -13,8 +13,8 @@ export const BRAND_GREEN = '#2ABF06'
 const INK = '#111827', MUTED = '#6B7280', RULE = '#D1D5DB', PANEL = '#F3F4F6'
 const FONT = 'Inter'
 
-export const DEFAULT_TERMS = 'Please review this proof carefully. Check all copy, spelling, dimensions, colours, barcodes, legal and regulatory information. ' +
-  'Colours shown on screen or on digital proofs are approximations; Pantone / spot references govern final production. ' +
+export const DEFAULT_TERMS = 'Please review this proof carefully. Check all copy, spelling, dimensions, colors, barcodes, legal and regulatory information. ' +
+  'Colors shown on screen or on digital proofs are approximations; Pantone / spot references govern final production. ' +
   'Signing this proof confirms the artwork is correct and releases beyondGREEN biotech, Inc. from liability for any errors not marked. ' +
   'Production is scheduled only after a signed approval is received. Changes after approval may add cost and lead time. ' +
   'This artwork and design are confidential and may not be reproduced without written consent.'
@@ -72,7 +72,7 @@ export function productFromRow(r: any): ProofProduct | null {
 }
 
 const NON_PRINTING = /^(dieline|die ?line|cut|crease|fold|perf|bleed|safety|glue|varnish free)/i
-/** Inks actually used by the printable artwork (spot colours by name, plus process CMYK). */
+/** Inks actually used by the printable artwork (spot colors by name, plus process CMYK). */
 export function collectInks(objects: any[], layers: DocLayer[], swatches: Swatch[] = []): ProofInk[] {
   const dieIds = new Set(layers.filter(l => l.kind === 'dieline').map(l => l.id))
   const spots = new Map<string, ProofInk>()
@@ -211,7 +211,7 @@ export function buildProofObjects(info: ProofInfo, w: number, h: number, logo: H
     ] },
     { title: 'PRINT SPECIFICATIONS', rows: [
       ['Dieline', info.dieline || ''], ['Method', info.printMethod || ''], ['Substrate', info.substrate || prod?.color || ''],
-      ['Finish', info.finish || ''], ['Inks', info.inks?.length ? (info.inks.some(i => i.rgbOnly) && !info.inks.some(i => !i.technical && !i.rgbOnly) ? `${info.inks.filter(i => i.rgbOnly).length} RGB colours — file is not CMYK` : `${info.inks.filter(i => !i.technical).length} colour builds (${info.inks.filter(i => i.spot && !i.technical).length} spot)`) : ''], ['Artist', info.artist || ''],
+      ['Finish', info.finish || ''], ['Inks', info.inks?.length ? (info.inks.some(i => i.rgbOnly) && !info.inks.some(i => !i.technical && !i.rgbOnly) ? `${info.inks.filter(i => i.rgbOnly).length} RGB colors — file is not CMYK` : `${info.inks.filter(i => !i.technical).length} color builds (${info.inks.filter(i => i.spot && !i.technical).length} spot)`) : ''], ['Artist', info.artist || ''],
     ] },
   ]
   const headH = 15 * S
@@ -232,7 +232,7 @@ export function buildProofObjects(info: ProofInfo, w: number, h: number, logo: H
     const cx = fx + 3 * cw
     line(cx, fy, cx, fy + row1, '#9CA3AF')
     rect(cx, fy, cw, headH, { fill: PANEL })
-    text('COLOURS / INKS', cx + 8 * S, fy + 4.5 * S, 7, { bold: true, cs: 60 })
+    text('COLORS / INKS', cx + 8 * S, fy + 4.5 * S, 7, { bold: true, cs: 60 })
     const inks = info.inks || []
     const per = 6
     let ry = fy + headH + 6 * S

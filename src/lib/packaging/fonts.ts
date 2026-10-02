@@ -2,7 +2,7 @@
 // Font registry for Packaging Studio.
 // Every font is loaded twice: once as a browser FontFace (so the canvas shows it) and once
 // through opentype.js (so exports can convert text to vector outlines — printers never
-// need the font installed). Built-ins are open-licence (OFL/Apache) fonts served by the
+// need the font installed). Built-ins are open-license (OFL/Apache) fonts served by the
 // Fontsource CDN; brand fonts uploaded by the team are added at runtime.
 const FONT_CDN = 'https://cdn.jsdelivr.net/fontsource/fonts'
 import { parse as parseFont, type Font } from 'opentype.js'

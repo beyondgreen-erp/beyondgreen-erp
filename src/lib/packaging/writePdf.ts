@@ -1,7 +1,7 @@
 // Vector PDF writer for packaging scenes. Also used for the PDF-compatible .ai export
 // (Illustrator and CorelDRAW both open/import PDF-based .ai files natively).
 // • Paths stay vector; text arrives already converted to outlines.
-// • Process CMYK where the scene specifies it, spot colours as /Separation, RGB otherwise.
+// • Process CMYK where the scene specifies it, spot colors as /Separation, RGB otherwise.
 // • Each layer becomes an Optional Content Group so Acrobat / Illustrator / CorelDRAW keep layers.
 // • Images: Flate-compressed RGB with an SMask for transparency.
 import { zlibSync } from 'fflate'

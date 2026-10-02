@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Browser-side importers: SVG, PDF, Illustrator (.ai), EPS, PS, PNG/JPG.
-// PDF-family files are normalised by Ghostscript (WASM, runs locally in the browser — the
+// PDF-family files are normalized by Ghostscript (WASM, runs locally in the browser — the
 // file never leaves the ERP) so fonts become outlines, then rebuilt as vectors.
 import * as fabric from 'fabric'
 import { importPdfPage } from './pdfImport'
@@ -12,8 +12,8 @@ const toBin = (u: Uint8Array) => { let s = ''; for (let i = 0; i < u.length; i +
 const fromBin = (s: string) => { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 0xff; return u }
 
 /**
- * Ghostscript writes CIE Lab colours (e.g. a "Cut" spot plate with a Lab alternate) as ICCBased spaces
- * carrying a Lab profile. pdf.js treats any 3-component ICCBased space as RGB, so those colours come out
+ * Ghostscript writes CIE Lab colors (e.g. a "Cut" spot plate with a Lab alternate) as ICCBased spaces
+ * carrying a Lab profile. pdf.js treats any 3-component ICCBased space as RGB, so those colors come out
  * wrong (the red cut line becomes white). Rewrite such spaces back to plain /Lab and rebuild the xref.
  */
 export function fixLabIccSpaces(pdf: Uint8Array): { bytes: Uint8Array; fixed: number } {
@@ -180,7 +180,7 @@ export async function importFile(file: File, onStatus?: (s: string) => void, opt
 async function importSvg(text: string): Promise<ImportResult> {
   const { objects, options } = await fabric.loadSVGFromString(text)
   const objs = objects.filter(Boolean) as fabric.FabricObject[]
-  // Physical size: honour width/height with absolute units; otherwise 1 user unit = 1 pt (Illustrator convention)
+  // Physical size: honor width/height with absolute units; otherwise 1 user unit = 1 pt (Illustrator convention)
   const svg = new DOMParser().parseFromString(text, 'image/svg+xml').documentElement
   const vb = (svg.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number)
   const toPt = (v: string | null) => {

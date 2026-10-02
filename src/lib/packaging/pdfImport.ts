@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // PDF (and PDF-compatible .ai) → editable vector items.
-// Walks pdf.js's operator list and rebuilds every path, colour, stroke, clip and image in
+// Walks pdf.js's operator list and rebuilds every path, color, stroke, clip and image in
 // document space. Text is either already outlined by Ghostscript (text: 'outline') or rebuilt
-// as live, retypable text runs (text: 'live') with the original font size, colour and position.
+// as live, retypable text runs (text: 'live') with the original font size, color and position.
 import { type Mat, type Seg, type PathItem, type ImageItem, type SceneItem, type Clip, multiply, transformSegs } from './scene'
 
 /** A run of live text: `m` maps the run's local plane (x → along the baseline, y down, baseline at y = 0) to document space. */
@@ -222,7 +222,7 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
     const inv = imgs.map(mi => ({ mi, inv: invert(mi.m) }))
     const out = new Uint8ClampedArray(src)
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      // pixel centre → image unit square → document space
+      // pixel center → image unit square → document space
       const u = (x + 0.5) / w, v = (y + 0.5) / h
       const X = m[0] * u + m[2] * v + m[4], Y = m[1] * u + m[3] * v + m[5]
       let lum = bLum
@@ -277,7 +277,7 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
       case OPS.setFillRGBColor: st.fill = [a[0] / 255, a[1] / 255, a[2] / 255]; break
       case OPS.setStrokeRGBColor: st.stroke = [a[0] / 255, a[1] / 255, a[2] / 255]; break
       case OPS.setFillColorN: case OPS.setStrokeColorN:
-        warnings.add('Pattern / gradient fills were replaced by a flat colour.'); break
+        warnings.add('Pattern / gradient fills were replaced by a flat color.'); break
       case OPS.shadingFill: warnings.add('Gradient (shading) areas were skipped.'); break
       case OPS.constructPath: construct(a[0], a[1]); break
       case OPS.moveTo: case OPS.lineTo: case OPS.curveTo: case OPS.curveTo2: case OPS.curveTo3: case OPS.rectangle: case OPS.closePath:

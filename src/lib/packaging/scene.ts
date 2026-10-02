@@ -8,7 +8,7 @@ export type Seg = ['M', number, number] | ['L', number, number] | ['C', number, 
 export interface Paint {
   rgb: [number, number, number]          // 0..1
   cmyk?: [number, number, number, number] // 0..1 — when present, written as process CMYK
-  spot?: string                           // spot / custom colour name (e.g. "Dieline", "PMS 7482 C")
+  spot?: string                           // spot / custom color name (e.g. "Dieline", "PMS 7482 C")
 }
 
 export interface Clip { segs: Seg[]; rule: 'nonzero' | 'evenodd' } // already in document space
@@ -228,7 +228,7 @@ export function segsToSvgD(segs: Seg[], prec = 3): string {
   return segs.map(s => s[0] === 'Z' ? 'Z' : s[0] + (s.slice(1) as number[]).map(f).join(' ')).join('')
 }
 
-// ── colour helpers ──────────────────────────────────────────────────────────
+// ── color helpers ──────────────────────────────────────────────────────────
 export function parseColor(input: string | null | undefined): { rgb: [number, number, number]; alpha: number } | null {
   if (!input || input === 'transparent' || input === 'none') return null
   const s = input.trim().toLowerCase()
