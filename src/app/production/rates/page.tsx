@@ -9,7 +9,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
  *
  * Three tiers, most specific wins:
  *   machine + product  →  machine  →  equipment type
- * so a shared mould can beat the machine's own figure and a new press still inherits
+ * so a shared mold can beat the machine's own figure and a new press still inherits
  * something sensible on day one.
  *
  * Nothing here is automatic. Observed runs are shown beside the standard and a person
@@ -372,7 +372,7 @@ export default function ProductionRatesPage() {
               <option value="">— Any product (the machine's own rate) —</option>
               {products.map(p => <option key={p.id} value={p.id}>{p.sku} · {p.product_name ?? ''}</option>)}
             </select>
-            <p className="text-[11px] text-gray-400 mt-1.5">Set a product only when it runs differently — a mould with a different cavity count, for instance.</p>
+            <p className="text-[11px] text-gray-400 mt-1.5">Set a product only when it runs differently — a mold with a different cavity count, for instance.</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -390,7 +390,7 @@ export default function ProductionRatesPage() {
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Cavities</label>
               <input type="number" value={form.cavities} onChange={e => setForm(p => ({ ...p, cavities: e.target.value }))} className={inp} />
-              <p className="text-[11px] text-gray-400 mt-1.5">Moulding only. Cavitation belongs to the tool, so set it per product when a machine runs more than one mould.</p>
+              <p className="text-[11px] text-gray-400 mt-1.5">Molding only. Cavitation belongs to the tool, so set it per product when a machine runs more than one mold.</p>
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Output counted in</label>
