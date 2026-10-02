@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const email = String(b.email || '').trim().slice(0, 200)
   const note = String(b.note || '').trim().slice(0, 4000)
   if (!name) return NextResponse.json({ error: 'Please enter your name.' }, { status: 400, headers: NO_STORE })
-  if (!b.checked_sizes || !b.checked_colours) return NextResponse.json({ error: 'Please confirm you have checked the sizes and colour codes.' }, { status: 400, headers: NO_STORE })
+  if (!b.checked_sizes || !b.checked_colours) return NextResponse.json({ error: 'Please confirm you have checked the sizes and color codes.' }, { status: 400, headers: NO_STORE })
 
   const { data: open } = await admin.from('packaging_approval_rounds').select('id').eq('design_id', link.design_id).eq('share_link_id', link.id).eq('status', 'awaiting_team').limit(1)
   if (open?.length) return NextResponse.json({ error: 'This proof is already waiting for beyondGREEN to confirm.' }, { status: 409, headers: NO_STORE })
