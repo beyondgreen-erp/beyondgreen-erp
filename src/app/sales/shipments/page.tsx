@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState, useRef} from 'react'
 import nextDynamic from 'next/dynamic'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { getFileUrl } from '@/lib/fileHelpers'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
 import { statusColor } from '@/lib/statusColors'
@@ -270,6 +271,22 @@ export default function ShipmentsPage() {
   function dlPallet() { if (!docsPayload) return; regenPalletLabels(docsPayload, docMeta()).save(`pallet-labels-${docMeta().orderNumber}.pdf`) }
   function dlCase() { if (!docsPayload) return; regenCaseLabels(docsPayload, docMeta()).save(`case-labels-${docMeta().orderNumber}.pdf`) }
   async function dlBol() { if (!docsPayload) return; setDocBusy('bol'); try { const p = await regenBol(docsPayload); if (p) p.save(`${(docsPayload as any).bol?.bolNumber || 'BOL'}.pdf`) } finally { setDocBusy('') } }
+  // Closeout docs (BOL / packing slip) live in the private 'erp-files' bucket but are stored
+  // as public-style URLs, so a raw link 404s ("Bucket not found"). Pull the object path out
+  // and open a fresh signed URL instead.
+  async function openStoredUrl(u: string | null) {
+    if (!u) return
+    const m = u.match(/\/erp-files\/([^?]+)/)
+    const path = m && m[1] ? decodeURIComponent(m[1]) : (u.startsWith('http') ? null : u)
+    if (path) {
+      const signed = await getFileUrl(sb, path)
+      if (signed) { window.open(signed, '_blank'); return }
+      alert('Could not open document — file not found in storage.')
+      return
+    }
+    window.open(u, '_blank')
+  }
+
   async function moveBackToQueue() {
     if (!editing?.sales_order_id) return
     if (!confirm('Move this order back to the shipping queue? It will reappear on the shipping queue and the sales order board, and this shipment record will be removed.')) return
@@ -876,16 +893,16 @@ export default function ShipmentsPage() {
                           </div>
                         )}
                         {editing.packing_slip_url && (
-                          <a href={editing.packing_slip_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 hover:bg-emerald-50">
+                          <button type="button" onClick={() => openStoredUrl(editing.packing_slip_url)} className="w-full flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 hover:bg-emerald-50 text-left">
                             <span className="text-xs text-gray-500">Signed Packing List</span>
                             <span className="text-xs text-emerald-600 font-medium">Open ↗</span>
-                          </a>
+                          </button>
                         )}
                         {editing.pod_file_url && (
-                          <a href={editing.pod_file_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 hover:bg-emerald-50">
+                          <button type="button" onClick={() => openStoredUrl(editing.pod_file_url)} className="w-full flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 hover:bg-emerald-50 text-left">
                             <span className="text-xs text-gray-500">Signed BOL</span>
                             <span className="text-xs text-emerald-600 font-medium">Open ↗</span>
-                          </a>
+                          </button>
                         )}
                       </div>
                     </div>
