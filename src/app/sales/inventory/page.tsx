@@ -593,6 +593,20 @@ const EditPanel = memo(function EditPanel({
 })
 
 // ── Page ─────────────────────────────────────────────────────
+// A delete can be refused by the database when other records still point at the
+// product. That used to surface as nothing at all: the row stayed and the page
+// just re-rendered. Turn the Postgres error into something a human can act on.
+function deleteBlockedMessage(what: string, err: any): string {
+  const raw = String((err && err.message) || '') + ' ' + String((err && err.details) || '')
+  if ((err && err.code === '23503') || /foreign key/i.test(raw)) {
+    if (/product_bom/i.test(raw)) {
+      return 'Cannot delete ' + what + ' - it is used as a component in a bill of materials. Remove it from those BOMs first, then delete it.'
+    }
+    return 'Cannot delete ' + what + ' - other records still reference it. Archive it instead, or clear those records first. (' + raw.trim() + ')'
+  }
+  return 'Could not delete ' + what + ': ' + ((err && err.message) || 'unknown error')
+}
+
 export default function InventoryPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Product[]>([])
@@ -1018,14 +1032,18 @@ export default function InventoryPage() {
 
   async function handleDelete(id: string, sku: string) {
     if (!confirm(`Delete ${sku}? This cannot be undone.`)) return
-    await sb.from('products').delete().eq('id', id)
+    setLoadError('')
+    const { error: delErr } = await sb.from('products').delete().eq('id', id)
+    if (delErr) { setLoadError(deleteBlockedMessage(sku, delErr)); return }
     load()
   }
 
   async function bulkDelete() {
     if (!confirm(`Delete ${ms.count} products? This cannot be undone.`)) return
     setDeleting(true)
-    await sb.from('products').delete().in('id', Array.from(ms.selected))
+    setLoadError('')
+    const { error: bulkErr } = await sb.from('products').delete().in('id', Array.from(ms.selected))
+    if (bulkErr) { setDeleting(false); setLoadError(deleteBlockedMessage(String(ms.count) + ' products', bulkErr)); return }
     ms.clear()
     setDeleting(false)
     load()
@@ -1034,7 +1052,9 @@ export default function InventoryPage() {
   async function toggleActive() {
     if (!editing) return
     setBusy(true)
-    await sb.from('products').update({ is_active: !editing.is_active }).eq('id', editing.id)
+    setLoadError('')
+    const { error: actErr } = await sb.from('products').update({ is_active: !editing.is_active }).eq('id', editing.id)
+    if (actErr) { setBusy(false); setLoadError('Could not update ' + editing.sku + ': ' + actErr.message); return }
     setBusy(false); closeEdit(); load()
   }
 
