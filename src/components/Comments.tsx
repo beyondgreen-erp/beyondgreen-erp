@@ -156,6 +156,7 @@ function renderContent(text: string) {
 export default function Comments({ recordId, recordType, currentUserEmail, title = 'Comments' }: Props) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [comments, setComments] = useState<Comment[]>([])
+  const [likes, setLikes] = useState<Record<string, string[]>>({})
   const [replyTo, setReplyTo] = useState<Comment | null>(null)
   // Roots in their existing order, each followed by its replies oldest-first.
   const threaded = (() => {
@@ -207,9 +208,38 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       .eq('record_type', recordType)
       .eq('record_id', recordId)
       .order('created_at', { ascending: true })
-    setComments((data ?? []) as Comment[])
+    const rows = (data ?? []) as Comment[]
+    setComments(rows)
     setLoading(false)
+    const ids = rows.map(r => r.id)
+    if (ids.length) {
+      const { data: lk } = await sb.from('comment_likes').select('comment_id, user_email').in('comment_id', ids)
+      const m: Record<string, string[]> = {}
+      for (const r of ((lk ?? []) as any[])) { (m[r.comment_id] ||= []).push(r.user_email) }
+      setLikes(m)
+    } else setLikes({})
   }, [sb, recordId, recordType])
+
+  async function toggleLike(c: Comment) {
+    if (!currentUserEmail) return
+    const mine = (likes[c.id] || []).includes(currentUserEmail)
+    setLikes(prev => {
+      const set = new Set(prev[c.id] || [])
+      if (mine) set.delete(currentUserEmail); else set.add(currentUserEmail)
+      return { ...prev, [c.id]: Array.from(set) }
+    })
+    if (mine) {
+      await sb.from('comment_likes').delete().eq('comment_id', c.id).eq('user_email', currentUserEmail)
+    } else {
+      const { error } = await sb.from('comment_likes').insert({ comment_id: c.id, user_email: currentUserEmail })
+      if (!error && c.author_email !== currentUserEmail) {
+        fetch('/api/comment-like', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ commentId: c.id, likerEmail: currentUserEmail, recordType, recordId, recordUrl: window.location.href }),
+        }).catch(() => {})
+      }
+    }
+  }
 
   const loadTeam = useCallback(async () => {
     const { data } = await sb
@@ -311,9 +341,10 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       }).select('id').single()
       if (error) { alert('Could not post comment: ' + error.message + '\n\nYour text has been kept — please try again.'); return }
 
-      // Send @mention notifications
-      const mentions = parseMentions(body)
-      if (mentions.length > 0) {
+      // Notify: @mentioned users get "mentioned you", and everyone following this record's
+      // thread (anyone tagged on it before, or who has commented) gets a "new comment" notice.
+      {
+        const mentions = parseMentions(body)
         const profile = profiles[authorEmail]
         const authorName = profile?.full_name || authorEmail.split('@')[0]
         fetch('/api/notify-mentions', {
@@ -457,7 +488,15 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                           ))}
                         </div>
                       )}
-                      <div className="flex gap-3 mt-1">
+                      <div className="flex gap-3 mt-1 items-center">
+                        <button
+                          onClick={() => toggleLike(c)}
+                          className="text-[10px] flex items-center gap-1 transition-colors hover:underline"
+                          style={{ color: (likes[c.id] || []).includes(currentUserEmail) ? '#3B6FE0' : '#9CA3AF' }}
+                          title={(likes[c.id] || []).includes(currentUserEmail) ? 'Remove your like' : 'Like / acknowledge this comment'}
+                        >
+                          {(likes[c.id] || []).includes(currentUserEmail) ? '👍 Liked' : '👍 Like'}{(likes[c.id]?.length || 0) > 0 ? ' · ' + likes[c.id].length : ''}
+                        </button>
                         {!c.parent_id && (
                           <button
                             onClick={() => setReplyTo(c)}
