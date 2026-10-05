@@ -94,49 +94,57 @@ async function lookupRecordContext(sb: any, recordType?: string, recordId?: stri
 export async function POST(req: Request) {
   try {
     const { mentions, body, authorName, authorEmail, recordId, recordType, recordUrl, commentId } = await req.json()
-
-    if (!mentions?.length || !authorEmail) {
-      return Response.json({ ok: true, skipped: true })
-    }
+    if (!authorEmail || !recordId || !recordType) return Response.json({ ok: true, skipped: true })
+    const mentionsList: string[] = Array.isArray(mentions) ? mentions : []
 
     const sb = getSb()
 
-    // Look up user profiles to resolve @mentions to real emails
     const { data: profiles } = await sb
       .from('user_profiles')
       .select('email, full_name')
       .not('email', 'is', null)
 
-    if (!profiles?.length) return Response.json({ ok: true, notified: 0 })
-
-    // Build name -> email lookup
     const nameToEmail: Record<string, string> = {}
-    for (const p of profiles) {
+    for (const p of (profiles || [])) {
       if (!p.email || !p.full_name) continue
       const normalized = p.full_name.toLowerCase().replace(/\s+/g, '')
-      nameToEmail[normalized] = p.email; nameToEmail[(p.email||'').toLowerCase()] = p.email; nameToEmail[((p.email||'').split('@')[0]||'').toLowerCase()] = p.email
+      nameToEmail[normalized] = p.email; nameToEmail[(p.email || '').toLowerCase()] = p.email; nameToEmail[((p.email || '').split('@')[0] || '').toLowerCase()] = p.email
       const first = p.full_name.split(' ')[0].toLowerCase()
       if (!nameToEmail[first]) nameToEmail[first] = p.email
     }
 
-    // Resolve mention tokens to recipient emails (skip self-mentions)
-    const recipientEmails = new Set<string>()
-    for (const token of mentions) {
-      const normalized = token.toLowerCase().replace(/\s+/g, '')
-      const recipEmail = nameToEmail[normalized]
-      if (recipEmail && recipEmail !== authorEmail) {
-        recipientEmails.add(recipEmail)
-      }
+    // Who was @-mentioned in THIS comment (minus self)
+    const mentioned = new Set<string>()
+    for (const token of mentionsList) {
+      const recipEmail = nameToEmail[String(token).toLowerCase().replace(/\s+/g, '')]
+      if (recipEmail && recipEmail !== authorEmail) mentioned.add(recipEmail)
     }
 
-    if (recipientEmails.size === 0) return Response.json({ ok: true, notified: 0 })
+    // Follow model: the comment's author and anyone tagged now follow this record's thread,
+    // so they are notified on every later comment even without being tagged again.
+    const toFollow = Array.from(new Set([authorEmail, ...Array.from(mentioned)]))
+    try {
+      await sb.from('comment_followers').upsert(
+        toFollow.map(u => ({ record_type: recordType, record_id: String(recordId), user_email: u })),
+        { onConflict: 'record_type,record_id,user_email', ignoreDuplicates: true }
+      )
+    } catch (e) { console.error('[notify] follower upsert failed', e) }
+
+    // Everyone already following this record, minus the author and minus those mentioned this
+    // time (they get the stronger "mentioned you" notice instead).
+    const followerEmails = new Set<string>()
+    try {
+      const { data: fol } = await sb.from('comment_followers')
+        .select('user_email').eq('record_type', recordType).eq('record_id', String(recordId))
+      for (const f of (fol || [])) {
+        const u = (f as any).user_email
+        if (u && u !== authorEmail && !mentioned.has(u)) followerEmails.add(u)
+      }
+    } catch (e) { console.error('[notify] follower load failed', e) }
+
+    if (mentioned.size === 0 && followerEmails.size === 0) return Response.json({ ok: true, notified: 0 })
 
     const pageLabel = recordType ? (recordType.charAt(0).toUpperCase() + recordType.slice(1).replace(/_/g, ' ')) : 'ERP'
-    // Build a deep link straight to the tagged item (?item=<id>) so the record board opens it.
-    // Any record type missing from this map falls back to the sender's own page URL,
-    // which for a board is the bare board — the reader lands on a list of a hundred
-    // rows with no idea which one they were tagged in. Walmart orders were the worst
-    // of these: the highest-volume mention on the system and never once deep-linked.
     const RECORD_PATHS: Record<string, string> = {
       vault_item: '/bizdev/vault',
       sample_submission: '/operations/samples', sample_submissions: '/operations/samples',
@@ -149,9 +157,6 @@ export async function POST(req: Request) {
       lead: '/sales/leads', leads: '/sales/leads',
       product: '/sales/inventory', products: '/sales/inventory',
       purchasing_request: '/sales/purchase-orders', purchasing_requests: '/sales/purchase-orders',
-      // The Walmart and Chewy boards are tabs inside the order pipeline, so the link
-      // has to name the tab as well as the row or the board opens on Sales Orders and
-      // the row is not even rendered.
       walmart_order: '/sales/orders?view=walmart', walmart_board_order: '/sales/orders?view=walmart',
       walmart_board_orders: '/sales/orders?view=walmart',
       chewy_order: '/sales/orders?view=chewy', chewy_board_order: '/sales/orders?view=chewy',
@@ -164,7 +169,6 @@ export async function POST(req: Request) {
       inventory_movement: '/warehouse/scan-activity', inventory_movements: '/warehouse/scan-activity',
       pl_stock_order: '/warehouse/private-label-stock',
     }
-    // Custom boards live at /board/<key> and carry their own ids.
     const customBoardPath = recordType?.startsWith('board:') ? `/board/${recordType.slice(6)}` : undefined
     const boardPath = customBoardPath ?? (recordType ? RECORD_PATHS[recordType] : undefined)
     const contextUrl = (boardPath && recordId)
@@ -173,41 +177,33 @@ export async function POST(req: Request) {
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
     const recordName = await lookupRecordName(sb, recordType, recordId)
     const contextFields = await lookupRecordContext(sb, recordType, recordId)
-    // Email: a compact "Customer / PO # / Status / Ship date" block under the record title.
     const contextHtml = contextFields.length
       ? `<table style="width:100%;border-collapse:collapse;margin:0 0 20px">${contextFields.map(([label, value]) =>
           `<tr><td style="padding:4px 12px 4px 0;font-size:13px;color:#5A6E8A;white-space:nowrap;vertical-align:top">${esc(label)}</td><td style="padding:4px 0;font-size:13px;color:#0F1C2E;font-weight:600">${esc(value)}</td></tr>`
         ).join('')}</table>`
       : ''
-    // Bell/title: append the customer so the notification list is self-explanatory too.
     const customerName = (contextFields.find(([l]) => l === 'Customer') || [])[1]
-    const notifTitle = recordName
-      ? `${pageLabel}: ${recordName}${customerName ? ` — ${customerName}` : ''}`
-      : pageLabel
+    const titleBase = recordName ? `${pageLabel}: ${recordName}${customerName ? ` — ${customerName}` : ''}` : pageLabel
+    const author = authorName || authorEmail.split('@')[0]
 
-    let notified = 0
-    let emailed = 0
-    const emailErrors: string[] = []
-    for (const recipEmail of Array.from(recipientEmails)) {
-      // 1. Write to notifications table (shows in bell) — always attempt, independent of email
+    async function notifyOne(recipEmail: string, variant: 'mention' | 'follow') {
+      const headline = variant === 'mention' ? `${author} mentioned you` : `${author} commented`
+      const subLine = variant === 'mention' ? `in <strong style="color:#0F1C2E">${pageLabel}</strong> board` : `on a <strong style="color:#0F1C2E">${pageLabel}</strong> item you follow`
+      // 1. bell notification
       try {
         await sb.from('notifications').insert({
           recipient_email: recipEmail,
           sender_email: authorEmail,
-          title: notifTitle,
-          message: customerName ? `${customerName} · ${snippet}` : snippet,
+          title: titleBase,
+          message: (customerName ? `${customerName} · ` : '') + (variant === 'follow' ? 'New comment: ' : '') + snippet,
           page: pageLabel,
           record_type: recordType || null,
           record_id: recordId || null,
           is_read: false,
           context_url: contextUrl,
         })
-        notified++
-      } catch (e) {
-        console.error('[notify-mentions] notification insert failed for', recipEmail, e)
-      }
-
-      // 2. Send email via Resend
+      } catch (e) { console.error('[notify] notification insert failed for', recipEmail, e) }
+      // 2. email
       if (RESEND_API_KEY) {
         const html = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F7F8FA;margin:0;padding:32px 16px">
 <div style="max-width:500px;margin:0 auto">
@@ -216,53 +212,36 @@ export async function POST(req: Request) {
     <span style="color:rgba(255,255,255,0.85);font-size:14px;font-weight:600">beyondGREEN ERP</span>
   </div>
   <div style="background:white;border-radius:0 0 14px 14px;padding:32px 28px;border:1px solid #E2E8F0;border-top:none">
-    <p style="font-size:16px;font-weight:700;color:#0F1C2E;margin:0 0 6px">
-      ${authorName || authorEmail.split('@')[0]} mentioned you
-    </p>
-    <p style="font-size:13px;color:#5A6E8A;margin:0 0 ${recordName ? '2px' : '20px'}">
-      in <strong style="color:#0F1C2E">${pageLabel}</strong> board
-    </p>
+    <p style="font-size:16px;font-weight:700;color:#0F1C2E;margin:0 0 6px">${headline}</p>
+    <p style="font-size:13px;color:#5A6E8A;margin:0 0 ${recordName ? '2px' : '20px'}">${subLine}</p>
     ${recordName ? `<p style="font-size:15px;font-weight:700;color:#0F1C2E;margin:0 0 ${contextHtml ? '12px' : '20px'}">\u{1F4CB} ${esc(recordName)}</p>` : ''}
     ${contextHtml}
     ${snippet ? `<div style="background:#F7F8FA;border-left:3px solid #3B6FE0;padding:12px 16px;border-radius:0 8px 8px 0;font-size:13px;color:#0F1C2E;margin-bottom:24px;line-height:1.6">${snippet}</div>` : ''}
-    <a href="${contextUrl}" style="display:inline-block;background:#3B6FE0;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700">
-      View in ERP
-    </a>
+    <a href="${contextUrl}" style="display:inline-block;background:#3B6FE0;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700">View in ERP</a>
   </div>
   <p style="text-align:center;font-size:11px;color:#8A9FC0;margin-top:20px">beyondGREEN Biotech &middot; Internal ERP</p>
 </div>
 </body></html>`
-
         try {
-          const emailRes = await fetch('https://api.resend.com/emails', {
+          await fetch('https://api.resend.com/emails', {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${RESEND_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               from: `beyondGREEN ERP <${FROM_EMAIL}>`,
               to: [recipEmail],
               reply_to: [authorEmail],
-              subject: `${authorName || authorEmail.split('@')[0]} mentioned you in ${pageLabel}${recordName ? `: ${recordName}` : ''}`,
+              subject: `${author} ${variant === 'mention' ? 'mentioned you in' : 'commented on'} ${pageLabel}${recordName ? `: ${recordName}` : ''}`,
               html,
             }),
           })
-          if (emailRes.ok) {
-            emailed++
-          } else {
-            const errBody = await emailRes.text().catch(() => '')
-            console.error('[notify-mentions] Resend send failed', emailRes.status, 'to', recipEmail, errBody)
-            emailErrors.push(`${recipEmail}: ${emailRes.status} ${errBody.slice(0, 200)}`)
-          }
-        } catch (e) {
-          console.error('[notify-mentions] Resend fetch threw for', recipEmail, e)
-          emailErrors.push(`${recipEmail}: ${String(e)}`)
-        }
+        } catch (e) { console.error('[notify] Resend threw for', recipEmail, e) }
       }
     }
 
-    return Response.json({ ok: true, notified, emailed, emailErrors })
+    for (const r of Array.from(mentioned)) await notifyOne(r, 'mention')
+    for (const r of Array.from(followerEmails)) await notifyOne(r, 'follow')
+
+    return Response.json({ ok: true, mentioned: mentioned.size, followers: followerEmails.size })
   } catch (err) {
     console.error('[notify-mentions]', err)
     return Response.json({ error: 'Failed to send notifications' }, { status: 500 })
