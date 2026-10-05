@@ -114,6 +114,64 @@ function Stat({ label, value, c }: { label: string; value: string | number; c?: 
   )
 }
 
+// Turns a snake_case / camelCase field key into a readable label.
+function intakeLabel(k: string): string {
+  const map: Record<string, string> = {
+    ein: 'EIN', dba: 'DBA', ap_email: 'A/P Email', tr1_company: 'Trade Ref 1 — Company',
+    tr1_contact: 'Trade Ref 1 — Contact', tr1_phone: 'Trade Ref 1 — Phone/Email',
+    tr2_company: 'Trade Ref 2 — Company', tr2_contact: 'Trade Ref 2 — Contact', tr2_phone: 'Trade Ref 2 — Phone/Email',
+    tr3_company: 'Trade Ref 3 — Company', tr3_contact: 'Trade Ref 3 — Contact', tr3_phone: 'Trade Ref 3 — Phone/Email',
+    city_state_zip: 'City / State / ZIP', resale_tax_exempt: 'Resale / Tax Exempt',
+    bill_to_address: 'Bill-To Address', ship_to_address: 'Ship-To Address', ship_same: 'Ship = Bill',
+  }
+  if (map[k]) return map[k]
+  return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// Read-only view of one submitted form's JSON: every non-empty field as a labeled row, with the
+// automated business-verification block (if present) called out at the top.
+function IntakeSection({ title, data }: { title: string; data: any }) {
+  if (!data || typeof data !== 'object') return null
+  const verification = data._verification
+  const entries = Object.entries(data).filter(([k, v]) =>
+    k !== '_verification' && v !== null && v !== undefined && String(v).trim() !== '' && typeof v !== 'object')
+  const boolEntries = Object.entries(data).filter(([k, v]) => k !== '_verification' && typeof v === 'boolean')
+  return (
+    <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden">
+      <div className="px-4 py-2.5 bg-[#F5F6FA] text-[11px] font-semibold text-[#1A1D2E] uppercase tracking-wide border-b border-[#E4E6EE]">{title}</div>
+      <div className="p-4">
+        {verification && (
+          <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
+            <div className="text-[11px] font-semibold text-emerald-700 mb-1">Business verification: {verification.verdict}</div>
+            {Array.isArray(verification.checks) && (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-gray-600">
+                {verification.checks.map((c: any[], i: number) => (
+                  <div key={i}><span className="text-gray-400">{c[0]}:</span> {c[1]}</div>
+                ))}
+              </div>
+            )}
+            {verification.opinion && <p className="text-[11px] text-gray-500 mt-1.5 italic">{verification.opinion}</p>}
+          </div>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+          {entries.map(([k, v]) => (
+            <div key={k}>
+              <div className="text-[10px] text-gray-400 uppercase tracking-wide">{intakeLabel(k)}</div>
+              <div className="text-sm text-[#1A1D2E] whitespace-pre-wrap break-words">{String(v)}</div>
+            </div>
+          ))}
+          {boolEntries.map(([k, v]) => (
+            <div key={k}>
+              <div className="text-[10px] text-gray-400 uppercase tracking-wide">{intakeLabel(k)}</div>
+              <div className="text-sm text-[#1A1D2E]">{v ? 'Yes' : 'No'}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CustomersPage() {
   const supabase = useMemo(()=>createSupabaseBrowserClient(),[])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -144,8 +202,12 @@ export default function CustomersPage() {
   // Panel
   const [panelOpen, setPanelOpen] = useState(false)
   const [editing, setEditing] = useState<Customer|null>(null)
-  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'activity'|'feed'|'files'|'conversations'>('info')
+  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'activity'|'feed'|'files'|'conversations'|'intake'>('info')
   const [convoCount, setConvoCount] = useState(0)
+  // The customer's submitted Credit Application + Onboarding form (public intake). Stored as JSON
+  // on customer_intake_submissions; shown read-only so review has every detail the customer sent.
+  const [intake, setIntake] = useState<any|null>(null)
+  const [intakeLoading, setIntakeLoading] = useState(false)
   const [form, setForm] = useState<F>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -312,6 +374,24 @@ export default function CustomersPage() {
     setShipLocs((locs as ShipLocation[]) ?? [])
     supabase.from('customer_conversations').select('id', { count: 'exact', head: true }).eq('customer_id', c.id)
       .then(({ count }) => setConvoCount(count ?? 0))
+    loadIntake(c.id, c.company_name)
+  }
+
+  // Pull the public Credit Application + Onboarding this customer submitted. Matched on the linked
+  // customer id, falling back to the company name for older submissions that were never linked.
+  async function loadIntake(cid: string, name?: string) {
+    setIntakeLoading(true); setIntake(null)
+    let { data } = await supabase.from('customer_intake_submissions')
+      .select('credit_application, onboarding, status, form_type, submitted_at')
+      .eq('customer_id', cid).order('submitted_at', { ascending: false }).limit(1)
+    if ((!data || data.length === 0) && name) {
+      const byName = await supabase.from('customer_intake_submissions')
+        .select('credit_application, onboarding, status, form_type, submitted_at')
+        .ilike('customer_name', name).order('submitted_at', { ascending: false }).limit(1)
+      data = byName.data
+    }
+    setIntake(data && data.length ? data[0] : null)
+    setIntakeLoading(false)
   }
 
   function closePanel() {
@@ -715,8 +795,9 @@ export default function CustomersPage() {
   const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
   const inpSm = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
   const sel = inp + ' cursor-pointer'
-  const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'; label: string }[] = [
+  const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'|'intake'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
+    ...(intake ? [{ key: 'intake' as const, label: 'Credit App & Onboarding' }] : []),
     { key: 'contacts', label: contacts.length ? 'Contacts (' + contacts.length + ')' : 'Contacts' },
     { key: 'conversations', label: convoCount > 0 ? 'Conversations (' + convoCount + ')' : 'Conversations' },
     { key: 'activity', label: 'Activity' },
@@ -1369,6 +1450,23 @@ export default function CustomersPage() {
             </div>
           )}
           {activeTab==='files'&&!editing&&<div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first to attach files and comments.</p></div>}
+          {activeTab==='intake'&&(
+            <div className="px-6 py-5 space-y-4">
+              {intakeLoading ? (
+                <p className="text-sm text-gray-400">Loading submission…</p>
+              ) : !intake ? (
+                <p className="text-sm text-gray-500 italic">No Credit Application or Onboarding form on file for this customer.</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500">Submitted {intake.submitted_at ? new Date(intake.submitted_at).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) : '—'}{intake.status ? ' · ' + intake.status : ''}</p>
+                  </div>
+                  <IntakeSection title="Credit Application" data={intake.credit_application} />
+                  <IntakeSection title="New Customer Onboarding" data={intake.onboarding} />
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
