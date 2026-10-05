@@ -40,12 +40,18 @@ const dupNum = (v: unknown) => (v === null || v === undefined || v === '') ? '' 
 const DUP_COLS = 'id, po_number, delivery_no, report_date, centerpoint, carrier_name, vendor_name, over, short, damaged, po_freight_bill_qty, over_qty, short_qty, damaged_qty, comment_in_report, trailer_number, new_seal'
 
 function rowSignature(r: AnyRow): string {
+  // Only the fields that identify the line and its numbers. Everything else on
+  // the row is either a header value repeated on every line of the report
+  // (centerpoint, carrier, trailer, seal) or free text the OCR does not read
+  // identically twice. The vendor name is the clearest example: the same report
+  // came back as 'BEYONDGREEN BIOTECH, INC. DBA' on one pass and
+  // 'BEYONDGREEN BIOTECH, I NC. DBA' on another, and that one stray space was
+  // enough to let a whole re-upload through as 'new'. It carries no information
+  // either way, since non-beyondGREEN lines are filtered out before this point.
   return [
     dupText(r.po_number), dupText(r.delivery_no), dupText(r.report_date),
-    dupText(r.centerpoint), dupText(r.carrier_name), dupText(r.vendor_name),
     r.over ? '1' : '0', r.short ? '1' : '0', r.damaged ? '1' : '0',
     dupNum(r.po_freight_bill_qty), dupNum(r.over_qty), dupNum(r.short_qty), dupNum(r.damaged_qty),
-    dupText(r.comment_in_report), dupText(r.trailer_number), dupText(r.new_seal),
   ].join('~')
 }
 
