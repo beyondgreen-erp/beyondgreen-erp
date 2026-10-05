@@ -188,13 +188,14 @@ const inp = 'bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-2.5 p
  * the way the team fills a cell on the sheet, instead of scrolling to the add bar for every part.
  * The row only writes once a SKU and a quantity are both in hand.
  */
-function SlotRow({ slotKey, role, label, excludeSku, badge, onAdd, packQty, caseQty, register }: {
+function SlotRow({ slotKey, role, label, excludeSku, badge, onAdd, onDismiss, packQty, caseQty, register }: {
   slotKey: string
   role: Role
   label: string
   excludeSku: string
   badge: (c: string | null) => React.ReactNode
   onAdd: (sku: string, basis: Basis, qty: number, notes: string) => Promise<string | null>
+  onDismiss: () => void
   packQty: number
   caseQty: number
   register: (key: string, flush: (() => Promise<void>) | null) => void
@@ -314,10 +315,17 @@ function SlotRow({ slotKey, role, label, excludeSku, badge, onAdd, packQty, case
           placeholder="&#8212;" className={inp + ' w-full !min-w-[96px] !py-1 !px-1.5 text-[11px] !bg-transparent border-dashed'} />
       </td>
       <td className="px-1 py-2 text-center align-top">
-        <button onClick={commit} disabled={!ready || busy} title={ready ? 'Save this line' : 'Pick a SKU and a quantity'}
-          className="text-[#00863F] disabled:text-gray-200 hover:bg-emerald-50 rounded p-0.5">
-          {busy ? <span className="text-[10px]">...</span> : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg>}
-        </button>
+        {picked || q.length > 0 ? (
+          <button onClick={commit} disabled={!ready || busy} title={ready ? 'Save this line' : 'Pick a SKU and a quantity'}
+            className="text-[#00863F] disabled:text-gray-200 hover:bg-emerald-50 rounded p-0.5">
+            {busy ? <span className="text-[10px]">...</span> : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg>}
+          </button>
+        ) : (
+          <button onClick={onDismiss} title="Remove this blank line"
+            className="text-gray-300 hover:text-red-500 hover:bg-red-50 rounded p-1.5">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        )}
       </td>
     </tr>
   )
@@ -328,6 +336,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
 
   const [components, setComponents] = useState<BomRow[]>([])
+  // Build-sheet slots the user has waved off this session, counted per role. A deleted component
+  // whose role is on the template would otherwise be replaced by a blank prompt instantly; this is
+  // how that blank is suppressed, and how a user clears template rows they do not need.
+  const [dismissed, setDismissed] = useState<Record<string, number>>({})
   const [weightGrams, setWeightGrams] = useState(String(product.weight_per_unit_grams ?? ''))
   const [productionCost, setProductionCost] = useState('0')
   const [loading, setLoading] = useState(true)
@@ -436,12 +448,13 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     const left: Record<string, number> = {}
     for (const r of SLOT_TEMPLATE) left[r] = (left[r] ?? 0) + 1
     for (const c of components) if (left[c.role] > 0) left[c.role] -= 1
+    for (const [r, n] of Object.entries(dismissed)) left[r] = Math.max(0, (left[r] ?? 0) - n)
     const out: { role: Role; label: string; key: string }[] = []
     for (const r of ROLES) {
       for (let i = 0; i < (left[r.key] ?? 0); i++) out.push({ role: r.key, label: r.label, key: r.key + '-' + i })
     }
     return out
-  }, [components])
+  }, [components, dismissed])
 
   /** Save a filled-in slot. Returns an error message, or null when the row went in. */
   // Handles onto the blank rows, so "Save BOM" can file a line someone typed but never tabbed out of.
@@ -569,8 +582,18 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     loadBom()
   }
   async function deleteRow(id: string) {
-    await sb.from('product_bom').delete().eq('id', id)
+    const row = components.find(c => c.id === id)
+    const { error } = await sb.from('product_bom').delete().eq('id', id)
+    if (error) { flash('Could not remove component: ' + error.message); return }
     setComponents(cs => cs.filter(c => c.id !== id))
+    // Without this, a deleted component whose role is on the build sheet is replaced instantly by a
+    // blank prompt of the same role, so the line looks like it never left. Suppress one slot of that
+    // role; "+ Add component" below brings the line back if the delete was a mistake.
+    if (row && SLOT_TEMPLATE.includes(row.role)) {
+      setDismissed(d => ({ ...d, [row.role]: (d[row.role] ?? 0) + 1 }))
+    }
+    flash('Component removed.')
+    onUpdate?.()
   }
   async function updateBasis(id: string, b: Basis) {
     setComponents(cs => cs.map(c => c.id === id ? { ...c, basis: b } : c))
@@ -718,13 +741,14 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                               className={inp + ' w-full !min-w-[96px] !py-1 !px-1.5 text-[11px]'} />
                           </td>
                           <td className="px-1 py-2 text-center">
-                            <button onClick={() => deleteRow(c.id)} className="text-red-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+                            <button onClick={() => deleteRow(c.id)} title="Remove this component" className="text-red-400 hover:text-red-600 p-1.5 rounded hover:bg-red-50"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                           </td>
                         </tr>
                       ))}
                       {!loading && emptySlots.map(sl => (
                         <SlotRow key={sl.key} slotKey={sl.key} role={sl.role} label={sl.label} excludeSku={product.sku} badge={c => <CatBadge c={c} />}
                           packQty={packQty} caseQty={caseQty} register={registerSlot}
+                          onDismiss={() => setDismissed(d => ({ ...d, [sl.role]: (d[sl.role] ?? 0) + 1 }))}
                           onAdd={(sku, basis, qty, notes) => addFromSlot(sl.role, sku, basis, qty, notes)} />
                       ))}
                       {!loading && computedRows.length > 0 && (
