@@ -64,6 +64,7 @@ export default function BusinessReportsPage() {
   const [uploadRecord, setUploadRecord] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const [dupPrompt, setDupPrompt] = useState<any>(null)
   const [tab, setTab] = useState<'exceptions' | 'walmart' | 'chewy'>('exceptions')
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -117,8 +118,34 @@ export default function BusinessReportsPage() {
       })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'AI extraction failed')
+      // The same report already exists. Stop and let the user decide rather
+      // than silently stacking another copy of every line into the table.
+      if (j.needsChoice) { setDupPrompt({ ...j, storagePath: path }); setUploading(false); return }
       if (j.record) setUploadRecord(j.record)
       setMsg(`Added ${j.inserted} line item${j.inserted === 1 ? '' : 's'}${j.delivery_no ? ` from delivery ${j.delivery_no}` : ''}.`)
+      await load()
+    } catch (e) { setErr((e as Error).message) }
+    setUploading(false)
+  }
+
+  async function confirmUpload(mode: 'duplicate' | 'overwrite') {
+    if (!dupPrompt) return
+    setUploading(true); setErr(''); setMsg('')
+    try {
+      const res = await fetch('/api/exception-reports/extract', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storagePath: dupPrompt.storagePath, fileName: dupPrompt.fileName,
+          uploadedBy: userEmail, mode, confirmedRows: dupPrompt.confirmedRows,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Upload failed')
+      const ins = j.inserted || 0, upd = j.updated || 0
+      setMsg(mode === 'overwrite'
+        ? `Updated ${upd} existing line${upd === 1 ? '' : 's'} and added ${ins} new one${ins === 1 ? '' : 's'}.`
+        : `Added ${ins} line item${ins === 1 ? '' : 's'} \u2014 duplicates included.`)
+      setDupPrompt(null)
       await load()
     } catch (e) { setErr((e as Error).message) }
     setUploading(false)
@@ -190,6 +217,33 @@ export default function BusinessReportsPage() {
           </div>
         )}
 
+        {dupPrompt && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 mb-4">
+            <p className="text-amber-300 text-sm font-semibold mb-1">This report is already in the system</p>
+            <p className="text-amber-200/90 text-xs mb-3 leading-relaxed">
+              {dupPrompt.duplicateCount} of {dupPrompt.total} line{dupPrompt.total === 1 ? '' : 's'} on {dupPrompt.fileName || 'this file'} already exist
+              {dupPrompt.delivery_no ? ` for delivery ${dupPrompt.delivery_no}` : ''}
+              {dupPrompt.report_date ? `, dated ${dupPrompt.report_date}` : ''}.
+              {dupPrompt.newCount > 0
+                ? ` ${dupPrompt.newCount} line${dupPrompt.newCount === 1 ? ' is' : 's are'} new.`
+                : ' Nothing on it is new.'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => confirmUpload('overwrite')} disabled={uploading}
+                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold disabled:opacity-50">
+                Overwrite{dupPrompt.newCount > 0 ? ` \u2014 keep existing, add ${dupPrompt.newCount} new` : ' \u2014 nothing new to add'}
+              </button>
+              <button onClick={() => confirmUpload('duplicate')} disabled={uploading}
+                className="px-3 py-1.5 rounded-lg border border-gray-600 text-gray-200 hover:bg-white/5 text-xs font-semibold disabled:opacity-50">
+                Add anyway \u2014 create duplicates
+              </button>
+              <button onClick={() => setDupPrompt(null)} disabled={uploading}
+                className="px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 text-xs font-semibold disabled:opacity-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         {uploadRecord && (
           <div className="mx-6 mt-3 border border-indigo-200 bg-indigo-50/40 rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-indigo-100">

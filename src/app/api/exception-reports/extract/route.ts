@@ -27,13 +27,75 @@ function firstJson(text: string): any {
 }
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 
+// --- duplicate detection --------------------------------------------------
+// The same exception report gets dragged in twice more often than anyone would
+// like, and every re-upload used to stack another copy of every line into the
+// table. Rows are matched on the report's own content, so genuinely separate
+// over/short/damaged lines on one delivery still load cleanly. claim_penalty is
+// deliberately NOT part of the signature: it is filled in inside the ERP after
+// upload, so including it would make an already-loaded row look brand new.
+type AnyRow = Record<string, any>
+const dupText = (v: unknown) => String(v ?? '').trim().toUpperCase()
+const dupNum = (v: unknown) => (v === null || v === undefined || v === '') ? '' : String(Number(v))
+const DUP_COLS = 'id, po_number, delivery_no, report_date, centerpoint, carrier_name, vendor_name, over, short, damaged, po_freight_bill_qty, over_qty, short_qty, damaged_qty, comment_in_report, trailer_number, new_seal'
+
+function rowSignature(r: AnyRow): string {
+  return [
+    dupText(r.po_number), dupText(r.delivery_no), dupText(r.report_date),
+    dupText(r.centerpoint), dupText(r.carrier_name), dupText(r.vendor_name),
+    r.over ? '1' : '0', r.short ? '1' : '0', r.damaged ? '1' : '0',
+    dupNum(r.po_freight_bill_qty), dupNum(r.over_qty), dupNum(r.short_qty), dupNum(r.damaged_qty),
+    dupText(r.comment_in_report), dupText(r.trailer_number), dupText(r.new_seal),
+  ].join('~')
+}
+
+async function existingBySignature(sb: AnyRow, rows: AnyRow[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const pos = Array.from(new Set(rows.map(r => r.po_number).filter(Boolean)))
+  if (!pos.length) return out
+  const { data } = await sb.from('exception_reports').select(DUP_COLS).in('po_number', pos)
+  for (const prior of ((data || []) as AnyRow[])) out.set(rowSignature(prior), String(prior.id))
+  return out
+}
+
+async function persistRows(sb: AnyRow, rows: AnyRow[], mode: string, storagePath: string) {
+  const known = await existingBySignature(sb, rows)
+  const dupes = rows.filter(r => known.has(rowSignature(r)))
+  const fresh = rows.filter(r => !known.has(rowSignature(r)))
+  let updated = 0
+  if (mode === 'overwrite') {
+    for (const d of dupes) {
+      const id = known.get(rowSignature(d))
+      if (!id) continue
+      const { error } = await sb.from('exception_reports')
+        .update({ exception_report_file: storagePath, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (!error) updated++
+    }
+  }
+  const toInsert = mode === 'overwrite' ? fresh : rows
+  if (!toInsert.length) return { inserted: 0, updated, duplicates: dupes.length }
+  const { data, error } = await sb.from('exception_reports').insert(toInsert).select('id')
+  if (error) return { error: error.message }
+  return { inserted: (data as AnyRow[] | null)?.length ?? toInsert.length, updated, duplicates: dupes.length }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { storagePath, fileName, uploadedBy } = await req.json() as
-      { storagePath?: string; fileName?: string; uploadedBy?: string }
+    const { storagePath, fileName, uploadedBy, mode, confirmedRows } = await req.json() as
+      { storagePath?: string; fileName?: string; uploadedBy?: string; mode?: string; confirmedRows?: AnyRow[] }
     if (!storagePath) return NextResponse.json({ error: 'storagePath required' }, { status: 400 })
 
     const sb = createSupabaseAdminClient()
+    // Second pass: the user has already seen the duplicate warning and made a
+    // choice. Reuse the rows they were shown rather than re-reading the file,
+    // so what lands in the table is exactly what they approved.
+    if ((mode === 'duplicate' || mode === 'overwrite') && Array.isArray(confirmedRows) && confirmedRows.length) {
+      const done = await persistRows(sb, confirmedRows as AnyRow[], mode, storagePath)
+      if ((done as AnyRow).error) return NextResponse.json({ error: (done as AnyRow).error }, { status: 500 })
+      return NextResponse.json(done)
+    }
+
     const { data: blob, error: dlErr } = await sb.storage.from('erp-files').download(storagePath)
     if (dlErr || !blob) return NextResponse.json({ error: 'Could not read the uploaded file' }, { status: 400 })
 
@@ -121,8 +183,24 @@ Include EVERY PO line shown across ALL pages of the report's line-item table (on
       }
     })
 
-    const { data: inserted, error: insErr } = await sb.from('exception_reports').insert(rows).select('id')
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+    const known = await existingBySignature(sb, rows as AnyRow[])
+    const dupCount = (rows as AnyRow[]).filter(r => known.has(rowSignature(r))).length
+    if (dupCount > 0 && mode !== 'duplicate' && mode !== 'overwrite') {
+      return NextResponse.json({
+        needsChoice: true,
+        duplicateCount: dupCount,
+        newCount: rows.length - dupCount,
+        total: rows.length,
+        delivery_no: j.delivery_no || '',
+        report_date: report_date || '',
+        fileName: fileName || '',
+        confirmedRows: rows,
+      })
+    }
+    const done = await persistRows(sb, rows as AnyRow[], mode || '', storagePath)
+    if ((done as AnyRow).error) return NextResponse.json({ error: (done as AnyRow).error }, { status: 500 })
+    const insertedCount = (done as AnyRow).inserted ?? 0
+    const updatedCount = (done as AnyRow).updated ?? 0
 
     const exLines = rows.filter((r: any) => r.short_qty > 0 || r.over_qty > 0 || r.damaged_qty > 0)
     const NL = String.fromCharCode(10)
@@ -137,7 +215,7 @@ Include EVERY PO line shown across ALL pages of the report's line-item table (on
       'EXCEPTIONS:',
       exLines.length ? exLines.map(fmtLine).join(NL) : '(none)',
     ].join(NL)
-    return NextResponse.json({ inserted: inserted?.length ?? rows.length, skipped_other_vendors: skippedOther, delivery_no: j.delivery_no || '', report_date, record })
+    return NextResponse.json({ inserted: insertedCount, updated: updatedCount, duplicates: dupCount, skipped_other_vendors: skippedOther, delivery_no: j.delivery_no || '', report_date, record })
   } catch (err) {
     console.error('exception-reports/extract error:', err)
     return NextResponse.json({ error: (err as Error).message || 'Extraction failed' }, { status: 500 })
