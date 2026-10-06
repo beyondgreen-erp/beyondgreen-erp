@@ -16,6 +16,9 @@ import ConversationLog from '@/components/ConversationLog'
 import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
 import OutreachDrawer from '@/components/OutreachDrawer'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import '@/lib/pdfSafeText'
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
@@ -126,6 +129,20 @@ function intakeLabel(k: string): string {
   }
   if (map[k]) return map[k]
   return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// Flatten a submitted form's JSON into [label, value] rows for the PDF, in a stable readable order,
+// dropping empty fields and the internal _verification block (handled separately).
+function intakeRows(data: any): [string, string][] {
+  if (!data || typeof data !== 'object') return []
+  const out: [string, string][] = []
+  for (const [k, v] of Object.entries(data)) {
+    if (k === '_verification') continue
+    if (typeof v === 'boolean') { out.push([intakeLabel(k), v ? 'Yes' : 'No']); continue }
+    if (v === null || v === undefined || String(v).trim() === '' || typeof v === 'object') continue
+    out.push([intakeLabel(k), String(v)])
+  }
+  return out
 }
 
 // Read-only view of one submitted form's JSON: every non-empty field as a labeled row, with the
@@ -392,6 +409,57 @@ export default function CustomersPage() {
     }
     setIntake(data && data.length ? data[0] : null)
     setIntakeLoading(false)
+  }
+
+  // Build a clean PDF of exactly what the customer submitted — credit application and onboarding —
+  // so the team can save or forward a copy of each form. Mirrors what the Intake tab shows on screen.
+  function downloadIntakePdf() {
+    if (!intake) return
+    const company = editing?.company_name || intake.credit_application?.company_name || 'Customer'
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+    const pageW = doc.internal.pageSize.getWidth()
+    const M = 40
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(26, 29, 46)
+    doc.text('New Customer Submission', M, 50)
+    doc.setFontSize(12); doc.setTextColor(0, 134, 63)
+    doc.text(company, M, 70)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110, 114, 128)
+    const submitted = intake.submitted_at ? new Date(intake.submitted_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }) : '—'
+    doc.text(`Submitted ${submitted}${intake.status ? '  \u00b7  ' + intake.status : ''}`, M, 86)
+
+    let y = 104
+    const ver = intake.credit_application?._verification
+    if (ver) {
+      doc.setDrawColor(0, 168, 79); doc.setFillColor(240, 250, 244)
+      const checks: string[] = Array.isArray(ver.checks) ? ver.checks.map((c: any[]) => `${c[0]}: ${c[1]}`) : []
+      const lines = doc.splitTextToSize(`Business verification: ${ver.verdict}\n${checks.join('   \u00b7   ')}${ver.opinion ? '\n' + ver.opinion : ''}`, pageW - M * 2 - 16)
+      const boxH = lines.length * 12 + 16
+      doc.roundedRect(M, y, pageW - M * 2, boxH, 4, 4, 'FD')
+      doc.setFontSize(8.5); doc.setTextColor(60, 90, 70)
+      doc.text(lines, M + 8, y + 14)
+      y += boxH + 14
+    }
+
+    const section = (title: string, data: any) => {
+      const rows = intakeRows(data)
+      if (!rows.length) return
+      autoTable(doc, {
+        startY: y,
+        head: [[{ content: title, colSpan: 2 }]],
+        body: rows,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 4, textColor: [26, 29, 46], lineColor: [228, 230, 238] },
+        headStyles: { fillColor: [245, 246, 250], textColor: [26, 29, 46], fontStyle: 'bold', fontSize: 10 },
+        columnStyles: { 0: { cellWidth: 170, fontStyle: 'bold', textColor: [110, 114, 128] }, 1: { cellWidth: pageW - M * 2 - 170 } },
+        margin: { left: M, right: M },
+      })
+      y = (doc as any).lastAutoTable.finalY + 18
+    }
+    section('Credit Application', intake.credit_application)
+    section('New Customer Onboarding', intake.onboarding)
+
+    const safe = company.trim().replace(/[^A-Za-z0-9_-]+/g, '_')
+    doc.save(`${safe}-New-Customer-Submission.pdf`)
   }
 
   function closePanel() {
@@ -1458,8 +1526,12 @@ export default function CustomersPage() {
                 <p className="text-sm text-gray-500 italic">No Credit Application or Onboarding form on file for this customer.</p>
               ) : (
                 <>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <p className="text-xs text-gray-500">Submitted {intake.submitted_at ? new Date(intake.submitted_at).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) : '—'}{intake.status ? ' · ' + intake.status : ''}</p>
+                    <button type="button" onClick={downloadIntakePdf} className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium bg-[#00863F] hover:bg-emerald-600 text-white px-3 py-2 rounded-xl">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                      Download PDF
+                    </button>
                   </div>
                   <IntakeSection title="Credit Application" data={intake.credit_application} />
                   <IntakeSection title="New Customer Onboarding" data={intake.onboarding} />
