@@ -184,6 +184,7 @@ const EditPanel = memo(function EditPanel({
   const [addQty, setAddQty] = useState('')
   const curOnHand = parseFloat(form.on_hand_qty) || 0
   const [gtinUploading, setGtinUploading] = useState(false)
+  const [gtinSignedUrl, setGtinSignedUrl] = useState('')
   const gsb = useMemo(() => createSupabaseBrowserClient(), [])
   async function uploadGtinImage(file: File) {
     setGtinUploading(true)
@@ -195,6 +196,43 @@ const EditPanel = memo(function EditPanel({
       const { data } = gsb.storage.from('erp-images').getPublicUrl(path)
       setForm(p => ({ ...p, gtin_image_url: data.publicUrl }))
     } finally { setGtinUploading(false) }
+  }
+
+  // erp-images is a private bucket, so the stored "public" URL only resolves for whoever uploaded
+  // it in their own session. Turn the stored link into a short-lived signed URL that any logged-in
+  // teammate can open or download. Non-erp-images URLs (older/external) are returned unchanged.
+  const gtinObjectPath = (u: string): string | null => {
+    const m = u.match(/\/erp-images\/([^?]+)/)
+    return m ? decodeURIComponent(m[1]) : null
+  }
+  const resolveGtinUrl = useCallback(async (u: string): Promise<string> => {
+    const path = gtinObjectPath(u)
+    if (!path) return u
+    const { data } = await gsb.storage.from('erp-images').createSignedUrl(path, 3600)
+    return data?.signedUrl || u
+  }, [gsb])
+  useEffect(() => {
+    let on = true
+    if (!form.gtin_image_url) { setGtinSignedUrl(''); return }
+    resolveGtinUrl(form.gtin_image_url).then(u => { if (on) setGtinSignedUrl(u) })
+    return () => { on = false }
+  }, [form.gtin_image_url, resolveGtinUrl])
+
+  // Force a real file download (rather than just opening the image) so teammates can grab the
+  // barcode to drop onto artwork or a label. Falls back to opening in a tab if the fetch is blocked.
+  async function downloadGtinImage() {
+    const url = gtinSignedUrl || await resolveGtinUrl(form.gtin_image_url)
+    if (!url) return
+    try {
+      const res = await fetch(url)
+      const blob = await res.blob()
+      const ext = ((blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')).replace('svg+xml', 'svg')
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${(form.sku || 'UPC').trim().replace(/[^A-Za-z0-9_-]/g, '')}-UPC.${ext}`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+    } catch { window.open(url, '_blank', 'noopener,noreferrer') }
   }
   // What the conversion panel needs to describe itself.
   const baseUom = normalizeUom(form.unit_of_measure) || 'EA'
@@ -442,8 +480,9 @@ const EditPanel = memo(function EditPanel({
             {form.gtin_image_url ? (
               <div className="flex items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={form.gtin_image_url} alt="GTIN barcode" className="h-14 w-auto border border-[#E4E6EE] rounded bg-white p-1 object-contain" />
-                <a href={form.gtin_image_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">View</a>
+                <img src={gtinSignedUrl || form.gtin_image_url} alt="GTIN barcode" className="h-14 w-auto border border-[#E4E6EE] rounded bg-white p-1 object-contain" />
+                <a href={gtinSignedUrl || form.gtin_image_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">View</a>
+                <button type="button" onClick={downloadGtinImage} className="text-xs text-blue-600 underline">Download</button>
                 <button type="button" onClick={() => setForm(p => ({ ...p, gtin_image_url: '' }))} className="text-xs text-red-500 underline">Remove</button>
               </div>
             ) : (
