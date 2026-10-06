@@ -1288,42 +1288,6 @@ export default function QuotationsPage() {
                   <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Shipping Address</label>
                   <textarea value={form.shipping_address} onChange={e => setForm(p => ({ ...p, shipping_address: e.target.value }))} rows={3} placeholder="Ship-to address…" className={inp} style={{ ...inpStyle, resize: 'vertical' }} />
                 </div>
-                <div className="col-span-2 rounded-xl border border-[#CDE9DA] bg-[#F0FBF5] p-3">
-                  <label className="block text-sm font-semibold text-[#0F5132] mb-1.5">Client portal</label>
-                  {(() => {
-                    const portalOpts = portalCustomerOptions(portals)
-                    const selVal = form.client_portal_visible ? (form.customer_id || '') : ''
-                    const showCurrent = form.client_portal_visible && !!form.customer_id && !portalOpts.some(o => o.customer_id === form.customer_id)
-                    return (
-                      <select
-                        value={selVal}
-                        onChange={e => {
-                          const cid = e.target.value
-                          if (!cid) { setForm(p => ({ ...p, client_portal_visible: false })); return }
-                          const opt = portalOpts.find(o => o.customer_id === cid)
-                          setForm(p => ({ ...p, client_portal_visible: true, customer_id: cid }))
-                          if (opt) setCustomerSearch(opt.label)
-                        }}
-                        className={inp}
-                        style={{ ...inpStyle, cursor: 'pointer' }}
-                      >
-                        <option value="">— Not shared to a portal —</option>
-                        {showCurrent && <option value={form.customer_id}>{(nameOf(form.customer_id) || customerSearch || 'Current customer') + ' (current)'}</option>}
-                        {portalOpts.map(o => <option key={o.customer_id} value={o.customer_id}>{o.label}</option>)}
-                      </select>
-                    )
-                  })()}
-                  {portalCustomerOptions(portals).length === 0 && (
-                    <p className="text-[11px] mt-1.5" style={{ color: '#6B7280' }}>No client portals yet. Create one under <span style={{ fontWeight: 600 }}>Client Portals</span>, then connect quotes here.</p>
-                  )}
-                  {form.client_portal_visible && (
-                    <div className="mt-2.5">
-                      <label className="block text-xs mb-1.5" style={{ color: '#6B7280' }}>Client-facing project name <span style={{ color: '#9CA3AF' }}>(optional)</span></label>
-                      <input value={form.client_portal_name} onChange={e => setForm(p => ({ ...p, client_portal_name: e.target.value }))} className={inp} style={inpStyle} placeholder="Defaults to the quote #" />
-                      <p className="text-[11px] mt-1" style={{ color: '#6B7280' }}>Connecting a quote links it to that client&rsquo;s portal. They see this name, its live status, and a progress timeline — never pricing, internal notes, or comments.</p>
-                    </div>
-                  )}
-                </div>
               </div>
 
               {lines.length > 0 && (
