@@ -365,6 +365,14 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const [savingAll, setSavingAll] = useState(false)
   const [savingCase, setSavingCase] = useState(false)
   const [msg, setMsg] = useState('')
+  // Duplicate-BOM-to-another-SKU: pick a target product, then this BOM overwrites (or becomes) theirs.
+  const [dupOpen, setDupOpen] = useState(false)
+  const [dupQuery, setDupQuery] = useState('')
+  const [dupResults, setDupResults] = useState<{ sku: string; product_name: string; category: string | null }[]>([])
+  const [dupTarget, setDupTarget] = useState<{ sku: string; product_name: string } | null>(null)
+  const [dupTargetBomCount, setDupTargetBomCount] = useState<number | null>(null)
+  const [dupBusy, setDupBusy] = useState(false)
+  const [dupErr, setDupErr] = useState('')
 
   // ── Load ──────────────────────────────────────────────────────────────────
   const loadBom = useCallback(async () => {
@@ -530,6 +538,51 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
 
+  // ── Duplicate BOM to another SKU ───────────────────────────────────────────
+  useEffect(() => {
+    if (!dupOpen) return
+    const t = setTimeout(async () => {
+      const q = dupQuery.trim()
+      let query = sb.from('products').select('sku,product_name,category').neq('sku', product.sku).order('sku').limit(25)
+      if (q.length >= 1) query = sb.from('products').select('sku,product_name,category').or(`sku.ilike.%${q}%,product_name.ilike.%${q}%`).neq('sku', product.sku).order('sku').limit(25)
+      const { data } = await query
+      setDupResults((data ?? []) as any)
+    }, 180)
+    return () => clearTimeout(t)
+  }, [dupQuery, dupOpen, sb, product.sku])
+
+  async function pickDupTarget(r: { sku: string; product_name: string }) {
+    setDupTarget(r); setDupErr(''); setDupTargetBomCount(null)
+    const { count } = await sb.from('product_bom').select('id', { count: 'exact', head: true }).eq('finished_good_sku', r.sku)
+    setDupTargetBomCount(count ?? 0)
+  }
+
+  async function doDuplicate() {
+    if (!dupTarget || dupBusy) return
+    if (!components.length) { setDupErr('This BOM has no components to copy.'); return }
+    setDupBusy(true); setDupErr('')
+    // Copy the raw source rows verbatim so every field (basis, qty, role, notes) carries over exactly.
+    const { data: src, error: se } = await sb.from('product_bom').select('*').eq('finished_good_sku', product.sku)
+    if (se) { setDupErr('Could not read this BOM: ' + se.message); setDupBusy(false); return }
+    const rows = src ?? []
+    if (!rows.length) { setDupErr('No BOM rows found to copy.'); setDupBusy(false); return }
+    // Overwrite the target's current BOM (if any), then write the copies.
+    const { error: de } = await sb.from('product_bom').delete().eq('finished_good_sku', dupTarget.sku)
+    if (de) { setDupErr('Could not clear the target BOM: ' + de.message); setDupBusy(false); return }
+    const copies = rows.map((r: any) => {
+      const c: any = { ...r }
+      delete c.id; delete c.created_at; delete c.updated_at
+      c.finished_good_sku = dupTarget.sku
+      return c
+    })
+    const { error: ie } = await sb.from('product_bom').insert(copies)
+    if (ie) { setDupErr('Could not copy the BOM: ' + ie.message); setDupBusy(false); return }
+    setDupBusy(false); setDupOpen(false)
+    flash(`BOM copied to ${dupTarget.sku} (${copies.length} component${copies.length === 1 ? '' : 's'}).`)
+    setDupTarget(null); setDupQuery(''); setDupResults([]); setDupTargetBomCount(null)
+    onUpdate?.()
+  }
+
   // ── Persistence helpers ─────────────────────────────────────────────────────
   const basisToDb = (b: Basis) => ({
     uom_type: b === 'percentage' ? 'percentage' : b === 'pcs_pack' ? 'pcs_pack' : 'pcs',
@@ -647,9 +700,15 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
               <span className="text-gray-400 mx-1.5">·</span>{product.product_name}
             </h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100 shrink-0 ml-4">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            <button onClick={() => { setDupOpen(true); setDupTarget(null); setDupQuery(''); setDupResults([]); setDupErr(''); setDupTargetBomCount(null) }}
+              disabled={loading || !components.length}
+              title={components.length ? 'Copy this BOM to another SKU' : 'Add components before copying'}
+              className="text-xs px-3 py-1.5 rounded-lg bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] font-medium disabled:opacity-50 whitespace-nowrap">Duplicate BOM &rarr;</button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 flex overflow-hidden min-h-0">
@@ -881,6 +940,55 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
         </div>
       </div>
       </div>
+
+      {dupOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={() => !dupBusy && setDupOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#E4E6EE]">
+              <div>
+                <h3 className="text-sm font-semibold text-[#1A1D2E]">Duplicate BOM to another SKU</h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">Copying from <span className="font-mono text-[#0F7A4E]">{product.sku}</span> &middot; {components.length} component{components.length === 1 ? '' : 's'}</p>
+              </div>
+              <button onClick={() => !dupBusy && setDupOpen(false)} className="text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              <label className="block text-xs font-medium text-gray-500">Assign this BOM to which SKU?</label>
+              <input autoFocus value={dupTarget ? (dupTarget.sku + ' — ' + dupTarget.product_name) : dupQuery}
+                onChange={e => { setDupTarget(null); setDupTargetBomCount(null); setDupQuery(e.target.value) }}
+                placeholder="Search by SKU or product name…" className={inp + ' w-full'} />
+              {!dupTarget && (
+                <div className="border border-[#E4E6EE] rounded-xl overflow-hidden max-h-60 overflow-y-auto divide-y divide-[#F1F3F7]">
+                  {dupResults.length === 0 ? (
+                    <div className="px-3 py-3 text-xs text-gray-400">{dupQuery.trim() ? 'No matching SKUs.' : 'Type to search, or pick from the list.'}</div>
+                  ) : dupResults.map(r => (
+                    <button key={r.sku} type="button" onClick={() => pickDupTarget(r)} className="w-full text-left px-3 py-2 hover:bg-[#F2F6FF]">
+                      <div className="flex items-center gap-2"><span className="font-mono font-bold text-[#0F7A4E] text-xs">{r.sku}</span>{r.category && <CatBadge c={r.category} />}</div>
+                      <div className="text-xs text-gray-600 truncate">{r.product_name}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {dupTarget && (
+                <div className={`rounded-xl px-3 py-2.5 text-xs border ${dupTargetBomCount && dupTargetBomCount > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                  {dupTargetBomCount === null ? 'Checking target…'
+                    : dupTargetBomCount > 0
+                      ? <span><b>{dupTarget.sku}</b> already has a BOM with {dupTargetBomCount} component{dupTargetBomCount === 1 ? '' : 's'}. Continuing will <b>overwrite</b> it with this one.</span>
+                      : <span><b>{dupTarget.sku}</b> has no BOM yet — this will become its BOM.</span>}
+                </div>
+              )}
+              {dupErr && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{dupErr}</p>}
+            </div>
+            <div className="px-5 py-3.5 border-t border-[#E4E6EE] flex gap-2">
+              <button onClick={() => !dupBusy && setDupOpen(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-gray-700">Cancel</button>
+              <button onClick={doDuplicate} disabled={!dupTarget || dupBusy || dupTargetBomCount === null} className="flex-1 text-xs px-3 py-2 rounded-lg bg-[#7A3FB0] hover:bg-[#6A35A0] text-white font-medium disabled:opacity-50">
+                {dupBusy ? 'Copying…' : dupTargetBomCount && dupTargetBomCount > 0 ? 'Copy & overwrite' : 'Copy BOM'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
