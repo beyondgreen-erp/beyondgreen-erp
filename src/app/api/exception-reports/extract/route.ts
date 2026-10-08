@@ -96,7 +96,24 @@ export async function POST(req: NextRequest) {
     // Second pass: the user has already seen the duplicate warning and made a
     // choice. Reuse the rows they were shown rather than re-reading the file,
     // so what lands in the table is exactly what they approved.
-    if ((mode === 'duplicate' || mode === 'overwrite') && Array.isArray(confirmedRows) && confirmedRows.length) {
+    if (mode && Array.isArray(confirmedRows) && confirmedRows.length) {
+      const picked = confirmedRows as AnyRow[]
+      // Quantities just confirmed by a person still have to clear the duplicate
+      // check, because the signature is built from those same numbers.
+      if (mode === 'reviewed') {
+        const seen = await existingBySignature(sb, picked)
+        const dupes = picked.filter(r => seen.has(rowSignature(r))).length
+        if (dupes > 0) {
+          return NextResponse.json({
+            needsChoice: true,
+            duplicateCount: dupes,
+            newCount: picked.length - dupes,
+            total: picked.length,
+            fileName: fileName || '',
+            confirmedRows: picked,
+          })
+        }
+      }
       const done = await persistRows(sb, confirmedRows as AnyRow[], mode, storagePath)
       if ((done as AnyRow).error) return NextResponse.json({ error: (done as AnyRow).error }, { status: 500 })
       return NextResponse.json(done)
@@ -124,7 +141,7 @@ export async function POST(req: NextRequest) {
       content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } } as Anthropic.DocumentBlockParam)
     }
 
-    content.push({ type: 'text', text: `You are the exception-report intelligence engine for beyondGREEN (vendor "BEYONDGREEN BIOTECH, INC. DBA"). This is a Walmart OS&D / Delivery Confirmation EXCEPTION report for vendor beyondGREEN. IMPORTANT ABOUT THE FORMAT: the file may be MULTIPLE PAGES - a cover sheet plus one or more line-item tables that are often scanned SIDEWAYS / rotated 90 degrees (landscape); read EVERY page and mentally rotate any sideways page upright before reading it. The Over, Short, and Damage quantities are frequently HANDWRITTEN (circled or scrawled by hand) on top of the printed grid - read that handwriting carefully; treat a blank/empty cell as 0. Columns you will see per row: PO #, Bill Of Lading #, Vendor Name, PO Type, Total Cases Received, PO Freight Bill Qty, Over, Short, Damage. Extract ALL line-item rows from the report and return ONLY raw JSON in exactly this shape:
+    content.push({ type: 'text', text: `You are the exception-report intelligence engine for beyondGREEN (vendor "BEYONDGREEN BIOTECH, INC. DBA"). This is a Walmart OS&D / Delivery Confirmation EXCEPTION report for vendor beyondGREEN. IMPORTANT ABOUT THE FORMAT: the file may be MULTIPLE PAGES - a cover sheet plus one or more line-item tables that are often scanned SIDEWAYS / rotated 90 degrees (landscape); read EVERY page and mentally rotate any sideways page upright before reading it. The Over, Short, and Damage quantities are frequently HANDWRITTEN (circled or scrawled by hand) on top of the printed grid - read that handwriting carefully; treat a blank/empty cell as 0. HANDWRITING RULES - these matter more than anything else on the page: (a) an Over/Short/Damage cell almost always holds a SINGLE small digit, so do not report a multi-digit number unless two separate digits are plainly visible; (b) a handwritten 1 is very often written with a long diagonal lead-in stroke that rises to the top before the vertical downstroke, and that looks like a 7 - a real 7 has a roughly HORIZONTAL top bar and no separate rising stroke, so when the top stroke clearly RISES diagonally into the downstroke, read it as 1; (c) one person fills in the whole form by hand, so the same glyph shape means the same digit in every row - never read two marks that look alike as different numbers; (d) if a digit stays ambiguous after all that, return the smaller, simpler reading rather than guessing a bigger number, and note the uncertainty in the comment field. Columns you will see per row: PO #, Bill Of Lading #, Vendor Name, PO Type, Total Cases Received, PO Freight Bill Qty, Over, Short, Damage. Extract ALL line-item rows from the report and return ONLY raw JSON in exactly this shape:
 {
   "delivery_no": "the Delivery Number (e.g. 43953537), else ''",
   "report_date": "the report/received date as YYYY-MM-DD, else ''",
@@ -188,6 +205,24 @@ Include EVERY PO line shown across ALL pages of the report's line-item table (on
         created_by: uploadedBy || null,
       }
     })
+
+    // Handwritten quantities are the one thing on this form that cannot be read
+    // reliably every time, and they are the only numbers that carry money. Stop
+    // and have a person confirm them before anything is written.
+    const exceptionRows = (rows as AnyRow[]).filter(r =>
+      num(r.over_qty) > 0 || num(r.short_qty) > 0 || num(r.damaged_qty) > 0)
+    if (exceptionRows.length > 0 && !mode) {
+      return NextResponse.json({
+        needsReview: true,
+        exceptionCount: exceptionRows.length,
+        total: rows.length,
+        delivery_no: j.delivery_no || '',
+        report_date: report_date || '',
+        fileName: fileName || '',
+        storagePath,
+        confirmedRows: rows,
+      })
+    }
 
     const known = await existingBySignature(sb, rows as AnyRow[])
     const dupCount = (rows as AnyRow[]).filter(r => known.has(rowSignature(r))).length

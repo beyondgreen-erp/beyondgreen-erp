@@ -65,6 +65,7 @@ export default function BusinessReportsPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [dupPrompt, setDupPrompt] = useState<any>(null)
+  const [reviewPrompt, setReviewPrompt] = useState<any>(null)
   const [tab, setTab] = useState<'exceptions' | 'walmart' | 'chewy'>('exceptions')
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -120,9 +121,46 @@ export default function BusinessReportsPage() {
       if (!res.ok) throw new Error(j.error || 'AI extraction failed')
       // The same report already exists. Stop and let the user decide rather
       // than silently stacking another copy of every line into the table.
+      if (j.needsReview) { setReviewPrompt({ ...j, storagePath: j.storagePath || path }); setUploading(false); return }
       if (j.needsChoice) { setDupPrompt({ ...j, storagePath: path }); setUploading(false); return }
       if (j.record) setUploadRecord(j.record)
       setMsg(`Added ${j.inserted} line item${j.inserted === 1 ? '' : 's'}${j.delivery_no ? ` from delivery ${j.delivery_no}` : ''}.`)
+      await load()
+    } catch (e) { setErr((e as Error).message) }
+    setUploading(false)
+  }
+
+  function setQty(i: number, field: 'over_qty' | 'short_qty' | 'damaged_qty', raw: string) {
+    const v = Math.max(0, Math.floor(Number(raw) || 0))
+    setReviewPrompt((p: any) => {
+      if (!p) return p
+      const rows = [...(p.confirmedRows || [])]
+      const flag = field === 'over_qty' ? 'over' : field === 'short_qty' ? 'short' : 'damaged'
+      rows[i] = { ...rows[i], [field]: v, [flag]: v > 0 }
+      return { ...p, confirmedRows: rows }
+    })
+  }
+
+  async function confirmReview() {
+    if (!reviewPrompt) return
+    setUploading(true); setErr(''); setMsg('')
+    try {
+      const res = await fetch('/api/exception-reports/extract', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storagePath: reviewPrompt.storagePath, fileName: reviewPrompt.fileName,
+          uploadedBy: userEmail, mode: 'reviewed', confirmedRows: reviewPrompt.confirmedRows,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Save failed')
+      if (j.needsChoice) {
+        setDupPrompt({ ...j, storagePath: reviewPrompt.storagePath, fileName: reviewPrompt.fileName })
+        setReviewPrompt(null); setUploading(false); return
+      }
+      const ins = j.inserted || 0
+      setMsg(`Added ${ins} line item${ins === 1 ? '' : 's'}.`)
+      setReviewPrompt(null)
       await load()
     } catch (e) { setErr((e as Error).message) }
     setUploading(false)
@@ -217,6 +255,50 @@ export default function BusinessReportsPage() {
           </div>
         )}
 
+        {reviewPrompt && (
+          <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 p-4 mb-4">
+            <p className="text-sky-300 text-sm font-semibold mb-1">Please check these quantities before saving</p>
+            <p className="text-sky-200/90 text-xs mb-3 leading-relaxed">
+              {reviewPrompt.exceptionCount} of {reviewPrompt.total} line{reviewPrompt.total === 1 ? '' : 's'} on {reviewPrompt.fileName || 'this report'} came back with an exception
+              {reviewPrompt.delivery_no ? ` for delivery ${reviewPrompt.delivery_no}` : ''}
+              {reviewPrompt.report_date ? `, dated ${reviewPrompt.report_date}` : ''}.
+              {' '}These numbers are handwritten on the scan and are the ones we claim against, so open the file and confirm them. Correct anything that is wrong, then save.
+            </p>
+            <div className="space-y-1.5 mb-3">
+              {(reviewPrompt.confirmedRows || []).map((r: any, i: number) => (
+                (Number(r.over_qty) > 0 || Number(r.short_qty) > 0 || Number(r.damaged_qty) > 0) ? (
+                  <div key={i} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-mono text-gray-200 w-28">PO {r.po_number}</span>
+                    <span className="text-gray-500 w-24">bill qty {r.po_freight_bill_qty ?? '-'}</span>
+                    <label className="flex items-center gap-1 text-gray-400">Over
+                      <input type="number" min={0} value={r.over_qty ?? 0} onChange={e => setQty(i, 'over_qty', e.target.value)}
+                        className="w-16 px-1.5 py-0.5 rounded bg-black/30 border border-gray-600 text-gray-100" /></label>
+                    <label className="flex items-center gap-1 text-gray-400">Short
+                      <input type="number" min={0} value={r.short_qty ?? 0} onChange={e => setQty(i, 'short_qty', e.target.value)}
+                        className="w-16 px-1.5 py-0.5 rounded bg-black/30 border border-gray-600 text-gray-100" /></label>
+                    <label className="flex items-center gap-1 text-gray-400">Damage
+                      <input type="number" min={0} value={r.damaged_qty ?? 0} onChange={e => setQty(i, 'damaged_qty', e.target.value)}
+                        className="w-16 px-1.5 py-0.5 rounded bg-black/30 border border-gray-600 text-gray-100" /></label>
+                  </div>
+                ) : null
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => confirmReview()} disabled={uploading}
+                className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold disabled:opacity-50">
+                Confirm and save
+              </button>
+              <button onClick={() => viewFile(reviewPrompt.storagePath)} disabled={uploading}
+                className="px-3 py-1.5 rounded-lg border border-gray-600 text-gray-200 hover:bg-white/5 text-xs font-semibold disabled:opacity-50">
+                Open the scan
+              </button>
+              <button onClick={() => setReviewPrompt(null)} disabled={uploading}
+                className="px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 text-xs font-semibold disabled:opacity-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         {dupPrompt && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 mb-4">
             <p className="text-amber-300 text-sm font-semibold mb-1">This report is already in the system</p>
