@@ -48,6 +48,12 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   }, [boards, pathname, pageTitle])
 
   const [openGroup, setOpenGroup] = useState<string | null>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const openGroupAt = (group: string, el: HTMLElement) => {
+    const r = el.getBoundingClientRect()
+    setMenuPos({ top: r.bottom + 4, left: r.left })
+    setOpenGroup(group)
+  }
   const [sprintNotice, setSprintNotice] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const navRef = useRef<HTMLDivElement>(null)
@@ -55,8 +61,11 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   // ── close dropdowns on outside click ──
   useEffect(() => {
     const h = (e: MouseEvent) => { if (navRef.current && !navRef.current.contains(e.target as Node)) { setOpenGroup(null); setMenuOpen(false) } }
+    const close = () => setOpenGroup(null)
     document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => { document.removeEventListener('mousedown', h); window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true) }
   }, [])
 
   // ── global search ──
@@ -151,41 +160,46 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
         </Link>
 
         {pathname !== '/' && (
-          <h1 className="font-bold text-base sm:text-lg truncate shrink-0 max-w-[28vw] md:max-w-none" style={{ color: '#1A1D2E' }}>{activeTitle}</h1>
+          <h1 className="font-bold text-base sm:text-lg truncate shrink-0 max-w-[22vw] xl:max-w-[280px]" style={{ color: '#1A1D2E' }}>{activeTitle}</h1>
         )}
 
         {/* group dropdowns */}
-        <nav className="hidden lg:flex items-center gap-0.5 ml-2">
+        <nav className="hidden lg:flex items-center gap-0.5 ml-2 min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" onScroll={() => setOpenGroup(null)}>
           {groups.map(g => (
-            <div key={g.group} className="relative">
+            <div key={g.group} className="relative shrink-0">
               <button
-                onClick={() => { if (LOCKED_GROUPS.has(g.group)) { setOpenGroup(null); setSprintNotice(true); return } setOpenGroup(o => o === g.group ? null : g.group) }}
-                onMouseEnter={() => { if (LOCKED_GROUPS.has(g.group)) return; if (openGroup) setOpenGroup(g.group) }}
+                onClick={(e) => { if (LOCKED_GROUPS.has(g.group)) { setOpenGroup(null); setSprintNotice(true); return } if (openGroup === g.group) { setOpenGroup(null) } else { openGroupAt(g.group, e.currentTarget) } }}
+                onMouseEnter={(e) => { if (LOCKED_GROUPS.has(g.group)) return; if (openGroup) openGroupAt(g.group, e.currentTarget) }}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors"
                 style={{ color: openGroup === g.group ? '#1A1D2E' : '#5A6072', background: openGroup === g.group ? '#F0F1F5' : 'transparent' }}
               >
                 {g.group}
                 <i className="ti ti-chevron-down text-xs opacity-60" />
               </button>
-              {openGroup === g.group && (
-                <div className="absolute left-0 top-full mt-1 w-60 bg-white rounded-xl shadow-xl border border-[#E4E6EE] py-1.5 z-50 max-h-[70vh] overflow-y-auto">
-                  {g.items.map(it => (
-                    <Link
-                      key={it.board_key}
-                      href={it.href || `/board/${it.board_key}`}
-                      onClick={() => setOpenGroup(null)}
-                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-[#3A4056] hover:bg-[#F5F6FA]"
-                    >
-                      <i className={`ti ${it.icon || 'ti-layout-board'} text-base w-5 text-center`} style={{ color: '#8A93A8' }} />
-                      <span className="truncate flex-1">{it.label}</span>
-                      {it.is_custom && <span className="text-[9px] font-bold text-[#A25DDC]">BOARD</span>}
-                    </Link>
-                  ))}
-                </div>
-              )}
             </div>
           ))}
         </nav>
+        {/* fixed-position group dropdown (anchored to its button; lives outside the scroll strip so it is never clipped) */}
+        {openGroup && menuPos && (() => {
+          const g = groups.find(x => x.group === openGroup)
+          if (!g) return null
+          return (
+            <div style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }} className="w-60 bg-white rounded-xl shadow-xl border border-[#E4E6EE] py-1.5 z-50 max-h-[70vh] overflow-y-auto">
+              {g.items.map(it => (
+                <Link
+                  key={it.board_key}
+                  href={it.href || `/board/${it.board_key}`}
+                  onClick={() => setOpenGroup(null)}
+                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-[#3A4056] hover:bg-[#F5F6FA]"
+                >
+                  <i className={`ti ${it.icon || 'ti-layout-board'} text-base w-5 text-center`} style={{ color: '#8A93A8' }} />
+                  <span className="truncate flex-1">{it.label}</span>
+                  {it.is_custom && <span className="text-[9px] font-bold text-[#A25DDC]">BOARD</span>}
+                </Link>
+              ))}
+            </div>
+          )
+        })()}
 
         {/* right cluster */}
         <div className="flex items-center gap-2 ml-auto shrink-0">
