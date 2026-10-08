@@ -47,6 +47,21 @@ const GROUPS = [
 const STATUS_OPTIONS = ['Pending', 'Confirmed', 'Awaiting BOM Components', 'Production Queue', 'Building Order', 'In Production', 'QC', 'Ready to Ship', 'Prepped & Ready for Dispatch', 'Ready at Will Call', 'Partially Shipped', 'Shipped', 'On Hold', 'Cancelled', 'Closed']
 
 // Status ⇄ Group are kept in lock-step so the board never drifts from the workflow.
+// The Shipments board has its own CITY / STATE column, and the Live Map and Heat
+// Map read it. Walmart ship-to arrives as a single string in two shapes:
+//   "WAL-MART DC 6070A, 200 WAL MART DR, SHELBY, NC 28150, US"
+//   "WAL-MART DC 6080G 100 VETERANS DR 6080 TOBYHANNA PA 18466 US"
+// Anchor on the state + ZIP at the end, then drop any trailing DC number still
+// stuck to the front of the city. Returns nulls rather than guessing.
+function cityStateFrom(addr: string | null | undefined): { city: string | null; state: string | null } {
+  const s = String(addr || '').trim()
+  if (!s) return { city: null, state: null }
+  const m = s.match(/([^,]+),\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\s*,?\s*(?:US|USA)?\s*$/)
+    || s.match(/^.*\s\d{4}\s+(.+?)\s+([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\s*(?:US|USA)?\s*$/)
+  if (!m) return { city: null, state: null }
+  const city = m[1].replace(/^.*\s\d{4}\s+/, '').trim()
+  return { city: city || null, state: (m[2] || '').toUpperCase() || null }
+}
 function groupForStatus(status: string | null): string {
   const s = (status || '').toLowerCase()
   if (s === 'building order') return 'Building Order'
@@ -440,12 +455,14 @@ export default function WalmartBoard() {
     if (already) return already
     const shipTo = (order.ship_to || '').trim()
     const custName = (shipTo.split(/[,\n]/)[0] || '').trim() || 'Walmart'
+    const loc = cityStateFrom(order.ship_to)
     const now = new Date()
     const ins: any = {
       customer_name: custName, po_number: order.po_number || null, carrier: order.carrier || null,
       ship_date: now.toISOString().slice(0, 10), order_date: order.order_date || null,
       total_value: order.total_value ?? (linesTotalOf(lines[order.id] || []) || null),
       ship_to_address: order.ship_to || null, bol_number: order.bol2 || null,
+      city: loc.city, state: loc.state,
       sales_order_id: order.sales_order_id || null,
       delivery_status: 'Shipped', status: 'Shipped',
       month_group: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
