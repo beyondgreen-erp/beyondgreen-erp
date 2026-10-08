@@ -1488,8 +1488,8 @@ export default function ShippingQueuePage() {
         </div>
         <button onClick={() => setShowMaster(s => !s)} className={`${btn} bg-indigo-600 text-white border-indigo-600`}>{showMaster ? 'Hide' : 'Merge BOLs → Master BOL'}</button>
       </div>
-      <p className="text-xs text-gray-400 mb-2">Live from the Sales Order &amp; Walmart boards — showing orders in <b className="text-[#00863F]">In Production</b>, <b className="text-[#00863F]">Ready to Ship</b>, <b className="text-[#00863F]">Prepped &amp; Ready for Dispatch</b>, <b className="text-[#00863F]">Ready at Will Call</b>, or <b className="text-[#00863F]">Partially Shipped</b>.</p>
-      <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Inventory-linked (Ultron). Line items and SKUs pull live from the Inventory board. Statuses are unified with the Sales Order board, and comments sync both ways between this queue and the Sales / Walmart boards.</div>
+      <p className="text-xs text-gray-400 mb-2">Live from the Sales Order board — showing orders in <b className="text-[#00863F]">In Production</b>, <b className="text-[#00863F]">Ready to Ship</b>, <b className="text-[#00863F]">Prepped &amp; Ready for Dispatch</b>, <b className="text-[#00863F]">Ready at Will Call</b>, or <b className="text-[#00863F]">Partially Shipped</b>.</p>
+      <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Inventory-linked (Ultron). Line items and SKUs pull live from the Inventory board. Statuses are unified with the Sales Order board, and comments sync both ways between this queue and the Sales Order board. Walmart orders ship straight from the Walmart tab on the Order Pipeline, so they never appear here.</div>
 
       {/* Search + filter */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
