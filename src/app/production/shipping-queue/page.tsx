@@ -198,6 +198,8 @@ export default function ShippingQueuePage() {
   // Closeout / move-to-shipments
   const [shipPrep, setShipPrep] = useState<Record<string, boolean>>({})
   const [closeout, setCloseout] = useState(false)
+  const [shortMode, setShortMode] = useState(false)
+  const [shortReason, setShortReason] = useState('')
   const [coShipId, setCoShipId] = useState('')
   const [coSlipUrl, setCoSlipUrl] = useState('')
   const [coBolUrl, setCoBolUrl] = useState('')
@@ -211,8 +213,8 @@ export default function ShippingQueuePage() {
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true)
     const { data } = await sb.from('sales_orders')
       .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, ship_prep, notes, customers(company_name, shipping_address)')
       .in('status', SHIPPABLE).eq('archived', false).eq('is_active', true).order('required_ship_date', { ascending: true, nullsFirst: false })
@@ -258,14 +260,21 @@ export default function ShippingQueuePage() {
 
   // Keep every account in sync in real time: reload when any order or BOL changes,
   // and whenever the tab regains focus. No manual refresh, no per-account drift.
+  // A background refresh while a drawer or the close-out modal is open would
+  // pull the list out from under whoever is working in it, so hold off.
+  const busyRef = useRef(false)
+  useEffect(() => {
+    busyRef.current = !!openId || closeout || showMaster || showMasterForm
+  }, [openId, closeout, showMaster, showMasterForm])
+
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | null = null
-    const bump = () => { if (t) clearTimeout(t); t = setTimeout(() => { load(); loadBols() }, 400) }
+    const bump = () => { if (t) clearTimeout(t); t = setTimeout(() => { if (busyRef.current) return; load(true); loadBols() }, 1200) }
     const ch = sb.channel('shipping-queue-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_orders' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bols' }, bump)
       .subscribe()
-    const onFocus = () => { load(); loadBols() }
+    const onFocus = () => { if (document.visibilityState !== 'visible' || busyRef.current) return; load(true); loadBols() }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
     return () => { if (t) clearTimeout(t); sb.removeChannel(ch); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
@@ -1311,7 +1320,7 @@ export default function ShippingQueuePage() {
       if (negWarn.length) { try { alert('\u26a0 Heads up \u2014 these items went negative on-hand after this shipment: ' + negWarn.join(', ') + '. That usually means produced finished goods were never booked into inventory. Book them in Production \u2192 Work Orders \u2192 \u201cClose & Book FG\u201d.') } catch { /* */ } }
     }
   }
-  async function confirmMove(keepOpen = false) {
+  async function confirmMove(keepOpen = false, closeShort = false, shortReason = '') {
     if (!canConfirm || !activeItem) return
     setCoBusy(keepOpen ? 'partial' : 'move')
     try {
@@ -1336,14 +1345,24 @@ export default function ShippingQueuePage() {
         const add = shipNow[l.sku] || 0
         const newDone = ordered > 0 ? Math.min(prior + add, ordered) : prior + add
         if (ordered > 0 && newDone < ordered) fully = false
-        if (add > 0) {
+        const shortfall = closeShort ? Math.max(0, ordered - newDone) : 0
+        if (add > 0 || shortfall > 0) {
           shippedValue += add * (Number(l.unit_price) || 0)
-          await sb.from('sales_order_lines').update({ quantity_shipped: newDone, completed_qty: newDone }).eq('id', l.id)
+          await sb.from('sales_order_lines').update({
+            quantity_shipped: newDone,
+            completed_qty: newDone,
+            ...(closeShort ? {
+              short_qty: shortfall || null,
+              short_reason: shortfall > 0 ? (shortReason || 'Closed short') : null,
+              short_closed_at: shortfall > 0 ? new Date().toISOString() : null,
+              short_closed_by: shortfall > 0 ? (userEmail || null) : null,
+            } : {}),
+          }).eq('id', l.id)
         }
       }
       // keepOpen = operator chose 'save partial, keep order open': always leave it on the
       // Shipping Queue as 'Partially Shipped' so the remaining balance can still be shipped.
-      const newStatus = keepOpen ? 'Partially Shipped' : (fully ? 'Shipped' : 'Partially Shipped')
+      const newStatus = keepOpen ? 'Partially Shipped' : ((fully || closeShort) ? 'Shipped' : 'Partially Shipped')
       // Shipment record carries the same status so the auto-bill trigger only bills the
       // completing (full) shipment — partials are recorded + inventory-deducted but not billed.
       await createShipment({ id: coShipId, delivery_status: 'Shipped', status: newStatus, ai_summary: coSummary || null, total_value: shippedValue > 0 ? shippedValue : undefined })
@@ -2242,6 +2261,24 @@ export default function ShippingQueuePage() {
             <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
               <button onClick={() => setCloseout(false)} className={`${btn} bg-white border-gray-300`}>Cancel</button>
               <div className="flex items-center gap-2">
+                {!willCompleteOrder && !shortMode && (
+                  <button onClick={() => setShortMode(true)} disabled={!canConfirm || !!coBusy}
+                    title="Use this when we shipped everything we had and the customer is not expecting the balance. Closes the order and records the shortfall against the ordered quantity."
+                    className={`${btn} bg-white border-gray-300 text-gray-700`}>Short ship &mdash; close the order</button>
+                )}
+                {!willCompleteOrder && shortMode && (
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <input value={shortReason} onChange={e => setShortReason(e.target.value)}
+                      placeholder="Why short? e.g. only 488 cases on hand"
+                      className="px-2 py-1.5 rounded-lg border border-gray-300 text-sm min-w-[18rem]" />
+                    <button onClick={() => { setShortMode(false); confirmMove(false, true, shortReason) }}
+                      disabled={!canConfirm || !!coBusy || !shortReason.trim()}
+                      title="Closes the order. Ordered quantity stays as it was, the difference is recorded as short so fill rate stays accurate."
+                      className={`${btn} bg-amber-600 text-white border-amber-600`}>Confirm short close</button>
+                    <button onClick={() => { setShortMode(false); setShortReason('') }}
+                      className={`${btn} bg-white border-gray-300 text-gray-700`}>Cancel</button>
+                  </span>
+                )}
                 <button onClick={() => confirmMove(true)} disabled={!canConfirm || !!coBusy} title="Records this shipment's details and deducts inventory, but keeps the order on the Shipping Queue as 'Partially Shipped' so the remaining balance can still be shipped." className={`${btn} bg-white border-emerald-600 text-emerald-700`}>{coBusy === 'partial' ? 'Saving…' : '\uD83D\uDCE6 Save partial — keep order open'}</button>
                 <button onClick={() => confirmMove(false)} disabled={!canConfirm || !!coBusy} title={willCompleteOrder ? "Every line reaches its ordered quantity with this shipment — this will mark the order Shipped and move it off the queue." : "Records this shipment and its own invoice for just what's shipping now — the order stays on the Shipping Queue as 'Partially Shipped' with the remaining balance still to ship."} className={`${btn} ${canConfirm ? (willCompleteOrder ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-500 text-white border-amber-500') : 'bg-gray-200 border-gray-200 text-gray-400'}`}>{coBusy === 'move' ? 'Shipping…' : willCompleteOrder ? '\u2705 Ship Full — confirm & move to shipments' : '📦 Ship Partial'}</button>
               </div>
