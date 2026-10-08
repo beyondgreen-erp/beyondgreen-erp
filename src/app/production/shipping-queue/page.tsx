@@ -219,7 +219,18 @@ export default function ShippingQueuePage() {
       .select('id, order_number, po_number, shipping_address, total, total_amount, total_value, customer_id, status, order_date, required_ship_date, carrier, tracking_number, additional_comments, ship_prep, notes, customers(company_name, shipping_address)')
       .in('status', SHIPPABLE).eq('archived', false).eq('is_active', true).order('required_ship_date', { ascending: true, nullsFirst: false })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = (data as any[]) || []
+    const allRows = (data as any[]) || []
+    // Walmart orders ship straight from the Walmart tab on the Order Pipeline:
+    // selecting Shipped there writes the shipment itself and stamps the order.
+    // They are the only orders allowed to bypass this queue, so keep them off it.
+    const { data: wLinks } = await sb.from('walmart_board_orders').select('sales_order_id')
+    const walmartIds = new Set(((wLinks as { sales_order_id: string | null }[] | null) || [])
+      .map(w => w.sales_order_id).filter(Boolean) as string[])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = allRows.filter((o: any) => !(
+      walmartIds.has(o.id) ||
+      String(o.order_number || '').replace(/\s+/g, '').toUpperCase().startsWith('WALMART|')
+    ))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setItems(rows.map((o: any) => ({ id: o.id, sales_order_id: o.id, status: o.status, sales_orders: o })))
     // Walmart orders are handled entirely on the Walmart board (BOL/packing slip generated there,
