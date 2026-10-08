@@ -126,6 +126,8 @@ function intakeLabel(k: string): string {
     tr3_company: 'Trade Ref 3 — Company', tr3_contact: 'Trade Ref 3 — Contact', tr3_phone: 'Trade Ref 3 — Phone/Email',
     city_state_zip: 'City / State / ZIP', resale_tax_exempt: 'Resale / Tax Exempt',
     bill_to_address: 'Bill-To Address', ship_to_address: 'Ship-To Address', ship_same: 'Ship = Bill',
+    purpose: 'Purpose of Purchase', resale_cert_name: 'Resale Certificate',
+    resale_cert_url: 'Resale Certificate', resale_cert_path: 'Resale Certificate Path',
   }
   if (map[k]) return map[k]
   return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -138,11 +140,66 @@ function intakeRows(data: any): [string, string][] {
   const out: [string, string][] = []
   for (const [k, v] of Object.entries(data)) {
     if (k === '_verification') continue
+    if (k === 'resale_cert_url' || k === 'resale_cert_path') continue
     if (typeof v === 'boolean') { out.push([intakeLabel(k), v ? 'Yes' : 'No']); continue }
     if (v === null || v === undefined || String(v).trim() === '' || typeof v === 'object') continue
     out.push([intakeLabel(k), String(v)])
   }
   return out
+}
+
+// Keys that make up the uploaded resale certificate — rendered as a real link/preview, not raw text.
+const RESALE_KEYS = new Set(['resale_cert_url', 'resale_cert_path', 'resale_cert_name'])
+
+// Shows the uploaded resale certificate as a View / Download button plus an inline preview.
+// Always resolves a FRESH signed URL from the private erp-files bucket (the one stored at submission
+// time eventually expires), falling back to the stored URL if the path can't be signed.
+function ResaleCert({ path, url, name }: { path?: string; url?: string; name?: string }) {
+  const [href, setHref] = useState<string | null>(url || null)
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      if (!path) { setHref(url || null); return }
+      try {
+        const sb = createSupabaseBrowserClient()
+        const { data } = await sb.storage.from('erp-files').createSignedUrl(path, 3600)
+        if (active) setHref(data?.signedUrl || url || null)
+      } catch { if (active) setHref(url || null) }
+    })()
+    return () => { active = false }
+  }, [path, url])
+  const label = name || (path ? path.split('/').pop() : 'Resale Certificate') || 'Resale Certificate'
+  const isImage = /\.(jpe?g|png|gif|webp|bmp)$/i.test(label)
+  return (
+    <div className="mt-4 rounded-xl border border-[#E4E6EE] bg-[#F9FAFC] p-3">
+      <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Resale Certificate</div>
+      {href ? (
+        <div className="flex items-start gap-3">
+          {isImage && (
+            <a href={href} target="_blank" rel="noopener noreferrer" className="shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={href} alt={label} className="w-24 h-24 object-cover rounded-lg border border-[#E4E6EE]" />
+            </a>
+          )}
+          <div className="min-w-0">
+            <div className="text-sm text-[#1A1D2E] break-words mb-2">{label}</div>
+            <div className="flex flex-wrap gap-2">
+              <a href={href} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium bg-[#00863F] hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg">
+                <i className="ti ti-eye text-sm" />View
+              </a>
+              <a href={href} download={label}
+                className="inline-flex items-center gap-1.5 text-xs font-medium bg-white hover:bg-[#F0F1F5] text-[#3A4056] border border-[#E4E6EE] px-3 py-1.5 rounded-lg">
+                <i className="ti ti-download text-sm" />Download
+              </a>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-gray-400">Preparing certificate link…</div>
+      )}
+    </div>
+  )
 }
 
 // Read-only view of one submitted form's JSON: every non-empty field as a labeled row, with the
@@ -151,8 +208,9 @@ function IntakeSection({ title, data }: { title: string; data: any }) {
   if (!data || typeof data !== 'object') return null
   const verification = data._verification
   const entries = Object.entries(data).filter(([k, v]) =>
-    k !== '_verification' && v !== null && v !== undefined && String(v).trim() !== '' && typeof v !== 'object')
-  const boolEntries = Object.entries(data).filter(([k, v]) => k !== '_verification' && typeof v === 'boolean')
+    k !== '_verification' && !RESALE_KEYS.has(k) && v !== null && v !== undefined && String(v).trim() !== '' && typeof v !== 'object')
+  const boolEntries = Object.entries(data).filter(([k, v]) => k !== '_verification' && !RESALE_KEYS.has(k) && typeof v === 'boolean')
+  const hasResale = !!(data.resale_cert_path || data.resale_cert_url)
   return (
     <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-hidden">
       <div className="px-4 py-2.5 bg-[#F5F6FA] text-[11px] font-semibold text-[#1A1D2E] uppercase tracking-wide border-b border-[#E4E6EE]">{title}</div>
@@ -184,6 +242,7 @@ function IntakeSection({ title, data }: { title: string; data: any }) {
             </div>
           ))}
         </div>
+        {hasResale && <ResaleCert path={data.resale_cert_path} url={data.resale_cert_url} name={data.resale_cert_name} />}
       </div>
     </div>
   )
@@ -413,7 +472,7 @@ export default function CustomersPage() {
 
   // Build a clean PDF of exactly what the customer submitted — credit application and onboarding —
   // so the team can save or forward a copy of each form. Mirrors what the Intake tab shows on screen.
-  function downloadIntakePdf() {
+  async function downloadIntakePdf() {
     if (!intake) return
     const company = editing?.company_name || intake.credit_application?.company_name || 'Customer'
     const doc = new jsPDF({ unit: 'pt', format: 'letter' })
@@ -457,6 +516,43 @@ export default function CustomersPage() {
     }
     section('Credit Application', intake.credit_application)
     section('New Customer Onboarding', intake.onboarding)
+
+    // Append the uploaded resale certificate image as its own page, if present.
+    const certPath: string | undefined = intake.onboarding?.resale_cert_path || intake.credit_application?.resale_cert_path
+    const certUrlStored: string | undefined = intake.onboarding?.resale_cert_url || intake.credit_application?.resale_cert_url
+    const certName: string = intake.onboarding?.resale_cert_name || intake.credit_application?.resale_cert_name || 'Resale Certificate'
+    if (certPath || certUrlStored) {
+      try {
+        let certUrl = certUrlStored
+        if (certPath) {
+          const { data: signed } = await supabase.storage.from('erp-files').createSignedUrl(certPath, 3600)
+          if (signed?.signedUrl) certUrl = signed.signedUrl
+        }
+        if (certUrl && /\.(jpe?g|png)$/i.test(certName)) {
+          const blob = await fetch(certUrl).then(r => r.blob())
+          const dataUrl: string = await new Promise((res, rej) => {
+            const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.onerror = rej; fr.readAsDataURL(blob)
+          })
+          const dims: { w: number; h: number } = await new Promise((res) => {
+            const im = new Image(); im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight }); im.onerror = () => res({ w: 0, h: 0 }); im.src = dataUrl
+          })
+          doc.addPage()
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(26, 29, 46)
+          doc.text('Resale Certificate', M, 50)
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110, 114, 128)
+          doc.text(certName, M, 66)
+          const fmt = /\.png$/i.test(certName) ? 'PNG' : 'JPEG'
+          const maxW = pageW - M * 2
+          const maxH = doc.internal.pageSize.getHeight() - 90
+          let w = maxW, h = maxH
+          if (dims.w && dims.h) {
+            const scale = Math.min(maxW / dims.w, maxH / dims.h)
+            w = dims.w * scale; h = dims.h * scale
+          }
+          doc.addImage(dataUrl, fmt, M, 80, w, h, undefined, 'FAST')
+        }
+      } catch { /* if the image can't be fetched, still save the form pages */ }
+    }
 
     const safe = company.trim().replace(/[^A-Za-z0-9_-]+/g, '_')
     doc.save(`${safe}-New-Customer-Submission.pdf`)
