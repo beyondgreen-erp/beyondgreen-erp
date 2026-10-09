@@ -22,6 +22,7 @@ export default function PackagingDesignsPage() {
   const [rows, setRows] = useState<DesignRow[]>([])
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [counts, setCounts] = useState<Record<string, { open: number; links: number }>>({})
+  const [approvals, setApprovals] = useState<Record<string, { status: string; done: number; total: number; kind: string; changes: number }>>({})
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('Active')
@@ -48,6 +49,18 @@ export default function PackagingDesignsPage() {
       ;(cm || []).forEach((x: any) => { (c[x.design_id] ||= { open: 0, links: 0 }).open++ })
       ;(ln || []).forEach((x: any) => { (c[x.design_id] ||= { open: 0, links: 0 }).links++ })
       setCounts(c)
+      // latest approval request per design → "3/5 approved" on the tile
+      const { data: rds } = await sb.from('packaging_approval_rounds').select('id, design_id, status, kind, approvers, created_at').in('design_id', ids).order('created_at', { ascending: false })
+      const latest = new Map<string, any>()
+      ;(rds || []).forEach((r: any) => { if (!latest.has(r.design_id)) latest.set(r.design_id, r) })
+      const live = Array.from(latest.values()).filter(r => r.status !== 'cancelled')
+      const { data: cf } = live.length ? await sb.from('packaging_approval_confirmations').select('round_id, approver_email, decision').in('round_id', live.map(r => r.id)) : { data: [] as any[] }
+      const a: Record<string, { status: string; done: number; total: number; kind: string; changes: number }> = {}
+      live.forEach(r => {
+        const mine = (cf || []).filter((x: any) => x.round_id === r.id)
+        a[r.design_id] = { status: r.status, kind: r.kind, total: (r.approvers || []).length, done: mine.filter((x: any) => x.decision === 'confirmed').length, changes: mine.filter((x: any) => x.decision === 'changes').length }
+      })
+      setApprovals(a)
     }
   }, [sb])
   useEffect(() => { load() }, [load])
@@ -130,6 +143,21 @@ export default function PackagingDesignsPage() {
                   {counts[r.id]?.links ? <span className="text-violet-600"><i className="ti ti-link" /> {counts[r.id].links}</span> : null}
                   <span className="ml-auto">{new Date(r.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                 </div>
+                {approvals[r.id] && (() => {
+                  const ap = approvals[r.id], pct = ap.total ? Math.round((ap.done / ap.total) * 100) : 0
+                  const tone = ap.status === 'approved' ? 'text-emerald-700' : ap.status === 'changes_requested' ? 'text-orange-700' : 'text-amber-700'
+                  const bar = ap.status === 'approved' ? 'bg-emerald-500' : ap.status === 'changes_requested' ? 'bg-orange-400' : 'bg-amber-400'
+                  return (
+                    <div className="pt-1.5" title={ap.kind === 'team' ? 'Team approval request' : 'Printer submission'}>
+                      <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${tone}`}>
+                        <i className={`ti ${ap.status === 'approved' ? 'ti-rosette-discount-check' : ap.status === 'changes_requested' ? 'ti-alert-triangle' : 'ti-users-group'}`} />
+                        {ap.status === 'approved' ? `Fully approved · ${ap.done}/${ap.total}` : ap.status === 'changes_requested' ? `Changes requested · ${ap.done}/${ap.total} approved` : `${ap.done}/${ap.total} approved`}
+                        {ap.kind !== 'team' && <span className="font-normal text-gray-400">· printer</span>}
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div className={`h-full ${bar}`} style={{ width: `${ap.status === 'approved' ? 100 : pct}%` }} /></div>
+                    </div>
+                  )
+                })()}
               </div>
             </Link>
           ))}
