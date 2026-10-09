@@ -17,6 +17,8 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   submitted: 'Printer submitted for approval', confirmed: 'Confirmed', changes_requested: 'Changes requested',
   approved: 'Approved for production', approval_sent: 'Approval sent to printer', round_cancelled: 'Approval round cancelled',
   final_files_saved: 'Final files saved',
+  team_review_requested: 'Requested team approval', team_confirmed: 'Approved (team review)', team_changes: 'Requested changes (team review)',
+  team_approved: 'Fully approved by the team', team_reminder: 'Sent an approval reminder', team_review_cancelled: 'Team approval request canceled',
 }
 
 /** Team-side logging from the ERP (RLS allows authenticated users to insert team entries). */

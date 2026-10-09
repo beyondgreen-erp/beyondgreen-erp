@@ -6,6 +6,7 @@ import { BUCKET } from './doc'
 
 export const ERP_URL = 'https://beyondgreen-erp.vercel.app'
 export const PROOF_URL = 'https://beyondgreen-proofs.vercel.app'
+export const BUCKET_THUMB_TTL = 60 * 60 * 24 * 7 // thumbnail links in emails last a week
 export const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 export const fmtStamp = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
 
@@ -43,9 +44,9 @@ export async function sendEmail(to: string[], subject: string, html: string, rep
   } catch (e) { console.error('email failed', e); return false }
 }
 
-export async function notifyTeam(admin: any, designId: string, title: string, message: string, senderEmail?: string | null) {
+export async function notifyTeam(admin: any, designId: string, title: string, message: string, senderEmail?: string | null, recipients?: { email: string }[]) {
   try {
-    await admin.from('notifications').insert(APPROVERS.map(a => ({
+    await admin.from('notifications').insert((recipients?.length ? recipients : APPROVERS).map(a => ({
       recipient_email: a.email, sender_email: senderEmail || null, type: 'info', is_read: false, title, message,
       page: 'Packaging Design', record_type: 'packaging_design', record_id: designId, context_url: `/packaging/${designId}?tab=approvals`,
     })))

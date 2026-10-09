@@ -40,10 +40,10 @@ export interface DesignRow {
 /** Custom properties persisted on every fabric object. */
 export const OBJ_PROPS = ['id', 'layerId', 'name', 'cmykFill', 'spotFill', 'cmykStroke', 'spotStroke', 'overprint', 'lockedObj', 'assetPath', 'selectable', 'evented', 'lockMovementX', 'lockMovementY', 'lockRotation', 'lockScalingX', 'lockScalingY', 'hasControls', 'sourceFont']
 
-export const STATUSES = ['Draft', 'In Review', 'Printer Review', 'Approved', 'Final', 'Archived'] as const
+export const STATUSES = ['Draft', 'In Review', 'Printer Review', 'Approved', 'Fully Approved', 'Final', 'Archived'] as const
 export const STATUS_COLORS: Record<string, string> = {
   Draft: 'bg-gray-100 text-gray-700', 'In Review': 'bg-amber-100 text-amber-800', 'Printer Review': 'bg-violet-100 text-violet-800',
-  Approved: 'bg-emerald-100 text-emerald-800', Final: 'bg-blue-100 text-blue-800', Archived: 'bg-gray-200 text-gray-500',
+  Approved: 'bg-emerald-100 text-emerald-800', 'Fully Approved': 'bg-emerald-600 text-white', Final: 'bg-blue-100 text-blue-800', Archived: 'bg-gray-200 text-gray-500',
 }
 export const PRODUCT_TYPES = ['Folding carton', 'Shipping box', 'Pouch / bag', 'Label', 'Sleeve', 'Header card', 'Tray', 'Other']
 
