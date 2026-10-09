@@ -29,6 +29,7 @@ export default function PackagingWorkspace() {
   const [user, setUser] = useState({ email: '', name: '' })
   const [tab, setTab] = useState<Tab>(() => (['files', 'share', 'approvals', 'versions'].includes(search.get('tab') || '') ? search.get('tab') : 'design') as Tab)
   const [save, setSave] = useState<SaveState>({ status: 'idle' })
+  const [askNow, setAskNow] = useState(!!search.get('request'))
   const [name, setName] = useState('')
   const [, tick] = useState(0)
 
@@ -101,14 +102,15 @@ export default function PackagingWorkspace() {
             </>
           )}
           <button onClick={() => editorRef.current?.saveNow()} className="text-xs px-3 h-8 rounded-md bg-white/10 hover:bg-white/20"><i className="ti ti-device-floppy" /> Save</button>
-          <button onClick={() => setTab('share')} className="text-xs px-3 h-8 rounded-md font-semibold" style={{ background: '#2ABF06' }}><i className="ti ti-send" /> Share with printer</button>
+          <button onClick={() => { setTab('approvals'); setAskNow(true) }} className="text-xs px-3 h-8 rounded-md font-semibold whitespace-nowrap bg-[#3B6FE0] hover:bg-[#2f5bc0]"><i className="ti ti-users-group" /> Request approval</button>
+          <button onClick={() => setTab('share')} className="text-xs px-3 h-8 rounded-md font-semibold whitespace-nowrap" style={{ background: '#2ABF06' }}><i className="ti ti-send" /> Share with printer</button>
         </div>
       </header>
       <div className="flex-1 min-h-0 flex flex-col">
         <Editor editorRef={editorRef} design={design} initialDoc={doc} user={user} onSaved={onSaved} onSaveState={setSave} visible={tab === 'design'} initialPanel={search.get('import') ? 'import' : undefined} />
         {tab === 'files' && <FinalFilesTab design={design} editor={editorRef} user={user} onDesign={updateDesign} />}
         {tab === 'share' && <ShareTab design={design} editor={editorRef} user={user} onDesign={updateDesign} onOpenComment={cid => { setTab('design'); setTimeout(() => editorRef.current?.focusComment(cid), 50) }} />}
-        {tab === 'approvals' && <ApprovalsTab design={design} editor={editorRef} user={user} />}
+        {tab === 'approvals' && <ApprovalsTab design={design} editor={editorRef} user={user} openRequest={askNow} onRequestOpened={() => setAskNow(false)} onDesign={patch => setDesign(d => d ? { ...d, ...patch } as DesignRow : d)} />}
         {tab === 'versions' && <VersionsTab design={design} editor={editorRef} user={user} />}
       </div>
     </div>
