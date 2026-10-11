@@ -159,7 +159,7 @@ export default function QuickAddModal({ onClose, onSaved, userEmail }: { onClose
                 <label className="text-xs font-semibold text-gray-500 uppercase">Status</label>
                 <select value={parsed.customer_status} onChange={e => setParsed({...parsed, customer_status: e.target.value})}
                   className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  {['Lead','Prospect','Active','Inactive'].map(s => <option key={s}>{s}</option>)}
+                  {['Lead','Active Customer','Closed - Lost'].map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
             </div>

@@ -2,7 +2,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import nextDynamic from 'next/dynamic'
-import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import type { LeadPoint, ScrapeArea } from '@/components/LeadsMap'
 
@@ -14,27 +13,24 @@ interface Lead {
   city: string | null; state: string | null; customer_status: string | null; pipeline_stage: string | null
   is_scraped_lead: boolean | null; scraped_at: string | null; scrape_region: string | null; scrape_id: string | null
   contacted_at: string | null; latitude: number | null; longitude: number | null; industry: string | null; is_dead_lead: boolean | null
-  auto_outreach_paused: boolean | null; last_reply_intent: string | null
+  last_reply_intent: string | null
 }
 interface Scrape { id: string; prompt: string | null; zip: string | null; radius_miles: number | null; center_lat: number | null; center_lng: number | null; result_count: number | null; new_count: number | null; emails_found: number | null; created_at: string | null }
-interface Enrollment { id: string; sequence_id: string; customer_id: string; status: string; current_step: number; next_send_at: string | null; last_step_sent_at: string | null; enrolled_at: string | null }
-interface SeqLite { id: string; name: string; status: string; steps_total: number }
 interface Region { area: string; state: string; score: number; regulationAngle: string; demographicAngle: string; suggestedZips?: string[] }
 interface MarketResult { summary: string; regions: Region[]; cautions?: string }
 interface NewLead { id: string; company_name: string | null; email: string | null; city: string | null; state: string | null }
 
 // Record-Board style status groups (colored, collapsible, count pill)
 const GROUPS = [
-  { key: 'new',        title: 'New leads',       color: '#FDAB3D', match: (l: Lead, enr: boolean) => !isContacted(l) && !enr && !l.is_dead_lead },
-  { key: 'contacted',  title: 'Contacted',       color: '#3B6FE0', match: (l: Lead, enr: boolean) => isContacted(l) && !enr && !isReplied(l) && !l.is_dead_lead },
-  { key: 'replied',    title: 'Replied / warm',  color: '#00C875', match: (l: Lead, enr: boolean) => isReplied(l) && !l.is_dead_lead },
+  { key: 'new',        title: 'New leads',       color: '#FDAB3D', match: (l: Lead) => !isContacted(l) && !l.is_dead_lead },
+  { key: 'contacted',  title: 'Contacted',       color: '#3B6FE0', match: (l: Lead) => isContacted(l) && !isReplied(l) && !l.is_dead_lead },
+  { key: 'replied',    title: 'Replied / warm',  color: '#00C875', match: (l: Lead) => isReplied(l) && !l.is_dead_lead },
   { key: 'dead',       title: 'Dead',            color: '#9699A6', match: (l: Lead) => !!l.is_dead_lead },
 ]
 
 function isContacted(l: Lead) { return !!l.contacted_at || (!!l.pipeline_stage && l.pipeline_stage !== 'Lead' && l.pipeline_stage !== 'New') }
 function isReplied(l: Lead) { const s = (l.pipeline_stage || '').toLowerCase(); return s === 'interested' || s === 'replied' || s === 'warm' }
 const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
-const fmtDT = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
 export default function LeadsPage() {
   const [tab, setTab] = useState<'leads' | 'scrape' | 'market'>('leads')
@@ -46,8 +42,6 @@ export default function LeadsPage() {
   const [q, setQ] = useState('')
   const [visN, setVisN] = useState<Record<string, number>>({}) // rows shown per group
   const [userEmail, setUserEmail] = useState('')
-  const [enrByCustomer, setEnrByCustomer] = useState<Record<string, Enrollment & { seq_name: string; steps_total: number }>>({})
-  const [sequences, setSequences] = useState<SeqLite[]>([])
 
   const [prompt, setPrompt] = useState('restaurants, fast food, cafes')
   const [zip, setZip] = useState('')
@@ -65,7 +59,7 @@ export default function LeadsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const cols = 'id, company_name, email, phone, website, city, state, customer_status, pipeline_stage, is_scraped_lead, scraped_at, scrape_region, scrape_id, contacted_at, latitude, longitude, industry, is_dead_lead, auto_outreach_paused, last_reply_intent'
+    const cols = 'id, company_name, email, phone, website, city, state, customer_status, pipeline_stage, is_scraped_lead, scraped_at, scrape_region, scrape_id, contacted_at, latitude, longitude, industry, is_dead_lead, last_reply_intent'
     const all: Lead[] = []
     const SIZE = 1000
     for (let from = 0; from < 100000; from += SIZE) {
@@ -77,30 +71,9 @@ export default function LeadsPage() {
       all.push(...(data as Lead[]))
       if (data.length < SIZE) break
     }
-    const [{ data: s }, { data: enr }, { data: seqs }, { data: steps }] = await Promise.all([
-      sb.from('lead_scrapes').select('*').order('created_at', { ascending: false }).limit(500),
-      sb.from('sequence_enrollments').select('*').eq('status', 'active'),
-      sb.from('sequences').select('id,name,status').in('status', ['active', 'draft', 'paused']).order('created_at', { ascending: false }),
-      sb.from('sequence_steps').select('sequence_id'),
-    ])
+    const { data: s } = await sb.from('lead_scrapes').select('*').order('created_at', { ascending: false }).limit(500)
     setLeads(all)
     setScrapes((s as Scrape[]) || [])
-
-    // Group step counts per sequence
-    const stepCount: Record<string, number> = {}
-    ;((steps as any[]) || []).forEach(x => { stepCount[x.sequence_id] = (stepCount[x.sequence_id] || 0) + 1 })
-    const seqLite: SeqLite[] = ((seqs as any[]) || []).map(x => ({ id: x.id, name: x.name, status: x.status, steps_total: stepCount[x.id] || 0 }))
-    setSequences(seqLite)
-
-    // Index active enrollments by customer, with the sequence name and step total pre-joined
-    const seqMap: Record<string, SeqLite> = {}
-    seqLite.forEach(x => { seqMap[x.id] = x })
-    const m: Record<string, Enrollment & { seq_name: string; steps_total: number }> = {}
-    ;((enr as Enrollment[]) || []).forEach(e => {
-      const sq = seqMap[e.sequence_id]
-      m[e.customer_id] = { ...e, seq_name: sq?.name || '(unknown)', steps_total: sq?.steps_total || 0 }
-    })
-    setEnrByCustomer(m)
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
@@ -110,19 +83,18 @@ export default function LeadsPage() {
 
   // Group leads by pipeline status for the Record Board layout
   const grouped = useMemo(() => {
-    const gs: Record<string, Lead[]> = { new: [], sequence: [], contacted: [], replied: [], dead: [] }
+    const gs: Record<string, Lead[]> = { new: [], contacted: [], replied: [], dead: [] }
     const qs = q.trim().toLowerCase()
     for (const l of leads) {
       if (qs) {
         const hay = [l.company_name, l.email, l.city, l.state, l.industry, l.phone].filter(Boolean).join(' ').toLowerCase()
         if (!hay.includes(qs)) continue
       }
-      const enr = !!enrByCustomer[l.id]
-      const grp = GROUPS.find(g => g.match(l, enr))?.key || 'new'
+      const grp = GROUPS.find(g => g.match(l))?.key || 'new'
       gs[grp].push(l)
     }
     return gs
-  }, [leads, q, enrByCustomer])
+  }, [leads, q])
 
   const selIds = () => Object.keys(sel).filter(k => sel[k])
   const selCount = selIds().length
@@ -162,60 +134,6 @@ export default function LeadsPage() {
     if (error) { alert('Could not move: ' + error.message); return }
     setSel({}); load()
   }
-  async function convertSelected(status: string) { const ids = selIds(); if (!ids.length) return; await sb.from('customers').update({ customer_status: status }).in('id', ids); setSel({}); load() }
-  async function enrollSelected(seqId: string) {
-    const ids = selIds(); if (!seqId || !ids.length) return
-    const { data: cRows } = await sb.from('customers').select('id,auto_outreach_paused,company_name').in('id', ids)
-    const paused = (cRows || []).filter((c: any) => c.auto_outreach_paused)
-    const eligible = ids.filter(id => !paused.find((p: any) => p.id === id))
-    if (paused.length) {
-      const names = paused.map((p: any) => p.company_name || p.id).slice(0, 5).join(', ')
-      if (!confirm(`${paused.length} paused lead(s) will be SKIPPED: ${names}${paused.length > 5 ? '…' : ''}\n\nContinue enrolling the other ${eligible.length}?`)) return
-    }
-    if (!eligible.length) { setSel({}); return }
-    const rows = eligible.map(cid => ({ sequence_id: seqId, customer_id: cid, enrolled_by: userEmail, status: 'active', current_step: 0, next_send_at: new Date().toISOString() }))
-    await sb.from('sequence_enrollments').upsert(rows, { onConflict: 'sequence_id,customer_id' })
-    setSel({}); load()
-  }
-  async function stopSequenceForLead(customerId: string) {
-    if (!confirm('Stop this lead’s sequence? No more follow-ups will be sent.')) return
-    await sb.from('sequence_enrollments').update({ status: 'stopped', updated_at: new Date().toISOString() }).eq('customer_id', customerId).eq('status', 'active')
-    load()
-  }
-  async function pauseLead(customerId: string) {
-    const reason = window.prompt('Reason for pausing this lead? (e.g. "not now", "wrong contact", "asked to stop")', 'not now')
-    if (reason === null) return
-    await fetch('/api/leads/sequence-pause-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_ids: [customerId], reason }) })
-    load()
-  }
-  async function unpauseLead(customerId: string) {
-    if (!confirm('Unpause this lead and resume their sequences?')) return
-    await fetch('/api/leads/sequence-unpause-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_ids: [customerId] }) })
-    load()
-  }
-  async function sendNextNow(customerId: string) {
-    // If a pending review send already exists for this lead, approve THAT one.
-    // Otherwise force-run the sequence bypassing the send-day check.
-    const enr = enrByCustomer[customerId]
-    if (!enr) return
-    const { data: pending } = await sb.from('sequence_sends')
-      .select('id').eq('enrollment_id', enr.id).eq('status', 'review').limit(1)
-    if (pending && pending.length) {
-      const r = await fetch('/api/leads/sequence-approve', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ send_ids: [pending[0].id] }),
-      })
-      const j = await r.json()
-      alert(j.message || j.error || 'Sent.')
-    } else {
-      await sb.from('sequence_enrollments').update({ next_send_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', enr.id)
-      // Passing sequence_id bypasses the Mon-Fri send-day check for one-off manual sends.
-      const r = await fetch(`/api/leads/sequence-run?sequence_id=${encodeURIComponent(enr.sequence_id)}`)
-      const j = await r.json()
-      alert(j.message || j.error || 'Sent.')
-    }
-    load()
-  }
   async function deleteSelected() { const ids = selIds(); if (!ids.length || !confirm(`Delete ${ids.length} lead(s)?`)) return; await sb.from('customers').delete().in('id', ids); setSel({}); load() }
   async function deleteOne(id: string) { if (!confirm('Delete this lead?')) return; await sb.from('customers').delete().eq('id', id); load() }
 
@@ -248,13 +166,6 @@ export default function LeadsPage() {
                 <button onClick={promoteSelected} className="px-2.5 py-1.5 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold">Move to Customer/Leads</button>
                 <button onClick={() => markContacted(true)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-blue-50 text-blue-700 font-semibold">Mark Contacted</button>
                 <button onClick={() => markContacted(false)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">Uncontact</button>
-                <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">→ Prospect</button>
-{false && (
-                <select value="" onChange={e => { if (e.target.value) enrollSelected(e.target.value) }} className="px-2 py-1.5 rounded border border-[#E4E6EE] bg-indigo-50 text-indigo-700 font-semibold">
-                  <option value="">+ Add to sequence…</option>
-                  {sequences.map(s => <option key={s.id} value={s.id}>{s.name}{s.status !== 'active' ? ` (${s.status})` : ''}</option>)}
-                </select>
-                )}
                 <button onClick={deleteSelected} className="px-2.5 py-1.5 rounded border border-red-200 bg-red-50 text-red-600 font-semibold">Delete</button>
               </div>
             )}
@@ -287,18 +198,14 @@ export default function LeadsPage() {
                                 <th className="text-left px-3 py-2 font-semibold w-[130px]">Location</th>
                                 <th className="text-left px-3 py-2 font-semibold w-[200px]">Email</th>
                                 <th className="text-left px-3 py-2 font-semibold w-[120px]">Industry</th>
-                                <th className="text-left px-3 py-2 font-semibold w-[300px]">Status</th>
+                                <th className="text-left px-3 py-2 font-semibold w-[180px]">Status</th>
                                 <th className="text-right px-3 py-2 font-semibold w-[60px]"></th>
                               </tr>
                             </thead>
                             <tbody>
                               {view.map((l, i) => {
-                                const enr = enrByCustomer[l.id]
-                                const stepIdx = enr ? enr.current_step : -1
-                                const stepsTotal = enr?.steps_total || 0
-                                const progress = enr && stepsTotal > 0 ? Math.min(100, Math.round((stepIdx / stepsTotal) * 100)) : 0
                                 return (
-                                  <tr key={l.id} className={`hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'} ${l.auto_outreach_paused ? 'bg-amber-50/40' : ''}`}>
+                                  <tr key={l.id} className={`hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`}>
                                     <td className="px-3 py-2"><input type="checkbox" checked={!!sel[l.id]} onChange={e => setSel(s => ({ ...s, [l.id]: e.target.checked }))} /></td>
                                     <td className="px-3 py-2">
                                       <p className="font-semibold text-[#1A1D2E]">{l.company_name || '(unnamed)'}{l.website && <a href={l.website} target="_blank" rel="noreferrer" className="text-[#3B6FE0] ml-1 text-xs">↗</a>}</p>
@@ -308,30 +215,8 @@ export default function LeadsPage() {
                                     <td className="px-3 py-2">{l.email ? <a href={`mailto:${l.email}`} className="text-[#3B6FE0]">{l.email}</a> : <span className="text-amber-500 text-[11px]">no email</span>}</td>
                                     <td className="px-3 py-2 text-gray-500 truncate max-w-[120px]" title={l.industry || ''}>{l.industry || '—'}</td>
                                     <td className="px-3 py-2">
-                                      {enr ? (
-                                        <div>
-                                          <div className="flex items-center justify-between gap-2">
-                                            <Link href="/sales/sequences" className="font-semibold text-indigo-700 text-[11px] truncate max-w-[160px]">{enr.seq_name}</Link>
-                                            <span className="text-[10px] font-bold text-gray-500 whitespace-nowrap">Step {Math.min(stepIdx + 1, stepsTotal)}/{stepsTotal || '?'}</span>
-                                          </div>
-                                          <div className="h-1 bg-gray-100 rounded-full mt-1 overflow-hidden"><div className="h-full bg-indigo-500" style={{ width: progress + '%' }} /></div>
-                                          <div className="flex items-center justify-between text-[10px] text-gray-400 mt-0.5">
-                                            <span>Last: {fmtD(enr.last_step_sent_at)}</span>
-                                            <span>Next: {fmtDT(enr.next_send_at)}</span>
-                                          </div>
-                                          <div className="flex gap-1 mt-1">
-                                            <button onClick={() => sendNextNow(l.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">Send now</button>
-                                            <button onClick={() => pauseLead(l.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-amber-200 text-amber-600 hover:bg-amber-50" title="Pause this lead — stops all their sequences and blocks future enrollment">⏸ Pause</button>
-                                            <button onClick={() => stopSequenceForLead(l.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">Stop</button>
-                                          </div>
-                                        </div>
-                                      ) : l.is_dead_lead ? (
+                                      {l.is_dead_lead ? (
                                         <span className="text-[11px] text-gray-500">☠ Dead lead</span>
-                                      ) : l.auto_outreach_paused ? (
-                                        <div>
-                                          <span className="text-[11px] font-semibold text-amber-600">⏸ Paused{l.last_reply_intent ? ` — ${l.last_reply_intent}` : ''}</span>
-                                          <button onClick={() => unpauseLead(l.id)} className="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50">▶ Unpause</button>
-                                        </div>
                                       ) : isReplied(l) ? (
                                         <span className="text-[11px] font-semibold text-emerald-700">Replied — {l.pipeline_stage}</span>
                                       ) : isContacted(l) ? (

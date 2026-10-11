@@ -2,7 +2,6 @@
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface LP {
@@ -220,9 +219,6 @@ export default function LandingPagesAdminPage() {
         </div>
       )}
 
-      <div className="mt-6 text-xs text-gray-400">
-        <Link href="/sales/sequences" className="text-[#3B6FE0] hover:underline">← Back to Sequences</Link>
-      </div>
     </div>
   )
 }

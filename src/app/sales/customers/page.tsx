@@ -15,7 +15,6 @@ import LinkedTasks from '@/components/LinkedTasks'
 import ConversationLog from '@/components/ConversationLog'
 import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
-import OutreachDrawer from '@/components/OutreachDrawer'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import '@/lib/pdfSafeText'
@@ -53,7 +52,14 @@ interface ShipLocation {
 }
 
 const PIPELINE_STAGES = ['Lead','Contacted','Qualified','Proposal Sent','Negotiating','Closed Won','Closed Lost']
-const CUSTOMER_STATUSES = ['Lead','Prospect','Active Customer','Inactive','Do Not Contact']
+// Only three customer statuses. The database normalizes anything else on save.
+const CUSTOMER_STATUSES = ['Active Customer','Lead','Closed - Lost']
+function normStatus(s: string | null | undefined): string {
+  const v = (s || '').trim().toLowerCase()
+  if (v === 'active' || v === 'active customer') return 'Active Customer'
+  if (['inactive','do not contact','closed lost','closed - lost','lost','dead'].includes(v)) return 'Closed - Lost'
+  return 'Lead'
+}
 const LEAD_SOURCES = ['Referral','Trade Show','Website','Cold Outreach','Social Media','Other']
 const PAYMENT_TERMS = ['Net 15','Net 30','Net 45','COD']
 
@@ -70,9 +76,9 @@ const STAGE_BADGE: Record<string,string> = {
   'Closed Lost':'bg-red-500/15 text-red-400 border-red-500/20',
 }
 const STATUS_BADGE: Record<string,string> = {
-  Lead:'bg-[#F3F4F6] text-gray-600 border-gray-600', Prospect:'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  'Active Customer':'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-  Inactive:'bg-gray-600/20 text-gray-500 border-gray-600', 'Do Not Contact':'bg-red-500/15 text-red-400 border-red-500/20',
+  'Active Customer':'bg-emerald-50 text-emerald-700 border-emerald-200',
+  Lead:'bg-amber-50 text-amber-700 border-amber-200',
+  'Closed - Lost':'bg-gray-100 text-gray-500 border-gray-200',
 }
 
 const emptyForm = {
@@ -105,9 +111,9 @@ function avatarColor(str:string){ let h=0; for(let i=0;i<str.length;i++)h=str.ch
 
 // Monday Board Template — status group colors + order
 const CUST_STATUS_COLOR: Record<string,string> = {
-  'Active Customer':'#00A84F', 'Prospect':'#0086C0', 'Lead':'#9699A6', 'Inactive':'#C4C4C4', 'Do Not Contact':'#E2445C',
+  'Active Customer':'#00A84F', 'Lead':'#E39A2B', 'Closed - Lost':'#9699A6',
 }
-const CUST_GROUP_ORDER = ['Active Customer','Prospect','Lead','Inactive','Do Not Contact']
+const CUST_GROUP_ORDER = ['Active Customer','Lead','Closed - Lost']
 function Stat({ label, value, c }: { label: string; value: string | number; c?: string }) {
   return (
     <div className="mon-stat stat-card" style={c ? ({ ['--c']: c } as any) : undefined}>
@@ -273,7 +279,6 @@ export default function CustomersPage() {
   const [showMerged, setShowMerged] = useState(false)
   const [viewMode, setViewMode] = useState<'table'|'pipeline'>('table')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
-  const [outreachCustomer, setOutreachCustomer] = useState<Customer | null>(null)
 
   // Panel
   const [panelOpen, setPanelOpen] = useState(false)
@@ -388,7 +393,7 @@ export default function CustomersPage() {
   const filtered = customers.filter(c => {
     if (!showArchived && !c.is_active) return false
     if (showArchived && c.is_active) return false
-    if (stageFilter !== 'all' && (c.customer_status||'Lead') !== stageFilter) return false
+    if (stageFilter !== 'all' && normStatus(c.customer_status) !== stageFilter) return false
     if (accountTypeFilter !== 'all') {
       const acct = c.account_type ?? 'standalone'
       if (accountTypeFilter === 'parent' && !c.is_parent_account) return false
@@ -430,7 +435,7 @@ export default function CustomersPage() {
       company_name:c.company_name, email:c.email??'', phone:c.phone??'',
       billing_address:c.billing_address??'', shipping_address:c.shipping_address??'',
       payment_terms:c.payment_terms??'Net 30', notes:c.notes??'',
-      pipeline_stage:c.pipeline_stage??'Lead', customer_status:c.customer_status??'Lead',
+      pipeline_stage:c.pipeline_stage??'Lead', customer_status:normStatus(c.customer_status),
       deal_value:c.deal_value!=null?String(c.deal_value):'', probability:String(c.probability??0),
       industry:c.industry??'', lead_source:c.lead_source??'',
       expected_close_date:c.expected_close_date??'', next_follow_up:c.next_follow_up??'',
@@ -729,21 +734,7 @@ export default function CustomersPage() {
     setSelectedIds(new Set()); fetchCustomers()
   }
 
-  // Quick Move: sweep every customer with no orders yet over to the Leads board.
-  const [quickMoving, setQuickMoving] = useState(false)
-  async function quickMoveLeads() {
-    setQuickMoving(true)
-    const { data: count, error: cErr } = await supabase.rpc('quick_move_leads', { p_commit: false })
-    if (cErr) { setQuickMoving(false); alert('Could not check leads: ' + cErr.message); return }
-    const n = (count as number) || 0
-    if (!n) { setQuickMoving(false); alert('No leads to move — every customer here has placed an order.'); return }
-    if (!confirm(`Move ${n} contact${n === 1 ? '' : 's'} with no orders yet to the Leads board?\n\nThey'll appear on the Leads page and drop off Customers. Anyone who places an order later returns here automatically.`)) { setQuickMoving(false); return }
-    const { data: moved, error } = await supabase.rpc('quick_move_leads', { p_commit: true })
-    setQuickMoving(false)
-    if (error) { alert('Quick Move failed: ' + error.message); return }
-    setSelectedIds(new Set()); fetchCustomers()
-    alert(`Moved ${(moved as number) || 0} to the Leads board.`)
-  }
+
 
   async function forceDeleteCustomers() {
     const resp = prompt('PERMANENTLY delete ' + selectedArr.length + ' customer(s) AND all their linked records (orders, quotes, invoices, work orders, documents, etc.)? This cannot be undone.\n\nType DELETE to confirm.')
@@ -792,21 +783,18 @@ export default function CustomersPage() {
   async function recalcSpend() {
     if (!editing) return
     setSavingSpend(true); setRecalcMsg('')
-    const { data } = await supabase.from('shipments')
-      .select('ship_cost')
-      .ilike('customer_name', editing.company_name)
-    const total = (data ?? []).reduce((s:number, r:any) => s + (r.ship_cost || 0), 0)
-    const count = data?.length ?? 0
-    await supabase.from('customers').update({
-      lifetime_spend: total, total_shipments: count,
-      manual_spend_override: false, updated_at: new Date().toISOString(),
-    }).eq('id', editing.id)
-    setEditing(prev => prev ? { ...prev, lifetime_spend: total, total_shipments: count, manual_spend_override: false } : null)
+    // Totals come from the Shipments board (shipped value), via the same function the shipment trigger uses.
+    await supabase.from('customers').update({ manual_spend_override: false, updated_at: new Date().toISOString() }).eq('id', editing.id)
+    const { error } = await supabase.rpc('recompute_customer_stats', { p_customer: editing.id })
+    const { data } = await supabase.from('customers').select('lifetime_spend,total_shipments,first_shipment_date,last_shipment_date').eq('id', editing.id).single()
+    if (error || !data) { setRecalcMsg('Could not recalculate: ' + (error?.message || 'not found')); setSavingSpend(false); return }
+    setEditing(prev => prev ? { ...prev, ...data, manual_spend_override: false } : null)
     setSpendForm(prev => ({ ...prev, manual_spend_override: false }))
-    setRecalcMsg(`Recalculated: ${fmt$2(total)} from ${count} shipments`)
+    setRecalcMsg(`Recalculated: ${fmt$2(data.lifetime_spend)} from ${data.total_shipments ?? 0} shipments`)
     setSavingSpend(false)
     fetchCustomers()
   }
+
 
   // ── Merge ─────────────────────────────────────────────────
   function toggleSelect(id: string) {
@@ -960,6 +948,7 @@ export default function CustomersPage() {
   const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition'
   const inpSm = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
   const sel = inp + ' cursor-pointer'
+  const btnGhost = 'flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white text-gray-600 hover:text-[#1A1D2E] hover:border-gray-300 font-medium transition-colors'
   const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'|'intake'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
     ...(intake ? [{ key: 'intake' as const, label: 'Credit App & Onboarding' }] : []),
@@ -969,112 +958,89 @@ export default function CustomersPage() {
     { key: 'feed', label: 'Activity Feed' },
     { key: 'files', label: 'Files & Notes' },
   ]
-  const STATUS_FILTERS = ['all','Lead','Prospect','Active Customer','Inactive']
+  const STATUS_FILTERS = ['all','Active Customer','Lead','Closed - Lost']
   const selectedArr = Array.from(selectedIds)
   const selectedCustomers = customers.filter(c => selectedIds.has(c.id))
   const displaySpend = editing ? (editing.manual_spend_override && editing.manual_lifetime_spend != null ? editing.manual_lifetime_spend : editing.lifetime_spend) : null
 
   // Monday-style status groups derived from the filtered customers
   const custGroups = (() => {
-    const present = Array.from(new Set(filtered.map(c => c.customer_status || 'Lead')))
-    const ordered = [...CUST_GROUP_ORDER.filter(s => present.includes(s)), ...present.filter(s => !CUST_GROUP_ORDER.includes(s))]
-    return ordered.map(key => ({ key, color: CUST_STATUS_COLOR[key] || '#9699A6' }))
+    const present = new Set(filtered.map(c => normStatus(c.customer_status)))
+    return CUST_GROUP_ORDER.filter(s => present.has(s)).map(key => ({ key, color: CUST_STATUS_COLOR[key] }))
   })()
 
   return (
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
       {/* Page header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between mb-5">
+        <div className="min-w-0">
           <span className="mon-tag t-blue">🏢 Customer/Leads</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Customer/Leads</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading?'Loading…':`${filtered.length} ${showArchived?'archived':'active'} customer${filtered.length!==1?'s':''}`}</p>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${filtered.length} ${showArchived ? 'archived' : ''} record${filtered.length !== 1 ? 's' : ''}`}</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap lg:justify-end">
           <button
             onClick={() => { try { navigator.clipboard.writeText(NEW_CUSTOMER_FORM_URL) } catch { /* */ } setFormCopied(true); setTimeout(() => setFormCopied(false), 2500); window.open(NEW_CUSTOMER_FORM_URL, '_blank', 'noopener') }}
             title="Copy the customer-facing Credit Application + Onboarding form link, and open a preview. Share this link with new customers."
-            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-            {formCopied ? 'Link copied!' : 'Share New-Customer Form'}
+            className={btnGhost}>
+            <i className="ti ti-share text-sm" />{formCopied ? 'Link copied!' : 'New-Customer Form'}
           </button>
+          <button onClick={openGroupModal} className={btnGhost}><i className="ti ti-hierarchy-2 text-sm" />Group Accounts</button>
+          <button onClick={findDuplicates} className={btnGhost}><i className="ti ti-copy text-sm" />Find Duplicates</button>
           {selectedArr.length >= 2 && (
-            <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-[#1A1D2E] font-medium transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
-              Merge {selectedArr.length} Selected
+            <button onClick={openMergeModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors">
+              <i className="ti ti-arrows-join text-sm" />Merge {selectedArr.length} Selected
             </button>
           )}
-          <button onClick={openGroupModal} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-600 text-[#1A1D2E] font-medium transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-            Group Accounts
-          </button>
-          <button onClick={findDuplicates} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-            Find Duplicates
-          </button>
-          {/* Quick Move swept no-order customers into the Leads board, which is now the Scraped Repository. Hidden so real accounts don't flood it. */}
-          {false && <button onClick={quickMoveLeads} disabled={quickMoving} title="Move everyone with no orders yet to the Leads board" className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-50">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7"/></svg>
-            {quickMoving ? 'Moving…' : 'Quick Move to Leads'}
-          </button>}
-          <div className="flex items-center bg-[#F9FAFB] rounded-lg p-1 border border-[#E4E6EE]">
-            <button onClick={()=>setViewMode('table')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='table'?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18"/></svg>Table
-            </button>
-            <button onClick={()=>setViewMode('pipeline')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='pipeline'?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>Pipeline
-            </button>
-            <a href="/sales/campaign" className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors text-gray-500 hover:text-gray-700"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>Campaigns</a>
+          <div className="flex items-center bg-white rounded-lg p-0.5 border border-[#E4E6EE]">
+            <button onClick={()=>setViewMode('table')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='table'?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}><i className="ti ti-list text-sm" />Table</button>
+            <button onClick={()=>setViewMode('pipeline')} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${viewMode==='pipeline'?'bg-[#1A1D2E] text-white':'text-gray-500 hover:text-gray-700'}`}><i className="ti ti-layout-kanban text-sm" />Pipeline</button>
           </div>
-          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add Customer
+          <button onClick={()=>setShowQuickAdd(true)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors">✨ Quick Add</button>
+          <button onClick={()=>setShowQuickUpdate(true)} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors">✨ Quick Update</button>
+          <button onClick={openAdd} className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg bg-[#00A84F] hover:bg-[#00924A] text-white font-semibold transition-colors">
+            <i className="ti ti-plus text-sm" />Add Customer
           </button>
-              <button onClick={()=>setShowQuickAdd(true)} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-                ✨ Quick Add
-              </button>
-              <button onClick={()=>setShowQuickUpdate(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-[#1A1D2E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-                ✨ Quick Update
-              </button>
         </div>
       </div>
 
       {/* Stats */}
       {!loading && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-          <Stat label="Total Customers" value={customers.length} c="#0086C0" />
-          <Stat label="Active" value={customers.filter(c => c.customer_status === 'Active Customer').length} c="#00A84F" />
-          <Stat label="Prospects" value={customers.filter(c => c.customer_status === 'Prospect').length} c="#00C7C7" />
-          <Stat label="Leads" value={customers.filter(c => (c.customer_status || 'Lead') === 'Lead').length} c="#9699A6" />
-          <Stat label="Lifetime Spend" value={fmt$(customers.reduce((s, c) => s + (c.lifetime_spend || 0), 0))} c="#A25DDC" />
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-4">
+          <Stat label="Total Records" value={customers.length} c="#0086C0" />
+          <Stat label="Active Customers" value={customers.filter(c => normStatus(c.customer_status) === 'Active Customer').length} c="#00A84F" />
+          <Stat label="Leads" value={customers.filter(c => normStatus(c.customer_status) === 'Lead').length} c="#E39A2B" />
+          <Stat label="Closed - Lost" value={customers.filter(c => normStatus(c.customer_status) === 'Closed - Lost').length} c="#9699A6" />
+          <Stat label="Lifetime Sales" value={fmt$(customers.reduce((s, c) => s + (c.lifetime_spend || 0), 0))} c="#A25DDC" />
         </div>
       )}
 
       {/* Search + filters */}
       <div className="flex flex-col gap-3 mb-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 max-w-sm">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input placeholder="Search by name, contact, email…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+        <div className="flex items-center gap-x-5 gap-y-3 flex-wrap">
+          <div className="relative w-full sm:w-80">
+            <i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input placeholder="Search by name, contact, email…" value={search} onChange={e=>setSearch(e.target.value)} className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
           </div>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <div onClick={()=>setShowArchived(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${showArchived?'bg-blue-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showArchived?'translate-x-4':'translate-x-0.5'}`}/></div>
-            <span className="text-sm text-gray-400">Archived</span>
+          <label className="flex items-center gap-2 cursor-pointer select-none" onClick={()=>setShowArchived(v=>!v)}>
+            <span className={`w-9 h-5 rounded-full transition-colors relative ${showArchived?'bg-blue-600':'bg-gray-300'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showArchived?'translate-x-4':'translate-x-0.5'}`}/></span>
+            <span className="text-sm text-gray-600">Archived</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <div onClick={()=>setShowMerged(v=>!v)} className={`w-9 h-5 rounded-full transition-colors relative ${showMerged?'bg-amber-600':'bg-[#F5F6FA]'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showMerged?'translate-x-4':'translate-x-0.5'}`}/></div>
-            <span className="text-sm text-gray-400">Show Merged</span>
+          <label className="flex items-center gap-2 cursor-pointer select-none" onClick={()=>setShowMerged(v=>!v)}>
+            <span className={`w-9 h-5 rounded-full transition-colors relative ${showMerged?'bg-amber-500':'bg-gray-300'}`}><span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showMerged?'translate-x-4':'translate-x-0.5'}`}/></span>
+            <span className="text-sm text-gray-600">Show Merged</span>
           </label>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {STATUS_FILTERS.map(f=>(
-            <button key={f} onClick={()=>setStageFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${stageFilter===f?'bg-blue-600 border-blue-600 text-white':'border-[#E4E6EE] text-gray-400 hover:border-gray-600 hover:text-gray-700'}`}>
+            <button key={f} onClick={()=>setStageFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${stageFilter===f?'bg-[#1A1D2E] border-[#1A1D2E] text-white':'bg-white border-[#E4E6EE] text-gray-600 hover:border-gray-400'}`}>
               {f==='all'?'All':f}
             </button>
           ))}
-          <span className="text-gray-700 text-xs">|</span>
+          <span className="w-px h-5 bg-[#E4E6EE] mx-1" />
           {(['all','parent','child','standalone'] as const).map(f=>(
-            <button key={f} onClick={()=>setAccountTypeFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${accountTypeFilter===f?'bg-teal-600 border-teal-600 text-white':'border-[#E4E6EE] text-gray-400 hover:border-gray-600 hover:text-gray-700'}`}>
-              {f==='all'?'All Accounts':f==='parent'?'Parent Accounts':f==='child'?'Locations':f==='standalone'?'Standalone':''}
+            <button key={f} onClick={()=>setAccountTypeFilter(f)} className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${accountTypeFilter===f?'bg-teal-600 border-teal-600 text-white':'bg-white border-[#E4E6EE] text-gray-600 hover:border-gray-400'}`}>
+              {f==='all'?'All Accounts':f==='parent'?'Parent Accounts':f==='child'?'Locations':'Standalone'}
             </button>
           ))}
         </div>
@@ -1083,106 +1049,97 @@ export default function CustomersPage() {
       {/* ── TABLE VIEW ── */}
       {viewMode==='table'&&(
         loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
-        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':showArchived?'No archived customers.':'No customers yet.'}</p></div>
-        :<div className="space-y-2.5 mb-6">
-              <div className="mb-3 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — notes &amp; comments sync two-way across the record boards.</div>
-                        {custGroups.map(g=>{
-            const rows = filtered.filter(c => (c.customer_status||'Lead') === g.key)
+        :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':showArchived?'No archived records.':'No records yet.'}</p></div>
+        :<div className="space-y-3 mb-6">
+          {custGroups.map(g=>{
+            const rows = filtered.filter(c => normStatus(c.customer_status) === g.key)
             if (!rows.length) return null
             const isCol = collapsedGroups[g.key]
             const grpSpend = rows.reduce((s,c)=> s + (c.lifetime_spend||0), 0)
             return (
-            <div key={g.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3]">
-              <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-30 rounded-t-xl" style={{background:g.color+'14', borderLeft:'5px solid '+g.color}} onClick={()=>setCollapsedGroups(cc=>({...cc,[g.key]:!cc[g.key]}))}>
-                <span className="text-[10px]" style={{color:g.color, display:'inline-block', transform:isCol?'none':'rotate(90deg)'}}>&#9654;</span>
+            <div key={g.key} className="bg-white rounded-xl shadow-sm border border-[#ECEEF3] overflow-hidden">
+              <button type="button" className="w-full flex items-center gap-2.5 px-4 py-3 select-none text-left" style={{background:g.color+'12', borderLeft:'4px solid '+g.color}} onClick={()=>setCollapsedGroups(cc=>({...cc,[g.key]:!cc[g.key]}))}>
+                <i className={`ti ti-chevron-right text-xs transition-transform ${isCol?'':'rotate-90'}`} style={{color:g.color}} />
                 <span className="font-bold text-sm" style={{color:g.color}}>{g.key}</span>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{background:g.color+'26', color:g.color}}>{rows.length}</span>
-                <span className="ml-auto text-[12px] font-bold" style={{color:g.color}}>{fmt$2(grpSpend)}</span>
-              </div>
-              {!isCol && <div>
-                <table className="w-full min-w-[1000px] text-sm">
-                  <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]"><tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
-                    <th className="w-8 px-3 py-2"><span className="sr-only">Select</span></th>
-                    {['Company','Outreach','Primary Contact','Email','Status','Total Spent','Shipments','Last Purchase'].map(h=><th key={h} className="text-left font-semibold px-4 py-2">{h}</th>)}
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{background:g.color+'22', color:g.color}}>{rows.length}</span>
+                {g.key==='Active Customer' && <span className="ml-auto text-xs font-semibold tabular-nums" style={{color:g.color}}>{fmt$2(grpSpend)}</span>}
+              </button>
+              {!isCol && <div className="overflow-x-auto">
+                <table className="w-full min-w-[860px] table-fixed text-sm">
+                  <colgroup>
+                    <col className="w-10" /><col /><col className="w-[16%]" /><col className="w-[20%]" /><col className="w-36" /><col className="w-32" /><col className="w-24" /><col className="w-32" />
+                  </colgroup>
+                  <thead><tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
+                    <th className="px-3 py-2"><span className="sr-only">Select</span></th>
+                    <th className="text-left font-semibold px-3 py-2">Company</th>
+                    <th className="text-left font-semibold px-3 py-2">Primary Contact</th>
+                    <th className="text-left font-semibold px-3 py-2">Email</th>
+                    <th className="text-left font-semibold px-3 py-2">Status</th>
+                    <th className="text-right font-semibold px-3 py-2">Total Sales</th>
+                    <th className="text-right font-semibold px-3 py-2">Shipments</th>
+                    <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">Last Shipment</th>
                   </tr></thead>
-                  <tbody className="divide-y divide-[#EAECF2]">{rows.map((c,i)=>{
+                  <tbody>{rows.map((c,i)=>{
               const pc=primaryContacts[c.id]
               const isSelected=selectedIds.has(c.id)
               const isParent=c.is_parent_account===true
               const isChild=c.account_type==='child'
               const isExpanded=expandedParents.has(c.id)
               const children=isParent?(childrenByParent[c.id]??[]):[]
-              // Combined spend for parent
               const combinedSpend=isParent ? (c.lifetime_spend??0)+children.reduce((s,ch)=>s+(ch.lifetime_spend??0),0) : (c.lifetime_spend??null)
               const combinedShips=isParent ? (c.total_shipments??0)+children.reduce((s,ch)=>s+(ch.total_shipments??0),0) : (c.total_shipments??null)
+              const st=normStatus(c.customer_status)
               return [
-                <tr key={c.id} className={`border-b border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors ${isParent?'bg-teal-950/10':isChild?'bg-[#F5F6FA]/5':i%2?'bg-[#FAFAFA]':''} ${isSelected?'bg-blue-900/10':''}`}>
-                  <td className="px-3 py-3.5" onClick={e=>e.stopPropagation()}>
-                    <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(c.id)} className="w-4 h-4 rounded border-gray-600 bg-[#F9FAFB] text-blue-500 cursor-pointer"/>
+                <tr key={c.id} className={`border-b border-[#F1F2F6] hover:bg-[#F7F9FC] transition-colors ${isSelected?'bg-blue-50':isParent?'bg-teal-50/40':i%2?'bg-[#FCFCFD]':''}`}>
+                  <td className="px-3 py-2.5" onClick={e=>e.stopPropagation()}>
+                    <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(c.id)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" aria-label={`Select ${c.company_name}`}/>
                   </td>
-                  <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}>
-                    <div className="flex items-center gap-2.5" style={{paddingLeft:isChild?'1.25rem':0}}>
+                  <td className="px-3 py-2.5 cursor-pointer" onClick={()=>openEdit(c)}>
+                    <div className="flex items-center gap-2.5 min-w-0" style={{paddingLeft:isChild?'1.25rem':0}}>
                       {isParent&&(
-                        <button onClick={e=>{e.stopPropagation();toggleParentExpand(c.id)}} className="text-teal-400 hover:text-teal-300 shrink-0">
-                          {isExpanded?<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>:<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>}
+                        <button onClick={e=>{e.stopPropagation();toggleParentExpand(c.id)}} className="text-teal-600 hover:text-teal-800 shrink-0" aria-label={isExpanded?'Collapse locations':'Expand locations'}>
+                          <i className={`ti ti-chevron-right text-sm transition-transform ${isExpanded?'rotate-90':''}`} />
                         </button>
                       )}
-                      {isChild&&<span className="text-gray-600 text-xs shrink-0">↳</span>}
-                      {!isParent&&!isChild&&<div className={`w-7 h-7 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span></div>}
-                      {(isParent||isChild)&&<div className={`w-7 h-7 rounded-full ${isParent?'bg-teal-700':avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(c.company_name)}</span></div>}
-                      <div>
-                        <span className={`font-medium ${isParent?'text-teal-800':'text-[#1A1D2E]'}`}>{c.company_name}</span>{c.customer_code?<span className="ml-2 text-[11px] font-mono text-gray-400">#{c.customer_code}</span>:null}
-                        {isParent&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-teal-500/20 text-teal-400 border border-teal-500/30 rounded">Parent · {children.length} locations</span>}
-                        {isChild&&<span className="ml-2 text-xs text-gray-600">location</span>}
-                        {c.is_merged&&<span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded">Merged</span>}
+                      {isChild&&<span className="text-gray-400 text-xs shrink-0">↳</span>}
+                      <div className={`w-7 h-7 rounded-full ${isParent?'bg-teal-600':avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-[11px]">{initials(c.company_name)}</span></div>
+                      <div className="min-w-0">
+                        <p className="truncate"><span className={`font-medium ${isParent?'text-teal-800':'text-[#1A1D2E]'}`}>{c.company_name}</span>{c.customer_code?<span className="ml-1.5 text-[11px] font-mono text-gray-400">#{c.customer_code}</span>:null}</p>
+                        {(isParent||isChild||c.is_merged)&&<p className="text-[11px] text-gray-500 truncate">
+                          {isParent&&<span className="text-teal-700">Parent · {children.length} locations</span>}
+                          {isChild&&<span>Location</span>}
+                          {c.is_merged&&<span className="ml-1 text-amber-600">Merged</span>}
+                        </p>}
                       </div>
                     </div>
                   </td>
-              <td className="px-4 py-3.5">
-                {(c.customer_status === 'Lead' || c.customer_status === 'Prospect') && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setOutreachCustomer(c) }}
-                    className="px-3 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors whitespace-nowrap"
-                  >
-                    ✉ Email
-                  </button>
-                )}
-              </td>
-                  <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.full_name||'—'}</td>
-                  <td className="px-4 py-3.5 text-gray-400 text-sm cursor-pointer" onClick={()=>openEdit(c)}>{pc?.email||c.email||'—'}</td>
-                  <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}><span className={`text-xs px-2 py-1 rounded-full font-medium border ${STATUS_BADGE[c.customer_status||'Lead']||STATUS_BADGE.Lead}`}>{c.customer_status||'Lead'}</span></td>
-                  <td className="px-4 py-3.5 cursor-pointer" onClick={()=>openEdit(c)}>
-                    <span className={`font-medium ${isParent?'text-teal-400':'text-emerald-400'}`}>{combinedSpend!=null?fmt$2(combinedSpend):'—'}</span>
-                    {c.manual_spend_override&&<span className="ml-1 text-xs text-amber-400" title="Manual override">M</span>}
-                    {isParent&&children.length>0&&<span className="ml-1 text-xs text-gray-600">combined</span>}
+                  <td className="px-3 py-2.5 text-gray-600 truncate cursor-pointer" onClick={()=>openEdit(c)}>{pc?.full_name||'—'}</td>
+                  <td className="px-3 py-2.5 text-gray-600 truncate cursor-pointer" onClick={()=>openEdit(c)} title={pc?.email||c.email||''}>{pc?.email||c.email||'—'}</td>
+                  <td className="px-3 py-2.5 cursor-pointer" onClick={()=>openEdit(c)}><span className={`inline-block whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full font-semibold border ${STATUS_BADGE[st]}`}>{st}</span></td>
+                  <td className="px-3 py-2.5 text-right tabular-nums cursor-pointer" onClick={()=>openEdit(c)}>
+                    <span className={`font-medium ${combinedSpend?'text-emerald-700':'text-gray-400'}`}>{combinedSpend!=null?fmt$2(combinedSpend):'—'}</span>
+                    {c.manual_spend_override&&<span className="ml-1 text-[10px] text-amber-600" title="Manual override">M</span>}
                   </td>
-                  <td className="px-4 py-3.5 text-blue-400 font-medium cursor-pointer" onClick={()=>openEdit(c)}>{combinedShips!=null?combinedShips:'—'}</td>
-                  <td className="px-4 py-3.5 text-gray-400 cursor-pointer" onClick={()=>openEdit(c)}>{fmtD(c.last_shipment_date)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-blue-700 font-medium cursor-pointer" onClick={()=>openEdit(c)}>{combinedShips!=null?combinedShips:'—'}</td>
+                  <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap cursor-pointer" onClick={()=>openEdit(c)}>{fmtD(c.last_shipment_date)}</td>
                 </tr>,
-                // Expanded children rows
                 ...(isParent&&isExpanded ? children.map(ch=>{
                   const chPc=primaryContacts[ch.id]
-                  return <tr key={`child-${ch.id}`} className="border-b border-[#E4E6EE]/40 bg-teal-950/5 hover:bg-teal-950/20 transition-colors cursor-pointer" onClick={()=>openEdit(ch)}>
-                    <td className="px-3 py-2.5"/>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2 pl-10">
-                        <span className="text-gray-600 text-xs">↳</span>
-                        <div className={`w-5 h-5 rounded-full ${avatarColor(ch.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-semibold text-xs">{initials(ch.company_name)}</span></div>
-                        <span className="text-gray-500 text-xs">{ch.company_name}</span>
+                  const cst=normStatus(ch.customer_status)
+                  return <tr key={`child-${ch.id}`} className="border-b border-[#F1F2F6] bg-teal-50/30 hover:bg-teal-50 transition-colors cursor-pointer" onClick={()=>openEdit(ch)}>
+                    <td className="px-3 py-2"/>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2 pl-8 min-w-0">
+                        <span className="text-gray-400 text-xs">↳</span>
+                        <span className="text-gray-700 text-xs truncate">{ch.company_name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-gray-500 text-xs">{chPc?.full_name||'—'}</td>
-                    <td className="px-4 py-2.5 text-gray-500 text-xs">{chPc?.email||ch.email||'—'}</td>
-                    <td className="px-4 py-2.5"><span className={`text-xs px-1.5 py-0.5 rounded-full border ${STATUS_BADGE[ch.customer_status||'Lead']||STATUS_BADGE.Lead}`}>{ch.customer_status||'Lead'}</span></td>
-                    <td className="px-4 py-2.5 text-emerald-400 text-xs">{ch.lifetime_spend!=null?fmt$2(ch.lifetime_spend):'—'}</td>
-                    <td className="px-4 py-2.5 text-blue-400 text-xs">{ch.total_shipments!=null?ch.total_shipments:'—'}</td>
-                    <td className="px-4 py-2.5 text-gray-500 text-xs">{fmtD(ch.last_shipment_date)}</td>
-                <td className="px-4 py-2.5 text-xs">
-                  {ch.customer_status==='Lead'||ch.customer_status==='Prospect' ? <span className="text-red-500 font-semibold">Never purchased</span> : ch.last_shipment_date ? <span className="text-green-700">{fmtD(ch.last_shipment_date)}</span> : <span className="text-gray-400">—</span>}
-                </td>
-                <td className="px-4 py-2.5">
-                  {!userEmail.endsWith('@byndgrn.com') && <button onClick={()=>setOutreachCustomer(ch)} className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-2 py-1 font-medium">✉ Email</button>}
-                </td>
+                    <td className="px-3 py-2 text-gray-500 text-xs truncate">{chPc?.full_name||'—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs truncate">{chPc?.email||ch.email||'—'}</td>
+                    <td className="px-3 py-2"><span className={`inline-block whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full font-semibold border ${STATUS_BADGE[cst]}`}>{cst}</span></td>
+                    <td className="px-3 py-2 text-right tabular-nums text-emerald-700 text-xs">{ch.lifetime_spend!=null?fmt$2(ch.lifetime_spend):'—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-blue-700 text-xs">{ch.total_shipments!=null?ch.total_shipments:'—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{fmtD(ch.last_shipment_date)}</td>
                   </tr>
                 }) : [])
               ]
@@ -1247,7 +1204,7 @@ export default function CustomersPage() {
             <div className="min-w-0">
               <h2 className="text-lg truncate">{editing?editing.company_name:'Add Customer'}{editing?.customer_code?<span className="ml-2 text-sm font-mono text-gray-400">#{editing.customer_code}</span>:null}</h2>
               <p className="text-xs text-white/80 truncate">
-                {editing?.customer_status||'Lead'}
+                {normStatus(editing?.customer_status)}
                 {editing?.is_merged&&<span className="ml-2">· Merged</span>}
                 {editing?.is_parent_account&&<span className="ml-2">· Parent Account ({(childrenByParent[editing.id]??[]).length} locations)</span>}
                 {editing?.account_type==='child'&&editing?.parent_customer_id&&(()=>{const p=customers.find(x=>x.id===editing.parent_customer_id);return p?<span className="ml-2">· Part of {p.company_name}</span>:null})()}
@@ -1694,7 +1651,7 @@ export default function CustomersPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-[#1A1D2E] font-medium">{c.company_name}</p>
-                      <p className="text-xs text-gray-500">{c.customer_status||'Lead'} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
+                      <p className="text-xs text-gray-500">{normStatus(c.customer_status)} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
                     </div>
                     {mergePrimaryId===c.id&&<span className="text-xs text-blue-400 font-medium">PRIMARY</span>}
                   </label>
@@ -1800,7 +1757,7 @@ export default function CustomersPage() {
                           <div className={`w-6 h-6 rounded-full ${avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-[#1A1D2E] font-bold text-xs">{initials(c.company_name)}</span></div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[#1A1D2E] truncate">{c.company_name}</p>
-                            <p className="text-xs text-gray-500">{c.customer_status||'Lead'} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
+                            <p className="text-xs text-gray-500">{normStatus(c.customer_status)} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
                           </div>
                           {c.is_parent_account&&<span className="text-xs text-teal-400 shrink-0">Parent</span>}
                           {c.account_type==='child'&&<span className="text-xs text-gray-500 shrink-0">Location</span>}
@@ -1874,7 +1831,7 @@ export default function CustomersPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-[#1A1D2E] font-medium truncate">{c.company_name}</p>
-                        <p className="text-xs text-gray-500">{c.customer_status||'Lead'} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
+                        <p className="text-xs text-gray-500">{normStatus(c.customer_status)} · {c.total_shipments??0} shipments · {fmt$2(c.lifetime_spend)}</p>
                       </div>
                     </div>
                   ))}
@@ -1896,16 +1853,6 @@ export default function CustomersPage() {
       )}
             {showQuickAdd&&(<QuickAddModal key={String(showQuickAdd)} onClose={()=>setShowQuickAdd(false)} onSaved={()=>{fetchCustomers();setShowQuickAdd(false)}} userEmail={userEmail}/>)}
             {showQuickUpdate&&(<QuickUpdateModal key={String(showQuickUpdate)} onClose={()=>setShowQuickUpdate(false)} onSaved={()=>{fetchCustomers();setShowQuickUpdate(false)}} userEmail={userEmail}/>)}
-      {outreachCustomer && (
-                <OutreachDrawer
-          customerId={outreachCustomer.id}
-          companyName={outreachCustomer.company_name}
-          customerEmail={outreachCustomer.email || ''}
-          userEmail={userEmail}
-          isLead={outreachCustomer.customer_status === 'Lead'}
-          onClose={() => setOutreachCustomer(null)}
-        />
-      )}
     </div>
   )
 }

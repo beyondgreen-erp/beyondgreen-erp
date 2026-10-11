@@ -57,7 +57,7 @@ Also list every distinct person who appears in the thread (senders/recipients/si
     { "full_name": "Person mentioned in the thread", "title": "Job title or empty string", "email": "Email or empty string", "phone": "Phone or empty string" }
   ],
   "updates": {
-    "customer_status": "Lead | Prospect | Active | Inactive",
+    "customer_status": "Active Customer | Lead | Closed - Lost",
     "pipeline_stage": "string",
     "priority": "string",
     "contact_name": "string",
