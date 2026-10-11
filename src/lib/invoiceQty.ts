@@ -55,7 +55,17 @@ export function withBilledQty<T extends QtyLine>(lines: T[], orderLines: OrderQt
     const matches = bySku.get(key(l.sku)) ?? []
     if (matches.length !== 1) return { ...l, ordered_quantity: null, shipped_quantity: null }
     const o = matches[0]
+    // The two rows must be counting the same thing. The bug we are fixing copied
+    // the ORDERED quantity onto the bill, so a line we can correct still equals the
+    // ordered quantity. When it does not, the invoice is expressed in a different
+    // unit than the order (invoice 202865 bills 5,000 pieces against an order of 2
+    // cases) and swapping in the shipped figure would turn $100 into $0.04. Leave
+    // those alone and show no shipped figure rather than invent one.
+    const ordered = num(o.quantity)
+    if (ordered === null || Number(l.quantity) !== ordered) {
+      return { ...l, ordered_quantity: null, shipped_quantity: null }
+    }
     const shipped = num(o.quantity_shipped) ?? num(o.completed_qty)
-    return { ...l, ordered_quantity: num(o.quantity), shipped_quantity: shipped }
+    return { ...l, ordered_quantity: ordered, shipped_quantity: shipped }
   })
 }
