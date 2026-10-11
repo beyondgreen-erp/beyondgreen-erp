@@ -58,9 +58,41 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   const [menuOpen, setMenuOpen] = useState(false)
   const navRef = useRef<HTMLDivElement>(null)
 
+  // ── burger menu: used below lg, and on wider screens whenever the group strip doesn't fit ──
+  const stripRef = useRef<HTMLElement>(null)
+  const [stripOverflows, setStripOverflows] = useState(false)
+  const [burgerOpen, setBurgerOpen] = useState(false)
+  const [burgerGroup, setBurgerGroup] = useState<string | null>(null)
+  useEffect(() => {
+    const el = stripRef.current
+    if (!el) return
+    const check = () => setStripOverflows(el.scrollWidth > el.clientWidth + 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    Array.from(el.children).forEach(c => ro.observe(c))
+    document.fonts?.ready.then(check).catch(() => {})
+    return () => ro.disconnect()
+  }, [groups])
+  useEffect(() => { if (stripOverflows) setOpenGroup(null) }, [stripOverflows])
+  // close the burger menu after navigating
+  useEffect(() => { setBurgerOpen(false) }, [pathname])
+  // open the burger on the group that holds the current page
+  const currentGroup = useMemo(() => {
+    for (const g of groups) for (const it of g.items) {
+      const h = it.href || `/board/${it.board_key}`
+      if (h !== '/' && pathname.startsWith(h)) return g.group
+    }
+    return null
+  }, [groups, pathname])
+  const toggleBurger = () => {
+    setOpenGroup(null); setMenuOpen(false)
+    setBurgerOpen(o => { if (!o) setBurgerGroup(currentGroup); return !o })
+  }
+
   // ── close dropdowns on outside click ──
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (navRef.current && !navRef.current.contains(e.target as Node)) { setOpenGroup(null); setMenuOpen(false) } }
+    const h = (e: MouseEvent) => { if (navRef.current && !navRef.current.contains(e.target as Node)) { setOpenGroup(null); setMenuOpen(false); setBurgerOpen(false) } }
     const close = () => setOpenGroup(null)
     document.addEventListener('mousedown', h)
     window.addEventListener('resize', close)
@@ -78,7 +110,7 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true) }
-      if (e.key === 'Escape') setSearchOpen(false)
+      if (e.key === 'Escape') { setSearchOpen(false); setBurgerOpen(false) }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
@@ -143,6 +175,17 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   return (
     <header className="shrink-0 sticky top-0 z-40" style={{ background: '#FFFFFF', borderBottom: '1px solid #E4E6EE', paddingTop: 'env(safe-area-inset-top)' }}>
       <div ref={navRef} className="flex items-center gap-2 px-3 sm:px-5" style={{ height: 64 }}>
+        {/* burger: always below lg; on wider screens only when the group strip would overflow */}
+        <button
+          onClick={toggleBurger}
+          aria-label={burgerOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={burgerOpen}
+          className={`${stripOverflows ? 'flex' : 'flex lg:hidden'} items-center justify-center w-9 h-9 rounded-lg border transition-colors shrink-0`}
+          style={burgerOpen ? { color: '#00A84F', background: 'rgba(0,168,79,0.10)', borderColor: 'rgba(0,168,79,0.25)' } : { color: '#3A4056', background: '#F7F8FB', borderColor: '#E4E6EE' }}
+        >
+          <i className={`ti ${burgerOpen ? 'ti-x' : 'ti-menu-2'} text-lg`} />
+        </button>
+
         {/* brand logo -> dashboard */}
         <Link href="/" className="flex items-center shrink-0" title="beyondGREEN — Dashboard">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -164,7 +207,13 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
         )}
 
         {/* group dropdowns */}
-        <nav className="hidden lg:flex items-center gap-0.5 ml-2 min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" onScroll={() => setOpenGroup(null)}>
+        {/* Inline group strip (lg and up). It stays in the layout even when collapsed so it can keep
+            measuring whether the groups fit; while they don't, it is invisible and the burger takes over. */}
+        <nav
+          ref={stripRef}
+          aria-hidden={stripOverflows}
+          className={`hidden lg:flex flex-1 items-center gap-0.5 ml-2 min-w-0 overflow-hidden ${stripOverflows ? 'invisible pointer-events-none' : ''}`}
+        >
           {groups.map(g => (
             <div key={g.group} className="relative shrink-0">
               <button
@@ -200,6 +249,50 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
             </div>
           )
         })()}
+
+        {/* burger dropdown */}
+        {burgerOpen && (
+          <div className="absolute top-full left-2 sm:left-3 mt-1 w-[min(22rem,calc(100vw-1rem))] bg-white rounded-xl shadow-xl border border-[#E4E6EE] py-1.5 z-50 max-h-[75vh] overflow-y-auto">
+            {groups.map(g => {
+              const open = burgerGroup === g.group
+              const locked = LOCKED_GROUPS.has(g.group)
+              return (
+                <div key={g.group}>
+                  <button
+                    onClick={() => { if (locked) { setBurgerOpen(false); setSprintNotice(true); return } setBurgerGroup(open ? null : g.group) }}
+                    aria-expanded={open}
+                    className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-semibold hover:bg-[#F5F6FA]"
+                    style={{ color: open ? '#1A1D2E' : '#3A4056' }}
+                  >
+                    {g.group}
+                    <i className={`ti ti-chevron-down text-xs opacity-60 transition-transform ${open ? 'rotate-180' : ''}`} />
+                  </button>
+                  {open && (
+                    <div className="pb-1">
+                      {g.items.map(it => {
+                        const href = it.href || `/board/${it.board_key}`
+                        const here = href !== '/' && pathname.startsWith(href)
+                        return (
+                          <Link
+                            key={it.board_key}
+                            href={href}
+                            onClick={() => setBurgerOpen(false)}
+                            className="flex items-center gap-2.5 pl-5 pr-3 py-2 text-sm hover:bg-[#F5F6FA]"
+                            style={here ? { color: '#00A84F', background: 'rgba(0,168,79,0.08)' } : { color: '#3A4056' }}
+                          >
+                            <i className={`ti ${it.icon || 'ti-layout-board'} text-base w-5 text-center`} style={{ color: here ? '#00A84F' : '#8A93A8' }} />
+                            <span className="truncate flex-1">{it.label}</span>
+                            {it.is_custom && <span className="text-[9px] font-bold text-[#A25DDC]">BOARD</span>}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {/* right cluster */}
         <div className="flex items-center gap-2 ml-auto shrink-0">
