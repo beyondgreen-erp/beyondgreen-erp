@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import jsPDF from 'jspdf'
+import { billedAmount } from '@/lib/invoiceQty'
 import '@/lib/pdfSafeText'   // strips invisible pasted characters from every PDF
 import autoTable from 'jspdf-autotable'
 
 const GREEN: [number,number,number] = [16,185,129]
 const DARK: [number,number,number] = [17,24,39]
+const BLACK: [number,number,number] = [0,0,0]
 const GRAY: [number,number,number] = [107,114,128]
 const RED: [number,number,number] = [239,68,68]
 const fmt$ = (n: number) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n)
@@ -43,6 +45,8 @@ export interface InvoiceLine {
   sku?: string | null
   description: string
   quantity: number
+  ordered_quantity?: number | null
+  shipped_quantity?: number | null
   unit_price: number
   uom?: string | null
   line_total?: number
@@ -160,25 +164,32 @@ export function generateInvoicePDF(
         String(i + 1),
         l.sku ?? '—',
         l.description,
-        String(l.quantity),
+        String(l.ordered_quantity ?? l.quantity),
+        l.shipped_quantity === null || l.shipped_quantity === undefined
+          ? '—' : String(l.shipped_quantity),
         l.uom ?? 'EA',
         fmt$(l.unit_price),
-        fmt$(l.line_total ?? l.quantity * l.unit_price),
+        // Bill what shipped. Same rule as the on-screen invoice.
+        fmt$(billedAmount(l)),
       ])
-    : [['—', '—', 'See shipment/order details', '—', '—', '—', fmt$(total)]]
+    : [['—', '—', 'See shipment/order details', '—', '—', '—', '—', fmt$(total)]]
 
   autoTable(doc, {
     startY: y,
-    head: [['#','SKU','Description','Qty','UOM','Unit Price','Total']],
+    head: [['#','SKU','Description','Order Qty','Shipped','UOM','Unit Price','Total']],
     body: tableRows,
     theme: 'grid',
     headStyles: { fillColor: DARK, textColor: [255,255,255], fontSize: 8, fontStyle: 'bold' },
     bodyStyles: { fontSize: 8, textColor: DARK },
     alternateRowStyles: { fillColor: [248,250,252] },
     columnStyles: {
-      0: { cellWidth: 8 }, 1: { cellWidth: 22 }, 2: { cellWidth: 68 },
-      3: { cellWidth: 12, halign: 'right' }, 4: { cellWidth: 14, halign: 'center' },
-      5: { cellWidth: 24, halign: 'right' }, 6: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+      0: { cellWidth: 8 },
+      1: { cellWidth: 22, textColor: BLACK, fontSize: 9 },
+      2: { cellWidth: 60, textColor: BLACK, fontSize: 9 },
+      3: { cellWidth: 14, halign: 'right', textColor: BLACK, fontSize: 9 },
+      4: { cellWidth: 14, halign: 'right', textColor: BLACK, fontSize: 9, fontStyle: 'bold' },
+      5: { cellWidth: 12, halign: 'center' },
+      6: { cellWidth: 24, halign: 'right' }, 7: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
     },
     margin: { left: 14, right: 14 },
   })

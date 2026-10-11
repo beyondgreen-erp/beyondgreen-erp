@@ -14,7 +14,9 @@ import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
 import WorkflowMover from '@/components/WorkflowMover'
 
-interface LineItem { id: string; sku: string | null; description: string; quantity: number; unit_price: number; uom: string | null; line_total: number }
+import { withBilledQty, billedAmount, type OrderQtyRow } from '@/lib/invoiceQty'
+
+interface LineItem { id: string; sku: string | null; description: string; quantity: number; unit_price: number; uom: string | null; line_total: number; ordered_quantity?: number | null; shipped_quantity?: number | null }
 interface Invoice {
   id: string
   invoice_number: string
@@ -250,7 +252,20 @@ export default function InvoicesPage() {
     setBillingSaved(false)
     setOpen(true)
     const { data } = await sb.from('invoice_line_items').select('*').eq('invoice_id', inv.id).order('id')
-    setLineItems((data ?? []) as LineItem[])
+    const rawLines = (data ?? []) as LineItem[]
+      // An invoice bills what shipped, not what was ordered. invoice_line_items
+      // stores the quantity captured when the bill was created, which for most
+      // shipments came straight off the order line, so a short shipment was billed
+      // in full. Pair each line with its order line and let the shared helper decide.
+      const soIdForQty = ((inv as any).sales_order_id ?? (inv as any).order_id ?? null) as string | null
+      let orderQtyRows: OrderQtyRow[] = []
+      if (soIdForQty) {
+        const { data: oq } = await sb.from('sales_order_lines')
+          .select('sku, quantity, quantity_shipped, completed_qty')
+          .eq('sales_order_id', soIdForQty)
+        orderQtyRows = (oq ?? []) as OrderQtyRow[]
+      }
+      setLineItems(withBilledQty(rawLines, orderQtyRows))
     // Load documents connected to the source order + shipment
     setConnectedDocs([]); setShipDocs(null); setShipInfo(null); setSrcThread(null)
     // Resolve the originating order thread (Walmart/Chewy board order, else the sales order) so the
@@ -424,7 +439,7 @@ export default function InvoicesPage() {
   function downloadPDF() {
     if (!sel) return
     const customer = sel.customer_id ? { company_name: getCustomerName(sel), email: null, phone: null, billing_address: null, contact_name: null } : null
-    generateInvoicePDF({ ...sel, carrier: shipInfo?.carrier ?? null, tracking_number: shipInfo?.tracking_number ?? null } as any, customer, lineItems.map(l => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price, uom: l.uom, line_total: l.line_total })), getOrderNumber(sel))
+    generateInvoicePDF({ ...sel, carrier: shipInfo?.carrier ?? null, tracking_number: shipInfo?.tracking_number ?? null } as any, customer, lineItems.map(l => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price, uom: l.uom, line_total: l.line_total, ordered_quantity: l.ordered_quantity ?? null, shipped_quantity: l.shipped_quantity ?? null })), getOrderNumber(sel))
   }
 
   async function importShipments() {
@@ -870,7 +885,7 @@ export default function InvoicesPage() {
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="bg-[#F9FAFB] border-b border-[#E4E6EE]">
-                            {['SKU','Description','Qty','Unit Price','Total'].map(h => (
+                            {['SKU','Description','Order Qty','Shipped Qty','Unit Price','Total'].map(h => (
                               <th key={h} className="text-left text-gray-400 px-3 py-2 font-medium">{h}</th>
                             ))}
                           </tr>
@@ -878,11 +893,12 @@ export default function InvoicesPage() {
                         <tbody>
                           {lineItems.map((l, i) => (
                             <tr key={l.id} className={`border-b border-[#E4E6EE]/50 last:border-0 ${i % 2 === 1 ? 'bg-[#F5F6FA]/20' : ''}`}>
-                              <td className="px-3 py-2 text-gray-400 font-mono">{l.sku ?? '—'}</td>
-                              <td className="px-3 py-2 text-gray-500">{l.description}</td>
-                              <td className="px-3 py-2 text-gray-400 text-right">{l.quantity}</td>
+                              <td className="px-3 py-2 text-sm text-black font-mono">{l.sku ?? '—'}</td>
+                              <td className="px-3 py-2 text-sm text-black">{l.description}</td>
+                              <td className="px-3 py-2 text-sm text-black text-right">{l.ordered_quantity ?? l.quantity}</td>
+                            <td className="px-3 py-2 text-sm text-black font-semibold text-right">{l.shipped_quantity ?? '—'}</td>
                               <td className="px-3 py-2 text-gray-400 text-right">{fmt$(l.unit_price)}</td>
-                              <td className="px-3 py-2 text-[#1A1D2E] font-medium text-right">{fmt$(l.line_total)}</td>
+                              <td className="px-3 py-2 text-[#1A1D2E] font-medium text-right">{fmt$(billedAmount(l))}</td>
                             </tr>
                           ))}
                         </tbody>
