@@ -62,10 +62,18 @@ export function withBilledQty<T extends QtyLine>(lines: T[], orderLines: OrderQt
     // cases) and swapping in the shipped figure would turn $100 into $0.04. Leave
     // those alone and show no shipped figure rather than invent one.
     const ordered = num(o.quantity)
-    if (ordered === null || Number(l.quantity) !== ordered) {
+    const shipped = num(o.quantity_shipped) ?? num(o.completed_qty)
+    // The stored quantity has to be counting the same thing as the order line.
+    // It matches the ordered figure on a line still carrying the old bug, and the
+    // shipped figure on one already corrected. Matching neither means the bill is
+    // in a different unit than the order (202865 bills 5,000 pieces against an
+    // order of 2 cases), where swapping in the shipped number would turn $100 into
+    // $0.04. Leave those alone and show no shipped figure rather than invent one.
+    const stored = Number(l.quantity)
+    const sameBasis = (ordered !== null && stored === ordered) || (shipped !== null && stored === shipped)
+    if (ordered === null || !sameBasis) {
       return { ...l, ordered_quantity: null, shipped_quantity: null }
     }
-    const shipped = num(o.quantity_shipped) ?? num(o.completed_qty)
     return { ...l, ordered_quantity: ordered, shipped_quantity: shipped }
   })
 }
