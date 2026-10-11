@@ -309,7 +309,7 @@ export default function QuotationsPage() {
     if (!clean) return null
     const { data, error } = await supabase
       .from('customers')
-      .insert({ company_name: clean, board: 'Leads', is_active: true, pipeline_stage: 'New' })
+      .insert({ company_name: clean, board: 'customer', customer_status: 'Lead', is_active: true, pipeline_stage: 'New' })
       .select('id, company_name, board')
       .single()
     if (error) { alert('Could not add as lead: ' + error.message); return null }
@@ -1189,7 +1189,7 @@ export default function QuotationsPage() {
                             >
                               <span className="truncate">{c.company_name}</span>
                               <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 shrink-0 ${isCustomer ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                {isCustomer ? 'Customer' : 'Lead'}
+                                {isCustomer ? 'Customer/Lead' : 'Scraped'}
                               </span>
                             </button>
                           )

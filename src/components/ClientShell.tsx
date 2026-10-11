@@ -13,7 +13,7 @@ import AuthWatcher from './AuthWatcher'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
-  '/sales/customers': 'Customers',
+  '/sales/customers': 'Customer/Leads',
   '/sales/quotations': 'Quotations',
   '/sales/costing': 'Quick Quote',
   '/sales/orders': 'Order Pipeline',

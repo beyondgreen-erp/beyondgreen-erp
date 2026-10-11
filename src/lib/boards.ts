@@ -31,8 +31,8 @@ export const BADGE_BY_KEY: Record<string, string> = {
 // Built-in fallback so the nav never breaks if the DB is unreachable.
 export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/', label: 'Dashboard', icon: 'ti-layout-dashboard', nav_group: 'Overview', href: '/', sort_order: 0 },
-  { board_key: '/sales/customers', label: 'Customers', icon: 'ti-users', nav_group: 'CRM', href: '/sales/customers', sort_order: 0 },
-  { board_key: '/sales/leads', label: 'Leads', icon: 'ti-user-search', nav_group: 'CRM', href: '/sales/leads', sort_order: 1 },
+  { board_key: '/sales/customers', label: 'Customer/Leads', icon: 'ti-users', nav_group: 'CRM', href: '/sales/customers', sort_order: 0 },
+  { board_key: '/sales/leads', label: 'Scraped Repository', icon: 'ti-database-search', nav_group: 'CRM', href: '/sales/leads', sort_order: 1 },
   { board_key: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask', nav_group: 'CRM', href: '/operations/samples', sort_order: 2 },
   { board_key: '/sales/quotes', label: 'Quotes & Costing', icon: 'ti-file-invoice', nav_group: 'Sales', href: '/sales/quotes', sort_order: 0 },
   { board_key: '/sales/orders', label: 'Order Pipeline', icon: 'ti-shopping-cart', nav_group: 'Sales', href: '/sales/orders', sort_order: 2 },

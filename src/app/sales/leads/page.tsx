@@ -155,6 +155,13 @@ export default function LeadsPage() {
     await sb.from('customers').update(val ? { contacted_at: new Date().toISOString(), pipeline_stage: 'Contacted' } : { contacted_at: null, pipeline_stage: 'Lead' }).in('id', ids)
     setSel({}); load()
   }
+  async function promoteSelected() {
+    const ids = selIds(); if (!ids.length) return
+    if (!confirm(`Move ${ids.length} record(s) to Customer/Leads as real leads? They leave the Scraped Repository.`)) return
+    const { error } = await sb.from('customers').update({ board: 'customer', customer_status: 'Lead', updated_at: new Date().toISOString() }).in('id', ids)
+    if (error) { alert('Could not move: ' + error.message); return }
+    setSel({}); load()
+  }
   async function convertSelected(status: string) { const ids = selIds(); if (!ids.length) return; await sb.from('customers').update({ customer_status: status }).in('id', ids); setSel({}); load() }
   async function enrollSelected(seqId: string) {
     const ids = selIds(); if (!seqId || !ids.length) return
@@ -221,9 +228,10 @@ export default function LeadsPage() {
     <div className="min-h-screen mon-page p-4 md:p-6">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
         <div>
-          <span className="mon-tag t-purple">🎯 CRM · Leads</span>
-          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Leads</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{leads.length.toLocaleString()} leads · {withEmail.toLocaleString()} with email · <b className="text-amber-600">{totalNew.toLocaleString()} not yet contacted</b></p>
+          <span className="mon-tag t-purple">🗂️ CRM · Scraped Repository</span>
+          <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Scraped Repository</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Scraped and imported contacts. Move the ones worth working to Customer/Leads.</p>
+          <p className="text-gray-500 text-sm mt-0.5">{leads.length.toLocaleString()} records · {withEmail.toLocaleString()} with email · <b className="text-amber-600">{totalNew.toLocaleString()} not yet contacted</b></p>
         </div>
         <div className="flex gap-2 items-center"></div>
       </div>
@@ -237,6 +245,7 @@ export default function LeadsPage() {
             {selCount > 0 && (
               <div className="flex items-center gap-2 ml-auto text-xs flex-wrap">
                 <span className="text-gray-500 font-semibold">{selCount} selected:</span>
+                <button onClick={promoteSelected} className="px-2.5 py-1.5 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold">Move to Customer/Leads</button>
                 <button onClick={() => markContacted(true)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-blue-50 text-blue-700 font-semibold">Mark Contacted</button>
                 <button onClick={() => markContacted(false)} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">Uncontact</button>
                 <button onClick={() => convertSelected('Prospect')} className="px-2.5 py-1.5 rounded border border-[#E4E6EE] bg-white">→ Prospect</button>
