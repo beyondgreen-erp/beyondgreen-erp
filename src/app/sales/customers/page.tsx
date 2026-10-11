@@ -974,7 +974,7 @@ export default function CustomersPage() {
       {/* Page header */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between mb-5">
         <div className="min-w-0">
-          <span className="mon-tag t-blue">🏢 Customer/Leads</span>
+          <span className="mon-tag t-blue whitespace-nowrap">🏢 Customer/Leads</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Customer/Leads</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${filtered.length} ${showArchived ? 'archived' : ''} record${filtered.length !== 1 ? 's' : ''}`}</p>
         </div>
@@ -1067,7 +1067,7 @@ export default function CustomersPage() {
               {!isCol && <div className="overflow-x-auto">
                 <table className="w-full min-w-[860px] table-fixed text-sm">
                   <colgroup>
-                    <col className="w-10" /><col /><col className="w-[16%]" /><col className="w-[20%]" /><col className="w-36" /><col className="w-32" /><col className="w-24" /><col className="w-32" />
+                    <col className="w-10" /><col /><col className="w-[13%]" /><col className="w-[17%]" /><col className="w-32" /><col className="w-28" /><col className="w-24" /><col className="w-32" />
                   </colgroup>
                   <thead><tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                     <th className="px-3 py-2"><span className="sr-only">Select</span></th>
@@ -1104,8 +1104,9 @@ export default function CustomersPage() {
                       {isChild&&<span className="text-gray-400 text-xs shrink-0">↳</span>}
                       <div className={`w-7 h-7 rounded-full ${isParent?'bg-teal-600':avatarColor(c.company_name)} flex items-center justify-center shrink-0`}><span className="text-white font-semibold text-[11px]">{initials(c.company_name)}</span></div>
                       <div className="min-w-0">
-                        <p className="truncate"><span className={`font-medium ${isParent?'text-teal-800':'text-[#1A1D2E]'}`}>{c.company_name}</span>{c.customer_code?<span className="ml-1.5 text-[11px] font-mono text-gray-400">#{c.customer_code}</span>:null}</p>
-                        {(isParent||isChild||c.is_merged)&&<p className="text-[11px] text-gray-500 truncate">
+                        <p className={`truncate font-medium ${isParent?'text-teal-800':'text-[#1A1D2E]'}`} title={c.company_name}>{c.company_name}</p>
+                        {(c.customer_code||isParent||isChild||c.is_merged)&&<p className="text-[11px] text-gray-500 truncate">
+                          {c.customer_code?<span className="font-mono text-gray-400 mr-1.5">#{c.customer_code}</span>:null}
                           {isParent&&<span className="text-teal-700">Parent · {children.length} locations</span>}
                           {isChild&&<span>Location</span>}
                           {c.is_merged&&<span className="ml-1 text-amber-600">Merged</span>}
