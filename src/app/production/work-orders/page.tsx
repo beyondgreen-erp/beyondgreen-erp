@@ -78,6 +78,11 @@ function FieldInput({ f, live, onChange }: { f: Field; live: Record<string, any>
   )
 }
 
+// The run quantity is seeded from the sales order / item, but production often runs a
+// different amount than was sold (a full run, a make-ahead, a top-up). These keys stay
+// editable even when a value was prefilled, so the floor can override the quantity and Save.
+const QTY_OVERRIDE_KEYS = new Set(['bags_needed', 'straws_needed', 'straw_quantity', 'production_quantity', 'wo_qty'])
+
 function FormBody({ form, live, onChange, pulled }: { form: FormDef; live: Record<string, any>; onChange: (key: string, value: any) => void; pulled?: Pulled }) {
   return (
     <div className="space-y-6">
@@ -88,7 +93,10 @@ function FormBody({ form, live, onChange, pulled }: { form: FormDef; live: Recor
             {sec.fields.map(f => {
               // Known from the item record or the BOM, so it is shown rather
               // than asked for. Fix it at the source, not on the sheet.
-              const p = f.type === 'computed' ? undefined : pulled?.[f.key]
+              const rawP = f.type === 'computed' ? undefined : pulled?.[f.key]
+              // A prefilled quantity is a starting point, not a lock — keep it editable.
+              const overridable = QTY_OVERRIDE_KEYS.has(f.key)
+              const p = overridable ? undefined : rawP
               return (
                 <div key={f.key} className={f.wide ? 'sm:col-span-2' : ''}>
                   <label className="block text-xs text-gray-400 mb-1">{f.label}</label>
@@ -98,7 +106,10 @@ function FormBody({ form, live, onChange, pulled }: { form: FormDef; live: Recor
                       <span className="text-[10px] uppercase tracking-wide text-gray-400 shrink-0">{p.from}</span>
                     </div>
                   ) : (
-                    <FieldInput f={f} live={live} onChange={onChange} />
+                    <>
+                      <FieldInput f={f} live={live} onChange={onChange} />
+                      {overridable && rawP && <p className="text-[10px] text-gray-400 mt-1">from order \u00b7 editable</p>}
+                    </>
                   )}
                 </div>
               )
@@ -1046,6 +1057,7 @@ export default function WorkOrdersPage() {
                       type="time"
                       value={(detail.scheduled_start ?? '').slice(0, 5)}
                       onChange={e => patchWO(detail, { scheduled_start: e.target.value || null })}
+                      onBlur={e => { const v = e.target.value || null; if ((v ?? '') !== (detail.scheduled_start ?? '').slice(0, 5)) patchWO(detail, { scheduled_start: v }) }}
                       className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>

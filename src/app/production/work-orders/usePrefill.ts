@@ -59,7 +59,7 @@ export function usePrefill(
 
     const [{ data: pd }, { data: bd }] = await Promise.all([
       sb.from('products')
-        .select('sku,product_name,unit_of_measure,pieces_per_pack,packs_per_case,case_size,cases_per_pallet,pallet_ti_hi,product_color,print_color,product_thickness,product_size,bag_width_in,bag_length_in,weight_per_unit_grams,special_instructions')
+        .select('sku,product_name,unit_of_measure,pieces_per_pack,packs_per_case,case_size,cases_per_pallet,pallet_ti_hi,product_color,print_color,product_thickness,product_size,bag_width_in,bag_length_in,weight_per_unit_grams,ext_cycle_time_m_min,special_instructions')
         .ilike('sku', clean).limit(1),
       sb.from('product_bom')
         .select('component_sku,role,uom_type,qty_value,percentage,is_case_level')
@@ -94,6 +94,15 @@ export function usePrefill(
       const pieces = piecesInRun(q, uom, p)
       put('bags_needed', pieces || '', FROM_ITEM)
       put('straw_quantity', pieces || '', FROM_ITEM)
+
+      // Extrusion run rate lives on the item record now, so the sheet no longer
+      // asks for it. Ext. Cycle Time (M/Min) comes straight from the SKU.
+      put('cycle_time_m_min', p.ext_cycle_time_m_min, FROM_ITEM)
+      // Meter Quantity is the film this run needs: pieces x bag length, in metres.
+      // Both inputs are on the item record, so it no longer has to be worked out offline.
+      const IN_TO_M = 0.0254
+      const meters = pieces && numOr0(p.bag_length_in) ? pieces * numOr0(p.bag_length_in) * IN_TO_M : 0
+      put('meter_quantity', meters ? Math.round(meters) : '', FROM_ITEM)
     }
 
     if (bom.length) {
