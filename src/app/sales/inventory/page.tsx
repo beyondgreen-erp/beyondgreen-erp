@@ -36,6 +36,7 @@ interface Product {
   gtin_image_url: string | null
   case_qty: number | null
   weight_per_unit_grams: number | null
+  ext_cycle_time_m_min: number | null
   distribution_price: number | null
   wholesale_price: number | null
   msrp: number | null
@@ -127,6 +128,7 @@ const emptyForm = {
   gtin_image_url: '',
   case_qty: '',
   weight_per_unit_grams: '',
+  ext_cycle_time_m_min: '',
   distribution_price: '',
   wholesale_price: '',
   msrp: '',
@@ -536,6 +538,7 @@ const EditPanel = memo(function EditPanel({
                 ['Print Color', 'print_color'],
                 ['Bag Length (in)', 'bag_length_in'],
                 ['Bag Width (in)', 'bag_width_in'],
+                ['Ext. Cycle Time (M/Min)', 'ext_cycle_time_m_min'],
                 ['Case Size', 'case_size'],
                 ['Case Weight', 'case_weight'],
                 ['Pallet Ti x Hi', 'pallet_ti_hi'],
@@ -909,6 +912,7 @@ export default function InventoryPage() {
       gtin_image_url: r.gtin_image_url ?? '',
       case_qty: r.case_qty != null ? String(r.case_qty) : '',
       weight_per_unit_grams: r.weight_per_unit_grams != null ? String(r.weight_per_unit_grams) : '',
+      ext_cycle_time_m_min: r.ext_cycle_time_m_min != null ? String(r.ext_cycle_time_m_min) : '',
       distribution_price: r.distribution_price != null ? String(r.distribution_price) : '',
       wholesale_price: r.wholesale_price != null ? String(r.wholesale_price) : '',
       msrp: r.msrp != null ? String(r.msrp) : '',
@@ -996,6 +1000,7 @@ export default function InventoryPage() {
       gtin_image_url: form.gtin_image_url || null,
       case_qty: form.case_qty ? parseInt(form.case_qty) : null,
       weight_per_unit_grams: form.weight_per_unit_grams ? parseFloat(form.weight_per_unit_grams) : null,
+      ext_cycle_time_m_min: form.ext_cycle_time_m_min ? parseFloat(form.ext_cycle_time_m_min) : null,
       distribution_price: form.distribution_price ? parseFloat(form.distribution_price) : null,
       wholesale_price: form.wholesale_price ? parseFloat(form.wholesale_price) : null,
       msrp: form.msrp ? parseFloat(form.msrp) : null,
