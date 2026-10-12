@@ -21,6 +21,7 @@ interface ProductProp {
 }
 
 import { conversionFactor, describeLadder } from '@/lib/uom'
+import { rolledCostMap } from '@/lib/bomRollup'
 
 type Basis = 'percentage' | 'pcs_unit' | 'pcs_pack' | 'pcs_case'
 
@@ -36,6 +37,7 @@ interface BomRow {
   product_name: string
   category: string | null
   unit_cost: number
+  rolled: boolean   // true when unit_cost came from the component's own BOM, not its stored cost
   basis: Basis
   qty_value: number  // percentage (0-100) or pcs count
   linked: boolean    // component_sku resolves to a live Inventory product (Ultron)
@@ -391,6 +393,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     const { data: prods } = await sb.from('products').select('sku,product_name,category,unit_cost').in('sku', compSkus)
     const pm: Record<string, any> = {}
     for (const p of (prods ?? []) as any[]) pm[p.sku] = p
+    // A component can be a child SKU with a BOM of its own. Where it has one, cost it at
+    // what that BOM comes to rather than the flat number typed on the product, so a resin
+    // price change reaches the finished good instead of stopping one level short.
+    const rolled = await rolledCostMap(sb, compSkus)
 
     const rows: BomRow[] = bomRows.map((r: any) => {
       const comp = pm[r.component_sku]
@@ -408,7 +414,8 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
         component_sku: r.component_sku,
         product_name: comp?.product_name ?? '— (not in inventory)',
         category: cat,
-        unit_cost: Number(comp?.unit_cost ?? 0),
+        unit_cost: rolled[r.component_sku] ?? Number(comp?.unit_cost ?? 0),
+      rolled: rolled[r.component_sku] !== undefined,
         basis,
         qty_value: r.qty_value != null ? Number(r.qty_value) : Number(r.percentage ?? 0),
         linked,
@@ -825,7 +832,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                             <input type="number" min="0" step="0.01" defaultValue={c.qty_value} key={c.id + c.basis + '-q'} onBlur={e => updateQtyValue(c.id, e.target.value)} className={inp + ' w-full !min-w-[52px] text-right !py-1 !px-1.5 text-[11px]'} />
                           </td>
                           <td className="px-2 py-2 text-right text-gray-500 whitespace-nowrap">
-                            {c.basis === 'percentage' ? <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/lb</span></span> : <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/ea</span></span>}
+                            {c.basis === 'percentage' ? <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/lb</span></span> : <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/ea</span>{c.rolled ? <span className="text-gray-300" title="Worked out from this component's own BOM, not the unit cost stored on it"> BOM</span> : null}</span>}
                           </td>
                           <td className="px-2.5 py-2 text-right font-semibold text-[#1A1D2E] whitespace-nowrap">{fmt4(c.extended_cost)}</td>
                           <td className="px-2 py-2">
