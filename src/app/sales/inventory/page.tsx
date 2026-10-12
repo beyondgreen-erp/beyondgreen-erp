@@ -82,7 +82,8 @@ const CLASS_COLORS: Record<string, string> = {
 const CLASS_MAP: Record<string, string> = {
   'finished goods': CLASS_FINISHED, 'finished products': CLASS_FINISHED, 'bags': CLASS_FINISHED,
   'wraps': CLASS_FINISHED, 'molded fiber': CLASS_FINISHED,
-  'component': 'Packaging',
+  // A component is a class of its own: a child SKU carrying its own BOM, not packaging.
+  'component': 'Component',
   '': 'Unclassified', 'uncategorized': 'Unclassified',
 }
 function classOf(p: { category: string | null }): string {
@@ -90,6 +91,10 @@ function classOf(p: { category: string | null }): string {
   return CLASS_MAP[raw.toLowerCase()] ?? (raw || 'Unclassified')
 }
 const isFinished = (p: { category: string | null }) => classOf(p) === CLASS_FINISHED
+// Classes that are built out of something, so they carry a BOM: a finished good, and a
+// component, which is the child SKU holding the material blend the finished good uses.
+const BOM_CLASSES = new Set<string>([CLASS_FINISHED, 'Component'])
+const hasBom = (p: { category: string | null }) => BOM_CLASSES.has(classOf(p))
 // Which class values (as stored in `category`) count as finished, for the editor toggle.
 const FINISHED_CATEGORY_VALUES = ['Finished Goods', 'Finished Products', 'Bags', 'Wraps', 'Molded Fiber']
 const ADD_NEW_UOM = '__add_new_uom__'
@@ -1412,7 +1417,7 @@ export default function InventoryPage() {
                                 <td colSpan={12} className="px-3 pb-3 pt-0">
                                   <div className="flex items-center gap-1 flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                     <button onClick={() => openEdit(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
-                                    {isFG && !isImport && <button onClick={() => setBomProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>}
+                                    {hasBom(p) && !isImport && <button onClick={() => setBomProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>}
                                     <button onClick={() => setZoneProduct(p)} className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                                     {isFG && <button onClick={() => setLabelProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
                                     <button onClick={() => toggleActivity(p)} title="Receiving & movement history" className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E] hover:bg-[#DDF3E8]'}`}>Activity {activityOpen[p.id] ? '▾' : '▸'}</button>
@@ -1505,7 +1510,7 @@ export default function InventoryPage() {
                             {/* Action buttons — one line, no wrap */}
                             <div className="mt-2 flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" onClick={e=>e.stopPropagation()}>
                               <button onClick={() => openEdit(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600">Edit</button>
-                              {isFG && !isImport && <button onClick={() => setBomProduct(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0]">BOM</button>}
+                              {hasBom(p) && !isImport && <button onClick={() => setBomProduct(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0]">BOM</button>}
                               <button onClick={() => setZoneProduct(p)} className={`shrink-0 text-[11px] px-2.5 py-1 rounded ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                               {isFG && <button onClick={() => setLabelProduct(p)} className="shrink-0 text-[11px] px-2.5 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B]">Label</button>}
                               <button onClick={() => toggleActivity(p)} className={`shrink-0 text-[11px] px-2.5 py-1 rounded ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E]'}`}>Activity {activityOpen[p.id] ? '\u25be' : '\u25b8'}</button>

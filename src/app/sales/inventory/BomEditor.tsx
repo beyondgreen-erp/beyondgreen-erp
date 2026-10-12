@@ -618,13 +618,47 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     setSavingCase(false); flash(error ? 'Error: ' + error.message : 'Case cost saved')
   }
 
+  /**
+   * Walks down from startSku through product_bom looking for targetSku, and returns the
+   * path that reaches it, or null. Now that a component carries its own BOM this is what
+   * stops A -> B -> A. It is depth-capped and never revisits a SKU, so a loop already
+   * sitting in the data cannot hang the editor.
+   */
+  async function bomPathTo(startSku: string, targetSku: string): Promise<string[] | null> {
+    const seen = new Set<string>([startSku])
+    let frontier: { sku: string; path: string[] }[] = [{ sku: startSku, path: [startSku] }]
+    for (let depth = 0; depth < 12 && frontier.length; depth++) {
+      const { data } = await sb.from('product_bom')
+        .select('finished_good_sku,component_sku')
+        .in('finished_good_sku', frontier.map(f => f.sku))
+      const next: { sku: string; path: string[] }[] = []
+      for (const r of ((data || []) as { finished_good_sku: string; component_sku: string }[])) {
+        const parent = frontier.find(f => f.sku === r.finished_good_sku)
+        if (!parent) continue
+        const path = [...parent.path, r.component_sku]
+        if (r.component_sku === targetSku) return path
+        if (seen.has(r.component_sku)) continue
+        seen.add(r.component_sku)
+        next.push({ sku: r.component_sku, path })
+      }
+      frontier = next
+    }
+    return null
+  }
+
   async function addComponent() {
     setAddErr('')
     if (!addSku) { setAddErr('Pick a component from search'); return }
     const qty = parseFloat(addQty)
     if (!qty || qty <= 0) { setAddErr('Enter a value greater than 0'); return }
     if (countsTowardWeight(addRole, addBasis) && totalPct + qty > 100.001) { setAddErr(`Total % would be ${(totalPct + qty).toFixed(2)} (max 100)`); return }
+    if (addSku === product.sku) { setAddErr('A SKU cannot be a component of itself'); return }
     setAdding(true)
+    const loop = await bomPathTo(addSku, product.sku)
+    if (loop) {
+      setAddErr('Circular BOM: ' + loop.join(' -> ') + ' already leads back to ' + product.sku + '.')
+      setAdding(false); return
+    }
     const db = basisToDb(addBasis)
     const { error } = await sb.from('product_bom').insert({
       finished_good_sku: product.sku, component_sku: addSku,
