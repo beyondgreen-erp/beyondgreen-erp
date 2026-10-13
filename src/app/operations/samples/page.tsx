@@ -30,6 +30,10 @@ const STATUSES = [
   { label: 'Unfulfillable', hex: '#e2445c' },
 ]
 const STATUS_OPTIONS = STATUSES.map(s => s.label)
+// A cancelled sample is filed by its status, not by whatever group someone last dragged
+// it into, so it leaves Pending on its own instead of sitting there looking live.
+const CANCELLED_KEY = 'Cancelled'
+const isCancelledRow = (r: { status?: string | null }) => (r.status || '') === CANCELLED_KEY
 const statusHex = (s: string | null) => STATUSES.find(x => x.label === s)?.hex || '#c4c4c4'
 const GROUPS = [
   { key: 'Pending Sample Shipments', color: '#FDAB3D' },
@@ -493,6 +497,7 @@ export default function SamplesPage() {
   const { allGroups, rowsByGroup, shownCount } = useMemo(() => {
     const match = (r: Sample) => !q || [r.name, r.customer_email, r.product, r.requestor, r.tracking_number].some(v => (v || '').toLowerCase().includes(q))
     const isShipped = (r: Sample) => (r.group_name || '') === 'Shipped Samples'
+    const isCancelled = isCancelledRow
     const shipDate = (r: Sample) => ((r as any).shipped_at as string | null) || r.ship_due_date || r.sample_date || null
     const monthKey = (r: Sample) => { const d = shipDate(r); if (!d) return 'Shipped — no date'; const dt = new Date(d); return isNaN(dt.getTime()) ? 'Shipped — no date' : dt.toLocaleString('en-US', { month: 'long', year: 'numeric' }) }
     const byGroup = new Map<string, Sample[]>()
@@ -501,7 +506,9 @@ export default function SamplesPage() {
     for (const r of rows) {
       if (!match(r)) continue
       let key: string
-      if (isShipped(r)) {
+      if (isCancelled(r)) {
+        key = CANCELLED_KEY
+      } else if (isShipped(r)) {
         key = monthKey(r)
         const d = shipDate(r) || ''
         const cur = monthLatest.get(key)
@@ -521,6 +528,9 @@ export default function SamplesPage() {
       ...extraKeys.map(k => ({ key: k, color: GROUPS.find(g => g.key === k)?.color || '#9699A6' })),
       ...shippedMonthGroups,
     ]
+    // Only shown once something is in it, and kept out of the month sections so the
+    // ship cost totals stay a record of what actually went out the door.
+    if (byGroup.has(CANCELLED_KEY)) groups.push({ key: CANCELLED_KEY, color: '#E2445C' })
     let count = 0; for (const arr of byGroup.values()) count += arr.length
     return { allGroups: groups, rowsByGroup: byGroup, shownCount: count }
   }, [rows, q])
@@ -535,6 +545,17 @@ export default function SamplesPage() {
     if (!id) return
     const row = rows.find(r => r.id === id)
     if (!row) return
+    // Nothing to ship or deliver on a cancelled sample, and the customer should not hear
+    // about a dead one, so moving its card never opens the confirm-and-send modal. Its
+    // status is what files it, so it stays in the Cancelled group until that changes.
+    if (isCancelledRow(row)) return
+    // Dropping any card on the Cancelled group cancels it. No email on this path either.
+    if (target.key === CANCELLED_KEY) {
+      const patch: any = { updated_at: new Date().toISOString(), status: CANCELLED_KEY }
+      await sb.from('sample_submissions').update(patch).eq('id', id)
+      setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
+      return
+    }
     if (target.shippedMonth) {
       if ((row.group_name || '') === 'Shipped Samples') return // already shipped
       setShipSample(row)
