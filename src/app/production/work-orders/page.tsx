@@ -389,6 +389,54 @@ export default function WorkOrdersPage() {
 
   async function setStatus(wo: WO, status: string) {
     if (!status || status === wo.status) return
+
+    // Completing a work order must capture what was ACTUALLY produced, not assume the plan.
+    // Ask for the final total produced, book only that (the DB trigger books total - already
+    // reported), and show how the finished quantity compared to what was planned.
+    if (status === 'Complete') {
+      const { data: mv } = await sb.from('inventory_movements')
+        .select('qty').eq('ref_table', 'work_orders').eq('ref_id', wo.id).eq('movement_type', 'produce')
+      const alreadyBooked = ((mv as any[]) || []).reduce((s, m) => s + Number(m.qty || 0), 0)
+      const planned = Number(wo.qty_ordered || 0)
+      const sku = (detail && detail.id === wo.id ? (woProduct?.sku || detail.item_part_number) : (wo as any).item_part_number) || 'this item'
+      const uom = wo.uom || ''
+      const label = wo.wo_code || 'WO-' + wo.wo_number
+      const input = window.prompt(
+        `Completing ${label}.\n\n`
+        + `How many ${sku} were produced IN TOTAL for this work order?\n\n`
+        + `Planned: ${fmtN(planned)}${uom ? ' ' + uom : ''}\n`
+        + `Already reported into inventory: ${fmtN(alreadyBooked)}${uom ? ' ' + uom : ''}\n\n`
+        + `Enter the final total actually made — only this amount is counted in inventory.`,
+        String(alreadyBooked || planned || ''))
+      if (input == null) return
+      const total = Number(input)
+      if (!isFinite(total) || total < 0) { alert('Enter a valid quantity (0 or more).'); return }
+      if (total < alreadyBooked) {
+        alert(`You entered ${fmtN(total)} but ${fmtN(alreadyBooked)} has already been reported into inventory for this work order.\n\nReduce it first with "Undo booking", then complete.`)
+        return
+      }
+      const patch: Record<string, any> = { status, qty_completed: total, updated_at: new Date().toISOString() }
+      setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...patch } as WO : o)))
+      setDetail(d => (d && d.id === wo.id ? { ...d, ...patch } as WO : d))
+      const { error } = await sb.from('work_orders').update(patch).eq('id', wo.id)
+      if (error) { alert('Could not complete: ' + error.message); return }
+      if (wo.sales_order_id) { try { await checkOrderReadyToShip(wo.sales_order_id) } catch { /* non-blocking */ } }
+      const cmid = wo.machine_id
+      if (cmid) {
+        await sb.from('machines').update({ status: 'Idle', updated_at: new Date().toISOString() }).eq('id', cmid)
+        setMachines(list => list.map(m => (m.id === cmid ? { ...m, status: 'Idle' } : m)))
+      }
+      await refreshFG()
+      const bookedNow = total - alreadyBooked
+      const variance = total - planned
+      alert(
+        `\u2713 ${label} completed.\n\n`
+        + `Produced: ${fmtN(total)}${uom ? ' ' + uom : ''}\n`
+        + `Planned: ${fmtN(planned)}${uom ? ' ' + uom : ''}\n`
+        + `${variance === 0 ? 'Right on plan.' : variance > 0 ? 'Over plan by ' + fmtN(variance) + '.' : 'Under plan by ' + fmtN(-variance) + '.'}\n\n`
+        + `${bookedNow > 0 ? fmtN(bookedNow) + ' added to inventory now (' + fmtN(alreadyBooked) + ' already reported during the run).' : 'Nothing new added — it was all reported during the run.'}`)
+      return
+    }
     setOrders(os => os.map(o => (o.id === wo.id ? { ...o, status } : o)))
     setDetail(d => (d && d.id === wo.id ? { ...d, status } : d))
     await sb.from('work_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', wo.id)
