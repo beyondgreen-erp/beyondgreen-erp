@@ -662,6 +662,15 @@ export default function WorkOrdersPage() {
 
   const setField = (key: string, value: any) => { setSpec(s => ({ ...s, [key]: value })); setDirty(true) }
 
+  // Operators record the material lot used for each BOM component on the work order itself.
+  // Stored on the spec, keyed by the component SKU, and saved with the Save button. These
+  // flow onto the printed sheet and give per-run material traceability.
+  const setMaterialLot = (componentSku: string, value: string) => {
+    const key = String(componentSku).trim().toUpperCase()
+    setSpec(s => ({ ...s, material_lots: { ...(s.material_lots || {}), [key]: value } }))
+    setDirty(true)
+  }
+
   // FormBody is rendered straight from the sheet below. There is deliberately no wrapper
   // component declared here: one would be a new identity on every render and would remount
   // the whole form beneath it, which is the bug this is fixing.
@@ -1227,7 +1236,15 @@ export default function WorkOrdersPage() {
                           <tr key={i} className="border-t border-gray-50">
                             <td className="px-3 py-1.5"><span className="font-mono text-emerald-700">{c.component_sku}</span><div className="text-[10px] text-gray-400 truncate max-w-[190px]">{c.product_name}</div></td>
                             <td className="px-3 py-1.5 text-right" style={{ color: (Number(c.on_hand_qty) || 0) < 0 ? '#DC2626' : '#111827' }}>{fmtN(c.on_hand_qty)} {c.uom || ''}</td>
-                            <td className="px-3 py-1.5 text-xs text-gray-500">{c.lot || '\u2014'}</td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="text"
+                                value={(spec.material_lots?.[String(c.component_sku).trim().toUpperCase()]) ?? ''}
+                                onChange={e => setMaterialLot(c.component_sku, e.target.value)}
+                                placeholder={c.lot ? String(c.lot) : 'enter lot #'}
+                                className="w-full bg-white border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                            </td>
                           </tr>
                         ))}
                       </tbody>
