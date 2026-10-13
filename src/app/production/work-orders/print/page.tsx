@@ -254,7 +254,7 @@ function Sheet() {
                     ? `${fmtNum(c.qty_value ?? c.percentage)} %`
                     : `${fmtNum(c.qty_value)} ${txt(c.uom_type).replace('pcs_', 'pcs / ')}`}
                 </td>
-                <td className="fill" />
+                <td>{txt((merged.material_lots || {})[txt(c.component_sku).trim().toUpperCase()])}</td>
                 <td className="fill" />
               </tr>
             ))}
