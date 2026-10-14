@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -76,6 +77,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ skuPlan, pallets, totals, notes })
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message || 'pack-suggest failed' }, { status: 500 })
+    return NextResponse.json({ error: aiErrorMessage(e) || 'pack-suggest failed' }, { status: 500 })
   }
 }

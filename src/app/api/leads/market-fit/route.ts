@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -42,6 +43,6 @@ Give 6-10 regions, best first.`
     if (!json.regions) return NextResponse.json({ error: 'Could not parse analysis', raw: text.slice(0, 500) }, { status: 502 })
     return NextResponse.json(json)
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message || 'market-fit failed' }, { status: 500 })
+    return NextResponse.json({ error: aiErrorMessage(e) || 'market-fit failed' }, { status: 500 })
   }
 }

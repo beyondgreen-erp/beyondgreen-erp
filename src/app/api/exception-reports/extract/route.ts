@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import * as XLSX from 'xlsx'
@@ -259,6 +260,6 @@ Include EVERY PO line shown across ALL pages of the report's line-item table (on
     return NextResponse.json({ inserted: insertedCount, updated: updatedCount, duplicates: dupCount, skipped_other_vendors: skippedOther, delivery_no: j.delivery_no || '', report_date, record })
   } catch (err) {
     console.error('exception-reports/extract error:', err)
-    return NextResponse.json({ error: (err as Error).message || 'Extraction failed' }, { status: 500 })
+    return NextResponse.json({ error: aiErrorMessage(err) || 'Extraction failed' }, { status: 500 })
   }
 }

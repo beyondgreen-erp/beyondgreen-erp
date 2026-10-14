@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -30,6 +31,6 @@ export async function POST(req: NextRequest) {
     const summary = msg.content.filter(x => x.type === 'text').map(x => (x as { text: string }).text).join('').trim()
     return NextResponse.json({ summary })
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message || 'summary failed', summary: '' })
+    return NextResponse.json({ error: aiErrorMessage(e) || 'summary failed', summary: '' })
   }
 }

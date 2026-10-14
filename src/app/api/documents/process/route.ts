@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin'
@@ -192,6 +193,6 @@ Return ONLY raw JSON (no markdown) in exactly this shape:
     return NextResponse.json({ ok: true, title: applyTitle, summary, category: applyCategory, suggested_category: category, key_facts: keyFacts, chunks: chunks.length, links: { customer_id: newCustomer, vendor_id: newVendor, order_id: newOrder, certification_id: newCert } })
   } catch (err) {
     console.error('documents/process error:', err)
-    return NextResponse.json({ error: (err as Error).message || 'Processing failed' }, { status: 500 })
+    return NextResponse.json({ error: aiErrorMessage(err) || 'Processing failed' }, { status: 500 })
   }
 }

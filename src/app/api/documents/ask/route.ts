@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin'
@@ -55,6 +56,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ answer, sources })
   } catch (err) {
     console.error('documents/ask error:', err)
-    return NextResponse.json({ error: (err as Error).message || 'Ask failed' }, { status: 500 })
+    return NextResponse.json({ error: aiErrorMessage(err) || 'Ask failed' }, { status: 500 })
   }
 }

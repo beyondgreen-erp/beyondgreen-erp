@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -63,6 +64,6 @@ ${roster}`
     return NextResponse.json({ task_name, assignee, priority, due_date, notes })
   } catch (err) {
     console.error('tasks/parse error:', err)
-    return NextResponse.json({ error: (err as Error).message || 'Parse failed' }, { status: 500 })
+    return NextResponse.json({ error: aiErrorMessage(err) || 'Parse failed' }, { status: 500 })
   }
 }

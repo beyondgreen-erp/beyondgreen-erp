@@ -1,3 +1,4 @@
+import { aiErrorMessage } from '@/lib/aiError'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -53,6 +54,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(out)
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message || 'bol-fill failed' }, { status: 500 })
+    return NextResponse.json({ error: aiErrorMessage(e) || 'bol-fill failed' }, { status: 500 })
   }
 }
