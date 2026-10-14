@@ -1165,13 +1165,16 @@ function EditPanel({
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch, touched: true } : l)) }
   // Auto-calculate the order total from the line items (qty × unit price).
   const linesTotal = editLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0)
-  const autoTotalRef = useRef<string>('')
   useEffect(() => {
     const v = linesTotal > 0 ? String(Number(linesTotal.toFixed(2))) : ''
     setForm(p => {
-      // Only auto-fill when the user hasn't manually diverged from the auto value.
-      if (p.total_amount === '' || p.total_amount === autoTotalRef.current) { autoTotalRef.current = v; return { ...p, total_amount: v } }
-      return p
+      // Priced lines are the order's value. They are what the order PDF prints and what
+      // the database now stores, so a total typed over the top cannot be left to stick:
+      // that is how a Chewy order read $190.30 on the board against its own $220.25 of
+      // lines. An order with no priced lines keeps whatever total was entered by hand,
+      // which is what the older imported orders rely on.
+      if (v === '') return p
+      return p.total_amount === v ? p : { ...p, total_amount: v }
     })
   }, [linesTotal, setForm])
   // Ship-To: saved addresses for the selected customer (email suggestion — multi-location dropdown).
@@ -1511,10 +1514,10 @@ function EditPanel({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Total Value ($)</label>
-                <input type="number" min="0" step="0.01" value={form.total_amount} onChange={e => { autoTotalRef.current = '__manual__'; setForm(p => ({ ...p, total_amount: e.target.value })) }} className={inp}/>
+                <input type="number" min="0" step="0.01" value={form.total_amount} readOnly={linesTotal > 0} title={linesTotal > 0 ? 'Set by the line items, which is what the order PDF prints.' : undefined} onChange={e => setForm(p => ({ ...p, total_amount: e.target.value }))} className={linesTotal > 0 ? inp + ' bg-gray-50 text-gray-500' : inp}/>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[11px] text-gray-400">Line items total: {fmt$(linesTotal)}</span>
-                  <button type="button" onClick={() => { const v = String(Number(linesTotal.toFixed(2))); autoTotalRef.current = v; setForm(p => ({ ...p, total_amount: v })) }} className="text-[11px] font-semibold text-[#00863F] hover:underline">Use line total</button>
+                  <button type="button" onClick={() => setForm(p => ({ ...p, total_amount: String(Number(linesTotal.toFixed(2))) }))} className="text-[11px] font-semibold text-[#00863F] hover:underline">Use line total</button>
                 </div>
               </div>
               <div>
