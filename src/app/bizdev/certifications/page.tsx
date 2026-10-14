@@ -9,6 +9,7 @@ import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
 import LinkedTasks from '@/components/LinkedTasks'
+import ItemHistory from '@/components/ItemHistory'
 
 interface Customer { id: string; company_name: string }
 interface Vendor { id: string; company_name: string }
@@ -158,7 +159,8 @@ export default function CertificationsPage() {
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><LinkedTasks recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
-            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/>
+            <ItemHistory recordId={editing.id} recordType="certifications" /></div>
           </>)}
         </div>
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">

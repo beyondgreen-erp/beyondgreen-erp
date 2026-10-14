@@ -11,6 +11,7 @@ import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
 import Comments from '@/components/Comments'
 import RecordModal, { StatusCell } from '@/components/RecordModal'
+import ItemHistory from '@/components/ItemHistory'
 
 type PaymentTerms = 'Net 15' | 'Net 30' | 'Net 45' | 'COD'
 
@@ -435,7 +436,8 @@ export default function VendorsPage() {
 
             {/* Files + Comments */}
             <div className="border-t border-[#EEF0F4] pt-4"><FileUpload supabase={supabase} recordType="vendors" recordId={openVendor.id} currentUserEmail={userEmail} /></div>
-            <div className="border-t border-[#EEF0F4] pt-4"><Comments recordType="vendor" recordId={openVendor.id} currentUserEmail={userEmail} /></div>
+            <div className="border-t border-[#EEF0F4] pt-4"><Comments recordType="vendor" recordId={openVendor.id} currentUserEmail={userEmail} />
+            <ItemHistory recordId={openVendor.id} recordType="vendor" /></div>
           </div>
         ) : (
           <div className="space-y-4">

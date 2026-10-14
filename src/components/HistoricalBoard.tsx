@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 // ─────────────────────────── shared helpers ───────────────────────────
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -284,6 +285,7 @@ function PipelineBoard({ cfg }: { cfg: PipelineCfg }) {
               </div>
               <div className="pt-3 border-t border-[#EEF0F4]">
                 <Comments recordId={detail.id} recordType="pipeline_order" currentUserEmail={userEmail} title="Notes & Comments" />
+                <ItemHistory recordId={detail.id} recordType="pipeline_order" />
               </div>
             </div>
           </div>
@@ -686,6 +688,7 @@ function SATXShipments() {
               {detail.notes ? <div><p className="text-xs text-gray-400">Notes</p><p className="text-[13px] text-gray-600">{detail.notes}</p></div> : null}
               <div className="pt-3 border-t border-[#EEF0F4]">
                 <Comments recordId={detail.id} recordType="satx_shipment" currentUserEmail={userEmail} />
+                <ItemHistory recordId={detail.id} recordType="satx_shipment" />
               </div>
             </div>
           </div>

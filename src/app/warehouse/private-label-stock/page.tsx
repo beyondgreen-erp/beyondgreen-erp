@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 const GROUPS = [
   { key: 'new_group24848', title: 'Stocked in Warehouse', color: '#175a63' },
@@ -490,6 +491,7 @@ export default function PrivateLabelStockPage() {
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="pl_stock_order" currentUserEmail={userEmail} title="Notes & Comments" />
+                <ItemHistory recordId={detail.id} recordType="pl_stock_order" />
               </div>
             </div>
           </div>

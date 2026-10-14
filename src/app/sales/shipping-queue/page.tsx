@@ -10,6 +10,7 @@ import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
 import Comments from '@/components/Comments'
 import LabelWizard from '@/components/LabelWizard'
+import ItemHistory from '@/components/ItemHistory'
 
 interface ShipQItem {
   id: string
@@ -608,6 +609,7 @@ export default function ShippingQueuePage() {
             </div>
             <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
               <Comments recordId={editItem.id} recordType="shipping_queue" currentUserEmail={userEmail}/>
+              <ItemHistory recordId={editItem.id} recordType="shipping_queue" />
             </div>
             <div className="px-6 pb-5 flex gap-3">
               <button onClick={() => setEditItem(null)} className="flex-1 text-sm border border-[#E4E6EE] text-[#6B7280] hover:text-[#1A1D2E] py-2.5 rounded-xl transition-colors">Cancel</button>

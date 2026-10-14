@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { approveWorkOrder, completeWorkOrder } from '@/lib/orderFlow'
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 interface WO {
   id: string
@@ -451,6 +452,7 @@ function WOCard({ wo, soMap, onAction, userEmail }: {
       {showComments && (
         <div className="border-t pt-2" style={{ borderColor: '#F3F4F6' }}>
           <Comments recordId={wo.id} recordType="work_order" currentUserEmail={userEmail}/>
+          <ItemHistory recordId={wo.id} recordType="work_order" />
         </div>
       )}
 

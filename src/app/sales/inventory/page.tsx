@@ -13,6 +13,7 @@ import BulkActionBar from '@/components/BulkActionBar'
 import * as XLSX from 'xlsx'
 import Comments from '@/components/Comments'
 import { uomOptions, normalizeUom, describeLadder } from '@/lib/uom'
+import ItemHistory from '@/components/ItemHistory'
 
 interface Product {
   id: string
@@ -588,6 +589,7 @@ const EditPanel = memo(function EditPanel({
           {editing && (
             <div className="border-t border-[#E4E6EE] pt-4">
               <Comments recordId={editing.id} recordType="product" currentUserEmail={userEmail}/>
+              <ItemHistory recordId={editing.id} recordType="product" />
             </div>
           )}
 

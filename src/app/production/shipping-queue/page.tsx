@@ -7,6 +7,7 @@ import { buildCaseLabels, buildBoxLabels, buildPalletLabels, missingUpcSkus, loa
 import { generatePickTickets, type PickTicketPallet } from '@/lib/labelGenerator'
 import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolLine, type BolData, type PackListCase, type PackListBox } from '@/lib/shipping/bol'
 import { normalizeUom } from '@/lib/uom'
+import ItemHistory from '@/components/ItemHistory'
 
 const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
@@ -2022,6 +2023,7 @@ export default function ShippingQueuePage() {
 
                     <div className="border-t border-gray-100 pt-4">
                       <Comments recordType="sales_order" recordId={item.sales_order_id} currentUserEmail={userEmail} title="Activity Log" />
+                      <ItemHistory recordId={item.sales_order_id} recordType="sales_order" />
                     </div>
                     </div>{/* /mon-modal-body */}
                    </div>{/* /mon-modal */}
@@ -2077,6 +2079,7 @@ export default function ShippingQueuePage() {
               <div className="rounded-lg bg-[#0086C0]/5 border border-[#0086C0]/20 text-[11px] text-[#0086C0] px-3 py-2 mb-3">Mirrored from the Walmart Orders board. Comments here sync both ways with that board.</div>
               <div className="border-t border-gray-100 pt-4">
                 <Comments recordType="walmart_order" recordId={activeW.id} currentUserEmail={userEmail} title="Activity Log" />
+                <ItemHistory recordId={activeW.id} recordType="walmart_order" />
               </div>
             </div>
           </div>

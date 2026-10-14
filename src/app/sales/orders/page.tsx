@@ -23,6 +23,7 @@ import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
 import { orderDisplayName } from '@/lib/orderName'
 import { conversionFactor, normalizeUom, uomOptions } from '@/lib/uom'
+import ItemHistory from '@/components/ItemHistory'
 
 // Shipment log shown on the order itself: every partial that has gone out, what it
 // carried, and its documents. The order is not complete until the balance is zero.
@@ -1691,6 +1692,7 @@ function EditPanel({
           {editing && (
             <div className="pt-4 border-t border-[#E4E6EE]">
               <Comments recordType="sales_order" recordId={editing.id} currentUserEmail={userEmail} title="Comments & @mentions" />
+              <ItemHistory recordId={editing.id} recordType="sales_order" />
             </div>
           )}
           {editing && (
@@ -3117,6 +3119,7 @@ export default function OrdersPage() {
                             </div>
                             <div className="ml-8 mr-2 mb-4 mt-2 border-t border-[#E4E6EE] pt-4">
                               <Comments recordType="sales_order" recordId={order.id} currentUserEmail={userEmail ?? ''} title="Activity Log"/>
+                              <ItemHistory recordId={order.id} recordType="sales_order" />
                             </div>
                           </td>
                         </tr>
@@ -3231,6 +3234,7 @@ export default function OrdersPage() {
                               </div>
                               <div className="ml-6 mr-2 mb-4 mt-2 border-t border-[#E4E6EE] pt-4">
                                 <Comments recordType="sales_order" recordId={order.id} currentUserEmail={userEmail ?? ''} title="Activity Log"/>
+                                <ItemHistory recordId={order.id} recordType="sales_order" />
                               </div>
                             </td>
                           </tr>

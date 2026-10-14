@@ -7,6 +7,7 @@ import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 import Comments from '@/components/Comments'
 import { generateSampleLabel, generateSamplePackingList } from '@/lib/pdfHelpers'
+import ItemHistory from '@/components/ItemHistory'
 
 interface Line { id?: string; _new?: boolean; name: string | null; sku: string | null; quantity: number | null; uom: string | null; product_id?: string | null }
 interface Sample {
@@ -818,6 +819,7 @@ export default function SamplesPage() {
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="sample_submission" currentUserEmail={userEmail} title="Notes & Comments" />
+                <ItemHistory recordId={detail.id} recordType="sample_submission" />
               </div>
             </div>
           </div>

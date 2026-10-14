@@ -8,6 +8,7 @@ import { useMultiSelect } from '@/hooks/useMultiSelect'
 import BulkActionBar from '@/components/BulkActionBar'
 import ExportButton from '@/components/ExportButton'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 const ImportMap = dynamic(
   () => import('@/components/ImportMap'),
@@ -398,6 +399,7 @@ const ShipmentForm = memo(({
       {initial.id && currentUserEmail !== undefined && (
         <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
           <Comments recordId={initial.id} recordType="import" currentUserEmail={currentUserEmail}/>
+          <ItemHistory recordId={initial.id} recordType="import" />
         </div>
       )}
       <div className="p-6 border-t border-[#E4E6EE] flex gap-3 shrink-0">

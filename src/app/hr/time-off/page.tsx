@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
+import ItemHistory from '@/components/ItemHistory'
 
 const TYPES = ['Sick', 'Vacation', 'Personal', 'Bereavement', 'Jury Duty', 'Unpaid Leave', 'Work From Home', 'Other']
 const TYPE_COLORS: Record<string, string> = {
@@ -445,6 +446,7 @@ export default function TimeOffPage() {
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="time_off_request" currentUserEmail={me.email} title="Notes & Comments" />
+                <ItemHistory recordId={detail.id} recordType="time_off_request" />
               </div>
             </div>
           </div>

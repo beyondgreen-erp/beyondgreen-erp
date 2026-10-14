@@ -19,6 +19,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
+import ItemHistory from '@/components/ItemHistory'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -900,6 +901,7 @@ export default function ShipmentsPage() {
                   </div>
                   <div className="border-t border-[#E4E6EE] pt-4">
                     <Comments recordType={editing.sales_order_id ? 'sales_order' : 'shipment'} recordId={editing.sales_order_id || editing.id} currentUserEmail={userEmail}/>
+                    <ItemHistory recordId={editing.sales_order_id || editing.id} recordType={editing.sales_order_id ? 'sales_order' : 'shipment'} />
                   </div>
                 </>
               )}

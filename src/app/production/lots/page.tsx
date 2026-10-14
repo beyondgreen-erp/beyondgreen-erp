@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 interface LotCode {
   id: string
@@ -422,6 +423,7 @@ export default function LotsPage() {
 
             <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
               <Comments recordId={selected.id} recordType="lot_code" currentUserEmail={userEmail}/>
+              <ItemHistory recordId={selected.id} recordType="lot_code" />
             </div>
 
             <div className="px-6 py-4 border-t border-[#E4E6EE] shrink-0 flex gap-3">

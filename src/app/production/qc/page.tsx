@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
 import { addToShippingQueue, logActivity } from '@/lib/orderFlow'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 interface QCInspection {
   id: string
@@ -756,6 +757,7 @@ ${form.corrective_action ? `<div class="row"><span class="lbl">Corrective Action
         {editing && (
           <div className="px-6 pb-4 border-t border-[#E4E6EE] pt-4">
             <Comments recordId={editing.id} recordType="qc_inspection" currentUserEmail={userEmail}/>
+            <ItemHistory recordId={editing.id} recordType="qc_inspection" />
           </div>
         )}
 

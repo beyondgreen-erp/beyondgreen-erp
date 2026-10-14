@@ -8,6 +8,7 @@ import FileUpload from '@/components/FileUpload'
 import ImportExportBar from '@/components/ImportExportBar'
 import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
+import ItemHistory from '@/components/ItemHistory'
 
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical', 'Urgent']
 const STATUSES = ['Backlog', 'In Progress', 'Review', 'Blocked', 'On Hold', 'Done']
@@ -537,6 +538,7 @@ export default function TasksPage() {
                   </div>
                   <div className="border-t border-[#EEF0F4] pt-4">
                     <Comments recordId={detail.id} recordType="task" currentUserEmail={userEmail} title="Notes & Comments" />
+                    <ItemHistory recordId={detail.id} recordType="task" />
                   </div>
                 </>
               )}

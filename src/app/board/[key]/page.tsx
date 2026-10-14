@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { accentColor, statusColor } from '@/lib/statusColors'
 import { Board, BoardColumn, BuilderConfig } from '@/lib/boards'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 interface Row { id: string; board_id: string; group_name: string | null; data: Record<string, any>; sort_order: number; created_at?: string }
 
@@ -179,6 +180,7 @@ export default function DynamicBoardPage() {
               {editing?.id && (
                 <div className="mt-5 border-t border-gray-100 pt-4">
                   <Comments recordType={`board:${key}`} recordId={editing.id} currentUserEmail={userEmail} title="Comments & Activity" />
+                  <ItemHistory recordId={editing.id} recordType={`board:${key}`} />
                 </div>
               )}
             </div>

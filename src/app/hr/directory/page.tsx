@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { getFileUrl } from '@/lib/fileHelpers'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 const GROUPS = [
   { key: 'topics', title: 'Current Employees', color: '#00c875' },
@@ -400,6 +401,7 @@ export default function EmployeeDirectoryPage() {
               {detail && (
                 <div className="border-t border-[#EEF0F4] pt-4">
                   <Comments recordId={detail.id} recordType="employee" currentUserEmail={userEmail} title="Notes & Comments" />
+                  <ItemHistory recordId={detail.id} recordType="employee" />
                 </div>
               )}
             </div>

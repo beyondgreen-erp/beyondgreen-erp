@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { generateCustomerCostingPDF, generateInternalCostingPDF } from '@/lib/generateCostingQuotePDF'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 // ─────────────────────────────────────────────
 // Types
@@ -901,6 +902,7 @@ export default function QuoteCostingPage() {
             {editingQuote && (
               <div className="bg-white border border-[#E4E6EE] rounded-xl p-5">
                 <Comments recordId={editingQuote.id} recordType="quick_quote" currentUserEmail={userEmail}/>
+                <ItemHistory recordId={editingQuote.id} recordType="quick_quote" />
               </div>
             )}
           </div>

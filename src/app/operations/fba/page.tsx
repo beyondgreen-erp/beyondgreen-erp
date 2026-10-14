@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 interface Row {
   id: string; name: string | null; channel: string | null; status: string | null; ship_date: string | null
@@ -378,6 +379,7 @@ export default function FbaBoard() {
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="fba_shipment" currentUserEmail={userEmail} title="Notes & Comments" />
+                <ItemHistory recordId={detail.id} recordType="fba_shipment" />
               </div>
             </div>
           </div>

@@ -12,6 +12,7 @@ import Comments from '@/components/Comments'
 import KnowledgeCenter from '@/components/KnowledgeCenter'
 import DocAI from '@/components/DocAI'
 import QuickUpload from '@/components/QuickUpload'
+import ItemHistory from '@/components/ItemHistory'
 
 interface Customer { id: string; company_name: string }
 interface Vendor { id: string; company_name: string }
@@ -323,7 +324,8 @@ export default function DocumentsPage() {
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="documents" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <DocAI documentId={editing.id}/>
-            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="document" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="document" recordId={editing.id} currentUserEmail={userEmail}/>
+            <ItemHistory recordId={editing.id} recordType="document" /></div>
           </>)}
         </div>
         <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">

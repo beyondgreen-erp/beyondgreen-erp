@@ -15,6 +15,7 @@ import ExportButton from '@/components/ExportButton'
 import WorkflowMover from '@/components/WorkflowMover'
 
 import { withBilledQty, billedAmount, type OrderQtyRow } from '@/lib/invoiceQty'
+import ItemHistory from '@/components/ItemHistory'
 
 interface LineItem { id: string; sku: string | null; description: string; quantity: number; unit_price: number; uom: string | null; line_total: number; ordered_quantity?: number | null; shipped_quantity?: number | null }
 interface Invoice {
@@ -951,6 +952,7 @@ export default function InvoicesPage() {
                 {/* Comments */}
                 <div className="border-t border-[#E4E6EE] pt-5 pb-6">
                   <Comments recordType={srcThread?.type ?? 'invoice'} recordId={srcThread?.id ?? sel.id} currentUserEmail={userEmail}/>
+                  <ItemHistory recordId={srcThread?.id ?? sel.id} recordType={srcThread?.type ?? 'invoice'} />
                 </div>
               </div>
             </div>

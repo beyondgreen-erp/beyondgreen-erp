@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 const STATUS_COLORS: Record<string, string> = {
   'Received': '#00c875',
@@ -420,6 +421,7 @@ export default function ReceivingBoard({ year }: { year: number }) {
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="historical_receiving" currentUserEmail={userEmail} title="Notes & Comments" />
+                <ItemHistory recordId={detail.id} recordType="historical_receiving" />
               </div>
             </div>
           </div>

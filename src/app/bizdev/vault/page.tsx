@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { accentColor } from '@/lib/statusColors'
 import Comments from '@/components/Comments'
+import ItemHistory from '@/components/ItemHistory'
 
 interface VaultItem {
   id: string
@@ -256,6 +257,7 @@ export default function VaultPage() {
               {editing?.id && (
                 <div className="mt-5 border-t border-gray-100 pt-4">
                   <Comments recordType="vault_item" recordId={editing.id} currentUserEmail={userEmail} title="Comments & Activity" />
+                  <ItemHistory recordId={editing.id} recordType="vault_item" />
                 </div>
               )}
             </div>

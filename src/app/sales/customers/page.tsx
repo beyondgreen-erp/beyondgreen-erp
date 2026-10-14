@@ -18,6 +18,7 @@ import ExportButton from '@/components/ExportButton'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import '@/lib/pdfSafeText'
+import ItemHistory from '@/components/ItemHistory'
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
@@ -1570,7 +1571,8 @@ export default function CustomersPage() {
             <div className="px-6 py-5 space-y-5">
               <LinkedTasks recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/>
               <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={supabase} recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
-              <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="customer" recordId={editing.id} currentUserEmail={userEmail}/></div>
+              <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="customer" recordId={editing.id} currentUserEmail={userEmail}/>
+              <ItemHistory recordId={editing.id} recordType="customer" /></div>
             </div>
           )}
           {activeTab==='files'&&!editing&&<div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first to attach files and comments.</p></div>}

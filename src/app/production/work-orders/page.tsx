@@ -14,6 +14,7 @@ import RunEntry from '@/components/RunEntry'
 import { GROUPS, FORMS, formFor, groupByName, nextWoCode, computeAll, type GroupDef, type Field, type FormDef } from '@/lib/workOrderForms'
 import { buildMachineQueue, runHours, hoursAreCalculated, toMinutes, fmtClock, woLabel, tomorrowISO, type SchedulableWO } from '@/lib/productionSchedule'
 import { isPlaceholderPart, needsPartNumber, PART_NUMBER_APPROVERS } from '@/lib/partNumber'
+import ItemHistory from '@/components/ItemHistory'
 
 const sb = createSupabaseBrowserClient()
 
@@ -1309,6 +1310,7 @@ export default function WorkOrdersPage() {
 
               <div className="border-t border-gray-100 pt-4">
                 <Comments recordId={detail.sales_order_id ?? detail.id} recordType={detail.sales_order_id ? 'sales_order' : 'work_order'} currentUserEmail={userEmail} title="Notes & Comments" />
+                <ItemHistory recordId={detail.sales_order_id ?? detail.id} recordType={detail.sales_order_id ? 'sales_order' : 'work_order'} />
               </div>
             </div>
 

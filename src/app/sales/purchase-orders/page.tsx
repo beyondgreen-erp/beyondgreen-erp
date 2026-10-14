@@ -8,6 +8,7 @@ import { notifyFlowConfirmed } from '@/lib/orderFlow'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
+import ItemHistory from '@/components/ItemHistory'
 
 const GROUPS = [
   { key: 'group_finance_approval', title: 'Waiting on Finance Approval', color: '#e2445c' },
@@ -944,6 +945,7 @@ th{background:#eef5f0}
 
               <div className="border-t border-[#EEF0F4] pt-4">
                 <Comments recordId={detail.id} recordType="purchasing_request" currentUserEmail={userEmail} title="Notes & Comments" />
+                <ItemHistory recordId={detail.id} recordType="purchasing_request" />
               </div>
             </div>
             <div className="shrink-0 px-6 py-3 border-t border-[#EEF0F4] flex items-center justify-end gap-3">
