@@ -29,7 +29,7 @@ type Basis = 'percentage' | 'pcs_unit' | 'pcs_pack' | 'pcs_case'
  * The row label the production team's build sheet uses. It is presentation only: every cost in
  * this editor is driven by `basis`, so relabelling a row never moves a number.
  */
-type Role = 'rm' | 'color' | 'ink' | 'pack' | 'case' | 'print_plate' | 'paper_core' | 'label' | 'other'
+type Role = 'rm' | 'color' | 'ink' | 'pack' | 'case' | 'print_plate' | 'paper_core' | 'label' | 'component' | 'other'
 
 interface BomRow {
   id: string
@@ -119,6 +119,7 @@ const ROLES: { key: Role; label: string }[] = [
   { key: 'print_plate', label: 'Print Plate' },
   { key: 'paper_core',  label: 'Paper Core' },
   { key: 'label',       label: 'Custom Labels' },
+  { key: 'component',   label: 'Component' },
   { key: 'other',       label: 'Other' },
 ]
 const ROLE_ORDER = Object.fromEntries(ROLES.map((r, i) => [r.key, i])) as Record<Role, number>
