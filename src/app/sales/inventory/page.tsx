@@ -697,6 +697,7 @@ export default function InventoryPage() {
   // was blank for every finished product, because component allocations only cover BOM parts.
   const [soAlloc, setSoAlloc] = useState<Record<string, { qty: number; orders: number }>>({})
   const [allocProduct, setAllocProduct] = useState<Product | null>(null)
+  const [allocDetail, setAllocDetail] = useState<Product | null>(null)
   const ms = useMultiSelect<Product>()
 
   const load = useCallback(async () => {
@@ -1413,7 +1414,7 @@ export default function InventoryPage() {
                                     a>0?`${a.toLocaleString()} BOM`:null,
                                     ma>0?`${ma.toLocaleString()} manual`:null,
                                   ].filter(Boolean).join(' + ')
-                                  return <div className="leading-tight" title={`Reserved: ${parts}`}><div className="text-[11px] text-violet-600 font-semibold">{tot.toLocaleString()} alloc{ma>0?' *':''}</div><div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
+                                  return <div className="leading-tight" title={`Reserved: ${parts} — click to see what it's for`}><button type="button" onClick={(e)=>{e.stopPropagation(); setAllocDetail(p)}} className="text-[11px] text-violet-600 font-semibold underline decoration-dotted underline-offset-2 hover:text-violet-800">{tot.toLocaleString()} alloc{ma>0?' *':''}</button><div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
                                 })()}</td>
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
@@ -1507,6 +1508,7 @@ export default function InventoryPage() {
                                 <p className={`text-[13px] font-medium text-[#1A1D2E] mt-0.5 ${isDisc ? 'line-through text-gray-400' : ''}`}>{p.product_name}</p>
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-gray-500">
                                   <span>On hand <b className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}>{p.on_hand_qty ?? 0}</b> {p.unit_of_measure ?? ''}</span>
+                                  {tot > 0 && <button type="button" onClick={e=>{e.stopPropagation(); setAllocDetail(p)}} className="text-violet-600 font-semibold underline decoration-dotted underline-offset-2">{tot.toLocaleString()} alloc</button>}
                                   {tot > 0 && <span className={avail < 0 ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'}>{avail.toLocaleString()} avail</span>}
                                   <span>{fmt$(p.unit_cost)}</span>
                                   {invValue > 0 && <span className="text-emerald-600">{fmtV(invValue)}</span>}
@@ -1575,9 +1577,71 @@ export default function InventoryPage() {
       {allocProduct && (
         <AllocPanel product={allocProduct} userEmail={userEmail} onClose={() => { setAllocProduct(null); load() }} />
       )}
+      {allocDetail && (
+        <AllocDetailModal product={allocDetail} onClose={() => setAllocDetail(null)} />
+      )}
       {zoneProduct && (
         <ZonePicker productId={zoneProduct.id} productName={zoneProduct.product_name} currentUserEmail={userEmail} onClose={() => { setZoneProduct(null); loadZoned() }} />
       )}
+    </div>
+  )
+}
+
+function AllocDetailModal({ product, onClose }: { product: any; onClose: () => void }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => { let ok = true; (async () => {
+    setLoading(true)
+    const { data } = await sb.rpc('allocation_detail', { p_sku: product.sku })
+    if (ok) { setRows((data as any[]) || []); setLoading(false) }
+  })(); return () => { ok = false } }, [sb, product.sku])
+  const total = rows.reduce((s, r) => s + Number(r.qty || 0), 0)
+  const fmt = (n: any) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })
+  const fdate = (d: any) => d ? new Date(String(d) + 'T00:00:00').toLocaleDateString() : '\u2014'
+  const badge = (k: string) => k === 'Finished good' ? { bg: '#DDF3E8', c: '#0F7A4E' } : k === 'Component' ? { bg: '#EFE7FB', c: '#7A3FB0' } : { bg: '#FBF0DD', c: '#8A5A0B' }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-lg font-bold text-[#1A1D2E]">Allocated \u2014 <span className="font-mono">{product.sku}</span></h3>
+            <p className="text-xs text-gray-500 mt-0.5">{product.product_name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+        <div className="px-5 py-3 overflow-y-auto">
+          {loading ? <p className="text-sm text-gray-400 py-8 text-center">Loading\u2026</p>
+            : rows.length === 0 ? <p className="text-sm text-gray-400 py-8 text-center">Nothing is allocated to this item right now.</p>
+            : (
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
+                  <th className="py-2 pr-2">Reserved to</th><th className="py-2 pr-2">Type</th>
+                  <th className="py-2 pr-2 text-right">Qty</th><th className="py-2 pr-2 text-right whitespace-nowrap">Order date</th>
+                </tr></thead>
+                <tbody>
+                  {rows.map((r, i) => { const b = badge(r.kind); return (
+                    <tr key={i} className="border-b border-gray-50 align-top">
+                      <td className="py-2 pr-2">
+                        {r.order_number
+                          ? <a href={`/sales/orders?item=${r.sales_order_id}`} className="text-[#3B6FE0] hover:underline font-medium">{r.order_number}</a>
+                          : <span className="font-medium text-[#1A1D2E]">{r.customer || 'Manual reservation'}</span>}
+                        <div className="text-[11px] text-gray-500">
+                          {r.order_number && r.customer ? r.customer : ''}
+                          {r.finished_sku ? <span className="ml-1">\u00b7 for <span className="font-mono">{r.finished_sku}</span></span> : ''}
+                          {r.note ? <span className="ml-1 italic">{r.note}</span> : ''}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-2"><span className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: b.bg, color: b.c }}>{r.kind}</span></td>
+                      <td className="py-2 pr-2 text-right font-semibold">{fmt(r.qty)}</td>
+                      <td className="py-2 pr-2 text-right text-gray-600 whitespace-nowrap">{fdate(r.order_date)}</td>
+                    </tr>) })}
+                </tbody>
+                <tfoot><tr className="border-t-2 border-gray-200"><td className="py-2 font-semibold" colSpan={2}>Total allocated</td><td className="py-2 text-right font-bold text-violet-700">{fmt(total)}</td><td></td></tr></tfoot>
+              </table>
+            )}
+        </div>
+      </div>
     </div>
   )
 }
