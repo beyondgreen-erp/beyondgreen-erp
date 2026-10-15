@@ -272,18 +272,10 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             handler: async () => {
               const email = await getEmail()
               await sb.from('work_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced, wo_number').eq('id', recordId).maybeSingle()
-              if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
-                const { data: prod } = await sb.from('products').select('sku, on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
-                if (prod) {
-                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
-                  // Log the finished-good production so it appears in the item's Activity feed.
-                  try { await sb.from('inventory_movements').insert({ product_id: (wo as any).product_id, sku: (prod as any).sku, movement_type: 'produce', qty: (wo as any).qty_produced, uom: null, ref_table: 'work_orders', ref_id: recordId, created_by: email, note: `Produced via WO-${(wo as any).wo_number}` }) } catch { /* best-effort */ }
-                }
-                // BOM raw-material consumption is now handled by the wo_book_fg_on_complete
-                // DB trigger when the work order reaches Complete, paired to the actual produced
-                // delta it books. No duplicate best-effort consume here.
-              }
+              const { data: wo } = await sb.from('work_orders').select('notes, wo_number').eq('id', recordId).maybeSingle()
+              // Finished-goods booking + BOM raw-material consumption are owned entirely by the
+              // wo_book_fg_on_complete DB trigger, which fires on the transition into QC Passed
+              // or Complete and books the actual produced delta once. Nothing booked by hand here.
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
               if (soId) {
                 await sb.from('sales_orders').update({ status: 'QC', updated_at: new Date().toISOString() }).eq('id', soId)
@@ -299,18 +291,10 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
             handler: async () => {
               const email = await getEmail()
               await sb.from('work_orders').update({ status: 'Complete', updated_at: new Date().toISOString() }).eq('id', recordId)
-              const { data: wo } = await sb.from('work_orders').select('notes, product_id, qty_produced, wo_number').eq('id', recordId).maybeSingle()
-              if ((wo as any)?.product_id && ((wo as any).qty_produced ?? 0) > 0) {
-                const { data: prod } = await sb.from('products').select('sku, on_hand_qty').eq('id', (wo as any).product_id).maybeSingle()
-                if (prod) {
-                  await sb.from('products').update({ on_hand_qty: ((prod as any).on_hand_qty ?? 0) + (wo as any).qty_produced }).eq('id', (wo as any).product_id)
-                  // Log the finished-good production so it appears in the item's Activity feed.
-                  try { await sb.from('inventory_movements').insert({ product_id: (wo as any).product_id, sku: (prod as any).sku, movement_type: 'produce', qty: (wo as any).qty_produced, uom: null, ref_table: 'work_orders', ref_id: recordId, created_by: email, note: `Produced via WO-${(wo as any).wo_number}` }) } catch { /* best-effort */ }
-                }
-                // BOM raw-material consumption is now handled by the wo_book_fg_on_complete
-                // DB trigger when the work order reaches Complete, paired to the actual produced
-                // delta it books. No duplicate best-effort consume here.
-              }
+              const { data: wo } = await sb.from('work_orders').select('notes, wo_number').eq('id', recordId).maybeSingle()
+              // Finished-goods booking + BOM raw-material consumption are owned entirely by the
+              // wo_book_fg_on_complete DB trigger, which fires on the transition into QC Passed
+              // or Complete and books the actual produced delta once. Nothing booked by hand here.
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
               if (soId) {
                 await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', soId)
