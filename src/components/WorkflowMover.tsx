@@ -280,8 +280,9 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
                   // Log the finished-good production so it appears in the item's Activity feed.
                   try { await sb.from('inventory_movements').insert({ product_id: (wo as any).product_id, sku: (prod as any).sku, movement_type: 'produce', qty: (wo as any).qty_produced, uom: null, ref_table: 'work_orders', ref_id: recordId, created_by: email, note: `Produced via WO-${(wo as any).wo_number}` }) } catch { /* best-effort */ }
                 }
-                // Consume the BOM components for what was produced (deduct on-hand + ledger).
-                try { await sb.rpc('consume_bom_for_production', { p_product_id: (wo as any).product_id, p_qty: (wo as any).qty_produced, p_by: email }) } catch { /* best-effort */ }
+                // BOM raw-material consumption is now handled by the wo_book_fg_on_complete
+                // DB trigger when the work order reaches Complete, paired to the actual produced
+                // delta it books. No duplicate best-effort consume here.
               }
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
               if (soId) {
@@ -306,8 +307,9 @@ export default function WorkflowMover({ recordId, recordType, currentStatus, onM
                   // Log the finished-good production so it appears in the item's Activity feed.
                   try { await sb.from('inventory_movements').insert({ product_id: (wo as any).product_id, sku: (prod as any).sku, movement_type: 'produce', qty: (wo as any).qty_produced, uom: null, ref_table: 'work_orders', ref_id: recordId, created_by: email, note: `Produced via WO-${(wo as any).wo_number}` }) } catch { /* best-effort */ }
                 }
-                // Consume the BOM components for what was produced (deduct on-hand + ledger).
-                try { await sb.rpc('consume_bom_for_production', { p_product_id: (wo as any).product_id, p_qty: (wo as any).qty_produced, p_by: email }) } catch { /* best-effort */ }
+                // BOM raw-material consumption is now handled by the wo_book_fg_on_complete
+                // DB trigger when the work order reaches Complete, paired to the actual produced
+                // delta it books. No duplicate best-effort consume here.
               }
               const soId = (wo as any)?.notes?.startsWith('SOREF:') ? (wo as any).notes.slice(6) : null
               if (soId) {
