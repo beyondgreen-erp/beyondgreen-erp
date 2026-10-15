@@ -174,12 +174,13 @@ export default function ScanStationPage() {
         setMismatch({ code, productId: pid as string, sku: (p as any)?.sku || '', name: (p as any)?.product_name || (p as any)?.sku || 'this item' })
         return
       }
+      if (!lot.trim()) { beep(false); flash('err', 'Enter the lot / batch number first — it is required to receive'); return }
       const { data, error } = await sb.rpc('receive_scan', { p_code: code, p_qty: 1, p_lot: lot || null, p_user: email || null })
       if (error) { beep(false); flash('err', 'Scan failed: ' + error.message); return }
       if ((data as any)?.ok) {
         recordSuccess(data)
         if (!adminMode && !allowedId) setAllowedId((data as any).product_id)   // lock PO to first item
-      } else { beep(false); flash('err', 'Could not record scan') }
+      } else { beep(false); flash('err', (data as any)?.message || 'Could not record scan') }
     } finally { busyRef.current = false }
   }, [sb, lot, email, recordSuccess, adminMode, allowedId])
 
@@ -212,9 +213,11 @@ export default function ScanStationPage() {
   async function linkTo(p: any) {
     if (!unknown) return
     if (!adminMode && allowedId && p.id !== allowedId) { flash('err', 'Not on this PO — finish it first'); return }
+    if (!lot.trim()) { flash('err', 'Enter the lot / batch number first — it is required to receive'); return }
     const { data, error } = await sb.rpc('link_barcode_and_receive', { p_code: unknown, p_product_id: p.id, p_qty: 1, p_lot: lot || null, p_user: email || null })
     if (error) { flash('err', 'Link failed: ' + error.message); return }
     if ((data as any)?.ok) { recordSuccess(data); if (!adminMode && !allowedId) setAllowedId(p.id); flash('ok', `Linked & counted: ${p.product_name || p.sku}`) }
+    else { flash('err', (data as any)?.message || 'Could not link & receive') }
     setUnknown(null); setResults([]); setQ('')
   }
   // Receive an item by choosing it from the catalog — no barcode/scan required.
@@ -224,6 +227,7 @@ export default function ScanStationPage() {
     const nBags = parseFloat(bags), perBag = parseFloat(wpb)
     const useWeight = byWeight && nBags > 0 && perBag > 0
     const qty = useWeight ? +(nBags * perBag).toFixed(4) : 1
+    if (!lot.trim()) { flash('err', 'Enter the lot / batch number first — it is required to receive'); return }
     const { data, error } = await sb.rpc('receive_scan', {
       p_code: code, p_qty: qty, p_lot: lot || null, p_user: email || null,
       p_pack_qty: useWeight ? nBags : null, p_uom: useWeight ? wuom : null,
@@ -232,7 +236,7 @@ export default function ScanStationPage() {
     if ((data as any)?.ok) {
       recordSuccess(data); if (!adminMode && !allowedId) setAllowedId(p.id)
       flash('ok', useWeight ? `Added ${qty} ${wuom} (${nBags} bags): ${p.product_name || p.sku}` : `Added: ${p.product_name || p.sku}`)
-    } else { flash('err', 'Could not add item') }
+    } else { flash('err', (data as any)?.message || 'Could not add item') }
     setManualPick(false); setResults([]); setQ('')
     if (useWeight) { setBags(''); setWpb('') }
   }
@@ -449,8 +453,9 @@ export default function ScanStationPage() {
               )}
 
               <div className="mb-4">
-                <label className="text-[11px] uppercase tracking-wide" style={{ color: '#5A6E8A' }}>Lot # (optional)</label>
-                <input value={lot} onChange={e => setLot(e.target.value)} placeholder="e.g. LOT-2026-07" className={inputCls + ' mt-1'} style={inputSty} />
+                <label className="text-[11px] uppercase tracking-wide" style={{ color: lot.trim() ? '#5A6E8A' : '#F87171' }}>Lot / Batch # <span style={{ color: '#F87171' }}>(required)</span></label>
+                <input value={lot} onChange={e => setLot(e.target.value)} placeholder="e.g. LOT-2026-07" className={inputCls + ' mt-1'} style={{ ...inputSty, border: lot.trim() ? (inputSty as any).border : '1px solid #F87171' }} />
+                {!lot.trim() && <p className="text-[11px] mt-1" style={{ color: '#F87171' }}>Enter the supplier lot/batch number before receiving.</p>}
               </div>
 
               {unknown && (
