@@ -1140,11 +1140,30 @@ export default function ShippingQueuePage() {
     return { poNumber: o?.po_number || '', orderNumber: o?.order_number || '', shipToName: st.name, shipToAddress: st.addr, shipFromName: SHIP_FROM_NAME, shipFromAddress: SHIP_FROM_ADDR, date: new Date().toLocaleDateString(), partialCaption: shipMode === 'partial' ? `PARTIAL SHIPMENT #${priorShipments + 1}` : '' }
   }
   function packListPallets() {
+    // Distribute each SKU's REAL boxes (full cases + a final partial case) across the
+    // pallets in order, so the pallet detail reflects the actual packed quantity and the
+    // last partial case is never rounded up to a full case (e.g. 25 packs @ 8/case =
+    // 3 full cases of 8 + 1 partial case of 1, not 4 full cases of 8).
+    const bySku = new Map(plan.map(r => [r.sku, r]))
+    const boxUnitsFor = (sku: string): number[] => {
+      const r = bySku.get(sku)
+      if (r?.boxes && r.boxes.length) return r.boxes.map(b => b.units || 0)
+      if (r) return makeBoxes(r.shippedUnits || r.units || 0, r.unitsPerCase || 1, undefined).map(b => b.units)
+      return []
+    }
+    const cursor: Record<string, number> = {}
     return expanded.map(p => ({
       number: p.number,
       dims: dimsStr(p.lengthIn, p.widthIn, p.heightIn) || undefined,
       weight: p.weightLb,
-      lines: p.lines.map(l => ({ sku: l.sku, description: l.description, cases: l.cases, units: l.cases * l.unitsPerCase })),
+      lines: p.lines.map(l => {
+        const arr = boxUnitsFor(l.sku)
+        const start = cursor[l.sku] || 0
+        const slice = arr.slice(start, start + l.cases)
+        cursor[l.sku] = start + l.cases
+        const units = slice.length ? slice.reduce((a, b) => a + b, 0) : l.cases * (l.unitsPerCase || 1)
+        return { sku: l.sku, description: l.description, cases: l.cases, unitsPerCase: l.unitsPerCase || 1, units }
+      }),
     }))
   }
   // Box-by-box contents for the packing list (parcel shipments packed with the box builder).
