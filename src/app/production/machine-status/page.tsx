@@ -225,7 +225,9 @@ export default function MachineStatusPage() {
                                 {job ? (
                                   <>
                                     <div className="text-[#1A1D2E]">{job.customer || job.wo}</div>
-                                    <div className="text-[11px] text-gray-400">{job.wo}{job.status ? ' · ' + job.status : ''}</div>
+                                    <div className="text-[11px] text-gray-400">
+                                      {[job.customer ? job.wo : null, job.status].filter(Boolean).join(' · ') || '—'}
+                                    </div>
                                   </>
                                 ) : <span className="text-gray-300">-</span>}
                               </td>

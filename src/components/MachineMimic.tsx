@@ -55,8 +55,8 @@ export default function MachineMimic({ status, code, counter, live = false }: Pr
            aria-label={'Diagram of machine ' + code + ', currently ' + status}>
         <defs>
           <linearGradient id="mmBody" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#F8FAFC" />
-            <stop offset="1" stopColor="#CBD5E1" />
+            <stop offset="0" stopColor="#F1F5F9" />
+            <stop offset="1" stopColor="#B8C4D2" />
           </linearGradient>
           <linearGradient id="mmTop" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0" stopColor="#FFFFFF" />
@@ -73,7 +73,7 @@ export default function MachineMimic({ status, code, counter, live = false }: Pr
 
         {/* main frame, with a top face offset to the right so it reads as a solid box */}
         <polygon points="96,72 640,72 668,52 124,52" fill="url(#mmTop)" stroke="#CBD5E1" />
-        <rect x="96" y="72" width="544" height="150" rx="6" fill="url(#mmBody)" stroke="#CBD5E1" />
+        <rect x="96" y="72" width="544" height="150" rx="6" fill="url(#mmBody)" stroke="#94A3B8" />
         <polygon points="640,72 668,52 668,202 640,222" fill="#E2E8F0" stroke="#CBD5E1" />
 
         {/* legs */}
@@ -117,16 +117,17 @@ export default function MachineMimic({ status, code, counter, live = false }: Pr
         <rect x="640" y="152" width="46" height="6" rx="3" fill="#94A3B8" />
         <text x="628" y="176" fontSize="11" fill="#64748B">outfeed</text>
 
-        {/* stack light */}
-        <rect x="576" y="12" width="6" height="40" fill="#94A3B8" />
-        <circle cx="579" cy="8" r="9" fill={red} className={down ? 'mm-alarm' : ''} />
-        <circle cx="579" cy="28" r="9" fill={amber} />
-        <circle cx="579" cy="48" r="9" fill={green} />
+        {/* stack light, standing clear of the frame so the pole reads as a pole */}
+        <rect x="600" y="14" width="6" height="38" fill="#94A3B8" />
+        <circle cx="603" cy="10" r="8" fill={red} className={down ? 'mm-alarm' : ''} />
+        <circle cx="603" cy="30" r="8" fill={amber} />
+        <circle cx="603" cy="50" r="8" fill={green} />
 
-        {/* HMI panel, showing the live count when we have one */}
-        <rect x="196" y="58" width="150" height="56" rx="6" fill="#0F172A" transform="translate(252,0)" />
-        <text x="462" y="82" fontSize="10" fill="#64748B" letterSpacing="1">COUNT</text>
-        <text x="462" y="104" fontSize="22" fontWeight="700"
+        {/* HMI panel. It sits above the frame rather than on it, so it never covers the
+            sealing head, which is the part somebody is actually trying to look at. */}
+        <rect x="386" y="4" width="172" height="46" rx="6" fill="#0F172A" />
+        <text x="400" y="24" fontSize="10" fill="#64748B" letterSpacing="1">COUNT</text>
+        <text x="400" y="43" fontSize="20" fontWeight="700"
               fill={live ? '#2ABF06' : '#475569'} fontFamily="ui-monospace, monospace">
           {live && counter !== null && counter !== undefined ? counter.toLocaleString() : '- - - -'}
         </text>
