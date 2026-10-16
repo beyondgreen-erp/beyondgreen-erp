@@ -157,9 +157,9 @@ export default function MachineMimic({ status, code, counter, live = false }: Pr
         <rect x="724" y="268" width="26" height="5" rx="2" fill="#64748B" />
         <rect x="844" y="268" width="26" height="5" rx="2" fill="#64748B" />
         {/* the beyondGREEN asset label on the right-hand door */}
-        <rect x="812" y="196" width="58" height="30" rx="2" fill="#FFFFFF" stroke="#CBD5E1" />
-        <text x="841" y="209" fontSize="7" fill="#64748B" textAnchor="middle">Cutlery Wrapper</text>
-        <text x="841" y="220" fontSize="8" fontWeight="700" fill="#1A1D2E" textAnchor="middle">{code}</text>
+        <rect x="804" y="196" width="72" height="30" rx="2" fill="#FFFFFF" stroke="#CBD5E1" />
+        <text x="840" y="209" fontSize="6.5" fill="#64748B" textAnchor="middle">Cutlery Wrapper</text>
+        <text x="840" y="221" fontSize="8" fontWeight="700" fill="#1A1D2E" textAnchor="middle">{code}</text>
         {/* E stop and the run lamp on the front ledge */}
         <circle cx="742" cy="176" r="5" fill="#E2445C" />
         <circle cx="762" cy="176" r="4" fill={running ? '#2ABF06' : '#94A3B8'} />
@@ -171,7 +171,7 @@ export default function MachineMimic({ status, code, counter, live = false }: Pr
         <rect x="884" y="194" width="88" height="8" fill="url(#mmSteel)" stroke="#94A3B8" />
         <rect x="896" y="202" width="7" height="66" fill="url(#mmDark)" />
         <rect x="952" y="202" width="7" height="66" fill="url(#mmDark)" />
-        <text x="900" y="216" fontSize="11" fill="#64748B">outfeed</text>
+        <text x="928" y="232" fontSize="11" fill="#64748B" textAnchor="middle">outfeed</text>
 
         {/* ---------- live count, kept clear of the machine ---------- */}
         <rect x="40" y="8" width="178" height="48" rx="6" fill="#0F172A" />
