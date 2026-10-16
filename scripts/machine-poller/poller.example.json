@@ -1,0 +1,15 @@
+{
+  "erp_url": "https://beyondgreen-erp.vercel.app/api/machines/readings",
+  "token": "PUT_THE_MACHINE_INGEST_TOKEN_HERE",
+  "machine_code": "WRP-SFK",
+  "plc_host": "192.168.1.88",
+  "plc_port": 502,
+  "unit_id": 1,
+  "register": 0,
+  "register_type": "holding",
+  "word_count": 2,
+  "word_order": "high_first",
+  "signed": false,
+  "poll_seconds": 60,
+  "spool_path": "/var/lib/beyondgreen/spool.jsonl"
+}
