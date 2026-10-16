@@ -1,11 +1,11 @@
 'use client'
 
-// A drawn side elevation of the cutlery wrapper on the floor, traced from the photographs
-// of WRP-SFK rather than from a generic idea of what a wrapper looks like. Left to right:
-// the long stainless bed on its trapezoid legs, the angled cutlery magazines feeding down
-// onto it, the spoked film reel on its stand, the sealing head, the HMI on its pedestal
-// with the stack light beside it, the two-door control cabinet, and the green outfeed belt
-// running off the end.
+// A drawn view of the cutlery wrapper on the floor, traced from the photographs of
+// WRP-SFK. It is drawn in axonometric projection, so every part is a solid with a top
+// face, a front face and an end face, rather than a flat elevation. Left to right: the
+// long stainless bed on its legs, the angled cutlery magazines feeding down onto it, the
+// film reel on its stand, the sealing head, the HMI on its pedestal with the stack light
+// beside it, the two-door control cabinet, and the green outfeed belt off the end.
 //
 // It exists so somebody can glance at a screen across the room and know three things at
 // once: is it running, is the stack light red, and is product coming off the end.
@@ -21,8 +21,27 @@ const RUNNING = 'Running'
 const DOWN = 'Down'
 const MAINT = 'Maintenance'
 
-// The four cutlery magazines, by where they meet the bed.
-const FEEDERS = [92, 168, 392, 468]
+// How far back and up a face steps to give the drawing its depth. Everything uses the
+// same pair, which is what keeps the parts looking like one object.
+const DX = 30
+const DY = 18
+
+// Where each cutlery magazine meets the bed.
+const FEEDERS = [104, 184, 404, 484]
+
+type BoxProps = { x: number; y: number; w: number; h: number; dx?: number; dy?: number
+  front?: string; top?: string; side?: string }
+
+function Box({ x, y, w, h, dx = DX, dy = DY, front = 'url(#mmFront)',
+              top = 'url(#mmTop)', side = '#93A3B5' }: BoxProps) {
+  return (
+    <g stroke="#8A9AAC" strokeWidth="0.8" strokeLinejoin="round">
+      <polygon points={`${x},${y} ${x + w},${y} ${x + w + dx},${y - dy} ${x + dx},${y - dy}`} fill={top} />
+      <polygon points={`${x + w},${y} ${x + w + dx},${y - dy} ${x + w + dx},${y + h - dy} ${x + w},${y + h}`} fill={side} />
+      <rect x={x} y={y} width={w} height={h} fill={front} />
+    </g>
+  )
+}
 
 export default function MachineMimic({ status, code, counter, live = false }: Props) {
   const running = status === RUNNING
@@ -38,145 +57,147 @@ export default function MachineMimic({ status, code, counter, live = false }: Pr
     <div className="w-full">
       <style>{`
         @keyframes mmReel { to { transform: rotate(-360deg) } }
-        @keyframes mmBelt { to { stroke-dashoffset: -28 } }
-        @keyframes mmRun  { from { transform: translateX(0) }
-                            to   { transform: translateX(640px) } }
+        @keyframes mmBelt { to { stroke-dashoffset: -30 } }
+        @keyframes mmRun  { from { transform: translateX(0) } to { transform: translateX(600px) } }
         @keyframes mmPulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
-        .mm-reel { animation: mmReel 4s linear infinite; transform-origin: 288px 74px }
+        .mm-reel { animation: mmReel 4s linear infinite; transform-origin: 310px 80px }
         .mm-belt { animation: mmBelt 1s linear infinite }
-        .mm-run  { animation: mmRun 4.2s linear infinite }
-        .mm-run2 { animation-delay: 1.4s }
-        .mm-run3 { animation-delay: 2.8s }
+        .mm-run  { animation: mmRun 4.4s linear infinite }
+        .mm-run2 { animation-delay: 1.5s }
+        .mm-run3 { animation-delay: 3s }
         .mm-alarm { animation: mmPulse 1s ease-in-out infinite }
         .mm-still .mm-reel, .mm-still .mm-belt, .mm-still .mm-run { animation-play-state: paused }
         .mm-still .mm-run { opacity: 0 }
-        @media (prefers-reduced-motion: reduce) {
-          .mm-reel, .mm-belt, .mm-run { animation: none }
-        }
+        @media (prefers-reduced-motion: reduce) { .mm-reel, .mm-belt, .mm-run { animation: none } }
       `}</style>
 
-      <svg viewBox="0 0 980 300" className={running ? '' : 'mm-still'} role="img"
-           aria-label={'Side view of machine ' + code + ', currently ' + status}>
+      <svg viewBox="0 0 1040 330" className={running ? '' : 'mm-still'} role="img"
+           aria-label={'View of machine ' + code + ', currently ' + status}>
         <defs>
-          <linearGradient id="mmSteel" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#F1F5F9" />
-            <stop offset="1" stopColor="#B8C4D2" />
+          <linearGradient id="mmFront" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#E8EDF3" /><stop offset="1" stopColor="#AEBCCB" />
           </linearGradient>
-          <linearGradient id="mmDark" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#A8B6C6" />
-            <stop offset="1" stopColor="#6B7A8C" />
+          <linearGradient id="mmTop" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#FBFCFE" /><stop offset="1" stopColor="#DCE4EC" />
           </linearGradient>
-          <pattern id="mmHaz" width="24" height="8" patternUnits="userSpaceOnUse" patternTransform="skewX(-20)">
-            <rect width="12" height="8" fill="#F2C200" />
-            <rect x="12" width="12" height="8" fill="#1F2937" />
+          <linearGradient id="mmDarkFront" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#A5B3C3" /><stop offset="1" stopColor="#6E7E90" />
+          </linearGradient>
+          <pattern id="mmHaz" width="26" height="9" patternUnits="userSpaceOnUse" patternTransform="skewX(-30)">
+            <rect width="13" height="9" fill="#F2C200" /><rect x="13" width="13" height="9" fill="#283142" />
           </pattern>
-          <clipPath id="mmBedClip"><rect x="40" y="140" width="640" height="24" /></clipPath>
+          <clipPath id="mmBedTop">
+            <polygon points="60,170 660,170 690,152 90,152" />
+          </clipPath>
         </defs>
 
-        {/* floor and the hazard stripe taped round the cell */}
-        <rect x="0" y="272" width="980" height="2" fill="#CBD5E1" />
-        <rect x="24" y="280" width="930" height="7" fill="url(#mmHaz)" opacity=".75" />
+        {/* ground plane, receding up and to the right */}
+        <polygon points="10,300 950,300 1000,270 60,270" fill="#EEF2F6" />
+        <polygon points="24,292 936,292 974,269 62,269" fill="url(#mmHaz)" opacity=".7" />
+        {/* soft shadow the machine casts on it */}
+        <polygon points="86,286 900,286 936,264 122,264" fill="#C3CDD8" opacity=".45" />
 
-        {/* ---------- the long bed ---------- */}
-        {/* trapezoid legs, splayed like the real ones, each on a foot */}
-        {[96, 300, 520, 648].map((x) => (
+        {/* ---------- legs under the bed ---------- */}
+        {[104, 284, 452, 620].map((x) => (
           <g key={x}>
-            <polygon points={(x - 16) + ',272 ' + (x + 16) + ',272 ' + (x + 9) + ',200 ' + (x - 9) + ',200'}
-                     fill="url(#mmDark)" />
-            <rect x={x - 20} y="268" width="40" height="5" rx="2" fill="#64748B" />
+            <Box x={x} y={206} w={24} h={62} dx={16} dy={10} front="url(#mmDarkFront)" top="#B9C5D1" side="#5E6E80" />
+            <Box x={x - 5} y={266} w={34} h={6} dx={16} dy={10} front="#6E7E90" top="#93A3B5" side="#5E6E80" />
           </g>
         ))}
-        {/* main box beam */}
-        <rect x="40" y="164" width="640" height="38" fill="url(#mmSteel)" stroke="#94A3B8" />
-        {/* the running surface on top of it */}
-        <rect x="40" y="152" width="640" height="12" fill="#CBD5E1" stroke="#94A3B8" />
-        {/* rivet line, which is most of what you see on the real beam */}
-        {Array.from({ length: 16 }, (_, i) => (
-          <circle key={i} cx={64 + i * 40} cy="184" r="1.6" fill="#8595A8" />
+
+        {/* ---------- the long bed ---------- */}
+        <Box x={60} y={170} w={600} h={36} />
+        {/* rivet line down the front of the beam */}
+        {Array.from({ length: 15 }, (_, i) => (
+          <circle key={i} cx={84 + i * 40} cy="190" r="1.7" fill="#8595A8" />
         ))}
 
-        {/* product travelling the length of the bed and off the end */}
-        <g clipPath="url(#mmBedClip)">
+        {/* product travelling the bed, sitting on the top face */}
+        <g clipPath="url(#mmBedTop)">
           {[0, 1, 2].map((i) => (
-            <rect key={i} className={'mm-run' + (i === 1 ? ' mm-run2' : i === 2 ? ' mm-run3' : '')}
-                  x="40" y="144" width="22" height="9" rx="1.5" fill="#FFFFFF" stroke="#94A3B8" />
+            <polygon key={i} className={'mm-run' + (i === 1 ? ' mm-run2' : i === 2 ? ' mm-run3' : '')}
+                     points="72,168 96,168 110,160 86,160" fill="#FFFFFF" stroke="#9FB0C0" strokeWidth="0.8" />
           ))}
         </g>
 
-        {/* ---------- cutlery magazines, sloping up and back off the bed ---------- */}
+        {/* ---------- cutlery magazines, sloping up and back ---------- */}
         {FEEDERS.map((x) => (
-          <g key={x}>
-            <polygon points={x + ',152 ' + (x + 13) + ',152 ' + (x + 60) + ',62 ' + (x + 47) + ',62'}
-                     fill="#E2E8F0" stroke="#94A3B8" />
-            {/* the stack of cutlery sitting in the chute */}
-            <line x1={x + 6} y1="148" x2={x + 53} y2="68" stroke="#94A3B8" strokeWidth="3"
-                  strokeDasharray="4 3" />
-            {/* drive box at the foot of the chute */}
-            <rect x={x - 12} y="138" width="18" height="16" rx="2" fill="#475569" />
+          <g key={x} stroke="#8A9AAC" strokeWidth="0.8" strokeLinejoin="round">
+            {/* upper face, stepped back to give the chute width */}
+            <polygon points={`${x + 18},${152} ${x + 31},${152} ${x + 78},${62} ${x + 65},${62}`} fill="#EDF1F6" />
+            {/* near face */}
+            <polygon points={`${x},${162} ${x + 13},${162} ${x + 60},${72} ${x + 47},${72}`} fill="url(#mmFront)" />
+            {/* the stack of cutlery lying in it */}
+            <line x1={x + 8} y1="156" x2={x + 54} y2="78" stroke="#97A7B8" strokeWidth="3" strokeDasharray="4 3" />
+            {/* drive box at the foot */}
+            <Box x={x - 14} y={142} w={18} h={18} dx={12} dy={7} front="#59687A" top="#7A8A9C" side="#44515F" />
           </g>
         ))}
 
-        {/* ---------- spoked film reel on its stand ---------- */}
-        <rect x="284" y="74" width="8" height="78" fill="#94A3B8" />
+        {/* ---------- film reel on its stand ---------- */}
+        <Box x={302} y={80} w={10} h={78} dx={14} dy={8} front="url(#mmDarkFront)" top="#B9C5D1" side="#5E6E80" />
+        {/* the far rim, so the reel reads as having thickness */}
+        <ellipse cx={310 + 13} cy={80 - 8} rx="46" ry="43" fill="#9FAEBE" stroke="#8A9AAC" />
         <g className="mm-reel">
-          <circle cx="288" cy="74" r="44" fill="#CBD5E1" stroke="#94A3B8" strokeWidth="2" />
+          <ellipse cx="310" cy="80" rx="46" ry="43" fill="#DAE2EA" stroke="#8A9AAC" strokeWidth="1.2" />
           {[0, 1, 2, 3, 4, 5].map((i) => {
             const a = (i * Math.PI) / 3
-            return <circle key={i} cx={288 + Math.cos(a) * 26} cy={74 + Math.sin(a) * 26} r="11" fill="#F8FAFC" />
+            return <ellipse key={i} cx={310 + Math.cos(a) * 27} cy={80 + Math.sin(a) * 25} rx="11" ry="10" fill="#F6F9FC" stroke="#B9C5D1" strokeWidth="0.8" />
           })}
-          <circle cx="288" cy="74" r="7" fill="#64748B" />
+          <circle cx="310" cy="80" r="7" fill="#6E7E90" />
         </g>
 
         {/* ---------- sealing and cutting head ---------- */}
-        <rect x="548" y="98" width="96" height="58" rx="4" fill="url(#mmDark)" stroke="#64748B" />
-        <circle cx="630" cy="140" r="15" fill="#1F2937" />
-        <circle cx="630" cy="140" r="5" fill="#64748B" />
-        <text x="548" y="92" fontSize="11" fill="#64748B">seal and cut</text>
+        <Box x={540} y={104} w={100} h={58} front="url(#mmDarkFront)" top="#C3CDD8" side="#5E6E80" />
+        <ellipse cx="624" cy="146" rx="15" ry="14" fill="#263040" />
+        <circle cx="624" cy="146" r="5" fill="#6E7E90" />
+        <text x="540" y="96" fontSize="11" fill="#64748B">seal and cut</text>
 
-        {/* ---------- stack light ---------- */}
-        <rect x="524" y="48" width="7" height="50" fill="#94A3B8" />
-        <circle cx="527" cy="16" r="9" fill={red} className={down ? 'mm-alarm' : ''} />
-        <circle cx="527" cy="34" r="9" fill={amber} />
-        <circle cx="527" cy="52" r="9" fill={green} />
+        {/* ---------- stack light, three short cylinders on a post ---------- */}
+        <Box x={516} y={62} w={8} h={44} dx={10} dy={6} front="url(#mmDarkFront)" top="#B9C5D1" side="#5E6E80" />
+        {[{ cy: 20, c: red, a: down }, { cy: 40, c: amber, a: false }, { cy: 60, c: green, a: false }].map((l, i) => (
+          <g key={i} className={l.a ? 'mm-alarm' : ''}>
+            <rect x="508" y={l.cy - 7} width="26" height="14" fill={l.c} />
+            <ellipse cx="534" cy={l.cy} rx="5" ry="7" fill={l.c} />
+            <ellipse cx="508" cy={l.cy} rx="5" ry="7" fill={l.c} opacity=".75" />
+          </g>
+        ))}
 
         {/* ---------- HMI on its pedestal ---------- */}
-        <rect x="690" y="96" width="12" height="76" fill="#94A3B8" />
-        <rect x="658" y="26" width="112" height="74" rx="5" fill="url(#mmSteel)" stroke="#94A3B8" />
-        <rect x="664" y="20" width="100" height="10" rx="2" fill="#F08C1E" />
-        <text x="672" y="28" fontSize="7" fill="#7C3F00" letterSpacing="1">SUNRISE</text>
-        <rect x="668" y="36" width="92" height="42" rx="3" fill="#0F172A" />
-        <rect x="676" y="82" width="18" height="11" rx="2" fill="#1F2937" />
-        <rect x="702" y="82" width="18" height="11" rx="2" fill="#1F2937" />
+        <Box x={700} y={100} w={14} h={78} dx={12} dy={7} front="url(#mmDarkFront)" top="#B9C5D1" side="#5E6E80" />
+        <Box x={658} y={34} w={112} h={70} />
+        <polygon points="664,34 764,34 778,24 678,24" fill="#F08C1E" stroke="#C06E12" strokeWidth="0.8" />
+        <text x="690" y="32" fontSize="7" fill="#FFF3E0" letterSpacing="1.4">SUNRISE</text>
+        <rect x="668" y="44" width="92" height="40" rx="3" fill="#0F172A" />
+        <rect x="676" y="88" width="18" height="10" rx="2" fill="#2A3444" />
+        <rect x="702" y="88" width="18" height="10" rx="2" fill="#2A3444" />
 
-        {/* ---------- control cabinet, two doors, on feet ---------- */}
-        <rect x="712" y="170" width="170" height="98" rx="4" fill="url(#mmSteel)" stroke="#94A3B8" />
-        <line x1="797" y1="174" x2="797" y2="264" stroke="#94A3B8" />
-        <rect x="786" y="208" width="5" height="18" rx="2" fill="#64748B" />
-        <rect x="803" y="208" width="5" height="18" rx="2" fill="#64748B" />
-        <rect x="726" y="186" width="26" height="22" rx="2" fill="#CBD5E1" stroke="#94A3B8" />
-        <rect x="724" y="268" width="26" height="5" rx="2" fill="#64748B" />
-        <rect x="844" y="268" width="26" height="5" rx="2" fill="#64748B" />
-        {/* the beyondGREEN asset label on the right-hand door */}
-        <rect x="804" y="196" width="72" height="30" rx="2" fill="#FFFFFF" stroke="#CBD5E1" />
-        <text x="840" y="209" fontSize="6.5" fill="#64748B" textAnchor="middle">Cutlery Wrapper</text>
-        <text x="840" y="221" fontSize="8" fontWeight="700" fill="#1A1D2E" textAnchor="middle">{code}</text>
-        {/* E stop and the run lamp on the front ledge */}
-        <circle cx="742" cy="176" r="5" fill="#E2445C" />
-        <circle cx="762" cy="176" r="4" fill={running ? '#2ABF06' : '#94A3B8'} />
+        {/* ---------- control cabinet ---------- */}
+        <Box x={700} y={178} w={165} h={92} />
+        <line x1="782" y1="182" x2="782" y2="266" stroke="#8A9AAC" />
+        <rect x="772" y="214" width="5" height="18" rx="2" fill="#6E7E90" />
+        <rect x="788" y="214" width="5" height="18" rx="2" fill="#6E7E90" />
+        <rect x="712" y="192" width="28" height="24" rx="2" fill="#CBD5E1" stroke="#9FB0C0" />
+        {/* our own asset label on the right-hand door */}
+        <rect x="796" y="200" width="60" height="28" rx="2" fill="#FFFFFF" stroke="#C7D2DD" />
+        <text x="826" y="212" fontSize="6.5" fill="#64748B" textAnchor="middle">Cutlery Wrapper</text>
+        <text x="826" y="223" fontSize="8" fontWeight="700" fill="#1A1D2E" textAnchor="middle">{code}</text>
+        {/* E stop and run lamp on the top face */}
+        <ellipse cx="730" cy="172" rx="6" ry="4" fill="#E2445C" />
+        <ellipse cx="750" cy="170" rx="5" ry="3.5" fill={running ? '#2ABF06' : '#9FB0C0'} />
 
-        {/* ---------- green outfeed belt ---------- */}
-        <rect x="884" y="178" width="88" height="16" rx="3" fill="#2F7D4F" />
-        <line className="mm-belt" x1="888" y1="186" x2="968" y2="186"
-              stroke="#8FD6AA" strokeWidth="3" strokeDasharray="9 5" strokeLinecap="round" />
-        <rect x="884" y="194" width="88" height="8" fill="url(#mmSteel)" stroke="#94A3B8" />
-        <rect x="896" y="202" width="7" height="66" fill="url(#mmDark)" />
-        <rect x="952" y="202" width="7" height="66" fill="url(#mmDark)" />
-        <text x="928" y="232" fontSize="11" fill="#64748B" textAnchor="middle">outfeed</text>
+        {/* ---------- green outfeed belt, seen from above ---------- */}
+        <Box x={880} y={196} w={100} h={12} front="url(#mmFront)" top="#2F7D4F" side="#8A9AAC" />
+        <line className="mm-belt" x1="898" y1="187" x2="1002" y2="187"
+              stroke="#8FD6AA" strokeWidth="3" strokeDasharray="10 5" strokeLinecap="round" />
+        <Box x={892} y={208} w={8} h={60} dx={10} dy={6} front="url(#mmDarkFront)" top="#B9C5D1" side="#5E6E80" />
+        <Box x={958} y={208} w={8} h={60} dx={10} dy={6} front="url(#mmDarkFront)" top="#B9C5D1" side="#5E6E80" />
+        <text x="935" y="248" fontSize="11" fill="#64748B" textAnchor="middle">outfeed</text>
 
         {/* ---------- live count, kept clear of the machine ---------- */}
-        <rect x="40" y="8" width="178" height="48" rx="6" fill="#0F172A" />
-        <text x="54" y="27" fontSize="9" fill="#64748B" letterSpacing="1.5">LIVE COUNT</text>
-        <text x="54" y="47" fontSize="19" fontWeight="700"
+        <rect x="60" y="10" width="182" height="50" rx="6" fill="#0F172A" />
+        <text x="76" y="30" fontSize="9" fill="#64748B" letterSpacing="1.5">LIVE COUNT</text>
+        <text x="76" y="50" fontSize="19" fontWeight="700"
               fill={live ? '#2ABF06' : '#475569'} fontFamily="ui-monospace, monospace">
           {live && counter !== null && counter !== undefined ? counter.toLocaleString() : '- - - -'}
         </text>
