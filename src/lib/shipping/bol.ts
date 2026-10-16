@@ -293,7 +293,7 @@ export interface PackListCase {
 }
 export interface PackListPallet {
   number: number; dims?: string; weight?: number
-  lines: { sku: string; description?: string; cases: number; units: number }[]
+  lines: { sku: string; description?: string; cases: number; units: number; unitsPerCase?: number }[]
 }
 // A single physical parcel box holding one or more items (mixed contents), like a pallet but by units.
 export interface PackListBox {
@@ -496,13 +496,26 @@ export function buildPackingList(
       }
       drawBand(false)
       p.lines.forEach(l => {
-        const label = `${l.cases} × ${l.sku}${l.description ? ' — ' + l.description : ''}`
-        const wrapped = doc.splitTextToSize(label, palLabelW) as string[]
-        const rowH = Math.max(13, wrapped.length * PAL_LH + 2)
-        if (y + rowH > bottom) { doc.addPage(); y = M; drawBand(true) }
-        doc.text(wrapped, M + 12, y + 8)
-        doc.text(`${l.units} units`, R - 4, y + 8, { align: 'right' })
-        y += rowH
+        // Split a SKU into full cases + a partial last case so the counts always sum to the
+        // real packed quantity (a partial case is one box holding the remainder, not a full one).
+        const upc = l.unitsPerCase || 0
+        const groups: { cases: number; units: number; partial: boolean }[] = []
+        if (upc > 0 && l.units > 0) {
+          const full = Math.floor(l.units / upc)
+          const rem = l.units - full * upc
+          if (full > 0) groups.push({ cases: full, units: full * upc, partial: false })
+          if (rem > 0) groups.push({ cases: 1, units: rem, partial: true })
+        }
+        if (groups.length === 0) groups.push({ cases: l.cases, units: l.units, partial: false })
+        groups.forEach(g => {
+          const label = `${g.cases} × ${l.sku}${l.description ? ' — ' + l.description : ''}${g.partial ? '  (partial case)' : ''}`
+          const wrapped = doc.splitTextToSize(label, palLabelW) as string[]
+          const rowH = Math.max(13, wrapped.length * PAL_LH + 2)
+          if (y + rowH > bottom) { doc.addPage(); y = M; drawBand(true) }
+          doc.text(wrapped, M + 12, y + 8)
+          doc.text(`${g.units} unit${g.units === 1 ? '' : 's'}`, R - 4, y + 8, { align: 'right' })
+          y += rowH
+        })
       })
     })
   }
