@@ -16,7 +16,7 @@ interface Notif {
 const PAGE_ROUTES: Record<string, string> = {
   Customers: '/sales/customers', Vendors: '/sales/vendors',
   'Sales Orders': '/sales/orders', 'Work Orders': '/production',
-  Tasks: '/bizdev/tasks', Tickets: '/bizdev/tasks', Certifications: '/bizdev/certifications',
+  Tasks: '/bizdev/tasks', Tickets: '/bizdev/tasks', Maintenance: '/production/maintenance', Certifications: '/bizdev/certifications',
   Documents: '/bizdev/documents',
 }
 

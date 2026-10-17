@@ -32,6 +32,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/production/daily-plan': 'Daily Plan',
   '/production/overview': 'Production Overview',
   '/production/machine-status': 'Machine Status',
+  '/production/maintenance': 'Maintenance',
   '/production/rates': 'Production Rates',
   '/imports': 'Import Tracker',
   '/packaging': 'Packaging Design',

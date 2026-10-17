@@ -27,6 +27,7 @@ const RECORD_TABLES: Record<string, string> = {
   purchasing_request: 'purchase_orders',
   product: 'products',
   task: 'tasks',
+  maintenance_request: 'maintenance_requests',
   customer: 'customers',
   shipment: 'shipments',
   sample_submission: 'sample_submissions',
