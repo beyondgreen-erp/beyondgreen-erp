@@ -346,7 +346,7 @@ export default function ProductionRatesPage() {
 
       {/* editor */}
       <div className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={close} />
-      <div className={`fixed inset-0 md:inset-auto md:top-0 md:right-0 md:h-full w-full md:max-w-md bg-white border-l border-[#E4E6EE] z-50 flex flex-col shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] md:w-full md:max-w-[560px] max-h-[90vh] bg-white rounded-2xl border border-[#E4E6EE] flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ease-out ${open ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E4E6EE] shrink-0">
           <h2 className="text-[#1A1D2E] font-semibold">{editing ? 'Edit Rate' : 'Add Rate'}</h2>
           <div className="flex items-center gap-2">
