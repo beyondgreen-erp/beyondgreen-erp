@@ -318,7 +318,12 @@ export default function PurchasingRequestsPage() {
       && !!status && !NON_CONFIRM.includes(status)
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
     setDetail((d: any) => d && d.id === id ? { ...d, ...patch } : d)
-    await sb.from('purchasing_requests').update(patch).eq('id', id)
+    const { error: upErr } = await sb.from('purchasing_requests').update(patch).eq('id', id)
+    if (upErr) {
+      if (prev) { setRows(rs => rs.map(r => r.id === id ? prev : r)); setDetail((d: any) => d && d.id === id ? prev : d) }
+      alert('Could not save: ' + upErr.message)
+      return
+    }
     if (moveToLog) setCollapsed(c => ({ ...c, [RECEIVING_LOG.key]: false }))
     if (prConfirmed) {
       void notifyFlowConfirmed('purchase_request', prev!.custom_name || prev!.name || 'purchase request', {
@@ -563,19 +568,6 @@ th{background:#eef5f0}
       </div>
 
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — status is editable inline and on each record; notes &amp; comments sync two-way with the Sales / Walmart boards.</div>
-      {q.trim() !== '' && rows.filter(match).length === 0 && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-          <p className="text-sm font-semibold text-amber-900">No requests are tagged &ldquo;{q}&rdquo;</p>
-          <p className="text-xs text-amber-700 mt-1">
-            The board holds {rows.length} requests and none of them carries that reference. A request is
-            linked to a sales order by putting the order number in its Order # (Sales Order) field, which
-            is empty on most of them.
-          </p>
-          <button onClick={() => setQ('')} className="mt-2 text-xs font-semibold text-amber-900 underline">
-            Show all requests
-          </button>
-        </div>
-      )}
       <div className="space-y-4">
         {GROUPS.map(group => {
           const gr = groupRows(group.key)
