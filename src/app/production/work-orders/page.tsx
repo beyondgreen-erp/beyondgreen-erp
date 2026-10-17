@@ -1,6 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import WorkOrderMaterials from './WorkOrderMaterials'
 import RunHoursHint from './RunHoursHint'
@@ -206,8 +206,8 @@ export default function WorkOrdersPage() {
   const fmtN = (v: any) => (v === null || v === undefined || v === '') ? '—' : Number(v).toLocaleString()
   const fgBooked = fgMoves.reduce((s, m) => s + Number(m.qty || 0), 0)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true)
     const [{ data: wos }, { data: mach }, { data: emps }, { data: neg }] = await Promise.all([
       sb.from('work_orders')
         .select('*, sales_orders!work_orders_sales_order_id_fkey(order_number, customers(company_name))')
@@ -228,6 +228,25 @@ export default function WorkOrdersPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Live: another person moving a job (or the autopilot raising one) shows up without a refresh.
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    const ch = sb.channel('work-orders-live').on('postgres_changes', { event: '*', schema: 'public', table: 'work_orders' }, () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current)
+      reloadTimer.current = setTimeout(() => load(true), 500)
+    }).subscribe()
+    return () => { if (reloadTimer.current) clearTimeout(reloadTimer.current); sb.removeChannel(ch) }
+  }, [load])
+  // Keep the open sheet's header (status, machine, schedule) in step with live changes,
+  // without touching the sheet fields being typed (those live in `spec`).
+  useEffect(() => {
+    setDetail(d => {
+      if (!d) return d
+      const fresh = orders.find(o => o.id === d.id)
+      return fresh && fresh !== d ? { ...fresh } : d
+    })
+  }, [orders])
 
   // Open sales order lines, so a work order can be raised straight off what was sold
   // instead of retyping the part number and quantity.
@@ -359,7 +378,10 @@ export default function WorkOrdersPage() {
     }
     // Give it a proper code now the group is known — the codes read by group, so one could
     // not be issued while the job had no group.
-    if (!wo.wo_code && g) patch.wo_code = nextWoCode(g, orders.map(o => o.wo_code).filter((c): c is string => !!c))
+    if (!wo.wo_code && g) {
+      const { data: codeRows } = await sb.from('work_orders').select('wo_code').not('wo_code', 'is', null)
+      patch.wo_code = nextWoCode(g, [...orders.map(o => o.wo_code), ...((codeRows as any[]) || []).map(r => r.wo_code)].filter((c): c is string => !!c))
+    }
     if (!wo.form_type && g) patch.form_type = g.form
     const { error } = await sb.from('work_orders').update(patch).eq('id', wo.id)
     if (error) { alert('Could not approve: ' + error.message); return }
@@ -394,11 +416,22 @@ export default function WorkOrdersPage() {
     // Completing a work order must capture what was ACTUALLY produced, not assume the plan.
     // Ask for the final total produced, book only that (the DB trigger books total - already
     // reported), and show how the finished quantity compared to what was planned.
-    if (status === 'Complete') {
+    if (status === 'Complete' || status === 'QC Passed') {
+      if (dirty && detail && detail.id === wo.id) {
+        if (!window.confirm('This sheet has unsaved changes. Save them before finishing the job?\n\nOK = save and continue · Cancel = stop')) return
+        await saveSpec()
+      }
+      if (!wo.product_id) {
+        const go = window.confirm(`${wo.wo_code || 'WO-' + wo.wo_number} has no finished-goods product linked (Item Part # does not match a SKU on the Inventory board).\n\nIf you finish it now, NOTHING goes into inventory and the order may later be blocked from shipping for lack of stock.\n\nOK = finish anyway · Cancel = go back and fix the part number`)
+        if (!go) return
+      }
       const { data: mv } = await sb.from('inventory_movements')
         .select('qty').eq('ref_table', 'work_orders').eq('ref_id', wo.id).eq('movement_type', 'produce')
       const alreadyBooked = ((mv as any[]) || []).reduce((s, m) => s + Number(m.qty || 0), 0)
       const planned = Number(wo.qty_ordered || 0)
+      // What the operators logged hour by hour on the floor phone, as a sanity check.
+      const { data: logs } = await sb.from('wo_run_logs').select('output_qty').eq('wo_id', wo.id)
+      const logged = ((logs as any[]) || []).reduce((s, l) => s + (Number(l.output_qty) || 0), 0)
       const sku = (detail && detail.id === wo.id ? (woProduct?.sku || detail.item_part_number) : (wo as any).item_part_number) || 'this item'
       const uom = wo.uom || ''
       const label = wo.wo_code || 'WO-' + wo.wo_number
@@ -406,9 +439,10 @@ export default function WorkOrdersPage() {
         `Completing ${label}.\n\n`
         + `How many ${sku} were produced IN TOTAL for this work order?\n\n`
         + `Planned: ${fmtN(planned)}${uom ? ' ' + uom : ''}\n`
-        + `Already reported into inventory: ${fmtN(alreadyBooked)}${uom ? ' ' + uom : ''}\n\n`
+        + `Already reported into inventory: ${fmtN(alreadyBooked)}${uom ? ' ' + uom : ''}\n`
+        + (logged > 0 ? `Logged by operators during the run: ${fmtN(logged)}\n` : '') + `\n`
         + `Enter the final total actually made — only this amount is counted in inventory.`,
-        String(alreadyBooked || planned || ''))
+        String(alreadyBooked || logged || planned || ''))
       if (input == null) return
       const total = Number(input)
       if (!isFinite(total) || total < 0) { alert('Enter a valid quantity (0 or more).'); return }
@@ -417,10 +451,10 @@ export default function WorkOrdersPage() {
         return
       }
       const patch: Record<string, any> = { status, qty_completed: total, updated_at: new Date().toISOString() }
-      setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...patch } as WO : o)))
-      setDetail(d => (d && d.id === wo.id ? { ...d, ...patch } as WO : d))
       const { error } = await sb.from('work_orders').update(patch).eq('id', wo.id)
       if (error) { alert('Could not complete: ' + error.message); return }
+      setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...patch } as WO : o)))
+      setDetail(d => (d && d.id === wo.id ? { ...d, ...patch } as WO : d))
       if (wo.sales_order_id) { try { await checkOrderReadyToShip(wo.sales_order_id) } catch { /* non-blocking */ } }
       const cmid = wo.machine_id
       if (cmid) {
@@ -431,16 +465,19 @@ export default function WorkOrdersPage() {
       const bookedNow = total - alreadyBooked
       const variance = total - planned
       alert(
-        `\u2713 ${label} completed.\n\n`
+        `\u2713 ${label} ${status === 'QC Passed' ? 'passed QC' : 'completed'}.\n\n`
         + `Produced: ${fmtN(total)}${uom ? ' ' + uom : ''}\n`
         + `Planned: ${fmtN(planned)}${uom ? ' ' + uom : ''}\n`
         + `${variance === 0 ? 'Right on plan.' : variance > 0 ? 'Over plan by ' + fmtN(variance) + '.' : 'Under plan by ' + fmtN(-variance) + '.'}\n\n`
-        + `${bookedNow > 0 ? fmtN(bookedNow) + ' added to inventory now (' + fmtN(alreadyBooked) + ' already reported during the run).' : 'Nothing new added — it was all reported during the run.'}`)
+        + (!wo.product_id ? 'No product is linked, so nothing was added to inventory.'
+          : bookedNow > 0 ? fmtN(bookedNow) + ' added to inventory now (' + fmtN(alreadyBooked) + ' already reported during the run), raw materials consumed per the BOM.'
+          : 'Nothing new added — it was all reported during the run.'))
       return
     }
+    const { error: stErr } = await sb.from('work_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', wo.id)
+    if (stErr) { alert('Could not change status: ' + stErr.message); return }
     setOrders(os => os.map(o => (o.id === wo.id ? { ...o, status } : o)))
     setDetail(d => (d && d.id === wo.id ? { ...d, status } : d))
-    await sb.from('work_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', wo.id)
     if (DONE_STATUSES.includes(status) && wo.sales_order_id) {
       try { await checkOrderReadyToShip(wo.sales_order_id) } catch { /* non-blocking */ }
     }
@@ -452,9 +489,6 @@ export default function WorkOrdersPage() {
         setMachines(list => list.map(m => (m.id === mid ? { ...m, status: ms } : m)))
       }
     }
-    // Completing books finished goods in the database, so re-read the stock figures
-    // rather than leaving the panel showing what was on hand a moment ago.
-    if (status === 'Complete') await refreshFG()
   }
 
   async function setMachineOn(wo: WO, machineId: string) {
@@ -464,7 +498,17 @@ export default function WorkOrdersPage() {
     setOrders(os => os.map(o => (o.id === wo.id ? { ...o, machine_id: mid, spec: nextSpec } : o)))
     setDetail(d => (d && d.id === wo.id ? { ...d, machine_id: mid, spec: nextSpec } : d))
     setSpec(s => (detail && detail.id === wo.id ? { ...s, machine_no: name } : s))
-    await sb.from('work_orders').update({ machine_id: mid, spec: nextSpec, updated_at: new Date().toISOString() }).eq('id', wo.id)
+    const { error } = await sb.from('work_orders').update({ machine_id: mid, spec: nextSpec, updated_at: new Date().toISOString() }).eq('id', wo.id)
+    if (error) {
+      alert('Could not change the machine: ' + error.message)
+      setOrders(os => os.map(o => (o.id === wo.id ? wo : o))); setDetail(d => (d && d.id === wo.id ? wo : d)); return
+    }
+    // The machine this job was running on is free again unless another running job is on it.
+    const oldMid = wo.machine_id
+    if (oldMid && oldMid !== mid && wo.status === 'In Progress' && !orders.some(o => o.id !== wo.id && o.machine_id === oldMid && o.status === 'In Progress')) {
+      await sb.from('machines').update({ status: 'Idle', updated_at: new Date().toISOString() }).eq('id', oldMid)
+      setMachines(ms => ms.map(m => (m.id === oldMid ? { ...m, status: 'Idle' } : m)))
+    }
     if (mid && wo.status === 'In Progress') {
       await sb.from('machines').update({ status: 'Running', updated_at: new Date().toISOString() }).eq('id', mid)
       setMachines(ms => ms.map(m => (m.id === mid ? { ...m, status: 'Running' } : m)))
@@ -477,7 +521,10 @@ export default function WorkOrdersPage() {
     try {
       const g = creatingIn
       const line = soLines.find(l => l.id === newSoLine)
-      const code = nextWoCode(g, orders.map(o => o.wo_code || ''))
+      // Read the codes fresh — two people raising a job in the same group a moment apart
+      // would otherwise both be handed the same code and the second save would fail.
+      const { data: codeRows } = await sb.from('work_orders').select('wo_code').not('wo_code', 'is', null)
+      const code = nextWoCode(g, [...orders.map(o => o.wo_code || ''), ...((codeRows as any[]) || []).map(r => r.wo_code as string)])
       const mName = machines.find(m => m.id === newMachine)?.name ?? ''
       const initSpec: Record<string, any> = {
         date: new Date().toISOString().slice(0, 10),
@@ -551,10 +598,17 @@ export default function WorkOrdersPage() {
     const full = { ...patch, updated_at: new Date().toISOString() }
     setOrders(os => os.map(o => (o.id === wo.id ? { ...o, ...full } as WO : o)))
     setDetail(d => (d && d.id === wo.id ? { ...d, ...full } as WO : d))
-    await sb.from('work_orders').update(full).eq('id', wo.id)
+    const { error } = await sb.from('work_orders').update(full).eq('id', wo.id)
+    if (error) {
+      alert('Could not save: ' + error.message)
+      setOrders(os => os.map(o => (o.id === wo.id ? wo : o))); setDetail(d => (d && d.id === wo.id ? wo : d))
+    }
   }
 
   async function deleteWorkOrder(wo: WO) {
+    const { data: bk } = await sb.from('inventory_movements').select('qty').eq('ref_table', 'work_orders').eq('ref_id', wo.id).eq('movement_type', 'produce')
+    const booked = ((bk as any[]) || []).reduce((s, m) => s + Number(m.qty || 0), 0)
+    if (booked > 0) { alert(`${wo.wo_code || 'WO-' + wo.wo_number} has ${fmtN(booked)} booked into inventory. Use "Undo booking" first (it also returns the raw materials), or set it to Cancelled instead of deleting — deleting would leave that stock with no work order behind it.`); return }
     if (!window.confirm(`Delete work order ${wo.wo_code || 'WO-' + wo.wo_number}? This cannot be undone.`)) return
     const { error } = await sb.from('work_orders').delete().eq('id', wo.id)
     if (error) { alert('Could not delete: ' + error.message); return }
@@ -726,7 +780,7 @@ export default function WorkOrdersPage() {
 
   // ── Tiles ──────────────────────────────────────────────────────────────────
 
-  function Tile({ g }: { g: GroupDef }) {
+  function renderTile(g: GroupDef) {
     const rows = byGroup.map[g.name] || []
     const running = rows.filter(r => r.status === 'In Progress').length
     const queued = rows.filter(r => r.status === 'Queued').length
@@ -791,6 +845,19 @@ export default function WorkOrdersPage() {
       </div>
     )
   }
+
+  // Closing the sheet with typed-but-unsaved fields used to throw them away silently.
+  const closeDetail = () => {
+    if (dirty && !window.confirm('This work order has unsaved changes on the sheet.\n\nOK = discard them · Cancel = keep editing (then press Save work order)')) return
+    setDetail(null)
+  }
+  useEffect(() => {
+    if (!detail) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDetail() }
+    const onUnload = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = '' } }
+    window.addEventListener('keydown', onKey); window.addEventListener('beforeunload', onUnload)
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload) }
+  }) // eslint-disable-line react-hooks/exhaustive-deps
 
   const form = detail ? formFor(detail.group_name, detail.form_type) : null
   const detailGroup = detail ? groupByName(detail.group_name) : null
@@ -904,7 +971,7 @@ export default function WorkOrdersPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-4">
-            {GROUPS.map(g => <Tile key={g.name} g={g} />)}
+            {GROUPS.map(g => <div key={g.name} className="contents">{renderTile(g)}</div>)}
           </div>
 
           {byGroup.loose.length > 0 && (
@@ -967,7 +1034,7 @@ export default function WorkOrdersPage() {
       {/* Work order sheet */}
       {detail && form && (
         <>
-          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setDetail(null)} />
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={closeDetail} />
           <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-[960px] max-h-[92vh] bg-white z-50 shadow-2xl rounded-2xl flex flex-col overflow-hidden">
             <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100 shrink-0" style={{ borderTop: `4px solid ${detailGroup?.accent ?? '#10b981'}` }}>
               <div className="min-w-0">
@@ -984,7 +1051,7 @@ export default function WorkOrdersPage() {
               </div>
               <div className="flex items-center gap-2">
               <button onClick={() => window.open(`/production/work-orders/print?id=${detail.id}`, '_blank')} className="text-[12px] font-semibold border-2 border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50" title="Print an operator sheet for this work order">Print</button>
-              <button onClick={() => setDetail(null)} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-50">✕</button>
+              <button onClick={closeDetail} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-50">✕</button>
             </div>
             </div>
 
@@ -1074,9 +1141,10 @@ export default function WorkOrdersPage() {
                       const gname = e.target.value
                       const g = groupByName(gname)
                       const patch = { group_name: gname || null, form_type: g?.form ?? null, updated_at: new Date().toISOString() }
+                      const { error } = await sb.from('work_orders').update(patch).eq('id', detail.id)
+                      if (error) { alert('Could not change the group: ' + error.message); return }
                       setOrders(os => os.map(o => (o.id === detail.id ? { ...o, ...patch } as WO : o)))
                       setDetail(d => (d ? { ...d, ...patch } as WO : d))
-                      await sb.from('work_orders').update(patch).eq('id', detail.id)
                     }}
                     className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
