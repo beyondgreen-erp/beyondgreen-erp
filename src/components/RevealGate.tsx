@@ -16,7 +16,7 @@ import type { FormEvent, ReactNode } from 'react'
   and closing the browser locks everything again.
 */
 
-const KEY = 'dsr_revealed'
+const KEY = 'dash_revealed'
 const EVENT = 'bg-reveal-change'
 
 export function useRevealed() {
