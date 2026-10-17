@@ -4,6 +4,7 @@ import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { useBoards, groupBoards } from '@/lib/boards'
 
 interface Profile {
   id: string
@@ -364,6 +365,17 @@ export default function UsersPage() {
                 </select>
               </div>
             </div>
+            {/* Board access (admins only; Admin/Owner users see everything so nothing to set) */}
+            {iAmAdmin && !['Admin','Owner'].includes(editForm.role) && (
+              <div className="pt-3 border-t border-[#E4E6EE]">
+                <BoardAccess email={editing.email} />
+              </div>
+            )}
+            {iAmAdmin && ['Admin','Owner'].includes(editForm.role) && (
+              <div className="pt-3 border-t border-[#E4E6EE]">
+                <p className="text-xs text-gray-500"><span className="font-semibold text-[#1A1D2E]">{editForm.role}s see and edit every board.</span> Switch the role to Member to set board-by-board access.</p>
+              </div>
+            )}
             {/* Reset password (admins only) */}
             {iAmAdmin && (
               <div className="pt-3 border-t border-[#E4E6EE]">
@@ -486,6 +498,89 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ── Per-board View / Edit matrix for one user (admin only) ───────────────── */
+function BoardAccess({ email }: { email: string }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const { boards } = useBoards()
+  const [grants, setGrants] = useState<Record<string, { can_view: boolean; can_edit: boolean }>>({})
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+
+  useEffect(() => { let ok = true; (async () => {
+    setLoading(true)
+    const { data } = await sb.rpc('erp_list_user_permissions', { p_email: email })
+    if (!ok) return
+    const m: Record<string, { can_view: boolean; can_edit: boolean }> = {}
+    for (const r of ((data as any[]) || [])) m[r.board_key] = { can_view: !!r.can_view, can_edit: !!r.can_edit }
+    setGrants(m); setLoading(false)
+  })(); return () => { ok = false } }, [sb, email])
+
+  const groups = useMemo(() => groupBoards(boards).filter(g => g.items.length), [boards])
+
+  async function set(key: string, view: boolean, edit: boolean) {
+    setErr(''); setBusy(key)
+    const prev = grants[key]
+    setGrants(g => ({ ...g, [key]: { can_view: view, can_edit: view && edit } }))
+    const { error } = await sb.rpc('erp_set_board_permission', { p_email: email, p_board_key: key, p_view: view, p_edit: view && edit })
+    if (error) { setErr(error.message); setGrants(g => ({ ...g, [key]: prev || { can_view: false, can_edit: false } })) }
+    setBusy(null)
+  }
+  async function setGroup(keys: string[], view: boolean, edit: boolean) {
+    for (const k of keys) await set(k, view, edit)
+  }
+  const allKeys = groups.flatMap(g => g.items.map(i => i.board_key))
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="block text-xs text-gray-400">Board access <span className="text-gray-400/70">— what this user can see and change</span></label>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setGroup(allKeys, true, true)} className="text-[11px] px-2 py-1 rounded bg-[#DDF3E8] text-[#0F7A4E] hover:bg-[#C9EBD9]">All boards: view + edit</button>
+          <button type="button" onClick={() => setGroup(allKeys, true, false)} className="text-[11px] px-2 py-1 rounded bg-[#EEF2FB] text-[#3A4A6B] hover:bg-[#DCE3F2]">All: view only</button>
+          <button type="button" onClick={() => setGroup(allKeys, false, false)} className="text-[11px] px-2 py-1 rounded bg-[#FBE9E9] text-[#B3261E] hover:bg-[#F6D5D5]">Revoke all</button>
+        </div>
+      </div>
+      {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
+      {loading ? <p className="text-xs text-gray-400">Loading access…</p> : (
+        <div className="max-h-[340px] overflow-y-auto rounded-xl border border-[#E4E6EE]">
+          {groups.map(g => {
+            const keys = g.items.map(i => i.board_key)
+            return (
+              <div key={g.group}>
+                <div className="flex items-center justify-between px-3 py-1.5 bg-[#F5F6FA] text-[11px] font-semibold uppercase tracking-wide text-gray-500 sticky top-0">
+                  <span>{g.group}</span>
+                  <span className="flex gap-3 font-normal normal-case tracking-normal">
+                    <button type="button" onClick={() => setGroup(keys, true, true)} className="hover:text-[#0F7A4E]">edit all</button>
+                    <button type="button" onClick={() => setGroup(keys, true, false)} className="hover:text-[#0F7A4E]">view all</button>
+                    <button type="button" onClick={() => setGroup(keys, false, false)} className="hover:text-red-600">none</button>
+                  </span>
+                </div>
+                {g.items.map(b => {
+                  const gr = grants[b.board_key] || { can_view: false, can_edit: false }
+                  const k = b.board_key
+                  return (
+                    <div key={k} className={`flex items-center px-3 py-1.5 border-t border-[#F0F1F5] text-sm ${busy === k ? 'opacity-60' : ''}`}>
+                      <span className="flex-1 text-[#1A1D2E]">{b.label}</span>
+                      <label className="flex items-center gap-1.5 text-xs text-gray-600 mr-4 cursor-pointer">
+                        <input type="checkbox" checked={gr.can_view} onChange={e => set(k, e.target.checked, gr.can_edit)} className="accent-emerald-600" /> View
+                      </label>
+                      <label className={`flex items-center gap-1.5 text-xs cursor-pointer ${gr.can_view ? 'text-gray-600' : 'text-gray-300'}`}>
+                        <input type="checkbox" disabled={!gr.can_view} checked={gr.can_view && gr.can_edit} onChange={e => set(k, true, e.target.checked)} className="accent-emerald-600" /> Edit
+                      </label>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <p className="text-[11px] text-gray-400 mt-2">Changes save instantly. The user sees the new access the next time they load a page.</p>
     </div>
   )
 }
