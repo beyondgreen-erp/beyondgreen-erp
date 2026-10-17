@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import TopNav from './TopNav'
 import { useBoards } from '@/lib/boards'
 import { usePermissions, boardKeyForPath } from '@/lib/permissions'
+import { installErrorReporter } from '@/lib/errorReporter'
 import PresenceTracker from './PresenceTracker'
 import TeamChat, { ChatLauncher } from './TeamChat'
 import MobileNav from './MobileNav'
@@ -14,6 +15,7 @@ import AuthWatcher from './AuthWatcher'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
+  '/settings/health': 'System Health',
   '/sales/customers': 'Customer/Leads',
   '/sales/quotations': 'Quotations',
   '/sales/costing': 'Quick Quote',
@@ -85,6 +87,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     sb.auth.getUser().then(({ data }) => {
       const email = data.user?.email ?? ''
       if (!email) return
+      installErrorReporter()   // screen crashes + refused saves → watchdog (System Health)
       setUserEmail(email)
       setUserInitials(email[0].toUpperCase())
       setUserName(email.split('@')[0])
