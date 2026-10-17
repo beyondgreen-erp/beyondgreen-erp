@@ -136,20 +136,22 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
     const out: SearchHit[] = []
     const tries: Promise<void>[] = []
     tries.push((async () => { try {
-      const { data } = await sb.from('sales_orders').select('id, order_number, customer_name').or(`order_number.ilike.${like},customer_name.ilike.${like}`).limit(5)
-      ;(data || []).forEach((r: any) => out.push({ kind: 'Order', label: r.order_number || r.customer_name || 'Order', sub: r.customer_name || '', href: `/sales/orders?item=${r.id}`, icon: 'ti-shopping-cart', color: '#00A84F' }))
+      const { data } = await sb.from('sales_orders').select('id, order_number, po_number, customers(company_name)').or(`order_number.ilike.${like},po_number.ilike.${like}`).order('created_at', { ascending: false }).limit(5)
+      ;(data || []).forEach((r: any) => out.push({ kind: 'Order', label: r.order_number || r.po_number || 'Order', sub: r.customers?.company_name || (r.po_number ? 'PO ' + r.po_number : ''), href: `/sales/orders?item=${r.id}`, icon: 'ti-shopping-cart', color: '#00A84F' }))
     } catch {} })())
     tries.push((async () => { try {
-      const { data } = await sb.from('customers').select('id, name').ilike('name', like).limit(5)
-      ;(data || []).forEach((r: any) => out.push({ kind: 'Customer', label: r.name || 'Customer', href: `/sales/customers?item=${r.id}`, icon: 'ti-users', color: '#0086C0' }))
+      // customers holds both customers and leads (board = 'customer' | 'Leads'); the column is company_name
+      const { data } = await sb.from('customers').select('id, company_name, board').eq('is_active', true).ilike('company_name', like).order('board').limit(8)
+      ;(data || []).forEach((r: any) => {
+        const lead = /^leads?$/i.test(r.board || '')
+        out.push(lead
+          ? { kind: 'Lead', label: r.company_name || 'Lead', href: `/sales/leads?item=${r.id}`, icon: 'ti-user-search', color: '#FDAB3D' }
+          : { kind: 'Customer', label: r.company_name || 'Customer', href: `/sales/customers?item=${r.id}`, icon: 'ti-users', color: '#0086C0' })
+      })
     } catch {} })())
     tries.push((async () => { try {
       const { data } = await sb.from('vault_items').select('id, name, group_name').ilike('name', like).limit(5)
       ;(data || []).forEach((r: any) => out.push({ kind: 'Vault', label: r.name || 'Entry', sub: r.group_name || '', href: `/bizdev/vault`, icon: 'ti-lock', color: '#A25DDC' }))
-    } catch {} })())
-    tries.push((async () => { try {
-      const { data } = await sb.from('leads').select('id, name').ilike('name', like).limit(5)
-      ;(data || []).forEach((r: any) => out.push({ kind: 'Lead', label: r.name || 'Lead', href: `/sales/leads?item=${r.id}`, icon: 'ti-user-search', color: '#FDAB3D' }))
     } catch {} })())
     await Promise.all(tries)
     setRecords(out)
