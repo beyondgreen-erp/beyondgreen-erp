@@ -76,6 +76,18 @@ const cards = [
     border: 'hover:border-pink-500/40',
   },
   {
+    href: '/settings/health',
+    title: 'System Health',
+    description: 'The ERP watchdog: what it fixed on its own, what needs a person, and errors people hit on screen',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0zM8 12h2l1-2 2 4 1-2h2" />
+      </svg>
+    ),
+    color: 'text-emerald-500',
+    border: 'hover:border-emerald-500/40',
+  },
+  {
     href: '/settings/dev-center',
     title: 'Dev Center',
     description: 'Password-protected. Add new boards and manage the ERP structure — build it like Monday.com',
