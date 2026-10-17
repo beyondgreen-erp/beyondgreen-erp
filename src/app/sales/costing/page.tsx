@@ -965,7 +965,7 @@ export default function QuoteCostingPage() {
 
       {/* ═══ LINE ITEM FORM PANEL ═══ */}
       <div className={`fixed inset-0 bg-black/60 z-30 transition-opacity duration-300 ${lineFormOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
-      <div className={`fixed top-0 right-0 h-full w-full max-w-[640px] bg-white border-l border-[#E4E6EE] z-40 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${lineFormOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed z-40 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] md:w-full md:max-w-[640px] max-h-[90vh] bg-white rounded-2xl border border-[#E4E6EE] flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ease-out ${lineFormOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0">
           <h3 className="text-[#1A1D2E] font-semibold text-sm">{editingLineIdx !== null ? 'Edit Line Item' : 'Add Line Item'}</h3>
           <button onClick={() => setLineFormOpen(false)} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]">
