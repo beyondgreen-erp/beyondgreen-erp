@@ -69,7 +69,7 @@ export default function DocumentsPage() {
     setLoading(true)
     const [{data:docs},{data:c},{data:v},{data:o},{data:ce},{data:atts}]=await Promise.all([
       sb.from('documents').select('*').order('title',{ascending:true}),
-      sb.from('customers').select('id,company_name').eq('is_active',true).order('company_name'),
+      sb.from('customers').select('id,company_name').eq('is_active',true).eq('board','customer').order('company_name').limit(2000),
       sb.from('vendors').select('id,company_name').eq('is_active',true).order('company_name'),
       sb.from('sales_orders').select('id,order_number').order('created_at',{ascending:false}).limit(800),
       sb.from('certifications').select('id,cert_name').eq('is_active',true).order('cert_name'),
