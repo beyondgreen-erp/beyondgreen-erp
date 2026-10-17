@@ -30,13 +30,13 @@ export default function OverviewPage() {
   useEffect(()=>{
     async function load(){
       setLoading(true)
-      const today=new Date().toISOString().slice(0,10)
+      const _d=new Date(); const today=`${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`
       const now=new Date(); now.setHours(0,0,0,0)
 
       const [{data:wos},{data:machines},{data:plans},{data:products}]=await Promise.all([
         sb.from('work_orders').select('status,due_date'),
         sb.from('machines').select('status').eq('is_active',true),
-        sb.from('daily_plan').select('status,plan_date').eq('is_active',true).eq('plan_date',today),
+        sb.from('daily_plan').select('status,plan_date').eq('plan_date',today),
         sb.from('products').select('on_hand_qty,reorder_point').eq('is_active',true),
       ])
 
