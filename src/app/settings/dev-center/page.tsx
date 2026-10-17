@@ -236,15 +236,15 @@ export default function DevCenterPage() {
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: c + '26', color: c }}>{section.items.length}</span>
               </div>
               {!isCol && (
-                <div className="divide-y divide-[#EAECF2]" onDragOver={e => e.preventDefault()} onDrop={() => onDropRow(section.group, null)}>
+                <div className="divide-y divide-[#EAECF2]" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); onDropRow(section.group, null) }}>
                   {section.items.map((b, idx) => {
                     const realIdx = fullItems.findIndex(x => x.board_key === b.board_key)
                     return (
                       <div key={b.board_key}
                         onDragOver={e => { e.preventDefault(); if (dragKey && dragOverKey !== b.board_key) setDragOverKey(b.board_key) }}
-                        onDrop={() => onDropRow(section.group, b.board_key)}
+                        onDrop={e => { e.preventDefault(); e.stopPropagation(); onDropRow(section.group, b.board_key) }}
                         className={`group mon-row flex items-center gap-2 px-3 py-2.5 ${idx % 2 ? 'bg-[#F6F8FB]' : 'bg-white'} ${dragKey && dragOverKey === b.board_key ? 'ring-2 ring-inset ring-[#A25DDC]/50' : ''}`}>
-                        <span draggable onDragStart={() => setDragKey(b.board_key)} onDragEnd={() => { setDragKey(null); setDragOverKey(null) }} className="cursor-grab active:cursor-grabbing text-gray-300 group-hover:text-gray-500 select-none shrink-0 px-0.5" title="Drag to reorder">&#8942;&#8942;</span>
+                        <span draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; setDragKey(b.board_key) }} onDragEnd={() => { setDragKey(null); setDragOverKey(null) }} className="cursor-grab active:cursor-grabbing text-gray-300 group-hover:text-gray-500 select-none shrink-0 px-0.5" title="Drag to reorder">&#8942;&#8942;</span>
                         <i className={`ti ${b.icon || 'ti-layout-board'} text-base w-5 text-center shrink-0`} style={{ color: c }} />
                         <input defaultValue={b.label} onBlur={e => { const v = e.target.value.trim(); if (v && v !== b.label) meta(b, { label: v }) }} className={inp + ' flex-1 min-w-0'} />
                         <select value={b.nav_group} onChange={e => meta(b, { nav_group: e.target.value })} className={inp + ' hidden sm:block'}>
