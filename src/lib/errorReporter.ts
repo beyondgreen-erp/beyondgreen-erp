@@ -36,6 +36,29 @@ function send(kind: string, message: string, stack?: string) {
   } catch { /* the reporter must never break the page */ }
 }
 
+// A small banner that needs no React: works from any screen, even one that crashed.
+let bannerTimer: ReturnType<typeof setTimeout> | null = null
+function showNotSaved(reason: string) {
+  try {
+    let el = document.getElementById('erp-not-saved')
+    if (!el) {
+      el = document.createElement('div')
+      el.id = 'erp-not-saved'
+      el.setAttribute('role', 'alert')
+      Object.assign(el.style, {
+        position: 'fixed', left: '50%', bottom: '24px', transform: 'translateX(-50%)', zIndex: '2147483647',
+        background: '#C62839', color: '#fff', padding: '12px 16px', borderRadius: '12px', maxWidth: '560px',
+        boxShadow: '0 10px 30px rgba(0,0,0,.25)', font: '600 14px/1.4 system-ui, -apple-system, Segoe UI, sans-serif', cursor: 'pointer',
+      } as CSSStyleDeclaration)
+      el.onclick = () => { el?.remove() }
+      document.body.appendChild(el)
+    }
+    el.textContent = '⚠ Your last change was NOT saved — ' + reason.slice(0, 220) + '. Please try again; if it keeps happening, tell Rudy (it has been logged).'
+    if (bannerTimer) clearTimeout(bannerTimer)
+    bannerTimer = setTimeout(() => { document.getElementById('erp-not-saved')?.remove() }, 12000)
+  } catch { /* never break the page */ }
+}
+
 export function installErrorReporter() {
   if (installed || typeof window === 'undefined') return
   installed = true
@@ -66,6 +89,9 @@ export function installErrorReporter() {
         try { const j = await res.clone().json(); detail = j?.message || j?.error || j?.hint || '' } catch { /* not json */ }
         const verb = method === 'GET' ? 'read' : method === 'DELETE' ? 'delete' : 'save'
         send('db_' + verb, `${res.status} on ${method} ${target}${detail ? ': ' + detail : ''}`)
+        // Many screens never check the result of a save, so a refused write used to look like
+        // success. Every refused change now tells the person, wherever it happened.
+        if (method !== 'GET' && method !== 'HEAD') showNotSaved(detail || `the server refused it (${res.status})`)
       }
     } catch { /* never interfere with the response */ }
     return res
