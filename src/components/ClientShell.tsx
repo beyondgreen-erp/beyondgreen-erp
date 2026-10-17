@@ -36,7 +36,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/imports': 'Import Tracker',
   '/packaging': 'Packaging Design',
   '/walmart': 'Walmart Portal',
-  '/bizdev/tasks': 'Tasks',
+  '/bizdev/tasks': 'Tickets',
   '/bizdev/forecasting': 'Forecasting',
   '/bizdev/certifications': 'Certifications',
   '/bizdev/documents': 'Documents',

@@ -437,7 +437,7 @@ function KpiOverdueInvoices() {
 function KpiOpenTasks() {
   const [n, setN] = useState<number | null>(null)
   useEffect(() => { sb.from('tasks').select('id', { count: 'exact', head: true }).not('status', 'in', '("Done","Archived","Cancelled")').then(({ count }) => setN(count || 0)) }, [])
-  return <BigNumber value={n} sub="Open Tasks" color="text-blue-600" href="/bizdev/tasks" />
+  return <BigNumber value={n} sub="Open Tickets" color="text-blue-600" href="/bizdev/tasks" />
 }
 function KpiCustomers() {
   const [n, setN] = useState<number | null>(null)
