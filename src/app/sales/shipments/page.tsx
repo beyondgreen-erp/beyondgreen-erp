@@ -303,7 +303,7 @@ export default function ShipmentsPage() {
   async function save() {
     if (!editing) return
     setSaving(true)
-    await sb.from('shipments').update({
+    const { error } = await sb.from('shipments').update({
       customer_name: form.customer_name, po_number: form.po_number,
       order_date: form.order_date || null, ship_date: form.ship_date || null,
       carrier: form.carrier, tracking_number: form.tracking_number,
@@ -316,6 +316,7 @@ export default function ShipmentsPage() {
       broker_commission_status: form.broker_commission_status || null,
     }).eq('id', editing.id)
     setSaving(false)
+    if (error) { alert('Could not save the shipment: ' + error.message); return }
     setRows(prev => prev.map(r => r.id === editing.id ? { ...r, ...form } as Shipment : r))
     setOpen(false)
   }
