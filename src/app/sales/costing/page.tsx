@@ -3,7 +3,7 @@ import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { generateCustomerCostingPDF, generateInternalCostingPDF } from '@/lib/generateCostingQuotePDF'
 import Comments from '@/components/Comments'
@@ -71,7 +71,9 @@ interface Customer { id: string; company_name: string; contact_name?: string | n
 // ─────────────────────────────────────────────
 // Calculations
 // ─────────────────────────────────────────────
-function calcLine(l: QuoteLine) {
+// dutyPct = the quote's "Default Duty %" (base 10% + China tariff). It used to be ignored —
+// the 25% + 10% were hard-coded, so changing the field never moved the numbers.
+function calcLine(l: QuoteLine, dutyPct = 35) {
   const exw = parseFloat(l.exw_cost) || 0
   const freight = parseFloat(l.freight_cost) || 0
   const mpf = parseFloat(l.mpf) || 0
@@ -85,7 +87,7 @@ function calcLine(l: QuoteLine) {
   const broker = parseFloat(l.broker_fee) || 0
 
   const isDomestic = l.freight_method === 'DOMESTIC' || l.country_of_origin === 'USA'
-  const china25 = !isDomestic && l.country_of_origin === 'CHINA' ? exw * 0.25 : 0
+  const china25 = !isDomestic && l.country_of_origin === 'CHINA' ? exw * Math.max(0, dutyPct - 10) / 100 : 0
   const duty10 = !isDomestic ? exw * 0.10 : 0
   const effectiveHmf = !isDomestic && l.freight_method === 'OCEAN' ? hmf : 0
   const totalDuties = isDomestic ? 0 : china25 + duty10 + mpf + effectiveHmf
@@ -164,6 +166,7 @@ export default function QuoteCostingPage() {
   const [view, setView] = useState<'list' | 'editor'>('list')
   const [editingQuote, setEditingQuote] = useState<QuoteCosting | null>(null)
   const [quoteForm, setQuoteForm] = useState(emptyQuoteForm)
+  const dutyPctNum = (() => { const n = parseFloat(String(quoteForm.default_duty_pct)); return Number.isFinite(n) ? n : 35 })()
   const [lines, setLines] = useState<QuoteLine[]>([])
   const [lineFormOpen, setLineFormOpen] = useState(false)
   const [editingLineIdx, setEditingLineIdx] = useState<number | null>(null)
@@ -290,6 +293,7 @@ export default function QuoteCostingPage() {
 
   function openEditLine(idx: number) {
     setEditingLineIdx(idx)
+    skipAutoCalc.current = true   // opening a saved line must not overwrite its saved MPF/HMF
     setLineForm({ ...lines[idx] })
     setLineFormOpen(true)
   }
@@ -299,7 +303,9 @@ export default function QuoteCostingPage() {
   }
 
   // Auto-calculate MPF and HMF when EXW, freight method, or origin changes
+  const skipAutoCalc = useRef(false)
   useEffect(() => {
+    if (skipAutoCalc.current) { skipAutoCalc.current = false; return }
     const exw = parseFloat(lineForm.exw_cost) || 0
     const isDom = lineForm.freight_method === 'DOMESTIC' || lineForm.country_of_origin === 'USA'
     if (exw > 0 && !isDom) {
@@ -440,11 +446,14 @@ export default function QuoteCostingPage() {
             unit_price: parseFloat(l.exw_cost) || 0,
           }).select('id').single()
           if (prod) {
-            // Update the line with the product_id (fire-and-forget)
             await sb.from('quote_costing_lines')
               .update({ product_id: (prod as any).id, sku })
               .eq('quote_costing_id', qcId!)
               .eq('line_number', i + 1)
+            // Keep the open quote in step: without this a second Save re-inserted the line with
+            // no product and created another "Quoted-Not Launched" product every time.
+            const pid = (prod as any).id
+            setLines(ls => ls.map((x, k) => k === i ? { ...x, product_id: pid, sku } : x))
           }
         }
       }
@@ -480,7 +489,7 @@ export default function QuoteCostingPage() {
     }).select('id').single()
     if (qe || !q) { setErr('Failed to create quotation: ' + dbErr(qe)); return }
     const lineRows = lines.map((l, i) => {
-      const c = calcLine(l)
+      const c = calcLine(l, dutyPctNum)
       return {
         quotation_id: (q as any).id,
         line_number: i + 1,
@@ -515,7 +524,7 @@ export default function QuoteCostingPage() {
       include_freight_disclaimer: quoteForm.include_freight_disclaimer,
     }
     const pdfLines = lines.map(l => {
-      const c = calcLine(l)
+      const c = calcLine(l, dutyPctNum)
       return {
         line_number: l.line_number,
         description: l.description,
@@ -546,7 +555,7 @@ export default function QuoteCostingPage() {
       include_freight_disclaimer: false,
     }
     const pdfLines = lines.map(l => {
-      const c = calcLine(l)
+      const c = calcLine(l, dutyPctNum)
       return {
         line_number: l.line_number,
         description: l.description,
@@ -601,7 +610,7 @@ export default function QuoteCostingPage() {
   const summaryProfit = allCalcs.reduce((s, c) => s + c.totalProfit, 0)
   const summaryMargin = summarySell > 0 ? (summaryProfit / summarySell) * 100 : 0
 
-  const liveCalc = calcLine(lineForm)
+  const liveCalc = calcLine(lineForm, dutyPctNum)
 
   // ═══════════════════════════════
   // LIST VIEW
@@ -830,7 +839,7 @@ export default function QuoteCostingPage() {
                   </thead>
                   <tbody>
                     {lines.map((l, i) => {
-                      const c = calcLine(l)
+                      const c = calcLine(l, dutyPctNum)
                       return (
                         <tr key={i} className="border-b border-[#E4E6EE]/60 last:border-0 hover:bg-[#F9FAFB] group">
                           <td className="pl-3 pr-1 py-2 text-gray-500">{i + 1}</td>
@@ -934,7 +943,7 @@ export default function QuoteCostingPage() {
               <p className="text-xs text-gray-500 mb-3">Margin by line</p>
               <div className="space-y-2">
                 {lines.map((l, i) => {
-                  const c = calcLine(l)
+                  const c = calcLine(l, dutyPctNum)
                   return (
                     <div key={i} className="flex items-center gap-2">
                       <span className="text-gray-600 text-xs w-4">{i + 1}</span>
