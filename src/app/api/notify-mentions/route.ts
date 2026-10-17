@@ -166,7 +166,7 @@ export async function POST(req: Request) {
       document: '/bizdev/documents', documents: '/bizdev/documents', Documents: '/bizdev/documents',
       work_order: '/production/work-orders', work_orders: '/production/work-orders',
       time_off_request: '/hr/time-off', time_off_requests: '/hr/time-off',
-      inventory_movement: '/warehouse/scan-activity', inventory_movements: '/warehouse/scan-activity',
+      inventory_movement: '/inventory/ledger', inventory_movements: '/inventory/ledger',
       pl_stock_order: '/warehouse/private-label-stock',
     }
     const customBoardPath = recordType?.startsWith('board:') ? `/board/${recordType.slice(6)}` : undefined
