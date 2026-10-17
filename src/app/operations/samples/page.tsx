@@ -68,32 +68,70 @@ const FIELDS: { key: keyof Sample; label: string; kind: 'text' | 'date' | 'num' 
 ]
 
 // ─────────────────────────── Add Sample modal ───────────────────────────
+function fileToBase64(file: File): Promise<string> {
+  // FileReader handles any size; String.fromCharCode(...bytes) crashed on files over ~100 KB.
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result || '').split(',').pop() || '')
+    r.onerror = () => reject(r.error || new Error('Could not read ' + file.name))
+    r.readAsDataURL(file)
+  })
+}
+
+type PickedItem = { key: string; name: string; sku: string; quantity: string }
+
 function AddSampleModal({ open, onClose, onCreated, sb }: { open: boolean; onClose: () => void; onCreated: () => void; sb: ReturnType<typeof createSupabaseBrowserClient> }) {
+  const blank = { name: '', recipient_email: '', ship_to_address: '', note: '', is_custom_request: false, items: [] as PickedItem[], tagText: '', files: [] as File[] }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [catalog, setCatalog] = useState<any[]>([])
-  const [catalogLoading, setCatalogLoading] = useState(true)
-  const [form, setForm] = useState({ name: '', recipient_email: '', ship_to_address: '', note: '', is_custom_request: false, selected_items: [] as string[], tagged_people: [] as string[], files: [] as File[] })
+  const [form, setForm] = useState(blank)
+  const [q, setQ] = useState('')
+  const [hits, setHits] = useState<{ id: string; sku: string | null; product_name: string | null }[]>([])
 
+  // Product search (the old "sample_catalog" table never existed, so the list was always empty).
   useEffect(() => {
-    if (open) { setCatalogLoading(true); sb.from('sample_catalog').select('id,name,sku').then(({ data }) => { setCatalog(data || []); setCatalogLoading(false) }) }
-  }, [open, sb])
+    if (!open) return
+    const term = q.trim()
+    if (term.length < 2) { setHits([]); return }
+    const t = setTimeout(async () => {
+      const like = `%${term.replace(/[%,()]/g, ' ')}%`
+      const { data } = await sb.from('products').select('id,sku,product_name').eq('is_active', true)
+        .or(`sku.ilike.${like},product_name.ilike.${like}`).order('sku').limit(12)
+      setHits((data as any[]) || [])
+    }, 200)
+    return () => clearTimeout(t)
+  }, [q, open, sb])
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) setForm(prev => ({ ...prev, files: Array.from(e.target.files as FileList) })) }
+  const addItem = (name: string, sku: string) => {
+    setForm(p => p.items.some(i => i.sku && i.sku === sku) ? p : { ...p, items: [...p.items, { key: Math.random().toString(36).slice(2), name, sku, quantity: '1' }] })
+    setQ(''); setHits([])
+  }
+  const tagged = form.tagText.split(/[,;\s]+/).map(s => s.trim()).filter(s => /.+@.+\..+/.test(s))
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setLoading(true)
     try {
       const files_inline: any[] = []
-      for (const file of form.files) { const data = await file.arrayBuffer(); files_inline.push({ filename: file.name, mimetype: file.type, data: btoa(String.fromCharCode(...new Uint8Array(data))) }) }
+      for (const file of form.files) files_inline.push({ name: file.name, type: file.type, base64: await fileToBase64(file) })
+      const { data: auth } = await sb.auth.getUser()
+      const lines = form.is_custom_request ? [] : form.items.map(i => ({ name: i.name, sku: i.sku || null, quantity: i.quantity === '' ? null : Number(i.quantity) }))
       const result = await sb.functions.invoke('sample-submission-create', {
-        body: { name: form.name, recipient_email: form.recipient_email, ship_to_address: form.ship_to_address, note: form.note, is_custom_request: form.is_custom_request, sample_items: form.selected_items.map((id, idx) => ({ line_number: idx + 1, catalog_id: id })), tagged_people: form.tagged_people, files_inline: files_inline },
+        body: {
+          name: form.name, recipient_email: form.recipient_email, customer_email: form.recipient_email,
+          ship_to_address: form.ship_to_address, note: form.note, is_custom_request: form.is_custom_request,
+          product: lines.map(l => l.name).filter(Boolean).join(', ') || null,
+          lines, tagged_people: tagged.map(email => ({ email })), files_inline,
+          created_by: auth?.user?.email || null,
+        },
       })
-      if (result.error) throw new Error(result.error as any)
-      setForm({ name: '', recipient_email: '', ship_to_address: '', note: '', is_custom_request: false, selected_items: [], tagged_people: [], files: [] })
+      if (result.error) throw result.error
+      if ((result.data as any)?.error) throw new Error((result.data as any).error)
+      setForm(blank); setQ('')
       onClose(); onCreated()
     } catch (err: any) { setError(err.message || 'Failed to create sample submission') } finally { setLoading(false) }
   }
   if (!open) return null
+  const inp = 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm'
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -103,21 +141,40 @@ function AddSampleModal({ open, onClose, onCreated, sb }: { open: boolean; onClo
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">{error}</div>}
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Request Name</label><input type="text" required value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g., Q3 Product Line" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Recipient Email</label><input type="email" required value={form.recipient_email} onChange={e => setForm(prev => ({ ...prev, recipient_email: e.target.value }))} placeholder="customer@example.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Ship-To Address</label><textarea value={form.ship_to_address} onChange={e => setForm(prev => ({ ...prev, ship_to_address: e.target.value }))} placeholder="Full shipping address" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" rows={2} /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Note</label><textarea value={form.note} onChange={e => setForm(prev => ({ ...prev, note: e.target.value }))} placeholder="Any special instructions or notes…" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" rows={2} /></div>
-          <div className="flex items-center gap-2"><input type="checkbox" id="custom" checked={form.is_custom_request} onChange={e => setForm(prev => ({ ...prev, is_custom_request: e.target.checked, selected_items: e.target.checked ? [] : prev.selected_items }))} className="w-4 h-4 text-blue-600 rounded" /><label htmlFor="custom" className="text-sm font-medium text-gray-700">Custom Request (no catalog items)</label></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Request Name</label><input type="text" required value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., Q3 Product Line" className={inp} /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Recipient Email</label><input type="email" required value={form.recipient_email} onChange={e => setForm(p => ({ ...p, recipient_email: e.target.value }))} placeholder="customer@example.com" className={inp} /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Ship-To Address</label><textarea value={form.ship_to_address} onChange={e => setForm(p => ({ ...p, ship_to_address: e.target.value }))} placeholder="Full shipping address" className={inp} rows={2} /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Note</label><textarea value={form.note} onChange={e => setForm(p => ({ ...p, note: e.target.value }))} placeholder="Any special instructions or notes…" className={inp} rows={2} /></div>
+          <div className="flex items-center gap-2"><input type="checkbox" id="custom" checked={form.is_custom_request} onChange={e => setForm(p => ({ ...p, is_custom_request: e.target.checked }))} className="w-4 h-4 text-blue-600 rounded" /><label htmlFor="custom" className="text-sm font-medium text-gray-700">Custom Request (describe it in the note)</label></div>
           {!form.is_custom_request && (
-            <div><label className="block text-sm font-medium text-gray-700 mb-2">Sample Items</label>
-              {catalogLoading ? <p className="text-sm text-gray-500">Loading catalog…</p> : catalog.length === 0 ? <p className="text-sm text-gray-500">No catalog items available</p>
-              : <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2">
-                  {catalog.map(item => (<label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.selected_items.includes(item.id)} onChange={e => { setForm(prev => ({ ...prev, selected_items: e.target.checked ? [...prev.selected_items, item.id] : prev.selected_items.filter(id => id !== item.id) })) }} className="w-4 h-4 text-blue-600 rounded" /><span className="text-gray-700">{item.name} ({item.sku})</span></label>))}
-                </div>}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sample Items</label>
+              <div className="relative">
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search products by SKU or name…" className={inp}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const h = hits[0]; if (h) addItem(h.product_name || h.sku || '', h.sku || ''); else if (q.trim()) addItem(q.trim(), '') } }} />
+                {(hits.length > 0 || q.trim().length >= 2) && (
+                  <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow max-h-56 overflow-y-auto">
+                    {hits.map(h => (
+                      <button type="button" key={h.id} onClick={() => addItem(h.product_name || h.sku || '', h.sku || '')} className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50">
+                        <span className="font-mono text-xs text-gray-500 mr-2">{h.sku}</span>{h.product_name}
+                      </button>))}
+                    {q.trim().length >= 2 && <button type="button" onClick={() => addItem(q.trim(), '')} className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t">+ Add “{q.trim()}” as a free-text item</button>}
+                  </div>)}
+              </div>
+              {form.items.length > 0 && (
+                <table className="w-full text-sm mt-2 border border-gray-200 rounded">
+                  <thead><tr className="bg-gray-50 text-xs text-gray-500"><th className="text-left px-2 py-1">Item</th><th className="text-left px-2 py-1 w-32">SKU</th><th className="px-2 py-1 w-20">Qty</th><th className="w-8" /></tr></thead>
+                  <tbody>{form.items.map(it => (
+                    <tr key={it.key} className="border-t">
+                      <td className="px-2 py-1">{it.name}</td><td className="px-2 py-1 font-mono text-xs">{it.sku || '—'}</td>
+                      <td className="px-2 py-1"><input type="number" min={0} value={it.quantity} onChange={e => setForm(p => ({ ...p, items: p.items.map(x => x.key === it.key ? { ...x, quantity: e.target.value } : x) }))} className="w-full border border-gray-300 rounded px-1 py-0.5 text-right" /></td>
+                      <td className="px-1"><button type="button" onClick={() => setForm(p => ({ ...p, items: p.items.filter(x => x.key !== it.key) }))} className="text-gray-400 hover:text-red-600">×</button></td>
+                    </tr>))}</tbody>
+                </table>)}
             </div>
           )}
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Tag Team Members</label><input type="text" placeholder="Enter emails, comma-separated" value={form.tagged_people.join(', ')} onChange={e => setForm(prev => ({ ...prev, tagged_people: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />{form.tagged_people.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{form.tagged_people.map(email => <span key={email} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">{email}</span>)}</div>}</div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Attachments</label><input type="file" multiple onChange={handleFileChange} className="w-full" />{form.files.length > 0 && <div className="mt-2 text-sm text-gray-600">{form.files.length} file(s) selected</div>}</div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Tag Team Members</label><input type="text" placeholder="Emails, separated by commas" value={form.tagText} onChange={e => setForm(p => ({ ...p, tagText: e.target.value }))} className={inp} />{tagged.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{tagged.map(email => <span key={email} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">{email}</span>)}</div>}</div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Attachments</label><input type="file" multiple onChange={e => setForm(p => ({ ...p, files: Array.from(e.target.files || []) }))} className="w-full" />{form.files.length > 0 && <div className="mt-2 text-sm text-gray-600">{form.files.length} file(s) selected</div>}</div>
           <div className="flex gap-2 pt-4 border-t border-gray-200"><button type="submit" disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg transition">{loading ? 'Creating…' : 'Create Submission'}</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900 font-medium py-2 rounded-lg transition">Cancel</button></div>
         </form>
       </div>
