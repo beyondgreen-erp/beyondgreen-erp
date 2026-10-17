@@ -53,6 +53,10 @@ interface Product {
   packs_per_case: number | null
   bag_length_in: number | null
   bag_width_in: number | null
+  inner_diameter_mm: number | null
+  wall_thickness_mm: number | null
+  straw_length_in: number | null
+  straw_weight_g: number | null
   case_size: string | null
   case_weight: string | null
   cases_per_pallet: number | null
@@ -145,6 +149,10 @@ const emptyForm = {
   packs_per_case: '',
   bag_length_in: '',
   bag_width_in: '',
+  inner_diameter_mm: '',
+  wall_thickness_mm: '',
+  straw_length_in: '',
+  straw_weight_g: '',
   case_size: '',
   case_weight: '',
   cases_per_pallet: '',
@@ -540,6 +548,10 @@ const EditPanel = memo(function EditPanel({
                 ['Bag Length (in)', 'bag_length_in'],
                 ['Bag Width (in)', 'bag_width_in'],
                 ['Ext. Cycle Time (M/Min)', 'ext_cycle_time_m_min'],
+                ['Inner Diameter (mm)', 'inner_diameter_mm'],
+                ['Wall Thickness (mm)', 'wall_thickness_mm'],
+                ['Straw Length (in)', 'straw_length_in'],
+                ['Straw Weight (g)', 'straw_weight_g'],
                 ['Case Size', 'case_size'],
                 ['Case Weight', 'case_weight'],
                 ['Pallet Ti x Hi', 'pallet_ti_hi'],
@@ -931,6 +943,10 @@ export default function InventoryPage() {
       packs_per_case: r.packs_per_case != null ? String(r.packs_per_case) : '',
       bag_length_in: r.bag_length_in != null ? String(r.bag_length_in) : '',
       bag_width_in: r.bag_width_in != null ? String(r.bag_width_in) : '',
+      inner_diameter_mm: r.inner_diameter_mm != null ? String(r.inner_diameter_mm) : '',
+      wall_thickness_mm: r.wall_thickness_mm != null ? String(r.wall_thickness_mm) : '',
+      straw_length_in: r.straw_length_in != null ? String(r.straw_length_in) : '',
+      straw_weight_g: r.straw_weight_g != null ? String(r.straw_weight_g) : '',
       case_size: r.case_size ?? '',
       case_weight: r.case_weight ?? '',
       cases_per_pallet: r.cases_per_pallet != null ? String(r.cases_per_pallet) : '',
@@ -1019,6 +1035,10 @@ export default function InventoryPage() {
       packs_per_case: form.packs_per_case ? parseInt(form.packs_per_case) : null,
       bag_length_in: form.bag_length_in ? parseFloat(form.bag_length_in) : null,
       bag_width_in: form.bag_width_in ? parseFloat(form.bag_width_in) : null,
+      inner_diameter_mm: form.inner_diameter_mm ? parseFloat(form.inner_diameter_mm) : null,
+      wall_thickness_mm: form.wall_thickness_mm ? parseFloat(form.wall_thickness_mm) : null,
+      straw_length_in: form.straw_length_in ? parseFloat(form.straw_length_in) : null,
+      straw_weight_g: form.straw_weight_g ? parseFloat(form.straw_weight_g) : null,
       case_size: form.case_size.trim() || null,
       case_weight: form.case_weight.trim() || null,
       cases_per_pallet: form.cases_per_pallet ? parseInt(form.cases_per_pallet) : null,
