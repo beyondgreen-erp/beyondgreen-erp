@@ -414,7 +414,7 @@ export default function QuotationsPage() {
       expiry_date: q.expiry_date ?? '',
       payment_terms: q.payment_terms ?? '',
       notes: q.notes ?? '',
-      tax_rate: '0',
+      tax_rate: String(q.tax_pct ?? 0),   // was hard-coded '0': saved tax vanished on reopen
       type: (q.type as 'quote' | 'rfq') || 'quote',
       price_term: (q as any).price_term ?? 'ddp',
       export_country: (q as any).export_country ?? 'China',
