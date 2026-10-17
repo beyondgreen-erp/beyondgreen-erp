@@ -24,6 +24,13 @@ interface Props {
   readOnly?: boolean
   minHeight?: string
   supabase?: any
+  /** Chat mode: Enter sends (Shift+Enter = new line). Fired only when the @mention list is closed. */
+  onEnter?: () => void
+  /** Bump this number to clear the editor (after a message is sent). */
+  clearKey?: number
+  /** Slim toolbar (text styles, lists, link) — for chat composers. */
+  compact?: boolean
+  autoFocus?: boolean
 }
 
 interface Profile {
@@ -97,8 +104,10 @@ function Btn({
   )
 }
 
-export default function RichTextEditor({ content, onChange, placeholder, readOnly, minHeight = '120px', supabase }: Props) {
+export default function RichTextEditor({ content, onChange, placeholder, readOnly, minHeight = '120px', supabase, onEnter, clearKey, compact, autoFocus }: Props) {
   const pasteRef = useRef<((src: string) => void) | null>(null)
+  const onEnterRef = useRef<(() => void) | undefined>(onEnter)
+  useEffect(() => { onEnterRef.current = onEnter }, [onEnter])
   const profilesRef = useRef<Profile[]>([])
   const mentionStateRef = useRef<MentionState | null>(null)
   const [mentionState, setMentionState] = useState<MentionState | null>(null)
@@ -203,7 +212,16 @@ export default function RichTextEditor({ content, onChange, placeholder, readOnl
     onUpdate: ({ editor: ed }) => {
       onChange(ed.getHTML())
     },
+    autofocus: autoFocus ? 'end' : false,
     editorProps: {
+      handleKeyDown: (_view, event) => {
+        if (event.key === 'Enter' && !event.shiftKey && onEnterRef.current && !mentionStateRef.current) {
+          event.preventDefault()
+          onEnterRef.current()
+          return true
+        }
+        return false
+      },
       handlePaste: (view, event) => {
         const items = Array.from(event.clipboardData?.items || [])
         const imageItem = items.find((item) => item.type.startsWith('image/'))
@@ -232,7 +250,7 @@ export default function RichTextEditor({ content, onChange, placeholder, readOnl
           const u8 = new Uint8Array(bstr.length)
           for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i)
           const blob = new Blob([u8], { type: mime })
-          const path = `editor/${Date.now()}.${ext}`
+          const path = `editor/${(globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2))}.${ext}`
           const { data, error } = await supabase.storage.from('erp-images').upload(path, blob, { upsert: false })
           if (!error && data) {
             const { data: urlData } = supabase.storage.from('erp-images').getPublicUrl(data.path)
@@ -252,6 +270,11 @@ export default function RichTextEditor({ content, onChange, placeholder, readOnl
       editor.commands.setContent(content || '')
     }
   }, [content]) // eslint-disable-line
+
+  useEffect(() => {
+    if (clearKey === undefined || !editor || editor.isDestroyed) return
+    editor.commands.clearContent(true)
+  }, [clearKey]) // eslint-disable-line
 
   if (readOnly) {
     return (
@@ -285,13 +308,14 @@ export default function RichTextEditor({ content, onChange, placeholder, readOnl
         <Btn onClick={() => editor?.chain().focus().toggleOrderedList().run()} active={editor?.isActive('orderedList')} title="Numbered list">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6h11M10 12h11M10 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>
         </Btn>
-        <Divider />
+        {!compact && <><Divider />
         <Btn onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="Insert table">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18M8 6v12M16 6v12"/></svg>
         </Btn>
         <Btn onClick={() => { const url = prompt('Image URL:'); if (url) editor?.chain().focus().setImage({ src: url }).run() }} title="Insert image from URL">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-        </Btn>
+        </Btn></>}
+        {compact && <Divider />}
         <Btn
           onClick={() => {
             const prev = editor?.getAttributes('link').href || ''
@@ -305,7 +329,7 @@ export default function RichTextEditor({ content, onChange, placeholder, readOnl
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
         </Btn>
-        <Divider />
+        {!compact && <><Divider />
         <Btn onClick={() => editor?.chain().focus().setTextAlign('left').run()} active={editor?.isActive({ textAlign: 'left' })} title="Align left">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h10M4 18h16"/></svg>
         </Btn>
@@ -314,7 +338,7 @@ export default function RichTextEditor({ content, onChange, placeholder, readOnl
         </Btn>
         <Btn onClick={() => editor?.chain().focus().setTextAlign('right').run()} active={editor?.isActive({ textAlign: 'right' })} title="Align right">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M10 12h10M4 18h16"/></svg>
-        </Btn>
+        </Btn></>}
         <Divider />
         <Btn onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()} title="Clear formatting">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>

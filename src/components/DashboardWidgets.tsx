@@ -9,6 +9,7 @@ import TeamPresenceStrip from './TeamPresenceStrip'
 import RawMaterialsPanel from './RawMaterialsPanel'
 import InventoryLinkGaps from './InventoryLinkGaps'
 import ActivityFeedCard from './ActivityFeedCard'
+import TeamChat from './TeamChat'
 
 const sb = createSupabaseBrowserClient()
 
@@ -840,6 +841,8 @@ export default function DashboardShell() {
   const [widgets, setWidgets] = useState<Widget[] | null>(null)
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [chatConv, setChatConv] = useState<string | null>(null)
+  useEffect(() => { const c = new URLSearchParams(window.location.search).get('chat'); if (c && c !== 'full') setChatConv(c) }, [])
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -924,6 +927,9 @@ export default function DashboardShell() {
           {editing && <button onClick={resetDefaults} className="px-3 py-2 bg-white border border-[#E2E8F0] text-gray-500 text-xs font-semibold rounded-lg hover:bg-[#F1F4F9]">Reset to default</button>}
         </div>
       </div>
+
+      {/* Team chat — groups + direct messages, files, images, @mentions */}
+      <div className="mb-5"><TeamChat mode="embedded" height={520} initialConversationId={chatConv} /></div>
 
       <ActivityFeedCard />
 

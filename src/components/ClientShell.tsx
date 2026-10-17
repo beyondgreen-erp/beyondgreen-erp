@@ -5,8 +5,7 @@ import TopNav from './TopNav'
 import { useBoards } from '@/lib/boards'
 import { usePermissions, boardKeyForPath } from '@/lib/permissions'
 import PresenceTracker from './PresenceTracker'
-import Chat from './Chat'
-import DirectMessages from './DirectMessages'
+import { ChatLauncher } from './TeamChat'
 import MobileNav from './MobileNav'
 import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
@@ -146,8 +145,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
         </div>
       </div>
 
-      <Chat />
-      <DirectMessages />
+      <ChatLauncher />
       <PresenceTracker />
       <div className="md:hidden">
         <MobileNav />
