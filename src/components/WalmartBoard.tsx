@@ -263,9 +263,29 @@ export default function WalmartBoard() {
         }
         const soLinkId = detail.sales_order_id ?? patch.sales_order_id
         if (soLinkId) {
-          await sb.from('sales_order_lines').delete().eq('sales_order_id', soLinkId)
+          // Match the order's lines by SKU and update them in place. This used to delete and
+          // re-insert every line, wiping what shipping had recorded on them (units shipped,
+          // units moved to stock, short-closes) — a typo fix here reset a part-shipped PO.
           const solRows = lineForms.filter(l => (String(l.part_number ?? '').trim()) || Number(l.qty)).map((l, i) => ({ sales_order_id: soLinkId, order_id: soLinkId, sku: (String(l.part_number ?? '').trim() || null), quantity: Number(l.qty) || 1, qty: Number(l.qty) || 1, unit_price: Number(l.unit_price) || 0, description: (String(l.added_details ?? '').trim() || null), line_number: i + 1, qty_per_case: l.qty_per_case != null ? Number(l.qty_per_case) : null, packaging: (String(l.packaging ?? '').trim() || 'Packed'), production_status: (String(l.production_status ?? '').trim() || null), completed_qty: Number(l.completed_qty) || 0, added_details: (String(l.added_details ?? '').trim() || null), unit_of_measure: (String(l.uom ?? '').trim() || 'SRPs') }))
-          if (solRows.length) await sb.from('sales_order_lines').insert(solRows)
+          const { data: existing } = await sb.from('sales_order_lines').select('id, sku').eq('sales_order_id', soLinkId)
+          const pool = [...((existing as { id: string; sku: string | null }[]) || [])]
+          const errs: string[] = []
+          for (const row of solRows) {
+            const k = pool.findIndex(e => (e.sku || '').trim().toUpperCase() === (row.sku || '').toUpperCase())
+            if (k >= 0) {
+              const { error } = await sb.from('sales_order_lines').update(row).eq('id', pool[k].id)
+              if (error) errs.push(error.message)
+              pool.splice(k, 1)
+            } else {
+              const { error } = await sb.from('sales_order_lines').insert(row)
+              if (error) errs.push(error.message)
+            }
+          }
+          if (pool.length) {
+            const { error } = await sb.from('sales_order_lines').delete().in('id', pool.map(e => e.id))
+            if (error) errs.push(error.message)
+          }
+          if (errs.length) alert('Saved, but the linked sales order lines did not all update: ' + errs[0])
         }
       }
       const keptIds = lineForms.filter(l => l.id && !l._new).map(l => l.id)
