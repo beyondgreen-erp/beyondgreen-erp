@@ -253,7 +253,9 @@ export default function InvoicesPage() {
     setPartialRef('')
     setUpdateAmt(String(inv.total_amount ?? inv.amount ?? 0))
     setEditInvNum(inv.invoice_number_display && inv.invoice_number_display !== 'Invoice Number Pending' ? inv.invoice_number_display : '')
-    setEditStatus(INVOICE_STATUS_OPTIONS.includes(inv.status) ? inv.status : (inv.status?.toLowerCase() === 'paid' ? 'Payment Received' : 'Pending Invoice Submission'))
+    // Keep a status that isn't in the dropdown (void, Partially Paid…) exactly as it is.
+    // It used to be shown — and then saved — as "Pending Invoice Submission", un-voiding invoices.
+    setEditStatus(inv.status || 'Pending Invoice Submission')
     setEditCommission(inv.commission_status ?? 'Pending Customer Payment')
     setEditShipTo(inv.ship_to_address ?? '')
     setEditBillTo(inv.bill_to_address ?? '')
@@ -724,7 +726,7 @@ export default function InvoicesPage() {
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Status</label>
-                      <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className={inp}>{INVOICE_STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                      <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className={inp}>{(INVOICE_STATUS_OPTIONS.includes(editStatus) ? INVOICE_STATUS_OPTIONS : [editStatus, ...INVOICE_STATUS_OPTIONS]).map(o => <option key={o} value={o}>{o}</option>)}</select>
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Commission Status</label>
