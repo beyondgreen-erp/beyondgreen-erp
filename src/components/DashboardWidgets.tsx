@@ -9,6 +9,7 @@ import TeamPresenceStrip from './TeamPresenceStrip'
 import RawMaterialsPanel from './RawMaterialsPanel'
 import InventoryLinkGaps from './InventoryLinkGaps'
 import ActivityFeedCard from './ActivityFeedCard'
+import RevealGate from './RevealGate'
 import TeamChat from './TeamChat'
 
 const sb = createSupabaseBrowserClient()
@@ -415,7 +416,7 @@ function KpiRevenueMTD() {
         setN(total)
       })
   }, [])
-  return <BigNumber value={n == null ? null : fmt$(n)} sub="Revenue MTD (Ship Report)" color="text-emerald-600" href="/sales/daily-ship-report" />
+  return <RevealGate label="revenue month to date"><BigNumber value={n == null ? null : fmt$(n)} sub="Revenue MTD (Ship Report)" color="text-emerald-600" href="/sales/daily-ship-report" /></RevealGate>
 }
 function KpiShippingQueue() {
   const [n, setN] = useState<number | null>(null)
@@ -433,7 +434,7 @@ function KpiOverdueInvoices() {
         setN(od.length); setAmt(od.reduce((s: number, i: any) => s + (i.total_amount || 0), 0))
       })
   }, [])
-  return <BigNumber value={n} sub={n && n > 0 ? `Overdue · ${fmt$(amt)}` : 'Overdue Invoices'} color={n && n > 0 ? 'text-red-600' : 'text-gray-600'} href="/sales/invoices" />
+  return <RevealGate label="overdue invoices"><BigNumber value={n} sub={n && n > 0 ? `Overdue · ${fmt$(amt)}` : 'Overdue Invoices'} color={n && n > 0 ? 'text-red-600' : 'text-gray-600'} href="/sales/invoices" /></RevealGate>
 }
 function KpiOpenTasks() {
   const [n, setN] = useState<number | null>(null)
@@ -552,6 +553,7 @@ function OverdueInvoicesWidget() {
   if (!rows) return <EmptyState msg="Loading…" />
   if (rows.length === 0) return <EmptyState msg="No overdue invoices ✓" />
   return (
+    <RevealGate label="overdue invoices">
     <div className="p-3">
       {rows.map((inv: any) => (
         <div key={inv.id} className="flex justify-between text-xs py-1.5 border-b border-[#EEF0F4] last:border-0">
@@ -560,6 +562,7 @@ function OverdueInvoicesWidget() {
         </div>
       ))}
     </div>
+    </RevealGate>
   )
 }
 
