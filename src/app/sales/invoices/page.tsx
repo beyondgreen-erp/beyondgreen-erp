@@ -173,7 +173,8 @@ export default function InvoicesPage() {
       bill_to_address: editBillTo.trim() || null,
       updated_at: new Date().toISOString(),
     }
-    await sb.from('invoices').update(patch).eq('id', sel.id)
+    const { error } = await sb.from('invoices').update(patch).eq('id', sel.id)
+    if (error) { setSavingBilling(false); alert('Could not save the invoice: ' + error.message); return }
     setSel(s => s ? { ...s, ...patch } as Invoice : s)
     setSavingBilling(false); setBillingSaved(true); setTimeout(() => setBillingSaved(false), 2500)
     load()
