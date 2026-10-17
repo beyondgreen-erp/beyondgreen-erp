@@ -1,5 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import RichTextEditor from '@/components/RichTextEditor'
@@ -78,6 +79,7 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
   const [panel, setPanel] = useState<'none' | 'new-dm' | 'new-group' | 'members' | 'browse'>('none')
   const [groupName, setGroupName] = useState('')
   const [picked, setPicked] = useState<string[]>([])
+  const [pickQ, setPickQ] = useState('')
   const [mobileList, setMobileList] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -258,8 +260,10 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
     )
   }
 
+  // Rendered as a plain function (not <PeoplePicker/>) so parent re-renders — picking a person,
+  // a new message arriving — don't remount it and wipe the search box.
   const PeoplePicker = ({ multi, onPick, exclude = [] }: { multi: boolean; onPick: (emails: string[]) => void; exclude?: string[] }) => {
-    const [q, setQ] = useState('')
+    const q = pickQ, setQ = setPickQ
     const list = team.filter(p => !exclude.includes(p.email.toLowerCase()) && (!q || (p.full_name || p.email).toLowerCase().includes(q.toLowerCase())))
     return (
       <div>
@@ -291,8 +295,8 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
         <span className="font-bold text-[#1A1D2E] text-sm">Team Chat</span>
         {totalUnread > 0 && <span className="text-[10px] font-bold text-white rounded-full px-1.5 py-0.5" style={{ background: '#e2445c' }}>{totalUnread}</span>}
         <span className="ml-auto flex items-center gap-1.5">
-          <button data-ro-ok onClick={() => { setPanel(p => p === 'new-dm' ? 'none' : 'new-dm'); setPicked([]) }} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E6EE] hover:bg-[#F6F7FB]">✉ New message</button>
-          <button data-ro-ok onClick={() => { setPanel(p => p === 'new-group' ? 'none' : 'new-group'); setPicked([]) }} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E6EE] hover:bg-[#F6F7FB]">+ Group</button>
+          <button data-ro-ok onClick={() => { setPanel(p => p === 'new-dm' ? 'none' : 'new-dm'); setPicked([]); setPickQ('') }} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E6EE] hover:bg-[#F6F7FB]">✉ New message</button>
+          <button data-ro-ok onClick={() => { setPanel(p => p === 'new-group' ? 'none' : 'new-group'); setPicked([]); setPickQ('') }} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#E4E6EE] hover:bg-[#F6F7FB]">+ Group</button>
           {mode === 'embedded' && <a href="/?chat=full" className="hidden" aria-hidden />}
           {onClose && <button data-ro-ok onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none pl-1">&times;</button>}
         </span>
@@ -319,14 +323,14 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
           {panel !== 'none' && (
             <div className="border-b border-[#EEF0F4] bg-[#FAFBFD] p-3">
               <div className="flex items-center justify-between mb-2"><p className="text-sm font-semibold text-[#1A1D2E]">{panel === 'new-dm' ? 'Message someone' : panel === 'new-group' ? 'New group' : panel === 'members' ? `Members · ${active ? convTitle(active) : ''}` : 'Groups you can join'}</p><button onClick={() => setPanel('none')} className="text-gray-400 hover:text-gray-700 text-lg leading-none">&times;</button></div>
-              {panel === 'new-dm' && <PeoplePicker multi={false} onPick={([e]) => startDm(e)} />}
-              {panel === 'new-group' && (<div><input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Group name — e.g. Production Floor, Shipping, Managers" className="w-full bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-[#0F7A4E]/30" /><PeoplePicker multi onPick={() => createGroup()} /></div>)}
+              {panel === 'new-dm' && PeoplePicker({ multi: false, onPick: ([e]) => startDm(e) })}
+              {panel === 'new-group' && (<div><input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Group name — e.g. Production Floor, Shipping, Managers" className="w-full bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-[#0F7A4E]/30" />{PeoplePicker({ multi: true, onPick: () => createGroup() })}</div>)}
               {panel === 'members' && active && (
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div className="space-y-1 max-h-56 overflow-y-auto">
                     {active.members.map(m => <div key={m} className="flex items-center gap-2 text-sm px-2 py-1"><Avatar email={m} profiles={profiles} size={24} /><span className="text-[#1A1D2E]">{nameOf(m)}{m === me ? ' (you)' : ''}</span></div>)}
                   </div>
-                  {active.kind === 'group' && <div><p className="text-[11px] text-gray-400 mb-1">Add people</p><PeoplePicker multi onPick={addMembers} exclude={active.members.map(x => x.toLowerCase())} /></div>}
+                  {active.kind === 'group' && <div><p className="text-[11px] text-gray-400 mb-1">Add people</p>{PeoplePicker({ multi: true, onPick: addMembers, exclude: active.members.map(x => x.toLowerCase()) })}</div>}
                 </div>
               )}
               {panel === 'browse' && <div className="space-y-1">{browse.map(g => <div key={g.id} className="flex items-center gap-2 text-sm px-2 py-1.5 bg-white rounded-lg border border-[#E4E6EE]"><span className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-white font-bold text-xs" style={{ background: colorFor(g.name || g.id) }}>#</span><span className="font-medium text-[#1A1D2E]">{g.name}</span><span className="text-xs text-gray-400">{g.members} members</span><button onClick={() => joinGroup(g.id)} className="ml-auto text-xs font-semibold text-white rounded-lg px-2.5 py-1" style={{ background: ACCENT }}>Join</button></div>)}</div>}
@@ -344,7 +348,7 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
                 {active.kind === 'dm' ? <Avatar email={active.members.find(m => m !== me) || active.members[0] || ''} profiles={profiles} size={28} /> : <span className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-white font-bold text-sm" style={{ background: active.id === GENERAL_ID ? ACCENT : colorFor(active.name || active.id) }}>#</span>}
                 <div className="min-w-0"><p className="text-sm font-bold text-[#1A1D2E] truncate">{convTitle(active)}</p><p className="text-[11px] text-gray-400 truncate">{active.kind === 'group' ? `${active.members.length} members · ${active.members.slice(0, 4).map(m => nameOf(m).split(' ')[0]).join(', ')}${active.members.length > 4 ? '…' : ''}` : profiles[(active.members.find(m => m !== me) || '').toLowerCase()]?.email || ''}</p></div>
                 <span className="ml-auto flex items-center gap-1">
-                  <button onClick={() => { setPanel(p => p === 'members' ? 'none' : 'members'); setPicked([]) }} className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded-lg hover:bg-[#F6F7FB]">👥 {active.members.length}</button>
+                  <button onClick={() => { setPanel(p => p === 'members' ? 'none' : 'members'); setPicked([]); setPickQ('') }} className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded-lg hover:bg-[#F6F7FB]">👥 {active.members.length}</button>
                   <button onClick={() => toggleMute(active)} title={active.muted ? 'Unmute' : 'Mute'} className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded-lg hover:bg-[#F6F7FB]">{active.muted ? '🔕' : '🔔'}</button>
                   {active.kind === 'group' && active.id !== GENERAL_ID && <button onClick={() => rename(active)} className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded-lg hover:bg-[#F6F7FB]">✎</button>}
                   {active.kind === 'group' && active.id !== GENERAL_ID && <button onClick={() => leave(active)} className="text-xs text-gray-500 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-[#F6F7FB]">Leave</button>}
@@ -424,8 +428,7 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
 export function ChatLauncher() {
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
-  const [isDashboard, setIsDashboard] = useState(false)
-  useEffect(() => { setIsDashboard(window.location.pathname === '/') }, [])
+  const isDashboard = usePathname() === '/'   // re-evaluated on every client-side navigation
   useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }; document.addEventListener('keydown', onKey); return () => document.removeEventListener('keydown', onKey) }, [])
   if (isDashboard) return <HiddenUnreadProbe onUnread={setUnread} />
   return (

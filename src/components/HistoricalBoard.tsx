@@ -136,7 +136,7 @@ function PipelineBoard({ cfg }: { cfg: PipelineCfg }) {
 
   const q = search.trim().toLowerCase()
   const match = (r: any) => !q || cfg.columns.some(c => String(r[c.key] ?? '').toLowerCase().includes(q))
-  const groupRows = (key: string) => rows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
+  const groupRows = (key: string) => rows.filter(r => (r.group_name || '(no month)') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
 
   // month groups, newest month on top
   const groups = useMemo(() => {
@@ -248,8 +248,8 @@ function PipelineBoard({ cfg }: { cfg: PipelineCfg }) {
                       <tbody className="divide-y divide-[#EAECF2]">
                         {gr.map((r, i) => (
                           <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
-                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={() => { dragId.current = r.id }}>&#8942;&#8942;</td>
-                            {cfg.columns.map(c => <td key={c.key} className="px-3 py-2.5 text-[13px] text-gray-700 align-top">{c.key === 'name' ? <span className="font-medium text-gray-800"><Cell r={r} col={c} /></span> : <Cell r={r} col={c} />}</td>)}
+                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }}>&#8942;&#8942;</td>
+                            {cfg.columns.map(c => <td key={c.key} className="px-3 py-2.5 text-[13px] text-gray-700 align-top">{c.key === 'name' ? <span className="font-medium text-gray-800">{Cell({ r: r, col: c })}</span> : Cell({ r: r, col: c })}</td>)}
                             <td className="text-center whitespace-nowrap"><button onClick={() => setDetail(r)} title="Details & comments" className="text-gray-400 hover:text-[#0086C0] mr-1.5 align-middle"><i className="ti ti-message-circle" />{counts[r.id] ? <span className="text-[10px] ml-0.5">{counts[r.id]}</span> : ''}</button><button onClick={() => del(r.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 align-middle"><i className="ti ti-trash" /></button></td>
                           </tr>
                         ))}
@@ -347,7 +347,7 @@ function DailyShip2025() {
 
   const q = search.trim().toLowerCase()
   const match = (r: any) => !q || (r.name || '').toLowerCase().includes(q) || (r.group_name || '').toLowerCase().includes(q) || (r.ship_date || '').includes(q)
-  const groupRows = (key: string) => rows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
+  const groupRows = (key: string) => rows.filter(r => (r.group_name || '(no week)') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
 
   const groups = useMemo(() => {
     const m = new Map<string, string | null>()
@@ -452,10 +452,10 @@ function DailyShip2025() {
                       <tbody className="divide-y divide-[#EAECF2]">
                         {gr.map((r, i) => (
                           <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
-                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={() => { dragId.current = r.id }}>&#8942;&#8942;</td>
-                            <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800"><Cell r={r} field="name" /></td>
-                            <td className="px-3 py-2.5 text-[13px] text-gray-600"><Cell r={r} field="ship_date" type="date" /></td>
-                            {DS_CHANNELS.map(c => <td key={c.field} className="px-3 py-2.5 text-[13px] text-gray-700"><Cell r={r} field={c.field} type="num" isMoney /></td>)}
+                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }}>&#8942;&#8942;</td>
+                            <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800">{Cell({ r: r, field: 'name' })}</td>
+                            <td className="px-3 py-2.5 text-[13px] text-gray-600">{Cell({ r: r, field: 'ship_date', type: 'date' })}</td>
+                            {DS_CHANNELS.map(c => <td key={c.field} className="px-3 py-2.5 text-[13px] text-gray-700">{Cell({ r: r, field: c.field, type: 'num', isMoney: true })}</td>)}
                             <td className="px-3 py-2.5 text-[13px] text-right font-bold tabular-nums" style={{ color: group.color }}>{money(dsTotal(r))}</td>
                             <td className="text-center"><button onClick={() => del(r.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="ti ti-trash" /></button></td>
                           </tr>
@@ -537,7 +537,7 @@ function SATXShipments() {
 
   const q = search.trim().toLowerCase()
   const match = (r: any) => !q || ['name', 'status', 'person', 'doc_name', 'notes'].some(k => String(r[k] ?? '').toLowerCase().includes(q))
-  const groupRows = (key: string) => rows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
+  const groupRows = (key: string) => rows.filter(r => (r.group_name || 'Other') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
   const extraGroups = Array.from(new Set(rows.map(r => r.group_name || 'Other'))).filter(k => !SATX_GROUPS.some(g => g.key === k)).map(k => ({ key: k, color: '#9699A6' }))
   const groups = [...SATX_GROUPS.filter(g => rows.some(r => (r.group_name || '') === g.key)), ...extraGroups]
 
@@ -624,10 +624,10 @@ function SATXShipments() {
                           const isOpen = statusOpen === r.id
                           return (
                             <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
-                              <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={() => { dragId.current = r.id }}>&#8942;&#8942;</td>
+                              <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }}>&#8942;&#8942;</td>
                               <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800 align-top">
                                 <div className="flex items-center gap-2">
-                                  <div className="flex-1 min-w-0"><TextCell r={r} field="name" /></div>
+                                  <div className="flex-1 min-w-0">{TextCell({ r: r, field: 'name' })}</div>
                                   <button onClick={() => setDetail(r)} className="shrink-0 inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-[#0086C0]" title="Open details & comments"><i className="ti ti-message-circle" />{counts[r.id] ? counts[r.id] : ''}</button>
                                 </div>
                               </td>
@@ -642,7 +642,7 @@ function SATXShipments() {
                                     </div></>)}
                                 </div>
                               </td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-600 align-top"><TextCell r={r} field="ship_date" type="date" /></td>
+                              <td className="px-3 py-2.5 text-[13px] text-gray-600 align-top">{TextCell({ r: r, field: 'ship_date', type: 'date' })}</td>
                               <td className="px-3 py-2.5 text-[12px] text-gray-500 align-top max-w-[240px]"><div className="truncate" title={r.person || ''}>{r.person || <span className="text-gray-300">—</span>}</div></td>
                               <td className="px-3 py-2.5 text-[13px] align-top">
                                 {r.doc_url

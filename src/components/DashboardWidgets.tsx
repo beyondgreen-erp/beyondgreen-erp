@@ -426,7 +426,7 @@ function KpiOverdueInvoices() {
   const [n, setN] = useState<number | null>(null)
   const [amt, setAmt] = useState(0)
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA') // local date, not UTC (evening ≠ tomorrow)
     sb.from('invoices').select('total_amount,due_date,status').neq('status', 'paid').neq('status', 'Paid').neq('status', 'void')
       .then(({ data }) => {
         const od = (data || []).filter((i: any) => i.due_date && i.due_date < today)
@@ -448,7 +448,7 @@ function KpiCustomers() {
 function KpiPROpen() {
   const [n, setN] = useState<number | null>(null)
   useEffect(() => { sb.from('purchasing_requests').select('id', { count: 'exact', head: true }).not('status', 'in', '("Received","PO Canceled","PO Merged with Export Invoice")').then(({ count }) => setN(count || 0)) }, [])
-  return <BigNumber value={n} sub="Open Purchasing Requests" color="text-amber-600" href="/purchasing/requests" />
+  return <BigNumber value={n} sub="Open Purchasing Requests" color="text-amber-600" href="/sales/purchase-orders" />
 }
 
 /* ============================================================
@@ -545,7 +545,7 @@ function PipelineWidget() {
 function OverdueInvoicesWidget() {
   const [rows, setRows] = useState<any[] | null>(null)
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA') // local date, not UTC (evening ≠ tomorrow)
     sb.from('invoices').select('id,total_amount,due_date,status,customers(company_name)').neq('status', 'paid').neq('status', 'Paid').neq('status', 'void')
       .then(({ data }) => setRows((data || []).filter((i: any) => i.due_date && i.due_date < today).slice(0, 6)))
   }, [])
@@ -596,7 +596,7 @@ function BirthdaysWidget() {
 function TimeOffWidget() {
   const [rows, setRows] = useState<any[] | null>(null)
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA') // local date, not UTC (evening ≠ tomorrow)
     sb.from('time_off_requests').select('id,employee_name,type,start_date,end_date,days,status').eq('status', 'Approved').gte('end_date', today).order('start_date', { ascending: true }).limit(8)
       .then(({ data }) => setRows(data || []))
   }, [])

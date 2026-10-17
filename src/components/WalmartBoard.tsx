@@ -461,9 +461,13 @@ export default function WalmartBoard() {
   async function markShipped(order: WOrder) {
     if (order.shipment_id) { alert('This order is already on the Shipments board.'); return }
     if (!confirm(`Mark "${order.name}" as Shipped?\n\nThis moves it to the Shipments board and auto-creates its bill for finance. Inventory was already deducted as pallets were built.`)) return
+    // Create the shipment first: it is what deducts stock, and the database refuses it when the
+    // stock is not there. Only once it exists are the order and board row marked Shipped —
+    // otherwise a refused shipment left both saying "Shipped" with nothing behind them.
+    const sid = await shipWalmartOrder(order)
+    if (!sid) return
     await sb.from('walmart_board_orders').update({ status: 'Shipped', group_name: 'Shipped', updated_at: new Date().toISOString() }).eq('id', order.id)
     if (order.sales_order_id) await sb.from('sales_orders').update({ status: 'Shipped', updated_at: new Date().toISOString() }).eq('id', order.sales_order_id)
-    const sid = await shipWalmartOrder(order)
     if (sid && detail && detail.id === order.id) setDetail(d => d ? { ...d, status: 'Shipped', group_name: 'Shipped', shipment_id: sid } : d)
     await load()
   }
@@ -943,7 +947,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                           const dragging = draggedId === r.id
                           return (
                             <tr key={r.id} id={'item-' + r.id} draggable
-                              onDragStart={e => { setDraggedId(r.id); e.dataTransfer.effectAllowed = 'move' }}
+                              onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; setDraggedId(r.id) }}
                               onDragEnd={() => { setDraggedId(null); setDragOver(null) }}
                               className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'} ${dragging ? 'opacity-40' : ''}`} onClick={() => openDetail(r)}>
                               <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
