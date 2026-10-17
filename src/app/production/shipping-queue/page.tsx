@@ -1035,8 +1035,10 @@ export default function ShippingQueuePage() {
     const soId = activeItem.sales_order_id
     try {
       const totalPallets = active.length
-      await sb.from('shipment_cases').delete().eq('sales_order_id', soId)
-      await sb.from('shipment_pallets').delete().eq('sales_order_id', soId)
+      const { error: dc } = await sb.from('shipment_cases').delete().eq('sales_order_id', soId)
+      if (dc) throw dc
+      const { error: dp } = await sb.from('shipment_pallets').delete().eq('sales_order_id', soId)
+      if (dp) throw dp
       const ticketPallets: PickTicketPallet[] = []
       let idx = 0
       for (const p of active) {
@@ -1057,10 +1059,11 @@ export default function ShippingQueuePage() {
         if (palletDbId) {
           let caseNo = 1
           for (const l of pLines) {
-            await sb.from('shipment_cases').insert({
+            const { error: cErr } = await sb.from('shipment_cases').insert({
               sales_order_id: soId, pallet_id: palletDbId, sku: l.sku, description: l.productName,
               case_number: caseNo, total_cases: l.cases, units_in_case: l.unitsPerCase,
             })
+            if (cErr) throw cErr
             caseNo += l.cases
           }
         }
