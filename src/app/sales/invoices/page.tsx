@@ -16,6 +16,7 @@ import WorkflowMover from '@/components/WorkflowMover'
 
 import { withBilledQty, billedAmount, type OrderQtyRow } from '@/lib/invoiceQty'
 import ItemHistory from '@/components/ItemHistory'
+import { usePermissions } from '@/lib/permissions'
 
 interface LineItem { id: string; sku: string | null; description: string; quantity: number; unit_price: number; uom: string | null; line_total: number; ordered_quantity?: number | null; shipped_quantity?: number | null }
 interface Invoice {
@@ -55,6 +56,7 @@ interface Invoice {
   sales_orders?: { order_number: string } | null
 }
 interface Customer { id: string; company_name: string }
+interface Payment { id: string; invoice_id: string; amount: number; method: string | null; reference: string | null; paid_on: string; note: string | null; recorded_by: string | null; voided_at: string | null; void_reason: string | null; created_at: string }
 
 const STATUS_CFG: Record<string,{label:string;cls:string;pulse?:boolean}> = {
   proforma: { label:'PROFORMA', cls:'bg-[#F5F6FA]/50 text-gray-500 border-gray-600' },
@@ -62,7 +64,8 @@ const STATUS_CFG: Record<string,{label:string;cls:string;pulse?:boolean}> = {
   unpaid:   { label:'PENDING INVOICE SUBMISSION', cls:'bg-amber-500/15 text-amber-600 border-amber-500/25' },
   'pending invoice submission': { label:'PENDING INVOICE SUBMISSION', cls:'bg-amber-500/15 text-amber-600 border-amber-500/25' },
   'invoice sent to customer': { label:'SENT TO CUSTOMER', cls:'bg-blue-500/15 text-blue-600 border-blue-500/20' },
-  partial:  { label:'PARTIAL',  cls:'bg-blue-500/15 text-blue-500 border-blue-500/20' },
+  partial:  { label:'PARTIALLY PAID',  cls:'bg-blue-500/15 text-blue-500 border-blue-500/20' },
+  'partially paid': { label:'PARTIALLY PAID', cls:'bg-blue-500/15 text-blue-500 border-blue-500/20' },
   overdue:  { label:'OVERDUE',  cls:'bg-red-600/20 text-red-600 border-red-600/30', pulse: true },
   paid:     { label:'PAYMENT RECEIVED', cls:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' },
   'payment received': { label:'PAYMENT RECEIVED', cls:'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' },
@@ -126,6 +129,9 @@ export default function InvoicesPage() {
   const [importMsg, setImportMsg] = useState<string | null>(null)
 
   // Payment form state
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [payErr, setPayErr] = useState('')
+  const perms = usePermissions()
   const [showPayFull, setShowPayFull] = useState(false)
   const [payDate, setPayDate] = useState(todayStr())
   const [payMethod, setPayMethod] = useState('Check')
@@ -252,6 +258,8 @@ export default function InvoicesPage() {
     setEditBillTo(inv.bill_to_address ?? '')
     setBillingSaved(false)
     setOpen(true)
+    setPayErr('')
+    loadPayments(inv.id)
     const { data } = await sb.from('invoice_line_items').select('*').eq('invoice_id', inv.id).order('id')
     const rawLines = (data ?? []) as LineItem[]
       // An invoice bills what shipped, not what was ordered. invoice_line_items
@@ -355,29 +363,38 @@ export default function InvoicesPage() {
   }
 
   // Actions
+  // Payments are ledger entries; the invoice's paid / balance / status are derived by the database.
+  async function loadPayments(invoiceId: string) {
+    const { data } = await sb.from('payments').select('*').eq('invoice_id', invoiceId).order('paid_on', { ascending: false }).order('created_at', { ascending: false })
+    setPayments((data as Payment[]) ?? [])
+  }
+  async function postPayment(amount: number, method: string, reference: string, paidOn: string, note: string) {
+    if (!sel) return
+    setBusy(true); setPayErr('')
+    const { error } = await sb.rpc('invoice_record_payment', { p_invoice_id: sel.id, p_amount: amount, p_method: method, p_reference: reference || null, p_paid_on: paidOn || todayStr(), p_note: note || null })
+    setBusy(false)
+    if (error) { setPayErr(error.message.replace(/^.*?:\s*/, '')); return }
+    close(); load()
+  }
   async function markPaid() {
     if (!sel) return
-    setBusy(true)
-    const total = sel.total_amount ?? sel.amount ?? 0
-    await sb.from('invoices').update({
-      status: 'Payment Received', amount_paid: total, balance_due: 0,
-      updated_at: new Date().toISOString(),
-      notes: payNotes.trim() ? payNotes.trim() : sel.notes,
-    }).eq('id', sel.id)
-    setBusy(false); close(); load()
+    const bal = Math.max(0, (sel.total_amount ?? sel.amount ?? 0) - (sel.amount_paid ?? 0))
+    if (bal <= 0) { setPayErr('Nothing left to pay on this invoice.'); return }
+    await postPayment(bal, payMethod, payRef.trim(), payDate, payNotes.trim())
   }
-
   async function recordPartial() {
     if (!sel || !partialAmt) return
     const amt = parseFloat(partialAmt)
     if (isNaN(amt) || amt <= 0) return
-    setBusy(true)
-    const total = sel.total_amount ?? sel.amount ?? 0
-    const newPaid = (sel.amount_paid ?? 0) + amt
-    const newBalance = Math.max(0, total - newPaid)
-    const newStatus = newBalance <= 0 ? 'Payment Received' : 'partial'
-    await sb.from('invoices').update({ amount_paid: newPaid, balance_due: newBalance, status: newStatus, updated_at: new Date().toISOString() }).eq('id', sel.id)
-    setBusy(false); close(); load()
+    await postPayment(amt, partialMethod, partialRef.trim(), partialDate, '')
+  }
+  async function voidPayment(p: Payment) {
+    const reason = prompt(`Void this ${fmt$(p.amount)} payment? Enter a reason:`)
+    if (reason === null) return
+    const { error } = await sb.rpc('invoice_void_payment', { p_payment_id: p.id, p_reason: reason })
+    if (error) { alert(error.message); return }
+    if (sel) { await loadPayments(sel.id) }
+    load()
   }
 
   async function updateAmount() {
@@ -385,14 +402,8 @@ export default function InvoicesPage() {
     const amt = parseFloat(updateAmt)
     if (isNaN(amt) || amt < 0) return
     setUpdatingAmt(true)
-    const paid = sel.amount_paid ?? 0
-    const newBalance = Math.max(0, amt - paid)
-    const newStatus = newBalance <= 0 ? 'Payment Received' : (isPaidStatus(sel.status) ? 'Pending Invoice Submission' : sel.status)
-    await sb.from('invoices').update({
-      total_amount: amt, amount: amt, subtotal: amt, balance_due: newBalance,
-      status: newBalance <= 0 ? 'paid' : newStatus,
-      updated_at: new Date().toISOString(),
-    }).eq('id', sel.id)
+    await sb.from('invoices').update({ total_amount: amt, amount: amt, subtotal: amt, updated_at: new Date().toISOString() }).eq('id', sel.id)
+    await sb.rpc('invoice_recompute', { p_invoice_id: sel.id })
     setUpdatingAmt(false); setShowUpdateAmt(false); close(); load()
   }
 
@@ -513,6 +524,23 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
+
+      {/* AR aging — open balances by days past due */}
+      {!loading && outstanding.length > 0 && (() => {
+        const today = todayStr()
+        const days = (r: Invoice) => r.due_date ? Math.floor((new Date(today + 'T00:00:00').getTime() - new Date(r.due_date + 'T00:00:00').getTime()) / 86400000) : 0
+        const b = { current: 0, d1: 0, d31: 0, d61: 0, d90: 0 }
+        for (const r of outstanding) { const bal = r.balance_due ?? Math.max(0, (r.total_amount ?? 0) - (r.amount_paid ?? 0)); const d = days(r); if (d <= 0) b.current += bal; else if (d <= 30) b.d1 += bal; else if (d <= 60) b.d31 += bal; else if (d <= 90) b.d61 += bal; else b.d90 += bal }
+        const cells: [string, number, string][] = [['Current', b.current, 'text-[#1A1D2E]'], ['1–30 days', b.d1, 'text-amber-600'], ['31–60', b.d31, 'text-orange-600'], ['61–90', b.d61, 'text-red-600'], ['90+', b.d90, 'text-red-700']]
+        return (
+          <div className="mb-6 bg-white border border-[#E4E6EE] rounded-xl px-4 py-3">
+            <div className="flex items-center justify-between mb-2"><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AR aging · open balances</p><p className="text-[11px] text-gray-400">Due dates default from each invoice&apos;s payment terms · payments are a ledger (Record payment inside an invoice)</p></div>
+            <div className="grid grid-cols-5 gap-2">
+              {cells.map(([l, v, c]) => <div key={l} className="rounded-lg bg-[#F8F9FC] px-3 py-2"><p className="text-[10px] uppercase text-gray-400">{l}</p><p className={`text-sm font-bold ${c}`}>{fmt$(v)}</p></div>)}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Tabs + Search */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -777,6 +805,28 @@ export default function InvoicesPage() {
                     )}
                   </div>
 
+                  {payErr && <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{payErr}</p>}
+
+                  {/* Payments ledger */}
+                  {payments.length > 0 && (
+                    <div className="mt-3 bg-[#F8F9FC] border border-[#E4E6EE] rounded-xl p-3">
+                      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Payments received · {fmt$(payments.filter(p => !p.voided_at).reduce((s, p) => s + Number(p.amount || 0), 0))} of {fmt$(sel.total_amount ?? sel.amount ?? 0)}</p>
+                      <div className="space-y-1">
+                        {payments.map(p => (
+                          <div key={p.id} className={`flex items-center gap-3 text-xs rounded-lg px-2 py-1.5 bg-white border border-[#EEF0F4] ${p.voided_at ? 'opacity-50 line-through' : ''}`}>
+                            <span className="font-semibold text-[#1A1D2E] w-20">{fmt$(Number(p.amount))}</span>
+                            <span className="text-gray-500">{p.paid_on}</span>
+                            <span className="text-gray-500">{p.method || '—'}{p.reference ? ` · #${p.reference}` : ''}</span>
+                            {p.note && <span className="text-gray-400 truncate max-w-[220px]" title={p.note}>{p.note}</span>}
+                            <span className="ml-auto text-gray-400">{(p.recorded_by || '').split('@')[0]}</span>
+                            {!p.voided_at && perms.is_admin && <button data-ro-ok onClick={() => voidPayment(p)} className="text-red-500 hover:text-red-700 font-semibold">void</button>}
+                            {p.voided_at && <span className="text-red-400 no-underline">void{p.void_reason ? `: ${p.void_reason}` : ''}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Mark as Fully Paid form */}
                   {showPayFull && (
                     <div className="mt-3 bg-emerald-950/30 border border-emerald-800/40 rounded-xl p-4 space-y-3">
@@ -804,7 +854,7 @@ export default function InvoicesPage() {
                       <div className="flex gap-2">
                         <button onClick={() => setShowPayFull(false)} className="flex-1 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
                         <button onClick={markPaid} disabled={busy} className="flex-1 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold transition-colors">
-                          {busy ? 'Saving…' : `Confirm — ${fmt$(sel.total_amount ?? sel.amount ?? 0)} Paid`}
+                          {busy ? 'Saving…' : `Confirm — ${fmt$(Math.max(0, (sel.total_amount ?? sel.amount ?? 0) - (sel.amount_paid ?? 0)))} received`}
                         </button>
                       </div>
                     </div>
