@@ -483,6 +483,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   async function saveBom() {
     setSavingBom(true)
     for (const f of Array.from(slotFlush.current.values())) { try { await f() } catch { /* row shows its own error */ } }
+    // A component typed into the "+ Add component" row and not yet added counts too —
+    // "Save BOM" used to report success while silently leaving it out.
+    if (addSku && addQty) await addComponent()
     await loadBom()
     setSavingBom(false)
     flash('BOM saved.')
