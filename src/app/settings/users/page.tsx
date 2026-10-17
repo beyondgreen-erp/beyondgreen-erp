@@ -2,7 +2,7 @@
 import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useBoards, groupBoards } from '@/lib/boards'
 
@@ -219,6 +219,8 @@ export default function UsersPage() {
         </div>
       )}
 
+      {iAmAdmin && <WorkNetworkCard />}
+
       <div className="bg-white border border-[#E4E6EE] rounded-xl overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -365,6 +367,7 @@ export default function UsersPage() {
                 </select>
               </div>
             </div>
+            {iAmAdmin && <OffsiteAccess email={editing.email} />}
             {/* Board access (admins only; Admin/Owner users see everything so nothing to set) */}
             {iAmAdmin && !['Admin','Owner'].includes(editForm.role) && (
               <div className="pt-3 border-t border-[#E4E6EE]">
@@ -581,6 +584,87 @@ function BoardAccess({ email }: { email: string }) {
         </div>
       )}
       <p className="text-[11px] text-gray-400 mt-2">Changes save instantly. The user sees the new access the next time they load a page.</p>
+    </div>
+  )
+}
+
+
+/* ── Off-site lock: where the ERP may be used from when NOT on the work network ─────────────
+   Enforced by database policies (the request's real IP reaches Postgres), the UI just mirrors it. */
+const OFFSITE_MODES: { v: string; label: string; help: string }[] = [
+  { v: 'full', label: 'Full access anywhere', help: 'No restriction off the work WiFi.' },
+  { v: 'readonly', label: 'View only off-site', help: 'Can look, cannot change anything until back on the facility network.' },
+  { v: 'chat_only', label: 'Chat only off-site', help: 'Boards and records lock off-site; team chat stays open on their phone.' },
+  { v: 'blocked', label: 'Blocked off-site', help: 'The ERP only works from the facility network for this user.' },
+]
+
+function WorkNetworkCard() {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [nets, setNets] = useState<string[]>([])
+  const [me, setMe] = useState<{ ip: string | null; onsite: boolean; gate_active: boolean } | null>(null)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const load = useCallback(async () => {
+    const [{ data: n }, { data: a }] = await Promise.all([sb.rpc('erp_work_networks'), sb.rpc('erp_my_access')])
+    setNets(Array.isArray(n) ? (n as string[]) : [])
+    setMe(a ? { ip: (a as any).ip ?? null, onsite: !!(a as any).onsite, gate_active: !!(a as any).gate_active } : null)
+  }, [sb])
+  useEffect(() => { load() }, [load])
+  async function save(next: string[]) {
+    setBusy(true); setErr('')
+    const { data, error } = await sb.rpc('erp_set_work_networks', { p_networks: next })
+    setBusy(false)
+    if (error) { setErr(error.message.replace(/^.*?:\s*/, '') || 'Could not save'); return }
+    setNets(Array.isArray(data) ? (data as string[]) : next); setDraft(''); load()
+  }
+  const myNet = me?.ip ? (me.ip.includes(':') ? me.ip.replace(/:[^:]*:[^:]*:[^:]*:[^:]*$/, '::') + '/64' : me.ip + '/32') : null
+  return (
+    <div className="mb-5 bg-white border border-[#E4E6EE] rounded-xl p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-bold text-[#1A1D2E]">📍 Work network (off-site lock)</p>
+          <p className="text-xs text-gray-500 mt-0.5 max-w-2xl">Add the facility&apos;s public internet address(es). Users whose <b>Off-site access</b> is not &quot;Full&quot; get locked down the moment they are not on one of these networks — enforced in the database, not just on screen. With no networks listed, the lock is off for everyone.</p>
+        </div>
+        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${me?.gate_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>{me?.gate_active ? 'LOCK ON' : 'LOCK OFF'}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {nets.map(n => (
+          <span key={n} className="inline-flex items-center gap-2 bg-[#F6F7FB] border border-[#E4E6EE] rounded-lg px-3 py-1.5 text-sm font-mono text-[#1A1D2E]">{n}{me?.onsite && myNet && n === myNet && <span className="text-[10px] font-sans font-bold text-emerald-600">you are here</span>}<button onClick={() => { if (confirm(`Remove ${n} from the work network list?`)) save(nets.filter(x => x !== n)) }} disabled={busy} className="text-gray-400 hover:text-red-600">×</button></span>
+        ))}
+        {nets.length === 0 && <span className="text-xs text-gray-400">No work networks yet.</span>}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="e.g. 203.0.113.7 or 203.0.113.0/24" className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm font-mono w-64 focus:outline-none focus:ring-2 focus:ring-[#0F7A4E]/30" />
+        <button onClick={() => draft.trim() && save([...nets, draft.trim()])} disabled={busy || !draft.trim()} className="text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-50" style={{ background: '#0F7A4E' }}>Add</button>
+        {me?.ip && myNet && !nets.includes(myNet) && <button onClick={() => save([...nets, myNet])} disabled={busy} className="text-sm font-semibold rounded-lg px-3 py-2 border border-[#E4E6EE] hover:bg-[#F6F7FB] disabled:opacity-50">+ Add the network I&apos;m on now ({me.ip})</button>}
+        {me?.ip && <span className="text-[11px] text-gray-400">Your current address: <span className="font-mono">{me.ip}</span>{me.gate_active ? me.onsite ? ' · recognised as on-site' : ' · currently off-site' : ''}</span>}
+      </div>
+      {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
+      <p className="text-[11px] text-gray-400 mt-3">Tip: add the facility network while you are physically there, then set each floor account&apos;s off-site access below. Your own account defaults to Full access so you cannot lock yourself out.</p>
+    </div>
+  )
+}
+
+function OffsiteAccess({ email }: { email: string }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [mode, setMode] = useState<string>('full')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { sb.from('user_profiles').select('offsite_access').eq('email', email).maybeSingle().then(({ data }: any) => setMode(data?.offsite_access || 'full')) }, [sb, email])
+  async function set(v: string) {
+    setBusy(true)
+    const { error } = await sb.rpc('erp_set_offsite_access', { p_email: email, p_mode: v })
+    setBusy(false)
+    if (error) alert(error.message); else setMode(v)
+  }
+  const cur = OFFSITE_MODES.find(m => m.v === mode) || OFFSITE_MODES[0]
+  return (
+    <div className="pt-3 border-t border-[#E4E6EE]">
+      <label className="block text-xs text-gray-400 mb-1.5">Off-site access <span className="text-gray-300">· what this person can do when not on the work WiFi</span></label>
+      <select value={mode} onChange={e => set(e.target.value)} disabled={busy} className="w-full bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#0F7A4E]/30">
+        {OFFSITE_MODES.map(m => <option key={m.v} value={m.v}>{m.label}</option>)}
+      </select>
+      <p className="text-[11px] text-gray-400 mt-1">{cur.help} Saves immediately.</p>
     </div>
   )
 }
