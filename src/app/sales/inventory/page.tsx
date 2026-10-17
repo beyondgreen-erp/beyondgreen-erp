@@ -386,7 +386,14 @@ const EditPanel = memo(function EditPanel({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={lblCalc}>On Hand Qty <span className="text-blue-400 font-normal">· counted in {baseUom}</span></label>
-                <input type="number" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inpCalc}/>
+                {editing ? (
+                  <>
+                    <input type="number" value={form.on_hand_qty} readOnly className={inpCalc + ' bg-gray-50 text-gray-600 cursor-not-allowed'} title="On-hand moves through receipts, production, shipments and physical counts — not free typing." />
+                    <p className="text-[10px] text-gray-500 mt-1">Ledger-controlled. Wrong number? Use <b>Count</b> on the board row to post a physical count with a reason.</p>
+                  </>
+                ) : (
+                  <input type="number" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inpCalc} placeholder="Opening stock" />
+                )}
                 {curOnHand < 0 && <p className="text-[10px] text-amber-600 mt-1 font-medium">Negative = {Math.abs(curOnHand)} {baseUom} shipped before production was posted.</p>}
               </div>
               <div>
@@ -698,6 +705,8 @@ export default function InventoryPage() {
   const [bomProduct, setBomProduct] = useState<Product | null>(null)
   const [labelProduct, setLabelProduct] = useState<Product | null>(null)
   const [zoneProduct, setZoneProduct] = useState<Product | null>(null)
+  const [countProduct, setCountProduct] = useState<Product | null>(null)
+  const [negOnly, setNegOnly] = useState(false)
   const [zonedSet, setZonedSet] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [userEmail, setUserEmail] = useState('')
@@ -811,7 +820,8 @@ export default function InventoryPage() {
 
   // Search on top of tab pool
   const filtered = useMemo(() => {
-    const pool = onlyUomFlagged ? tabPool.filter(r => uomFlags[r.sku]) : tabPool
+    const pool0 = onlyUomFlagged ? tabPool.filter(r => uomFlags[r.sku]) : tabPool
+    const pool = negOnly ? pool0.filter(r => (r.on_hand_qty ?? 0) < 0) : pool0
     const q = search.toLowerCase().trim()
     if (!q) return pool
     const exact  = pool.filter(r => r.sku.toLowerCase() === q)
@@ -819,7 +829,7 @@ export default function InventoryPage() {
     const contains = pool.filter(r => r.sku.toLowerCase().includes(q) && !r.sku.toLowerCase().startsWith(q))
     const name   = pool.filter(r => (r.product_name ?? '').toLowerCase().includes(q) && !r.sku.toLowerCase().includes(q))
     return [...exact, ...starts, ...contains, ...name]
-  }, [tabPool, search, onlyUomFlagged, uomFlags])
+  }, [tabPool, search, onlyUomFlagged, uomFlags, negOnly])
 
   async function postUomSheet(file: File, commit: boolean) {
     setUomBusy(true)
@@ -865,7 +875,8 @@ export default function InventoryPage() {
     const totalValue = tabPool.reduce((s, p) => s + (p.on_hand_qty ?? 0) * (p.unit_cost ?? 0), 0)
     const finishedGoods = tabPool.filter(p => isFinished(p)).length
     const outOfStock = tabPool.filter(p => !p.on_hand_qty || p.on_hand_qty === 0).length
-    return { totalValue, finishedGoods, outOfStock }
+    const negative = tabPool.filter(p => (p.on_hand_qty ?? 0) < 0).length
+    return { totalValue, finishedGoods, outOfStock, negative }
   }, [tabPool])
 
   const tabCounts = useMemo(() => {
@@ -1166,11 +1177,16 @@ export default function InventoryPage() {
 
       {/* Stats bar */}
       {!loading && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
           <StatCard label="Total SKUs" value={String(rows.length)} sub="all categories"/>
           <StatCard label="Inventory Value" value={fmtV(stats.totalValue)} accent="text-emerald-600" sub="on-hand x unit cost"/>
           <StatCard label="Finished Products" value={String(stats.finishedGoods)} sub="finished-goods class"/>
           <StatCard label="Out of Stock" value={String(stats.outOfStock)} accent={stats.outOfStock > 0 ? 'text-red-600' : 'text-[#1A1D2E]'} sub="qty = 0"/>
+          <button data-ro-ok onClick={() => setNegOnly(v => !v)} className={`text-left bg-white border rounded-xl px-4 py-3 flex flex-col gap-0.5 transition-colors ${negOnly ? 'border-red-400 ring-2 ring-red-100' : 'border-[#E4E6EE] hover:border-[#C7CBE0]'}`}>
+            <span className="text-xs font-medium text-gray-400">Negative stock</span>
+            <span className={`text-xl font-bold ${stats.negative > 0 ? 'text-red-600' : 'text-[#1A1D2E]'}`}>{stats.negative}</span>
+            <span className="text-xs text-gray-400">{negOnly ? 'showing only these · click to clear' : stats.negative > 0 ? 'needs a physical count · click to filter' : 'all good'}</span>
+          </button>
         </div>
       )}
 
@@ -1445,6 +1461,7 @@ export default function InventoryPage() {
                                 <td colSpan={12} className="px-3 pb-3 pt-0">
                                   <div className="flex items-center gap-1 flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                     <button onClick={() => openEdit(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
+                                    <button onClick={() => setCountProduct(p)} title="Physical count — fixes on-hand the right way (reason + signed adjustment)" className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${(p.on_hand_qty ?? 0) < 0 ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600'}`}>Count</button>
                                     {hasBom(p) && !isImport && <button onClick={() => setBomProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] transition-colors">BOM</button>}
                                     <button onClick={() => setZoneProduct(p)} className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                                     {isFG && <button onClick={() => setLabelProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
@@ -1600,6 +1617,7 @@ export default function InventoryPage() {
       {allocDetail && (
         <AllocDetailModal product={allocDetail} onClose={() => setAllocDetail(null)} />
       )}
+      {countProduct && <CountModal product={countProduct} onClose={() => setCountProduct(null)} onDone={() => { setCountProduct(null); load() }} />}
       {zoneProduct && (
         <ZonePicker productId={zoneProduct.id} productName={zoneProduct.product_name} currentUserEmail={userEmail} onClose={() => { setZoneProduct(null); loadZoned() }} />
       )}
@@ -1753,6 +1771,56 @@ function AllocPanel({ product, userEmail, onClose }: { product: any; userEmail: 
               </tbody>
             </table>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+/* ── Cycle count: counted qty + reason → signed adjust movement, on-hand set, count logged ───────── */
+function CountModal({ product, onClose, onDone }: { product: Product; onClose: () => void; onDone: () => void }) {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [counted, setCounted] = useState<string>('')
+  const [reason, setReason] = useState('Cycle count')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const system = Number(product.on_hand_qty ?? 0)
+  const c = counted === '' ? null : Number(counted)
+  const variance = c === null || isNaN(c) ? null : c - system
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [onClose])
+  async function submit() {
+    if (c === null || isNaN(c) || c < 0) { setErr('Enter the quantity you physically counted.'); return }
+    setBusy(true); setErr('')
+    const { error } = await sb.rpc('inventory_cycle_count', { p_product_id: product.id, p_counted: c, p_reason: reason, p_note: note.trim() || null })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    onDone()
+  }
+  const inp = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F7A4E]/30'
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-[#E4E6EE] overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3.5 text-white" style={{ background: system < 0 ? '#B91C1C' : '#0F7A4E' }}>
+          <div><p className="text-white/70 text-[11px] uppercase tracking-wide">Physical count</p><h2 className="font-bold leading-tight">{product.sku}</h2><p className="text-xs text-white/80 truncate max-w-[300px]">{product.product_name}</p></div>
+          <button onClick={onClose} className="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+        <div className="p-5 space-y-3">
+          {system < 0 && <div className="rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs px-3 py-2">The system shows <b>{system}</b> — a negative number is never real stock. Count the shelf and enter what is actually there; the ledger records the correction with your name on it.</div>}
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-xl bg-[#F6F7FB] py-2"><p className="text-[10px] uppercase text-gray-400">System</p><p className="text-lg font-bold text-[#1A1D2E]">{system}</p></div>
+            <div className="rounded-xl bg-[#F6F7FB] py-2"><p className="text-[10px] uppercase text-gray-400">Counted</p><p className="text-lg font-bold text-[#1A1D2E]">{c === null || isNaN(c) ? '—' : c}</p></div>
+            <div className={`rounded-xl py-2 ${variance === null ? 'bg-[#F6F7FB]' : variance === 0 ? 'bg-emerald-50' : 'bg-amber-50'}`}><p className="text-[10px] uppercase text-gray-400">Variance</p><p className={`text-lg font-bold ${variance === null ? 'text-gray-300' : variance === 0 ? 'text-emerald-700' : variance > 0 ? 'text-emerald-700' : 'text-red-700'}`}>{variance === null ? '—' : (variance > 0 ? '+' : '') + variance}</p></div>
+          </div>
+          <label className="block"><span className="text-xs font-medium text-gray-600">Quantity counted ({product.unit_of_measure || 'units'}) *</span><input autoFocus type="number" min={0} step="any" inputMode="decimal" className={inp + ' text-lg font-semibold'} value={counted} onChange={e => setCounted(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} /></label>
+          <label className="block"><span className="text-xs font-medium text-gray-600">Reason</span><select className={inp} value={reason} onChange={e => setReason(e.target.value)}>{['Cycle count', 'Found stock', 'Damaged / scrapped', 'Shrink / missing', 'Data entry correction', 'Returned to stock', 'Other'].map(r => <option key={r}>{r}</option>)}</select></label>
+          <label className="block"><span className="text-xs font-medium text-gray-600">Note (optional)</span><input className={inp} value={note} onChange={e => setNote(e.target.value)} placeholder="Where it was, what happened…" /></label>
+          {err && <p className="text-xs text-red-600">{err}</p>}
+          <div className="flex gap-2 pt-1">
+            <button onClick={submit} disabled={busy || c === null} className="flex-1 text-white font-semibold py-2 rounded-lg disabled:opacity-50" style={{ background: '#0F7A4E' }}>{busy ? 'Posting…' : variance === 0 ? 'Confirm count (no change)' : 'Post count'}</button>
+            <button onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 rounded-lg">Cancel</button>
+          </div>
         </div>
       </div>
     </div>
