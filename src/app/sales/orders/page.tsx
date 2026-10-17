@@ -1,6 +1,5 @@
 'use client'
 import ShareLink from '@/components/ShareLink'
-import OrderPurchaseRequests from './OrderPurchaseRequests'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -25,6 +24,7 @@ import WalmartBoard from '@/components/WalmartBoard'
 import { orderDisplayName } from '@/lib/orderName'
 import { conversionFactor, normalizeUom, uomOptions } from '@/lib/uom'
 import ItemHistory from '@/components/ItemHistory'
+import { usePointerDnd } from '@/lib/usePointerDnd'
 
 // Shipment log shown on the order itself: every partial that has gone out, what it
 // carried, and its documents. The order is not complete until the balance is zero.
@@ -1318,8 +1318,11 @@ function EditPanel({
           {editing && form.status === 'Awaiting BOM Components' && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
               <p className="text-xs font-semibold text-amber-800 mb-1">⏳ Awaiting BOM Components</p>
-              <p className="text-xs text-amber-700 mb-2">Components for this order are bought on the Purchasing Requests board. Only requests tagged with this order number appear below.</p>
-              <OrderPurchaseRequests orderNumber={editing.order_number || ''} customer={editing.notes || null} />
+              <p className="text-xs text-amber-700 mb-2">Components for this order are purchased on the Purchase Order Request board. Tag each request with this order number so they show up filtered here.</p>
+              <a href={`/sales/purchase-orders?order=${encodeURIComponent(editing.order_number || '')}`}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 underline hover:text-amber-900">
+                View this order&apos;s items on the Purchase Order Request board →
+              </a>
             </div>
           )}
 
@@ -1580,7 +1583,7 @@ function EditPanel({
               {editLines.map((line, i) => (
                 <div key={line._key} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); reorderLine(line._key) }} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-[#E4E6EE] bg-[#F9FAFB]/30'}`}>
                   <div className="flex items-center gap-2">
-                    <span draggable onDragStart={() => { dragLineKey.current = line._key }} className="text-gray-400 cursor-grab active:cursor-grabbing select-none shrink-0 text-xs" title="Drag to reorder line">&#8942;&#8942;</span>
+                    <span draggable onDragStart={e => { e.dataTransfer.setData('text/plain', line._key); e.dataTransfer.effectAllowed = 'move'; dragLineKey.current = line._key }} onDragEnd={() => { setTimeout(() => { dragLineKey.current = null }, 0) }} className="text-gray-400 cursor-grab active:cursor-grabbing select-none shrink-0 text-xs" title="Drag to reorder line">&#8942;&#8942;</span>
                     <span className="text-xs text-gray-600 w-4 shrink-0">{i + 1}</span>
                     {/* SKU with typeahead */}
                     <div className="relative flex-1">
@@ -1802,6 +1805,10 @@ export default function OrdersPage() {
   const [showEmpty, setShowEmpty] = useState(false)
   const [groupBy, setGroupBy] = useState<'section'|'status'>('section')
   const dragId = useRef<string | null>(null)
+  // Board drag & drop (mouse + touch). Zones are "group::index" so a drop lands exactly
+  // where the pointer is — between two rows, or at the end of a group.
+  const dropHandlerRef = useRef<(id: string, grp: string, idx: number) => void>(() => {})
+  const boardDnd = usePointerDnd({ onDrop: (id, zone) => { const i = zone.lastIndexOf('::'); dropHandlerRef.current(id, zone.slice(0, i), Number(zone.slice(i + 2)) || 0) } })
   const autoSORef = useRef<string>('')
   const moveOrder = async (id: string, targetSection: string, targetIndex: number) => {
     const moving = orders.find(o => o.id === id); if (!moving) return
@@ -1811,9 +1818,18 @@ export default function OrdersPage() {
     const others = rest.filter(o => !inSec(o))
     targetItems.splice(Math.min(targetIndex, targetItems.length), 0, { ...moving, order_section: targetSection })
     const reindexed = targetItems.map((o, i) => ({ ...o, order_section: targetSection, board_position: i }))
+    const before = orders
     setOrders([...others, ...reindexed])
     dragId.current = null
-    try { await Promise.all(reindexed.map(o => sb.from('sales_orders').update({ order_section: o.order_section, board_position: o.board_position }).eq('id', o.id))) } catch (e) {}
+    // Only write rows whose place actually changed, and put the board back if any write fails.
+    const changed = reindexed.filter(o => { const b = before.find(x => x.id === o.id); return !b || b.order_section !== o.order_section || (b.board_position ?? null) !== o.board_position })
+    const results = await Promise.all(changed.map(o => sb.from('sales_orders').update({ order_section: o.order_section, board_position: o.board_position }).eq('id', o.id)))
+    const failed = results.find(r => r.error)
+    if (failed?.error) {
+      setOrders(before)
+      setInlineErr('Could not move the order: ' + failed.error.message)
+      setTimeout(() => setInlineErr(''), 6000)
+    }
   }
   // Inline edits from the board rows (no modal needed) — route status through the real workflow.
   async function inlineStatus(o: SalesOrder, newStatus: string) {
@@ -1821,12 +1837,22 @@ export default function OrdersPage() {
     const prev = o.status
     setOrders(prevOrders => prevOrders.map(x => x.id === o.id ? { ...x, status: newStatus } : x))
     try {
-      await sb.from('sales_orders').update({ status: newStatus }).eq('id', o.id)
+      const { error: stErr } = await sb.from('sales_orders').update({ status: newStatus }).eq('id', o.id)
+      if (stErr) {
+        setOrders(prevOrders => prevOrders.map(x => x.id === o.id ? { ...x, status: prev } : x))
+        setInlineErr('Could not change the status: ' + stErr.message)
+        setTimeout(() => setInlineErr(''), 6000)
+        return
+      }
       const result = await onStatusChange(o.id, newStatus as OrderStatus, prev as OrderStatus)
       if (result?.message) setFlowToast({ message: result.message, undoData: result.undoData })
       // Ask what is actually going out before anything is written.
       if (newStatus === 'Ready to Ship') setShipPrompt({ id: o.id, number: o.order_number || 'Order', customer: orderCustomerName(o), carrier: o.carrier ?? null })
-    } catch { /* keep optimistic state */ }
+    } catch (e: any) {
+      // The status itself saved; only the follow-on workflow failed. Say so instead of hiding it.
+      setInlineErr('Status saved, but the follow-up step failed: ' + (e?.message || e))
+      setTimeout(() => setInlineErr(''), 6000)
+    }
   }
   async function inlineField(id: string, field: 'required_ship_date', value: string) {
     const prevVal = (orders.find(o => o.id === id) as any)?.[field] ?? null
@@ -1878,11 +1904,21 @@ export default function OrdersPage() {
     await sb.from('so_columns').delete().eq('id', id)
     setColumns(cs => cs.filter(c => c.id !== id))
   }
-  async function setCell(orderId: string, colId: string, value: string) {
-    const o = orders.find(x => x.id === orderId)
-    const cf = { ...(((o as any)?.custom_fields) || {}), [colId]: value }
-    setOrders(prev => prev.map(x => x.id === orderId ? ({ ...x, custom_fields: cf } as any) : x))
-    try { await sb.from('sales_orders').update({ custom_fields: cf }).eq('id', orderId) } catch { /* */ }
+  // Custom-column cells: update the screen per keystroke, write once typing pauses
+  // (a write per keystroke could land out of order and drop characters).
+  const cellTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  function setCell(orderId: string, colId: string, value: string) {
+    let cf: Record<string, any> = {}
+    setOrders(prev => prev.map(x => {
+      if (x.id !== orderId) return x
+      cf = { ...(((x as any).custom_fields) || {}), [colId]: value }
+      return ({ ...x, custom_fields: cf } as any)
+    }))
+    clearTimeout(cellTimers.current[orderId])
+    cellTimers.current[orderId] = setTimeout(async () => {
+      const { error } = await sb.from('sales_orders').update({ custom_fields: cf }).eq('id', orderId)
+      if (error) { setInlineErr('Could not save that cell: ' + error.message); setTimeout(() => setInlineErr(''), 6000) }
+    }, 600)
   }
   useItemDeepLink(orders, openEdit)
   // Deep-link a status from the dashboard workflow tiles (e.g. /sales/orders?status=On%20Hold).
@@ -2843,7 +2879,13 @@ export default function OrdersPage() {
             ? src.filter(o => o.status === grp && !isCompleted(o) && orderMatches(o))
             : src.filter(o => (o.order_section || 'Make To Stock') === grp && !isCompleted(o) && orderMatches(o)).sort((a,b) => (a.board_position ?? 0) - (b.board_position ?? 0)))
           return { grp, items }
-        }).filter(g => showEmpty || g.items.length > 0)
+        }).filter(g => showEmpty || g.items.length > 0 || (boardDnd.dragging && gb === 'status' && !isLockedStatus(g.grp)))
+        dropHandlerRef.current = (id, grp, idx) => {
+          if (gb === 'status') {
+            if (isLockedStatus(grp)) { setFlowToast({ message: `"${grp}" is set by shipping the order, not by moving it here.` }); return }
+            const mo = orders.find(o => o.id === id); if (mo && mo.status !== grp) inlineStatus(mo, grp)
+          } else moveOrder(id, grp, idx)
+        }
         return (
         <div className="space-y-2.5 mb-6">
           {groupData.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">No orders match your filters.</p>}
@@ -2851,22 +2893,8 @@ export default function OrdersPage() {
             const isColl = collapsed[grp]
             const color = gb === 'status' ? statusColor(grp).solid : (SECTION_COLORS[grp] || statusColor(grp).solid)
             const groupTotal = items.reduce((s, o) => s + orderValue(o), 0)
-            const dropInto = (idx: number) => {
-              const id = dragId.current; dragId.current = null; if (!id) return
-              if (gb === 'status') {
-                // Dragging a card into a column sets that status, so the locked ones
-                // have to be refused here too — otherwise the dropdown is closed but
-                // the drag target is still an open door to the same mistake.
-                if (isLockedStatus(grp)) {
-                  setFlowToast({ message: `"${grp}" is set by shipping the order, not by moving it here.` })
-                  return
-                }
-                const mo = orders.find(o => o.id === id); if (mo) inlineStatus(mo, grp)
-              }
-              else { moveOrder(id, grp, idx) }
-            }
             return (
-              <div key={grp} className="bg-white rounded-xl overflow-hidden shadow-sm border border-[#ECEEF3]" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); dropInto(items.length) }}>
+              <div key={grp} {...boardDnd.zone(grp + '::' + items.length)} className={`bg-white rounded-xl overflow-hidden shadow-sm border-2 transition-colors ${boardDnd.dragging && boardDnd.overZone?.startsWith(grp + '::') ? 'border-[#00A84F]' : 'border-[#ECEEF3]'}`}>
                 <div className="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none sticky top-0 z-[5]"
                   style={{ background: color + '14', borderLeft: '5px solid ' + color }}
                   onClick={() => setCollapsed(c => ({ ...c, [grp]: !c[grp] }))}>
@@ -2892,12 +2920,12 @@ export default function OrdersPage() {
                       <button onClick={(e) => { e.stopPropagation(); addColumn() }} className="ml-1 text-[#0086C0] hover:underline shrink-0 normal-case" title="Add a custom column">+ Col</button>
                     </div>
                   <div className="divide-y divide-[#F4F5F8]">
-                    {items.length === 0 && <div className="px-4 py-3 text-xs text-gray-400 italic">Drop orders here</div>}
+                    {items.length === 0 && <div className="px-4 py-5 text-xs text-gray-400 italic">Drop orders here</div>}
                     {items.map((o, idx) => {
                       const sc = statusColor(o.status)
                       const sv = shipDateVisual(o)
                       return (
-                      <div key={o.id} draggable onDragStart={() => { dragId.current = o.id }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropInto(idx) }} className="group flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 mon-row">
+                      <div key={o.id} {...boardDnd.item(o.id)} {...boardDnd.zone(grp + '::' + idx)} className={`group flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 mon-row touch-manipulation ${boardDnd.dragId === o.id ? 'opacity-30' : ''} ${boardDnd.dragging && boardDnd.overZone === grp + '::' + idx && boardDnd.dragId !== o.id ? 'shadow-[inset_0_2px_0_#00A84F]' : ''}`}>
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
