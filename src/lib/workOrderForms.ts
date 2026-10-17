@@ -113,6 +113,11 @@ const MOLDING: FormDef = {
         { key: 'assy_components', label: 'Assy. Components', type: 'text', wide: true },
       ],
     },
+    materials([
+      { key: 'material_1', label: 'Material' },
+      { key: 'material_2', label: 'Hardener' },
+      { key: 'color_material', label: 'Color' },
+    ]),
     { columns: 1, fields: [{ key: 'special_setup', label: 'Special Set-Up', type: 'textarea', wide: true }] },
     { columns: 1, fields: [{ key: 'special_instructions', label: 'Special Instructions', type: 'textarea', wide: true }] },
   ],
