@@ -110,6 +110,14 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
   const [bolTrailer, setBolTrailer] = useState('')
   const [bolPro, setBolPro] = useState('')
 
+  // Persistence. Everything on this wizard (pallet build, UPC / case-qty / name edits, ship-to,
+  // BOL fields) used to live only in the browser: reopening showed one empty pallet and the
+  // saved pick-ticket pallets were never read back. Now the work autosaves to
+  // sales_orders.label_wizard_draft and saved pallets are restored when there is no draft.
+  const loadedRef = useRef(false)
+  const [saveState, setSaveState] = useState<'' | 'saving' | 'saved' | 'error'>('')
+  const [restoredMsg, setRestoredMsg] = useState('')
+
   // ── Load data ─────────────────────────────────────────────────
 
   useEffect(() => {
@@ -164,13 +172,109 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
       const shipAddr = o.shipping_address ?? o.customers?.shipping_address ?? ''
 
       setOrder(o as FullOrder)
-      setLines(merged)
-      setShipTo({ name: custName, address1: shipAddr, address2: '', city: '', state: '', zip: '' })
-      setBolCarrier(initialCarrier ?? '')
+      let mergedLines = merged
+      let ship: ShipAddress = { name: custName, address1: shipAddr, address2: '', city: '', state: '', zip: '' }
+      let carrier = initialCarrier ?? ''
+      let restoredPallets: PalletEntry[] | null = null
+
+      // 1) A saved draft wins: it is exactly what was on screen last time.
+      const { data: dr } = await sb.from('sales_orders').select('label_wizard_draft').eq('id', orderId).maybeSingle()
+      const draft: any = (dr as any)?.label_wizard_draft
+      if (draft && typeof draft === 'object') {
+        if (Array.isArray(draft.lines)) {
+          mergedLines = merged.map(l => {
+            const d = draft.lines.find((x: any) => x.lineId === l.lineId)
+            if (!d) return l
+            const caseQty = Number(d.caseQty) || l.caseQty
+            return { ...l, productName: d.productName ?? l.productName, upc: d.upc ?? l.upc, caseQty, numCases: Math.ceil(l.orderedQty / (caseQty || 1)) }
+          })
+        }
+        if (draft.shipTo && typeof draft.shipTo === 'object') ship = { ...ship, ...draft.shipTo }
+        if (Array.isArray(draft.pallets) && draft.pallets.length) {
+          const ids = new Set(mergedLines.map(l => l.lineId))
+          restoredPallets = draft.pallets.map((p: any, i: number) => ({
+            id: i + 1,
+            casesByLine: Object.fromEntries(Object.entries(p.casesByLine || {}).filter(([k]) => ids.has(k)).map(([k, v]) => [k, Number(v) || 0])),
+          }))
+        }
+        if (typeof draft.bolCarrier === 'string') carrier = draft.bolCarrier
+        if (typeof draft.bolTrailer === 'string') setBolTrailer(draft.bolTrailer)
+        if (typeof draft.bolPro === 'string') setBolPro(draft.bolPro)
+      }
+
+      // 2) No draft pallets: rebuild from the pallets saved with the last pick tickets.
+      if (!restoredPallets) {
+        const { data: sp } = await sb.from('shipment_pallets').select('id, pallet_number').eq('sales_order_id', orderId).order('pallet_number')
+        if (sp && sp.length) {
+          const { data: sc } = await sb.from('shipment_cases').select('pallet_id, sku, total_cases').eq('sales_order_id', orderId)
+          // Saved cases are stored by SKU. When two order lines share a SKU, fill the first line
+          // up to its case count before moving on, so the split comes back the way it was laid out.
+          const bySku: Record<string, LineItem[]> = {}
+          for (const l of mergedLines) { const k = (l.sku || '').trim().toUpperCase(); if (k) (bySku[k] ||= []).push(l) }
+          const used: Record<string, number> = {}
+          restoredPallets = (sp as any[]).map((p, i) => {
+            const cbl: Record<string, number> = {}
+            for (const c of ((sc as any[]) || []).filter(c => c.pallet_id === p.id)) {
+              const cands = bySku[String(c.sku || '').trim().toUpperCase()] || []
+              let left = Number(c.total_cases) || 0
+              for (let k = 0; k < cands.length && left > 0; k++) {
+                const ln = cands[k]
+                const room = k === cands.length - 1 ? left : Math.max(0, ln.numCases - (used[ln.lineId] || 0))
+                const take = Math.min(room, left)
+                if (take > 0) { cbl[ln.lineId] = (cbl[ln.lineId] || 0) + take; used[ln.lineId] = (used[ln.lineId] || 0) + take; left -= take }
+              }
+            }
+            return { id: i + 1, casesByLine: cbl }
+          })
+        }
+      }
+
+      setLines(mergedLines)
+      setShipTo(ship)
+      setBolCarrier(carrier)
+      if (restoredPallets && restoredPallets.length) {
+        setPallets(restoredPallets); setNumPallets(restoredPallets.length)
+        setRestoredMsg(`Restored ${restoredPallets.length} pallet${restoredPallets.length === 1 ? '' : 's'} from the last save`)
+        setTimeout(() => setRestoredMsg(''), 5000)
+      }
       setLoading(false)
+      loadedRef.current = true
     }
     load()
   }, [orderId]) // eslint-disable-line
+
+  // ── Autosave ──────────────────────────────────────────────────
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!loadedRef.current) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    setSaveState('saving')
+    saveTimer.current = setTimeout(async () => {
+      const draft = {
+        savedAt: new Date().toISOString(),
+        lines: lines.map(l => ({ lineId: l.lineId, productName: l.productName, upc: l.upc, caseQty: l.caseQty })),
+        pallets: pallets.map(p => ({ casesByLine: p.casesByLine })),
+        shipTo, bolCarrier, bolTrailer, bolPro,
+      }
+      const { error } = await sb.from('sales_orders').update({ label_wizard_draft: draft }).eq('id', orderId)
+      setSaveState(error ? 'error' : 'saved')
+    }, 1000)
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
+  }, [lines, pallets, shipTo, bolCarrier, bolTrailer, bolPro]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // UPC and case pack are facts about the product / order line, not just this print run —
+  // write them back so the next order (and every other screen) has them too.
+  async function persistUpc(line: LineItem) {
+    const v = (line.upc || '').trim()
+    if (!v || !line.hasProduct) return
+    const { error } = await sb.from('products').update({ upc_gtin: v }).eq('sku', line.sku)
+    if (error) alert('UPC not saved to Inventory: ' + error.message)
+  }
+  async function persistCaseQty(line: LineItem) {
+    if (!line.caseQty || line.caseQty < 1) return
+    const { error } = await sb.from('sales_order_lines').update({ qty_per_case: line.caseQty }).eq('id', line.lineId)
+    if (error) alert('Case qty not saved to the order line: ' + error.message)
+  }
 
   // ── Preview barcode ───────────────────────────────────────────
 
@@ -302,8 +406,10 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
     try {
       const totalPallets = active.length
       // Re-save cleanly: clear any previously saved pallets/cases for this order.
-      await sb.from('shipment_cases').delete().eq('sales_order_id', orderId)
-      await sb.from('shipment_pallets').delete().eq('sales_order_id', orderId)
+      const { error: dc } = await sb.from('shipment_cases').delete().eq('sales_order_id', orderId)
+      if (dc) throw dc
+      const { error: dp } = await sb.from('shipment_pallets').delete().eq('sales_order_id', orderId)
+      if (dp) throw dp
 
       const ticketPallets: PickTicketPallet[] = []
       for (const p of active) {
@@ -334,7 +440,7 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
         if (palletDbId) {
           let caseNo = 1
           for (const l of pLines) {
-            await sb.from('shipment_cases').insert({
+            const { error: cErr } = await sb.from('shipment_cases').insert({
               sales_order_id: orderId,
               pallet_id: palletDbId,
               sku: l.sku,
@@ -343,6 +449,7 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
               total_cases: l.cases,
               units_in_case: l.unitsPerCase,
             })
+            if (cErr) throw cErr
             caseNo += l.cases
           }
         }
@@ -423,11 +530,18 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
               {order && <p className="text-xs text-gray-400">{order.order_number}</p>}
             </div>
           </div>
+          <div className="flex items-center">
+          {(restoredMsg || saveState) && (
+            <span className={`mr-2 text-[11px] font-medium whitespace-nowrap ${saveState === 'error' ? 'text-red-600' : restoredMsg ? 'text-[#3B6FE0]' : saveState === 'saving' ? 'text-gray-400' : 'text-emerald-600'}`}>
+              {restoredMsg || (saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? '✓ Saved' : '⚠ Not saved')}
+            </span>
+          )}
           <button onClick={onClose} className="text-gray-400 hover:text-[#1A1D2E] p-1.5 rounded-lg hover:bg-[#F5F6FA]">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
+          </div>
         </div>
 
         {/* Step tabs */}
@@ -523,6 +637,7 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
                                   <input
                                     value={line.upc}
                                     onChange={e => updateLine(line.lineId, { upc: e.target.value })}
+                                    onBlur={() => persistUpc(line)}
                                     placeholder="Enter UPC"
                                     className={inpSm + (warnUPC ? ' border-amber-400' : '')}
                                   />
@@ -538,7 +653,8 @@ export default function LabelWizard({ orderId, initialCarrier, onClose }: Props)
                                   type="number"
                                   min="1"
                                   value={line.caseQty}
-                                  onChange={e => updateLine(line.lineId, { caseQty: parseInt(e.target.value) || 1 })}
+                                  onChange={e => { const n = parseInt(e.target.value); if (n > 0) updateLine(line.lineId, { caseQty: n }) }}
+                                  onBlur={() => persistCaseQty(line)}
                                   className={inpSm + (warnCQ ? ' border-amber-400' : '')}
                                 />
                               </td>
