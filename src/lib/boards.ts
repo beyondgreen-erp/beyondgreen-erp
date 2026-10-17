@@ -46,6 +46,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/production/quality-control', label: 'Quality Control', icon: 'ti-checkup-list', nav_group: 'Production', href: '/production/quality-control', sort_order: 3 },
   { board_key: '/haccp', label: 'HACCP - Compliance', icon: 'ti-clipboard-check', nav_group: 'Production', href: '/haccp', sort_order: 4 },
   { board_key: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode', nav_group: 'Production', href: '/production/lots', sort_order: 5 },
+  { board_key: '/production/maintenance', label: 'Maintenance', icon: 'ti-tool', nav_group: 'Production', href: '/production/maintenance', sort_order: 8 },
   { board_key: '/production/machine-status', label: 'Machine Status', icon: 'ti-settings-cog', nav_group: 'Production', href: '/production/machine-status', sort_order: 6 },
   { board_key: '/production/capacity-plan', label: 'Capacity Plan', icon: 'ti-chart-bar', nav_group: 'Production', href: '/production/capacity-plan', sort_order: 7 },
   { board_key: '/packaging', label: 'Packaging Design', icon: 'ti-box-model-2', nav_group: 'Production', href: '/packaging', sort_order: 9 },
