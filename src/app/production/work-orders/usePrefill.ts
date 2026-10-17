@@ -59,7 +59,7 @@ export function usePrefill(
 
     const [{ data: pd }, { data: bd }] = await Promise.all([
       sb.from('products')
-        .select('sku,product_name,unit_of_measure,pieces_per_pack,packs_per_case,case_size,cases_per_pallet,pallet_ti_hi,product_color,print_color,product_thickness,product_size,bag_width_in,bag_length_in,weight_per_unit_grams,ext_cycle_time_m_min,special_instructions')
+        .select('sku,product_name,unit_of_measure,pieces_per_pack,packs_per_case,case_size,cases_per_pallet,pallet_ti_hi,product_color,print_color,product_thickness,product_size,bag_width_in,bag_length_in,weight_per_unit_grams,ext_cycle_time_m_min,special_instructions,inner_diameter_mm,wall_thickness_mm,straw_length_in,straw_weight_g')
         .ilike('sku', clean).limit(1),
       sb.from('product_bom')
         .select('component_sku,role,uom_type,qty_value,percentage,is_case_level')
@@ -81,6 +81,11 @@ export function usePrefill(
       put('bag_length_in', p.bag_length_in, FROM_ITEM)
       put('bag_thickness_um', p.product_thickness, FROM_ITEM)
       put('bag_weight_g', p.weight_per_unit_grams, FROM_ITEM)
+      // Straw specs: dedicated columns, falling back to the shared length/weight fields.
+      put('straw_length_in', p.straw_length_in ?? p.bag_length_in, FROM_ITEM)
+      put('straw_weight_g', p.straw_weight_g ?? p.weight_per_unit_grams, FROM_ITEM)
+      put('inner_diameter_mm', p.inner_diameter_mm, FROM_ITEM)
+      put('wall_thickness_mm', p.wall_thickness_mm, FROM_ITEM)
       put('bag_color', p.product_color, FROM_ITEM)
       put('straw_color', p.product_color, FROM_ITEM)
       put('ink_color', p.print_color, FROM_ITEM)
@@ -93,6 +98,7 @@ export function usePrefill(
 
       const pieces = piecesInRun(q, uom, p)
       put('bags_needed', pieces || '', FROM_ITEM)
+      put('straws_needed', pieces || '', FROM_ITEM)
       put('straw_quantity', pieces || '', FROM_ITEM)
 
       // Extrusion run rate lives on the item record now, so the sheet no longer
