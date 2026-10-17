@@ -10,6 +10,7 @@ import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 import ItemHistory from '@/components/ItemHistory'
 import { useToast } from '@/components/Toast'
+import { usePointerDnd } from '@/lib/usePointerDnd'
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Tickets — Jira-style ticketing on the `tasks` table (keys BG-###).
@@ -194,8 +195,6 @@ export default function TicketsPage() {
   const [detail, setDetail] = useState<Ticket | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [userEmail, setUserEmail] = useState('')
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [dragOver, setDragOver] = useState<string | null>(null)
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async (quiet = false) => {
@@ -346,23 +345,20 @@ export default function TicketsPage() {
     setRows(rs => rs.filter(x => x.id !== r.id)); setDetail(null); toast('Ticket deleted')
   }
 
-  // ── drag & drop between columns
-  function onDrop(status: string) {
-    const id = dragId; setDragId(null); setDragOver(null)
-    if (!id) return
-    const r = rows.find(x => x.id === id)
-    if (r) setStatus(r, status)
-  }
+  // ── drag & drop between columns (pointer-based: mouse + touch, whole column is the target)
+  const rowsRef = useRef(rows); rowsRef.current = rows
+  const dnd = usePointerDnd({ onDrop: (id, status) => { const r = rowsRef.current.find(x => x.id === id); if (r) setStatus(r, status) } })
+  const dragId = dnd.dragId
 
   const chip = (active: boolean) => `px-3 py-1.5 rounded-lg border text-sm font-medium shrink-0 transition-colors ${active ? 'bg-[#1A1D2E] text-white border-[#1A1D2E]' : 'bg-white text-gray-500 border-[#E4E6EE] hover:border-[#D0D3E0]'}`
 
-  const Card = ({ r }: { r: Ticket }) => {
+  const renderCard = (r: Ticket) => {
     const m = resolveMember(r.assigned_to); const due = dueMeta(r.due_date, r.status)
     const nc = commentCounts[r.id] || 0, nf = fileCounts[r.id] || 0
     return (
-      <div id={'item-' + r.id} draggable onDragStart={e => { e.dataTransfer.setData('text/plain', r.id); e.dataTransfer.effectAllowed = 'move'; setDragId(r.id) }} onDragEnd={() => { setDragId(null); setDragOver(null) }}
+      <div key={r.id} id={'item-' + r.id} {...dnd.item(r.id)}
         onClick={() => openDetail(r)}
-        className={`bg-white rounded-xl border border-[#E4E6EE] p-3 cursor-pointer hover:border-[#C7CBE0] hover:shadow-md transition-all select-none ${dragId === r.id ? 'opacity-40' : ''}`}>
+        className={`bg-white rounded-xl border border-[#E4E6EE] p-3 hover:border-[#C7CBE0] hover:shadow-md transition-[border-color,box-shadow] select-none touch-manipulation ${dragId === r.id ? 'opacity-30 border-dashed' : ''}`}>
         <div className="flex items-start gap-2">
           <TypeBadge type={r.ticket_type} small />
           <p className={`text-[13px] font-semibold leading-snug flex-1 ${DONE.has(r.status) ? 'text-gray-400 line-through' : 'text-[#1A1D2E]'}`}>{r.task_name || '—'}</p>
@@ -454,19 +450,19 @@ export default function TicketsPage() {
 
       {/* Board */}
       {view === 'board' && (
-        <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 items-start">
+        <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 items-stretch">
           {columns.map(col => (
-            <div key={col.key} onDragOver={e => { e.preventDefault(); if (dragOver !== col.key) setDragOver(col.key) }} onDragLeave={() => setDragOver(d => d === col.key ? null : d)} onDrop={e => { e.preventDefault(); onDrop(col.key) }}
-              className={`w-[272px] shrink-0 rounded-2xl border bg-[#F6F7FB] p-2.5 transition-colors ${dragOver === col.key && dragId ? 'border-[#5559df] bg-[#EEF0FF]' : 'border-[#ECEEF3]'}`} style={{ minHeight: 160 }}>
+            <div key={col.key} {...dnd.zone(col.key)}
+              className={`w-[272px] shrink-0 flex flex-col rounded-2xl border-2 p-2.5 transition-colors ${dnd.overZone === col.key && dragId ? 'border-[#5559df] bg-[#EEF0FF]' : dragId ? 'border-dashed border-[#D5D8E6] bg-[#F6F7FB]' : 'border-transparent bg-[#F6F7FB]'}`} style={{ minHeight: '62vh' }}>
               <div className="flex items-center gap-2 px-1.5 pb-2.5">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: col.color }} />
                 <span className="font-bold text-[13px] text-[#1A1D2E]">{col.key}</span>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: col.color + '26', color: col.color }}>{col.items.length}</span>
                 {col.key === 'Backlog' && <button onClick={() => setShowAdd(true)} className="ml-auto text-gray-400 hover:text-gray-700 text-lg leading-none" title="New ticket">+</button>}
               </div>
-              <div className="space-y-2 max-h-[68vh] overflow-y-auto pr-0.5">
-                {col.items.map(r => <Card key={r.id} r={r} />)}
-                {col.items.length === 0 && <div className="text-center text-xs text-gray-400 py-6 border border-dashed border-[#E4E6EE] rounded-xl">{dragId ? 'Drop here' : 'Nothing here'}</div>}
+              <div className="space-y-2 flex-1 max-h-[68vh] overflow-y-auto pr-0.5">
+                {col.items.map(r => renderCard(r))}
+                {col.items.length === 0 && <div className={`text-center text-xs py-6 border border-dashed rounded-xl ${dnd.overZone === col.key && dragId ? 'text-[#5559df] border-[#5559df]' : 'text-gray-400 border-[#E4E6EE]'}`}>{dragId ? 'Drop here' : 'Nothing here'}</div>}
               </div>
             </div>
           ))}
@@ -522,6 +518,8 @@ export default function TicketsPage() {
 }
 
 // ─────────────────────────────────────────── Ticket window (centered, inline editing)
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <div><p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>{children}</div> }
+
 function TicketWindow({ r, sb, team, customers, userEmail, me, resolveMember, customerName, onClose, onPatch, onStatus, onArchive, onDelete }: {
   r: Ticket; sb: any; team: TeamMember[]; customers: Customer[]; userEmail: string; me: TeamMember | null
   resolveMember: (v: string | null | undefined) => TeamMember | null; customerName: (id: string | null) => string
@@ -548,7 +546,6 @@ function TicketWindow({ r, sb, team, customers, userEmail, me, resolveMember, cu
     if (r.assigned_to && !assignee && !opts.includes(r.assigned_to)) opts.unshift(r.assigned_to)
     return opts
   }, [team, r.assigned_to, assignee])
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <div><p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</p>{children}</div>
   const hdrBtn = 'text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors disabled:opacity-50'
 
   return (
