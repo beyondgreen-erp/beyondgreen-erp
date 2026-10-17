@@ -5,7 +5,7 @@ import TopNav from './TopNav'
 import { useBoards } from '@/lib/boards'
 import { usePermissions, boardKeyForPath } from '@/lib/permissions'
 import PresenceTracker from './PresenceTracker'
-import { ChatLauncher } from './TeamChat'
+import TeamChat, { ChatLauncher } from './TeamChat'
 import MobileNav from './MobileNav'
 import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
@@ -62,7 +62,9 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const perms = usePermissions()
   const boardKey = boardKeyForPath(pathname, boards)
   const noAccess = perms.loaded && !perms.failed && !perms.is_admin && !perms.canView(boardKey)
-  const readOnly = !noAccess && perms.loaded && !perms.failed && !perms.is_admin && !perms.canEdit(boardKey)
+  const offMode = perms.loaded && !perms.failed ? (perms.access?.mode || 'onsite') : 'onsite'
+  const offsiteReadOnly = offMode === 'readonly'
+  const readOnly = offsiteReadOnly || (!noAccess && perms.loaded && !perms.failed && !perms.is_admin && !perms.canEdit(boardKey))
   const [userInitials, setUserInitials] = useState('?')
   const [userName, setUserName] = useState('')
   const [avatarColor, setAvatarColor] = useState('#3B6FE0')
@@ -107,6 +109,30 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
   const pageTitle = getPageTitle(pathname)
 
+  // Off the work network with a restricted account: the database already refuses the data;
+  // this is the honest screen that goes with it.
+  if (offMode === 'blocked' || offMode === 'chat_only') {
+    return (
+      <ToastProvider>
+        <AuthWatcher />
+        <div className="min-h-screen flex flex-col" style={{ background: '#F5F6FA' }}>
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-white border-b border-[#E3E7EE]">
+            <div className="flex items-center gap-2"><span className="w-8 h-8 rounded-lg inline-flex items-center justify-center text-white font-bold" style={{ background: '#0F7A4E' }}>bG</span><span className="font-bold text-[#1A1D2E]">beyondGREEN ERP</span></div>
+            <div className="flex items-center gap-3 text-sm text-gray-500"><span className="hidden sm:inline">{userName || userEmail}</span><button onClick={async () => { const sb = createSupabaseBrowserClient(); await sb.auth.signOut(); window.location.href = '/login' }} className="font-semibold text-[#0F7A4E]">Sign out</button></div>
+          </div>
+          <div className="flex-1 p-4 sm:p-6 max-w-5xl w-full mx-auto">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm flex items-start gap-3 mb-4">
+              <span className="text-xl leading-none">🔒</span>
+              <div><p className="font-semibold">You&apos;re outside the work network{perms.access?.ip ? ` (${perms.access.ip})` : ''}.</p>
+                <p className="mt-0.5">{offMode === 'chat_only' ? 'Boards and records are locked until you are back on the facility WiFi. Team chat stays open so you can reach the floor.' : 'This account can only use the ERP from the facility WiFi. Connect to it and reload, or ask an Admin to change your off-site access.'}</p></div>
+            </div>
+            {offMode === 'chat_only' && <TeamChat mode="embedded" height="calc(100vh - 190px)" />}
+          </div>
+        </div>
+      </ToastProvider>
+    )
+  }
+
   return (
     <ToastProvider>
       <AuthWatcher />
@@ -127,7 +153,9 @@ export default function ClientShell({ children }: { children: React.ReactNode })
           {readOnly && (
             <div className="px-[10%] pt-3">
               <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm px-4 py-2.5 flex items-center gap-2">
-                <span className="font-semibold">View only.</span> You can look at this board but not change it. Ask an Admin for edit access.
+                {offsiteReadOnly
+                  ? <><span className="font-semibold">View only — you&apos;re outside the work network.</span> Changes unlock when you&apos;re back on the facility WiFi.</>
+                  : <><span className="font-semibold">View only.</span> You can look at this board but not change it. Ask an Admin for edit access.</>}
               </div>
             </div>
           )}
