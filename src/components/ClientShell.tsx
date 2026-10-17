@@ -1,5 +1,5 @@
 'use client'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import TopNav from './TopNav'
 import { useBoards } from '@/lib/boards'
@@ -28,6 +28,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/sales/shipping-queue': 'Shipping Queue',
   '/production': 'Work Orders',
   '/production/qc': 'Quality Control',
+  '/production/walmart': 'Walmart Production',
   '/production/lots': 'Lot Tracking',
   '/production/capacity-plan': 'Capacity Plan',
   '/production/daily-plan': 'Daily Plan',
@@ -67,6 +68,14 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const offMode = perms.loaded && !perms.failed ? (perms.access?.mode || 'onsite') : 'onsite'
   const offsiteReadOnly = offMode === 'readonly'
   const readOnly = offsiteReadOnly || (!noAccess && perms.loaded && !perms.failed && !perms.is_admin && !perms.canEdit(boardKey))
+  const router = useRouter()
+  // Floor accounts that can see exactly one board (e.g. Walmart Production) land on it instead of
+  // the office dashboard — fewer taps on a phone.
+  useEffect(() => {
+    if (pathname !== '/' || !perms.loaded || perms.failed || perms.is_admin) return
+    const keys = Object.entries(perms.boards).filter(([k, b]) => b.can_view && k !== '/').map(([k]) => k)
+    if (keys.length === 1) router.replace(keys[0])
+  }, [pathname, perms, router])
   const [userInitials, setUserInitials] = useState('?')
   const [userName, setUserName] = useState('')
   const [avatarColor, setAvatarColor] = useState('#3B6FE0')
@@ -152,7 +161,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
           {/* Content */}
           {readOnly && (
-            <div className="px-[10%] pt-3">
+            <div className="px-3 sm:px-[5%] lg:px-[10%] pt-3">
               <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm px-4 py-2.5 flex items-center gap-2">
                 {offsiteReadOnly
                   ? <><span className="font-semibold">View only — you&apos;re outside the work network.</span> Changes unlock when you&apos;re back on the facility WiFi.</>
@@ -161,7 +170,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
             </div>
           )}
           {readOnly && <style>{`main[data-readonly] button:not([data-ro-ok]), main[data-readonly] select, main[data-readonly] textarea, main[data-readonly] [contenteditable], main[data-readonly] input:not([type="search"]):not([placeholder*="earch"]):not([placeholder*="ilter"]) { pointer-events: none !important; opacity: .55; }`}</style>}
-          <main data-readonly={readOnly ? '' : undefined} className="flex-1 overflow-auto px-[10%] pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
+          <main data-readonly={readOnly ? '' : undefined} className="flex-1 overflow-auto px-3 sm:px-[5%] lg:px-[10%] pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
             {noAccess ? (
               <div className="max-w-lg mx-auto mt-24 text-center rounded-2xl border border-[#E3E7EE] bg-white p-10">
                 <div className="text-4xl mb-3">🔒</div>

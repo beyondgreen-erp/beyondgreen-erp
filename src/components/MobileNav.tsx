@@ -2,9 +2,12 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
+import { usePermissions } from '@/lib/permissions'
 
 export default function MobileNav() {
   const pathname = usePathname()
+  const perms = usePermissions()
+  const showWalmart = perms.loaded && !perms.failed && (perms.is_admin || !!perms.boards['/production/walmart']?.can_view)
   const [unread, setUnread] = useState(0)
   const [sprintNotice, setSprintNotice] = useState(false)
 
@@ -54,12 +57,22 @@ export default function MobileNav() {
 
       {/* Production */}
       <Link href="/production" className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full">
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: isActive('/production') ? activeColor : inactiveColor }}>
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: isActive('/production') && !isActive('/production/walmart') ? activeColor : inactiveColor }}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
         <span className="text-[9px] font-medium" style={{ color: isActive('/production') ? activeColor : inactiveColor }}>Production</span>
       </Link>
+
+      {/* Walmart production (only for people with access) */}
+      {showWalmart && (
+        <Link href="/production/walmart" className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" style={{ color: isActive('/production/walmart') ? activeColor : inactiveColor }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          </svg>
+          <span className="text-[9px] font-medium" style={{ color: isActive('/production/walmart') ? activeColor : inactiveColor }}>Walmart</span>
+        </Link>
+      )}
 
       {/* Chat */}
       <button onClick={openChat} className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative">
