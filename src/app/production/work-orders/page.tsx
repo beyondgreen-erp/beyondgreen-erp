@@ -319,6 +319,11 @@ export default function WorkOrdersPage() {
   }, [detailId])
 
   const openDetail = useCallback((wo: WO) => setDetail(wo), [])
+  // The weekly Walmart WO covers 7 SKUs and is run from the Walmart Production page (Ultron).
+  const showWo = useCallback((wo: WO) => {
+    if (wo.form_type === 'walmart_weekly') { window.location.href = '/production/walmart?week=' + ((wo as any).start_date || ''); return }
+    setDetail(wo)
+  }, [])
   useItemDeepLink(orders, openDetail)
 
   const machineName = useCallback((id: string | null) => machines.find(m => m.id === id)?.name ?? null, [machines])
@@ -412,6 +417,10 @@ export default function WorkOrdersPage() {
 
   async function setStatus(wo: WO, status: string) {
     if (!status || status === wo.status) return
+    if (wo.form_type === 'walmart_weekly') {
+      alert(`${wo.wo_code || 'This work order'} is the weekly Walmart work order.\n\nIts status moves by itself as production is logged on the Walmart Production page (Queued → In Progress → Complete when every SKU target is met).`)
+      return
+    }
 
     // Completing a work order must capture what was ACTUALLY produced, not assume the plan.
     // Ask for the final total produced, book only that (the DB trigger books total - already
@@ -809,7 +818,7 @@ export default function WorkOrdersPage() {
             <button
               key={wo.id}
               id={`item-${wo.id}`}
-              onClick={() => setDetail(wo)}
+              onClick={() => showWo(wo)}
               className="w-full text-left rounded-xl border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all px-3 py-2"
             >
               <div className="flex items-center gap-2">
@@ -895,7 +904,7 @@ export default function WorkOrdersPage() {
           <div className="divide-y divide-violet-100">
             {pendingApproval.map(wo => (
               <div key={wo.id} className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 hover:bg-violet-100/40">
-                <button onClick={() => setDetail(wo)} className="text-left min-w-[150px]">
+                <button onClick={() => showWo(wo)} className="text-left min-w-[150px]">
                   <span className="font-semibold text-sm text-gray-900">{woLabel(wo)}</span>
                   <span className="block text-[11px] text-gray-500">
                     {wo.sales_orders?.order_number ? `SO ${wo.sales_orders.order_number}` : '—'}
@@ -923,7 +932,7 @@ export default function WorkOrdersPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
-                  <button onClick={() => setDetail(wo)}
+                  <button onClick={() => showWo(wo)}
                     className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white text-gray-700 font-medium hover:bg-gray-50">
                     Open &amp; edit
                   </button>
@@ -980,7 +989,7 @@ export default function WorkOrdersPage() {
               <p className="text-xs text-gray-500 mb-3">These were raised elsewhere in the ERP — open one and set its group.</p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 {byGroup.loose.map(wo => (
-                  <button key={wo.id} id={`item-${wo.id}`} onClick={() => setDetail(wo)} className="text-left rounded-xl border border-gray-100 hover:border-gray-300 px-3 py-2">
+                  <button key={wo.id} id={`item-${wo.id}`} onClick={() => showWo(wo)} className="text-left rounded-xl border border-gray-100 hover:border-gray-300 px-3 py-2">
                     <div className="flex items-center gap-2">
                       <i className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: dotColor(wo.status) }} />
                       <span className="font-semibold text-sm">{wo.wo_code || `WO-${wo.wo_number}`}</span>
