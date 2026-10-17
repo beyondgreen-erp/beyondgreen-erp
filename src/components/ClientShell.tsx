@@ -2,6 +2,8 @@
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import TopNav from './TopNav'
+import { useBoards } from '@/lib/boards'
+import { usePermissions, boardKeyForPath } from '@/lib/permissions'
 import PresenceTracker from './PresenceTracker'
 import Chat from './Chat'
 import DirectMessages from './DirectMessages'
@@ -56,6 +58,11 @@ function getPageTitle(pathname: string): string {
 
 export default function ClientShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const { boards } = useBoards()
+  const perms = usePermissions()
+  const boardKey = boardKeyForPath(pathname, boards)
+  const noAccess = perms.loaded && !perms.failed && !perms.is_admin && !perms.canView(boardKey)
+  const readOnly = !noAccess && perms.loaded && !perms.failed && !perms.is_admin && !perms.canEdit(boardKey)
   const [userInitials, setUserInitials] = useState('?')
   const [userName, setUserName] = useState('')
   const [avatarColor, setAvatarColor] = useState('#3B6FE0')
@@ -117,8 +124,23 @@ export default function ClientShell({ children }: { children: React.ReactNode })
           />
 
           {/* Content */}
-          <main className="flex-1 overflow-auto px-[10%] pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
-            {children}
+          {readOnly && (
+            <div className="px-[10%] pt-3">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm px-4 py-2.5 flex items-center gap-2">
+                <span className="font-semibold">View only.</span> You can look at this board but not change it. Ask an Admin for edit access.
+              </div>
+            </div>
+          )}
+          {readOnly && <style>{`main[data-readonly] button:not([data-ro-ok]), main[data-readonly] select, main[data-readonly] textarea, main[data-readonly] [contenteditable], main[data-readonly] input:not([type="search"]):not([placeholder*="earch"]):not([placeholder*="ilter"]) { pointer-events: none !important; opacity: .55; }`}</style>}
+          <main data-readonly={readOnly ? '' : undefined} className="flex-1 overflow-auto px-[10%] pb-[max(64px,calc(56px+env(safe-area-inset-bottom)))] md:pb-0" style={{ background: '#F5F6FA' }}>
+            {noAccess ? (
+              <div className="max-w-lg mx-auto mt-24 text-center rounded-2xl border border-[#E3E7EE] bg-white p-10">
+                <div className="text-4xl mb-3">🔒</div>
+                <h2 className="text-lg font-bold text-[#1A1D2E]">You don&apos;t have access to this board</h2>
+                <p className="text-sm text-gray-500 mt-2">An Admin can grant you View or Edit access under Settings → Users.</p>
+                <a href="/" className="inline-block mt-6 text-sm font-semibold text-[#0F7A4E] hover:underline">Back to Dashboard</a>
+              </div>
+            ) : children}
           </main>
         </div>
       </div>

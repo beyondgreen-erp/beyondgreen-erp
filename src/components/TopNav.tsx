@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { useBoards, groupBoards, Board } from '@/lib/boards'
+import { usePermissions } from '@/lib/permissions'
 import NotificationBell from './NotificationBell'
 import UserAvatar from './UserAvatar'
 
@@ -25,15 +26,17 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   const router = useRouter()
   const pathname = usePathname()
   const { boards } = useBoards()
+  const perms = usePermissions()
   // Dashboard, beyondWORLD and Settings are promoted to dedicated buttons,
   // so drop the "Overview" group and those two items from the dropdown nav.
+  // Boards the signed-in user cannot view are not shown at all (admins see everything).
   const groups = useMemo(() => {
     const PROMOTED = new Set(['/beyondworld', '/settings'])
     return groupBoards(boards)
       .filter(g => g.group !== 'Overview')
-      .map(g => ({ ...g, items: g.items.filter(it => !PROMOTED.has(it.href || '')) }))
+      .map(g => ({ ...g, items: g.items.filter(it => !PROMOTED.has(it.href || '') && perms.canView(it.board_key || it.href)) }))
       .filter(g => g.items.length > 0)
-  }, [boards])
+  }, [boards, perms])
 
   // Header title reflects the current board's (possibly renamed) label.
   const activeTitle = useMemo(() => {
