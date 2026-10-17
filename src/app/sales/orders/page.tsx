@@ -1320,10 +1320,6 @@ function EditPanel({
               <p className="text-xs font-semibold text-amber-800 mb-1">⏳ Awaiting BOM Components</p>
               <p className="text-xs text-amber-700 mb-2">Components for this order are bought on the Purchasing Requests board. Only requests tagged with this order number appear below.</p>
               <OrderPurchaseRequests orderNumber={editing.order_number || ''} customer={editing.notes || null} />
-              <a href={`/sales/purchase-orders?order=${encodeURIComponent(editing.order_number || '')}`}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 underline hover:text-amber-900">
-                View this order&apos;s items on the Purchase Order Request board →
-              </a>
             </div>
           )}
 
