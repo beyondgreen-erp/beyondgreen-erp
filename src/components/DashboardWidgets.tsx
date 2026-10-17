@@ -935,9 +935,9 @@ export default function DashboardShell() {
 
       {/* Warehouse quick access — always visible, mobile-friendly */}
       <div className="grid grid-cols-2 gap-3 mb-5">
-        <Link href="/warehouse/scan" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-white shadow-sm active:scale-[0.99] transition-transform" style={{ background: 'linear-gradient(135deg,#0e7a46,#12a366)' }}>
-          <span className="text-2xl leading-none">📦</span>
-          <span className="min-w-0"><span className="block text-sm font-extrabold leading-tight">Receiving</span><span className="block text-[11px] text-white/85">Scan inventory in</span></span>
+        <Link href="/production/maintenance" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-white shadow-sm active:scale-[0.99] transition-transform" style={{ background: 'linear-gradient(135deg,#9a3412,#ea580c)' }}>
+          <span className="text-2xl leading-none">🛠</span>
+          <span className="min-w-0"><span className="block text-sm font-extrabold leading-tight">Maintenance</span><span className="block text-[11px] text-white/85">Machine down, building, supplies</span></span>
         </Link>
         <Link href="/production/shipping-queue" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-white shadow-sm active:scale-[0.99] transition-transform" style={{ background: 'linear-gradient(135deg,#c2410c,#ea7317)' }}>
           <span className="text-2xl leading-none">🚚</span>

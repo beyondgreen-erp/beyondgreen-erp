@@ -104,8 +104,6 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   // Packaging Studio editor is a full-screen app of its own
   if (pathname.startsWith('/packaging/')) return <ToastProvider>{children}<AuthWatcher /><PresenceTracker /></ToastProvider>
   if (pathname === '/login') return <>{children}<AuthWatcher /></>
-  // Scan tools are full-screen standalone apps (also the only surface production-role users can reach)
-  if (pathname.startsWith('/warehouse/produce') || pathname.startsWith('/warehouse/scans')) return <>{children}<AuthWatcher /></>
 
   const pageTitle = getPageTitle(pathname)
 

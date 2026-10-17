@@ -31,7 +31,7 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
   // so drop the "Overview" group and those two items from the dropdown nav.
   // Boards the signed-in user cannot view are not shown at all (admins see everything).
   const groups = useMemo(() => {
-    const PROMOTED = new Set(['/beyondworld', '/settings'])
+    const PROMOTED = new Set(['/beyondworld', '/settings', '/production/maintenance'])
     return groupBoards(boards)
       .filter(g => g.group !== 'Overview')
       .map(g => ({ ...g, items: g.items.filter(it => !PROMOTED.has(it.href || '') && perms.canView(it.board_key || it.href)) }))
@@ -310,7 +310,18 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
           </button>
           <NotificationBell />
 
-          {/* promoted quick-access buttons: beyondWORLD + Settings */}
+          {/* promoted quick-access buttons: Maintenance + beyondWORLD + Settings */}
+          <Link
+            href="/production/maintenance"
+            title="Request maintenance — a machine, the building, or supplies (yes, even toilet paper)"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold whitespace-nowrap border transition-colors shrink-0"
+            style={pathname.startsWith('/production/maintenance')
+              ? { color: '#fff', background: '#C2410C', borderColor: '#C2410C' }
+              : { color: '#9A3412', background: '#FFF1E6', borderColor: '#FDBA74' }}
+          >
+            <i className="ti ti-tool text-base" />
+            <span className="hidden md:inline">Maintenance</span>
+          </Link>
           <Link
             href="/beyondworld"
             title="beyondWORLD"
