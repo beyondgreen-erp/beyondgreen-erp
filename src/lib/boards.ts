@@ -58,7 +58,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/operations/containers', label: 'Containers', icon: 'ti-container', nav_group: 'Warehouse', href: '/operations/containers', sort_order: 0 },
   { board_key: '/warehouse/tickets', label: 'Pull & Add Tickets', icon: 'ti-clipboard-check', nav_group: 'Warehouse', href: '/warehouse/tickets', sort_order: 1 },
   { board_key: '/warehouse/private-label-stock', label: 'Private Label Stock', icon: 'ti-tag', nav_group: 'Warehouse', href: '/warehouse/private-label-stock', sort_order: 2 },
-  { board_key: '/bizdev/tasks', label: 'Tasks', icon: 'ti-checkbox', nav_group: 'Business', href: '/bizdev/tasks', sort_order: 0 },
+  { board_key: '/bizdev/tasks', label: 'Tickets', icon: 'ti-ticket', nav_group: 'Business', href: '/bizdev/tasks', sort_order: 0 },
   { board_key: '/bizdev/certifications', label: 'Certifications', icon: 'ti-rosette', nav_group: 'Business', href: '/bizdev/certifications', sort_order: 1 },
   { board_key: '/bizdev/documents', label: 'Documents & Knowledge', icon: 'ti-folder', nav_group: 'Business', href: '/bizdev/documents', sort_order: 2 },
   { board_key: '/bizdev/business-reports', label: 'Business Reports', icon: 'ti-report-analytics', nav_group: 'Business', href: '/bizdev/business-reports', sort_order: 3 },
