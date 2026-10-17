@@ -772,6 +772,18 @@ export async function shipOrder(
   const toShip = shipLines.filter(l => (l.qtyToShip ?? 0) > 0)
   if (toShip.length === 0) return { success: false, message: 'Nothing to ship — enter a quantity greater than zero.' }
 
+  // Stock guard: nothing ships that is not in inventory. (The database enforces the same rule
+  // on the ledger; checking first means no half-written shipment.)
+  {
+    const skus = toShip.map(l => l.sku).filter(Boolean) as string[]
+    if (skus.length) {
+      const { data: stock } = await sb.from('products').select('sku, on_hand_qty').in('sku', skus)
+      const short = toShip.filter(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return p && Number(p.on_hand_qty ?? 0) < l.qtyToShip })
+        .map(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return `${l.sku}: shipping ${l.qtyToShip}, on hand ${Number(p?.on_hand_qty ?? 0)}` })
+      if (short.length) return { success: false, message: 'Not enough inventory to ship — ' + short.join('; ') + '. Record the production (Shipping Queue → closeout will prompt for it) or receive the stock first. Nothing leaves on paper that is not in inventory.' }
+    }
+  }
+
   const { data: order } = await sb
     .from('sales_orders')
     .select('*, customers(company_name, email)')
@@ -845,8 +857,10 @@ export async function shipOrder(
       const { data: prod } = await sb.from('products').select('id, on_hand_qty, unit_of_measure').eq('sku', l.sku).maybeSingle()
       if (prod) {
         const prevQty = (prod as any).on_hand_qty ?? 0
-        await sb.from('products').update({ on_hand_qty: Math.max(0, prevQty - l.qtyToShip) }).eq('sku', l.sku)
-        await sb.from('inventory_movements').insert({ product_id: (prod as any).id, sku: l.sku, movement_type: 'ship', qty: -l.qtyToShip, uom: (prod as any).unit_of_measure ?? null, ref_table: 'sales_orders', ref_id: orderId, created_by: 'system', note: `Partial shipment on order ${orderRef}` })
+        // Movement first (the DB guard refuses it if stock is short), then the exact deduction — no flooring at 0, which hid deficits for months.
+        const { error: mvErr } = await sb.from('inventory_movements').insert({ product_id: (prod as any).id, sku: l.sku, movement_type: 'ship', qty: -l.qtyToShip, uom: (prod as any).unit_of_measure ?? null, ref_table: 'sales_orders', ref_id: orderId, created_by: 'system', note: `Partial shipment on order ${orderRef}` })
+        if (mvErr) return { success: false, message: mvErr.message }
+        await sb.from('products').update({ on_hand_qty: prevQty - l.qtyToShip }).eq('sku', l.sku)
         inventoryChanges.push({ sku: l.sku, qty: l.qtyToShip, prevQty })
       }
     }
