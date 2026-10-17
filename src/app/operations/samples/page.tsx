@@ -553,7 +553,8 @@ export default function SamplesPage() {
     // Dropping any card on the Cancelled group cancels it. No email on this path either.
     if (target.key === CANCELLED_KEY) {
       const patch: any = { updated_at: new Date().toISOString(), status: CANCELLED_KEY }
-      await sb.from('sample_submissions').update(patch).eq('id', id)
+      const { error } = await sb.from('sample_submissions').update(patch).eq('id', id)
+      if (error) { alert('Could not cancel: ' + error.message); return }
       setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
       return
     }
@@ -570,7 +571,8 @@ export default function SamplesPage() {
     if ((row.group_name || '') === target.key) return
     const patch: any = { updated_at: new Date().toISOString(), group_name: target.key }
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
-    await sb.from('sample_submissions').update(patch).eq('id', id)
+    const { error } = await sb.from('sample_submissions').update(patch).eq('id', id)
+    if (error) { setRows(rs => rs.map(r => r.id === id ? row : r)); alert('Could not move: ' + error.message) }
   }
 
   const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40'
@@ -649,7 +651,7 @@ export default function SamplesPage() {
                           const nFiles = r.attachments?.length || 0
                           const nc = commentCounts[r.id] || 0
                           return (
-                            <tr key={r.id} id={'item-' + r.id} draggable onDragStart={e => { dragId.current = r.id; e.dataTransfer.effectAllowed = 'move' }} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openDetail(r)}>
+                            <tr key={r.id} id={'item-' + r.id} draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openDetail(r)}>
                               <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E]">{r.name || <span className="text-gray-300">Untitled</span>}</td>
                               <td className="px-3 py-2.5"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</span></td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600 truncate max-w-[220px]">{r.customer_email || '—'}</td>
