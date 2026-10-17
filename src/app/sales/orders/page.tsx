@@ -448,7 +448,10 @@ function orderTitle(o: SalesOrder): string {
   return orderDisplayName(o)
 }
 function orderValue(o: SalesOrder): number {
-  return o.total_amount ?? o.total ?? o.subtotal ?? 0
+  // total_amount is an old imported column that defaults to 0, so a plain ?? chain always picked it
+  // and a total typed on the order never showed. Use the first figure that is actually set.
+  const pick = [o.total, o.total_amount, o.subtotal].find(v => v != null && Number(v) > 0)
+  return pick != null ? Number(pick) : 0
 }
 // Ship-date urgency: within 7 days -> amber→red gradient; past due -> overdue (blink + critical banner).
 function shipUrgency(o: SalesOrder): { level: 'overdue' | 'soon'; days: number } | null {
@@ -1079,7 +1082,7 @@ function EditPanel({
     } catch (e: any) { alert('Could not allocate: ' + (e?.message || e)) }
     finally { setAllocBusy(false) }
   }  useEffect(() => {
-    if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false); setNameTouched(!!((editing as any)?.notes || '').trim()); setShowNewCust(false); setNewCust({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' }) }
+    if (open) { setCustMode('customer'); setCustQ(''); setCustOpen(false); setLeadQ(''); setLeadResults([]); setPickedLead(false); setNameTouched(!!((editing as any)?.notes || '').trim()); setShowNewCust(false); setNewCust({ company_name: '', email: '', phone: '', billing_address: '', shipping_address: '' }); autofillRef.current = { customer_email: '', customer_phone: '', billing_address: '', shipping_address: '' } }
   }, [open, editing])
   useEffect(() => {
     if (custMode !== 'lead') return
@@ -1093,18 +1096,41 @@ function EditPanel({
     }, 250)
     return () => { active = false; clearTimeout(t) }
   }, [leadQ, custMode, onSearchLeads])
+  const autofillRef = useRef({ customer_email: '', customer_phone: '', billing_address: '', shipping_address: '' })
   const custMatches = customers.filter(c => c.company_name.toLowerCase().includes(custQ.toLowerCase())).slice(0, 50)
   async function pickCustomer(c: Customer) {
     setForm(p => ({ ...p, customer_id: c.id, customer_label: c.company_name, notes: nameTouched ? p.notes : composeOrderName(c.company_name, p.po_number) })); setPickedLead(false); setCustOpen(false); setCustQ('')
-    // Autofill contact + address from the saved customer record (only fills fields left blank).
+    // Autofill contact + addresses from the customer. A field the person typed by hand is kept;
+    // a field that was filled from the PREVIOUSLY picked customer is replaced — switching from
+    // customer A to B used to leave A's bill-to on B's order.
     const { data: cd } = await sb.from('customers').select('email,phone,billing_address,shipping_address').eq('id', c.id).maybeSingle()
-    if (cd) setForm(p => ({
+    const rec: any = cd || {}
+    let bill = (rec.billing_address || '').trim(), ship = (rec.shipping_address || '').trim()
+    // Fall back to what this customer's most recent order or quote used.
+    if (!bill || !ship) {
+      const [{ data: lo }, { data: lq }] = await Promise.all([
+        sb.from('sales_orders').select('billing_address,shipping_address').eq('customer_id', c.id).order('created_at', { ascending: false }).limit(10),
+        sb.from('quotations').select('billing_address,shipping_address').eq('customer_id', c.id).order('created_at', { ascending: false }).limit(10),
+      ])
+      const prev = [...((lo as any[]) || []), ...((lq as any[]) || [])]
+      if (!bill) bill = (prev.find(x => (x.billing_address || '').trim())?.billing_address || '').trim()
+      if (!ship) ship = (prev.find(x => (x.shipping_address || '').trim())?.shipping_address || '').trim()
+    }
+    if (!ship) {
+      const { data: sa } = await sb.from('customer_ship_addresses').select('address').eq('customer_id', c.id).limit(1)
+      ship = ((sa as any[])?.[0]?.address || '').trim()
+    }
+    const last = autofillRef.current
+    const take = (cur: string, prevAuto: string, next: string) => (!cur.trim() || cur === prevAuto) ? next : cur
+    const filled = { customer_email: rec.email || '', customer_phone: fmtPhone(rec.phone || ''), billing_address: bill, shipping_address: ship }
+    setForm(p => ({
       ...p,
-      customer_email: p.customer_email || (cd as any).email || '',
-      customer_phone: p.customer_phone || fmtPhone((cd as any).phone || ''),
-      billing_address: p.billing_address || (cd as any).billing_address || '',
-      shipping_address: p.shipping_address || (cd as any).shipping_address || '',
+      customer_email: take(p.customer_email || '', last.customer_email, filled.customer_email),
+      customer_phone: take(p.customer_phone || '', last.customer_phone, filled.customer_phone),
+      billing_address: take(p.billing_address || '', last.billing_address, filled.billing_address),
+      shipping_address: take(p.shipping_address || '', last.shipping_address, filled.shipping_address),
     }))
+    autofillRef.current = filled
   }
   function pickLead(l: { id: string; company_name: string }) { setForm(p => ({ ...p, customer_id: l.id, customer_label: l.company_name, notes: nameTouched ? p.notes : composeOrderName(l.company_name, p.po_number) })); setPickedLead(true); setLeadQ(''); setLeadResults([]) }
   function clearLinkedCustomer() { setForm(p => ({ ...p, customer_id: '', customer_label: '' })); setPickedLead(false) }
@@ -2443,7 +2469,7 @@ export default function OrdersPage() {
       order_date: order.order_date ?? '',
       production_start: order.production_start ?? '',
       estimated_completion: order.estimated_completion ?? '',
-      ship_date: order.ship_date ?? order.required_ship_date ?? '',
+      ship_date: order.required_ship_date ?? order.ship_date ?? '',
       customer_id: order.customer_id ?? '',
       customer_label: order.customer?.company_name ?? '',
       customer_email: order.customer_email ?? '',
@@ -2539,6 +2565,7 @@ export default function OrdersPage() {
       customer_id: form.customer_id || null,
       subtotal: form.total_amount ? parseFloat(form.total_amount) : 0,
       total: form.total_amount ? parseFloat(form.total_amount) : 0,
+      total_amount: form.total_amount ? parseFloat(form.total_amount) : 0,
       tax_pct: 0,
       shipping_address: form.shipping_address || null,
       billing_address: form.billing_address || null,
@@ -2593,10 +2620,19 @@ export default function OrdersPage() {
 
     if (!orderId) { setErr('Could not get order ID'); setSaving(false); return }
 
-    // Always clear this order's existing lines before re-inserting, so saving never duplicates them.
-    await sb.from('sales_order_lines').delete().eq('sales_order_id', orderId)
+    // Update existing lines in place, insert new ones, delete only the ones removed here.
+    // Saving used to delete every line and re-insert just the fields this form holds — which
+    // silently wiped what other screens record on a line (units moved to stock, short-close,
+    // units shipped, case pack) and orphaned inventory movements that point at the old line id.
+    const { data: dbLines } = await sb.from('sales_order_lines').select('id').eq('sales_order_id', orderId)
+    const keepIds = new Set(editLines.filter(l => l.id && (l.sku || l.description)).map(l => l.id as string))
+    const toDelete = ((dbLines as { id: string }[]) || []).map(r => r.id).filter(id => !keepIds.has(id))
+    if (toDelete.length) {
+      const { error: dErr } = await sb.from('sales_order_lines').delete().in('id', toDelete)
+      if (dErr) { setErr('Order saved, but removing deleted lines failed: ' + dErr.message); setSaving(false); return }
+    }
+    const lineErrors: string[] = []
 
-    // Insert all lines
     for (let i = 0; i < editLines.length; i++) {
       const line = editLines[i]
       if (!line.sku && !line.description) continue
@@ -2649,11 +2685,19 @@ export default function OrdersPage() {
         added_details: line.added_details || null,
         sku_flagged: !!skuT && !pid,
       }
-      const lRes = await sb.from('sales_order_lines').insert({ ...baseLine, ...extLine })
-      if (lRes.error?.message?.includes('column')) {
-        await sb.from('sales_order_lines').insert(baseLine)
+      if (line.id) {
+        // Existing line: never touch quantity_shipped here — it is set by shipments, not by this form.
+        const { quantity_shipped: _qs, sales_order_id: _so, ...upd } = baseLine  // eslint-disable-line @typescript-eslint/no-unused-vars
+        let uRes = await sb.from('sales_order_lines').update({ ...upd, ...extLine }).eq('id', line.id)
+        if (uRes.error?.message?.includes('column')) uRes = await sb.from('sales_order_lines').update(upd).eq('id', line.id)
+        if (uRes.error) lineErrors.push(`${line.sku || line.description}: ${uRes.error.message}`)
+      } else {
+        let lRes = await sb.from('sales_order_lines').insert({ ...baseLine, quantity_shipped: 0, ...extLine })
+        if (lRes.error?.message?.includes('column')) lRes = await sb.from('sales_order_lines').insert({ ...baseLine, quantity_shipped: 0 })
+        if (lRes.error) lineErrors.push(`${line.sku || line.description}: ${lRes.error.message}`)
       }
     }
+    if (lineErrors.length) { setErr('Order saved, but some lines did not: ' + lineErrors.join('; ')); setSaving(false); return }
 
     // Anything that departs from the catalog ladder goes in the order's activity log,
     // named and attributed, so a conversion nobody can explain later is not possible.
