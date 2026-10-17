@@ -83,8 +83,10 @@ export default function FbaBoard() {
   }), [rows])
 
   async function patch(id: string, obj: Partial<Row>) {
+    const prev = rows.find(r => r.id === id)
     setRows(rs => rs.map(r => r.id === id ? { ...r, ...obj } : r))
-    await sb.from('fba_shipments').update({ ...obj, updated_at: new Date().toISOString() }).eq('id', id)
+    const { error } = await sb.from('fba_shipments').update({ ...obj, updated_at: new Date().toISOString() }).eq('id', id)
+    if (error) { if (prev) setRows(rs => rs.map(r => r.id === id ? prev : r)); alert('Could not save: ' + error.message) }
   }
 
   // Ultron: link FBA/WFS rows to the Inventory board (products) and deduct on ship.
@@ -158,7 +160,8 @@ export default function FbaBoard() {
       inventory_deducted: invDeducted,
       inventory_deducted_qty: invQty,
     }
-    await sb.from('fba_shipments').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', detail.id)
+    const { error } = await sb.from('fba_shipments').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', detail.id)
+    if (error) { setSaving(false); alert('Could not save: ' + error.message); return }
     setEditing(false); setSaving(false)
     setDetail(null)
     load()
@@ -168,7 +171,8 @@ export default function FbaBoard() {
     if (!detail) return
     if (!confirm('Delete this item?')) return
     setDeleting(true)
-    await sb.from('fba_shipments').delete().eq('id', detail.id)
+    const { error } = await sb.from('fba_shipments').delete().eq('id', detail.id)
+    if (error) { setDeleting(false); alert('Could not delete: ' + error.message); return }
     setRows(rs => rs.filter(x => x.id !== detail.id))
     setDeleting(false); closeDetail()
   }
@@ -269,7 +273,7 @@ export default function FbaBoard() {
                       <tbody className="divide-y divide-[#EAECF2]">
                         {gr.map((r, i) => (
                           <tr key={r.id} id={'item-' + r.id} className={`group cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onClick={() => openDetail(r)} onDragOver={e => e.preventDefault()} onDrop={e => { e.stopPropagation(); onDrop(group.key, r.id) }}>
-                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab select-none" draggable onDragStart={e => { dragId.current = r.id; e.stopPropagation() }} onClick={e => e.stopPropagation()} title="Drag to reorder or move">&#8942;&#8942;</td>
+                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab select-none" draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id; e.stopPropagation() }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }} onClick={e => e.stopPropagation()} title="Drag to reorder or move">&#8942;&#8942;</td>
                             <td className="px-3 py-2.5 text-[13px] font-semibold text-[#1A1D2E]"><span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: r.product_id ? '#10B981' : '#F59E0B' }} title={r.product_id ? `Linked to Inventory${r.products?.sku ? ' · ' + r.products.sku : ''}` : 'Not linked to an Inventory SKU'} />{r.name || <span className="text-gray-300">Untitled</span>}</td>
                             <td className="px-3 py-2.5"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</span></td>
                             <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_date)}</td>
