@@ -20,7 +20,7 @@ import { usePermissions } from '@/lib/permissions'
 const ACCENT = '#0F7A4E'
 const COLUMNS = ['Open', 'Assigned', 'In Progress', 'On Hold', 'Completed'] as const
 const STATUSES = ['Open', 'Assigned', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] as const
-const CATEGORIES = ['Mechanical', 'Electrical', 'Facility', 'Safety', 'Plumbing', 'IT / Network', 'Cleaning', 'Other'] as const
+const CATEGORIES = ['Mechanical', 'Electrical', 'Facility', 'Supplies', 'Safety', 'Plumbing', 'IT / Network', 'Cleaning', 'Other'] as const
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical'] as const
 const CLOSED = new Set(['Completed', 'Cancelled'])
 const DONE_WINDOW_DAYS = 30
@@ -28,7 +28,7 @@ const DONE_WINDOW_DAYS = 30
 const STATUS_COLORS: Record<string, string> = { Open: '#9699a6', Assigned: '#579bfc', 'In Progress': '#a25ddc', 'On Hold': '#fdab3d', Completed: '#00c875', Cancelled: '#c4c4c4' }
 const PRIORITY_COLORS: Record<string, string> = { Low: '#00c875', Medium: '#579bfc', High: '#fdab3d', Critical: '#e2445c' }
 const PRIORITY_RANK: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1 }
-const CATEGORY_ICON: Record<string, string> = { Mechanical: '⚙️', Electrical: '⚡', Facility: '🏭', Safety: '🦺', Plumbing: '🚰', 'IT / Network': '🖥️', Cleaning: '🧹', Other: '🔧' }
+const CATEGORY_ICON: Record<string, string> = { Mechanical: '⚙️', Electrical: '⚡', Facility: '🏭', Supplies: '🧻', Safety: '🦺', Plumbing: '🚰', 'IT / Network': '🖥️', Cleaning: '🧹', Other: '🔧' }
 const statusColor = (s: string | null | undefined) => (s && STATUS_COLORS[s]) || '#c4c4c4'
 const priorityColor = (p: string | null | undefined) => (p && PRIORITY_COLORS[p]) || '#c4c4c4'
 
