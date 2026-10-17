@@ -134,7 +134,7 @@ export default function DailyShipReportPage() {
 
   const q = search.trim().toLowerCase()
   const match = (r: Row) => !q || (r.name || '').toLowerCase().includes(q) || (r.group_name || '').toLowerCase().includes(q) || (r.ship_date || '').includes(q)
-  const groupRows = (key: string) => visibleRows.filter(r => (r.group_name || '') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
+  const groupRows = (key: string) => visibleRows.filter(r => (r.group_name || '(no week)') === key && match(r)).sort((a, b) => (a.position || 0) - (b.position || 0))
 
   // Groups derived from visible data, ordered chronologically by earliest date in the week
   const groups = useMemo(() => {
@@ -280,10 +280,10 @@ export default function DailyShipReportPage() {
                       <tbody className="divide-y divide-[#EAECF2]">
                         {gr.map((r, i) => (
                           <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
-                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={() => { dragId.current = r.id }}>&#8942;&#8942;</td>
-                            <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800"><Cell r={r} field="name" /></td>
-                            <td className="px-3 py-2.5 text-[13px] text-gray-600"><Cell r={r} field="ship_date" type="date" /></td>
-                            {CHANNELS.map(c => <td key={c.field} className="px-3 py-2.5 text-[13px] text-gray-700"><Cell r={r} field={c.field} type="num" money /></td>)}
+                            <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }}>&#8942;&#8942;</td>
+                            <td className="px-3 py-2.5 text-[13px] font-medium text-gray-800">{Cell({ r: r, field: 'name' })}</td>
+                            <td className="px-3 py-2.5 text-[13px] text-gray-600">{Cell({ r: r, field: 'ship_date', type: 'date' })}</td>
+                            {CHANNELS.map(c => <td key={c.field} className="px-3 py-2.5 text-[13px] text-gray-700">{Cell({ r: r, field: c.field, type: 'num', money: true })}</td>)}
                             <td className="px-3 py-2.5 text-[13px] text-right font-bold tabular-nums" style={{ color: group.color }}>{money(rowTotal(r))}</td>
                             <td className="text-center"><button onClick={() => del(r.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="ti ti-trash" /></button></td>
                           </tr>
