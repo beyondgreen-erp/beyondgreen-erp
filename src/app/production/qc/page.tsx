@@ -116,7 +116,7 @@ export default function QCPage() {
     const [insp, wos, prods, pms, usrs] = await Promise.all([
       sb.from('qc_inspections').select('*').order('created_at',{ascending:false}),
       sb.from('work_orders').select('id,wo_number,product_id,qty_ordered,status,notes').order('created_at',{ascending:false}).limit(100),
-      sb.from('products').select('id,name,sku').order('name').limit(500),
+      sb.from('products').select('id,name:product_name,sku').eq('is_active',true).order('product_name').limit(2000),
       sb.from('qc_parameters').select('*').eq('is_active',true).order('display_order'),
       sb.from('user_profiles').select('email,full_name').order('full_name'),
     ])
