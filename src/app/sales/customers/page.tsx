@@ -19,6 +19,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import '@/lib/pdfSafeText'
 import ItemHistory from '@/components/ItemHistory'
+import CustomerItems from '@/components/CustomerItems'
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
@@ -35,6 +36,7 @@ interface Customer {
   first_shipment_date: string | null; last_shipment_date: string | null
   manual_spend_override: boolean | null; manual_lifetime_spend: number | null
   spend_notes: string | null; is_merged: boolean; merged_from_names: string[] | null
+  qb_baseline_spend?: number | null; qb_baseline_date?: string | null; qb_customer_name?: string | null
   parent_customer_id: string | null; is_parent_account: boolean | null; account_type: string | null
 }
 interface ActivityEntry {
@@ -284,8 +286,9 @@ export default function CustomersPage() {
   // Panel
   const [panelOpen, setPanelOpen] = useState(false)
   const [editing, setEditing] = useState<Customer|null>(null)
-  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'activity'|'feed'|'files'|'conversations'|'intake'>('info')
+  const [activeTab, setActiveTab] = useState<'info'|'contacts'|'items'|'activity'|'feed'|'files'|'conversations'|'intake'>('info')
   const [convoCount, setConvoCount] = useState(0)
+  const [itemCount, setItemCount] = useState(0)
   // The customer's submitted Credit Application + Onboarding form (public intake). Stored as JSON
   // on customer_intake_submissions; shown read-only so review has every detail the customer sent.
   const [intake, setIntake] = useState<any|null>(null)
@@ -425,7 +428,7 @@ export default function CustomersPage() {
   // ── Panel helpers ──────────────────────────────────────────
   function openAdd() {
     setEditing(null); setForm(emptyForm); setFormError(''); setActiveTab('info')
-    setContacts([]); setAddingContact(false); setEditingContact(null)
+    setContacts([]); setItemCount(0); setAddingContact(false); setEditingContact(null)
     setShipLocs([]); setSpendEdit(false); setRecalcMsg('')
     setPanelOpen(true)
   }
@@ -456,6 +459,8 @@ export default function CustomersPage() {
     setShipLocs((locs as ShipLocation[]) ?? [])
     supabase.from('customer_conversations').select('id', { count: 'exact', head: true }).eq('customer_id', c.id)
       .then(({ count }) => setConvoCount(count ?? 0))
+    supabase.from('customer_products').select('id', { count: 'exact', head: true }).eq('customer_id', c.id)
+      .then(({ count }) => setItemCount(count ?? 0))
     loadIntake(c.id, c.company_name)
   }
 
@@ -950,10 +955,11 @@ export default function CustomersPage() {
   const inpSm = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition'
   const sel = inp + ' cursor-pointer'
   const btnGhost = 'flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white text-gray-600 hover:text-[#1A1D2E] hover:border-gray-300 font-medium transition-colors'
-  const tabs: { key: 'info'|'contacts'|'activity'|'feed'|'files'|'conversations'|'intake'; label: string }[] = [
+  const tabs: { key: 'info'|'contacts'|'items'|'activity'|'feed'|'files'|'conversations'|'intake'; label: string }[] = [
     { key: 'info', label: 'Company Info' },
     ...(intake ? [{ key: 'intake' as const, label: 'Credit App & Onboarding' }] : []),
     { key: 'contacts', label: contacts.length ? 'Contacts (' + contacts.length + ')' : 'Contacts' },
+    { key: 'items', label: itemCount > 0 ? 'Items Purchased (' + itemCount + ')' : 'Items Purchased' },
     { key: 'conversations', label: convoCount > 0 ? 'Conversations (' + convoCount + ')' : 'Conversations' },
     { key: 'activity', label: 'Activity' },
     { key: 'feed', label: 'Activity Feed' },
@@ -1230,6 +1236,9 @@ export default function CustomersPage() {
                     {editing.manual_spend_override&&<span className="text-xs text-amber-400 font-medium">Manual</span>}
                   </div>
                   <p className="text-sm font-semibold text-emerald-400 mt-0.5">{fmt$2(displaySpend)}</p>
+                  {editing.qb_baseline_spend!=null&&!editing.manual_spend_override&&(
+                    <p className="text-[10px] text-gray-400 mt-0.5" title={editing.qb_customer_name?'QuickBooks name: '+editing.qb_customer_name:undefined}>QuickBooks {fmt$2(editing.qb_baseline_spend)} thru {fmtD(editing.qb_baseline_date ?? null)} + ERP since</p>
+                  )}
                 </div>
                 <div className="bg-white px-4 py-2.5">
                   <p className="text-xs text-gray-500">Shipments</p>
@@ -1553,6 +1562,14 @@ export default function CustomersPage() {
             </div>
           )}
           {activeTab==='feed'&&!editing&&<div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first.</p></div>}
+
+          {/* ── TAB: Items Purchased ── */}
+          {activeTab==='items'&&editing&&(
+            <div className="px-6 py-5">
+              <CustomerItems customerId={editing.id} currentUserEmail={userEmail}/>
+            </div>
+          )}
+          {activeTab==='items'&&!editing&&<div className="px-6 py-5"><p className="text-sm text-gray-500 italic">Save the customer first.</p></div>}
 
           {/* ── TAB: Conversations ── */}
           {activeTab==='conversations'&&editing&&(
