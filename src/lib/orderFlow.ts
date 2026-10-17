@@ -498,6 +498,14 @@ export async function checkOrderReadyToShip(orderId: string): Promise<{ readyToS
   const pending = (wos as any[]).filter(w => !['Complete', 'QC Passed', 'Cancelled'].includes(w.status)).length
 
   if (pending === 0) {
+    // Never pull an order backwards: a work order finished late (or re-completed after an
+    // undo) must not flip an order that already shipped, closed or was cancelled back to
+    // Ready to Ship — that would put it back in the shipping queue a second time.
+    const { data: so } = await sb.from('sales_orders').select('status').eq('id', orderId).maybeSingle()
+    const cur = String((so as any)?.status || '')
+    if (['Ready to Ship', 'Ready at Will Call', 'Partially Shipped', 'Shipped', 'Completed', 'Closed', 'Cancelled', 'Invoiced', 'Paid'].includes(cur)) {
+      return { readyToShip: cur === 'Ready to Ship' || cur === 'Ready at Will Call', pending: 0 }
+    }
     // Actually advance the order's status (onStatusChange only queues + notifies, it does not
     // set the status field), so every caller — QC screen, work-orders board — moves it forward.
     await sb.from('sales_orders').update({ status: 'Ready to Ship', updated_at: new Date().toISOString() }).eq('id', orderId)
