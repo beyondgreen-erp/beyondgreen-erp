@@ -1593,7 +1593,7 @@ export default function QuotationsPage() {
               {/* Secondary action group — icon buttons with tooltips */}
               {editing && (
                 <button
-                  onClick={() => setRfqModalOpen(true)}
+                  onClick={() => setSupplierModalOpen(true)}
                   className="h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap border transition-colors hover:bg-emerald-50 flex items-center gap-1.5"
                   style={{ borderColor: '#10B981', color: '#10B981' }}
                   title="Send RFQ to suppliers via email"
