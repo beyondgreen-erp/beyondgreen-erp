@@ -181,7 +181,7 @@ export default function WalmartProductionPage() {
   const isThisWeek = week === mondayOf(today)
 
   return (
-    <div className="min-h-screen mon-page py-4 sm:py-6 pb-28">
+    <div className="min-h-screen mon-page py-4 sm:py-6 pb-10">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between mb-4">
         <div>
@@ -199,6 +199,10 @@ export default function WalmartProductionPage() {
           {!isThisWeek && <button onClick={() => setWeek(mondayOf(today))} className="h-10 px-3 rounded-xl text-sm font-semibold text-white" style={{ background: ACCENT }}>Today</button>}
         </div>
       </div>
+
+      {canEdit && (
+        <button onClick={() => setShowLog(true)} className="w-full sm:w-auto sm:px-8 h-14 mb-4 rounded-2xl text-white text-base font-bold shadow-md active:scale-[.99]" style={{ background: ACCENT }}>+ Log production</button>
+      )}
 
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — each entry adds the finished SRPs to inventory, takes out every packaging part and cutlery piece used, posts to the Inventory Ledger, and updates this week&apos;s Walmart work order.</div>
 
@@ -265,7 +269,7 @@ export default function WalmartProductionPage() {
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: color + '22', color }}>{fmtN(total)} SRP</span>
               </div>
               {rows.length === 0 ? (
-                <p className="px-4 pb-3 text-sm text-gray-400">Nothing logged yet{canEdit ? ' — tap “Log production” below.' : '.'}</p>
+                <p className="px-4 pb-3 text-sm text-gray-400">Nothing logged yet{canEdit ? ' — tap “Log production” above.' : '.'}</p>
               ) : (
                 <div className="divide-y divide-[#F0F2F6]">
                   {rows.map(r => {
@@ -346,16 +350,6 @@ export default function WalmartProductionPage() {
         </table>
         <p className="px-4 py-2 text-[11px] text-gray-400">SRP = 1 case of 6 packs. Allocated = open Walmart order lines not yet shipped.</p>
       </div>
-
-      {/* Sticky primary action */}
-      {canEdit && (
-        <div className="fixed left-0 right-0 z-30 px-4 md:hidden" style={{ bottom: 'calc(64px + env(safe-area-inset-bottom))' }}>
-          <button onClick={() => setShowLog(true)} className="w-full h-14 rounded-2xl text-white text-base font-bold shadow-lg" style={{ background: ACCENT }}>+ Log production</button>
-        </div>
-      )}
-      {canEdit && (
-        <button onClick={() => setShowLog(true)} className="hidden md:block fixed right-8 bottom-8 z-30 h-12 px-6 rounded-2xl text-white font-bold shadow-lg" style={{ background: ACCENT }}>+ Log production</button>
-      )}
 
       {showLog && <LogSheet sb={sb} wo={wo} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg) => { setFlash(msg); setShowLog(false); load() }} />}
