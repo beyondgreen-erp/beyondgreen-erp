@@ -40,8 +40,9 @@ export default function OverviewPage() {
         sb.from('products').select('on_hand_qty,reorder_point').eq('is_active',true),
       ])
 
-      const activeWOs=(wos||[]).filter(w=>w.status!=='Complete').length
-      const overdueWOs=(wos||[]).filter(w=>w.due_date&&new Date(w.due_date+'T00:00:00')<now&&w.status!=='Complete').length
+      const WO_DONE=['Complete','QC Passed','Cancelled']
+      const activeWOs=(wos||[]).filter(w=>!WO_DONE.includes(w.status)).length
+      const overdueWOs=(wos||[]).filter(w=>w.due_date&&new Date(w.due_date+'T00:00:00')<now&&!WO_DONE.includes(w.status)).length
       const machinesRunning=(machines||[]).filter(m=>m.status==='Running').length
       const machinesDown=(machines||[]).filter(m=>m.status==='Down').length
       const totalMachines=(machines||[]).length
