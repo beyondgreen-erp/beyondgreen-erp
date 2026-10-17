@@ -277,17 +277,11 @@ export default function ScanStationPage() {
   async function finalize() {
     setFinishing(true)
     if (po) {
-      const received = num(po.qty_received) + total
-      const ordered = num(po.qty_ordered)
-      const balance = ordered ? Math.max(0, ordered - received) : null
-      const status = balance !== null && balance <= 0 ? 'Received' : 'Partial Received'
-      await sb.from('purchasing_requests').update({
-        qty_received: String(received),
-        balance: balance !== null ? String(balance) : po.balance,
-        status,
-        date_received: new Date().toISOString().slice(0, 10),
-        received_by: email || null,
-      }).eq('id', po.id)
+      // Each scanned item already credited inventory. This RPC updates the PO request
+      // (qty received / balance / status) with the DB's auto-credit switched off, so the
+      // receipt is never counted twice.
+      const { error: poErr } = await sb.rpc('po_receipt_from_scan', { p_id: po.id, p_qty_added: total, p_user: email || null })
+      if (poErr) flash('err', 'Items were received, but the PO request could not be updated: ' + poErr.message + '. Update its Qty Received on the PO board.')
     }
     const ids = rows.map(r => r.productId)
     let zoneMap: Record<string, string[]> = {}
