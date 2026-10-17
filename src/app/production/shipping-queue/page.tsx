@@ -211,6 +211,11 @@ export default function ShippingQueuePage() {
   const [shipCost, setShipCost] = useState('')
   const [shipBrokerCost, setShipBrokerCost] = useState('')
   const [coBusy, setCoBusy] = useState('')
+  // Stock guard: lines that would ship more than is on hand. Nothing ships on paper that
+  // is not in inventory — the operator records the production that happened, then ships.
+  const [stockBlock, setStockBlock] = useState<{ sku: string; productId: string; description: string; need: number; onHand: number; qty: string; lot: string }[] | null>(null)
+  const [stockBusy, setStockBusy] = useState(false)
+  const pendingMove = useRef<{ keepOpen: boolean; closeShort: boolean; shortReason: string } | null>(null)
 
   useEffect(() => { sb.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || '')) }, [])
 
@@ -1358,6 +1363,21 @@ export default function ShippingQueuePage() {
       // How much of each SKU is shipping in THIS shipment.
       const shipNow: Record<string, number> = {}
       for (const r of plan) shipNow[r.sku] = (shipNow[r.sku] || 0) + (Number(r.shippedUnits) || 0)
+      // Stock guard — before anything is written. The database refuses a ship movement that
+      // would go negative; catching it here lets the operator fix the cause (unposted production).
+      {
+        const skus = Object.keys(shipNow).filter(k => k && shipNow[k] > 0)
+        if (skus.length) {
+          const { data: stock } = await sb.from('products').select('id, sku, product_name, on_hand_qty').in('sku', skus)
+          const short = skus.map(sku => {
+            const p = ((stock as any[]) || []).find(x => String(x.sku).toUpperCase() === sku.toUpperCase())
+            const onHand = Number(p?.on_hand_qty ?? 0); const need = shipNow[sku]
+            const row = plan.find(r => r.sku === sku)
+            return p && onHand < need ? { sku, productId: String(p.id), description: p.product_name || row?.description || '', need, onHand, qty: String(need - onHand), lot: `${sku}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}` } : null
+          }).filter(Boolean) as NonNullable<typeof stockBlock>
+          if (short.length) { pendingMove.current = { keepOpen, closeShort, shortReason }; setStockBlock(short); setCoBusy(''); return }
+        }
+      }
       // Roll the shipped qty into each order line's completed_qty and decide full vs partial.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: curLines } = await sb.from('sales_order_lines').select('id, sku, quantity, qty, completed_qty, quantity_shipped, unit_price, stock_item, stock_qty').eq('sales_order_id', activeItem.sales_order_id)
@@ -1501,6 +1521,46 @@ export default function ShippingQueuePage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      {stockBlock && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.55)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl border border-[#E4E6EE] overflow-hidden">
+            <div className="px-6 py-4 text-white" style={{ background: '#B91C1C' }}>
+              <p className="text-white/80 text-[11px] uppercase tracking-wide">Shipment blocked</p>
+              <h2 className="font-bold text-lg leading-tight">Not enough in inventory to ship this</h2>
+              <p className="text-xs text-white/85 mt-1">The ERP never saw this product get made, so on-hand is short. If it&apos;s physically on the dock, record the production here (it posts a lot, credits stock and consumes the BOM) and the shipment continues.</p>
+            </div>
+            <div className="p-5 space-y-3">
+              {stockBlock.map((l, i) => (
+                <div key={l.sku} className="rounded-xl border border-[#E4E6EE] p-3">
+                  <div className="flex items-baseline justify-between gap-3"><p className="font-semibold text-[#1A1D2E]">{l.sku} <span className="text-gray-400 font-normal text-xs">{l.description}</span></p><p className="text-xs text-gray-500">shipping <b>{l.need}</b> · on hand <b className={l.onHand < 0 ? 'text-red-600' : ''}>{l.onHand}</b></p></div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <label className="block"><span className="text-[11px] text-gray-500">Quantity produced (not yet posted)</span><input type="number" min={0} step="any" value={l.qty} onChange={e => setStockBlock(b => b!.map((x, k) => k === i ? { ...x, qty: e.target.value } : x))} className="w-full border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm" /></label>
+                    <label className="block"><span className="text-[11px] text-gray-500">Lot / batch #</span><input value={l.lot} onChange={e => setStockBlock(b => b!.map((x, k) => k === i ? { ...x, lot: e.target.value } : x))} className="w-full border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm font-mono" /></label>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">Needs at least {Math.max(0, l.need - l.onHand)} to cover this shipment.</p>
+                </div>
+              ))}
+              <div className="flex gap-2 pt-1">
+                <button disabled={stockBusy} onClick={async () => {
+                  setStockBusy(true)
+                  try {
+                    for (const l of stockBlock) {
+                      const q = Number(l.qty); if (!(q > 0)) continue
+                      const { error } = await sb.rpc('inventory_record_production', { p_product_id: l.productId, p_qty: q, p_lot: l.lot.trim() || null, p_note: `Recorded at shipping for order ${o?.order_number || ''}` })
+                      if (error) throw new Error(error.message)
+                    }
+                    const pm = pendingMove.current; setStockBlock(null); pendingMove.current = null
+                    if (pm) await confirmMove(pm.keepOpen, pm.closeShort, pm.shortReason)
+                  } catch (e) { alert('Could not record production: ' + (e as Error).message) }
+                  finally { setStockBusy(false) }
+                }} className="flex-1 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50" style={{ background: '#0F7A4E' }}>{stockBusy ? 'Posting…' : 'Record production & ship'}</button>
+                <button disabled={stockBusy} onClick={() => { setStockBlock(null); pendingMove.current = null }} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2.5 rounded-lg">Cancel — don&apos;t ship</button>
+              </div>
+              <p className="text-[11px] text-gray-400">If the goods really aren&apos;t here, cancel and fix the order quantity instead. Negative inventory is never the answer.</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-1">
         <div>
           <span className="mon-tag">📦 Shipping</span>
