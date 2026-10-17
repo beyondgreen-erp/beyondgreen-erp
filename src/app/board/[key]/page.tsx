@@ -72,15 +72,23 @@ export default function DynamicBoardPage() {
 
   async function save() {
     setSaving(true)
-    if (editing?.id) await sb.from('custom_board_items').update({ data: form, group_name: grp, updated_at: new Date().toISOString() }).eq('id', editing.id)
-    else { const { data } = await sb.from('custom_board_items').insert({ board_id: board!.id, data: form, group_name: grp, created_by: userEmail }).select('*').single(); if (data) setEditing(data as Row) }
+    if (editing?.id) {
+      const { error } = await sb.from('custom_board_items').update({ data: form, group_name: grp, updated_at: new Date().toISOString() }).eq('id', editing.id)
+      if (error) { setSaving(false); alert('Could not save: ' + error.message); return }
+    } else {
+      const { data, error } = await sb.from('custom_board_items').insert({ board_id: board!.id, data: form, group_name: grp, created_by: userEmail }).select('*').single()
+      if (error) { setSaving(false); alert('Could not save: ' + error.message); return }
+      if (data) setEditing(data as Row)
+    }
     setSaving(false); await load()
     if (!editing?.id) close()
   }
   async function del() {
     if (!editing?.id) return
     if (!confirm('Delete this entry? This cannot be undone.')) return
-    await sb.from('custom_board_items').delete().eq('id', editing.id); await load(); close()
+    const { error } = await sb.from('custom_board_items').delete().eq('id', editing.id)
+    if (error) { alert('Could not delete: ' + error.message); return }
+    await load(); close()
   }
 
   const inp = 'w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30'
