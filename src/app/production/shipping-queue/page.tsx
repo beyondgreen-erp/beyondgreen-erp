@@ -77,6 +77,19 @@ function stockQtyOf(_l: any): number { return 0 }
 // Build the per-case box list from a shipped quantity and units-per-case.
 // Full cases hold `upc`; the last case holds the remainder. Existing box
 // dimensions/weights are preserved by index; new boxes seed their weight from defWt.
+// Number box that lets you clear it and retype. A controlled <input type=number> bound straight
+// to `parseInt(v) || 1` snaps back to 1 the moment the field is emptied, so "12" became "112".
+// Keeps the typed text locally and commits only real numbers; blur restores the last good value.
+function NumInput({ value, onCommit, min = 0, className }: { value: number; onCommit: (n: number) => void; min?: number; className?: string }) {
+  const [txt, setTxt] = useState(String(value ?? ''))
+  const focused = useRef(false)
+  useEffect(() => { if (!focused.current) setTxt(String(value ?? '')) }, [value])
+  return <input type="text" inputMode="numeric" value={txt} className={className}
+    onFocus={e => { focused.current = true; e.currentTarget.select() }}
+    onChange={e => { const t = e.target.value.replace(/[^0-9]/g, ''); setTxt(t); if (t !== '') onCommit(Math.max(min, parseInt(t, 10))) }}
+    onBlur={() => { focused.current = false; if (txt === '') setTxt(String(value ?? '')) }} />
+}
+
 function makeBoxes(shipped: number, upc: number, prev: BoxSpec[] | undefined, defWt = 0): BoxSpec[] {
   const per = Math.max(1, upc || 1)
   const s = Math.max(0, Math.round(shipped || 0))
@@ -154,6 +167,13 @@ export default function ShippingQueuePage() {
   const [priorShipments, setPriorShipments] = useState(0)
   const [draftMsg, setDraftMsg] = useState('')
   const [plan, setPlan] = useState<PlanRow[]>([])
+  // Persistence of the Line items card. Edits (UOM, units/case, ordered, shipped, box sizes,
+  // added/removed lines) used to live only in the browser and vanished on reopen; they are now
+  // kept in sales_orders.pack_draft and autosaved a moment after each change.
+  const baseSigRef = useRef<Record<string, string> | null>(null)   // signature of the ORDER lines as loaded from the DB
+  const packLoadedRef = useRef(false)                              // don't autosave while a pack is still loading
+  const [removedLineIds, setRemovedLineIds] = useState<string[]>([])
+  const [saveState, setSaveState] = useState<'' | 'saving' | 'saved' | 'error'>('')
   const [stockLines, setStockLines] = useState<StockLine[]>([])
   const [configs, setConfigs] = useState<PalletConfig[]>([])
   const [cfgDraft, setCfgDraft] = useState<PalletConfig | null>(null)   // config being added/edited in the pop-up
@@ -298,6 +318,7 @@ export default function ShippingQueuePage() {
   }, [load, loadBols])
 
   function resetPackState() {
+    packLoadedRef.current = false; baseSigRef.current = null; setRemovedLineIds([]); setSaveState('')
     setPlan([]); setStockLines([]); setConfigs([]); setCfgDraft(null); setBoxConfigs([]); setBoxDraft(null); setParcel(false)
     setBolForm(null); setFinalized(false); setMissing([]); setNotes('')
     if (prevUrlRef.current) { URL.revokeObjectURL(prevUrlRef.current); prevUrlRef.current = '' }
@@ -382,6 +403,11 @@ export default function ShippingQueuePage() {
         shippedUnits: shipped, boxes,
       }
     })
+    // What the order itself says, before anyone edits the packing. A saved draft is only thrown
+    // away when THIS changes (the order was edited) — not because someone changed units/case here.
+    const baseSig: Record<string, string> = {}
+    for (const r of rowsOut) baseSig[r.lineId || r.sku] = `${r.units}|${r.unitsPerCase}`
+    baseSigRef.current = baseSig
     // Apply any saved SKU→GTIN overrides (covers SKUs that aren't in the inventory product list).
     try {
       const skuList = [...new Set(rowsOut.map(r => String(r.sku || '').trim().toUpperCase()).filter(Boolean))]
@@ -402,7 +428,11 @@ export default function ShippingQueuePage() {
         // pallet layout + BOL (which bake in case counts) are stale. Don't restore them — start
         // fresh from the live lines so every document reflects the new quantities.
         let stale = false
-        if (draft.sig && typeof draft.sig === 'object') {
+        if (draft.baseSig && typeof draft.baseSig === 'object') {
+          const saved = draft.baseSig as Record<string, string>
+          const keys = new Set([...Object.keys(baseSig), ...Object.keys(saved)])
+          for (const k of keys) { if (baseSig[k] !== saved[k]) { stale = true; break } }
+        } else if (draft.sig && typeof draft.sig === 'object') {
           const liveSig: Record<string, string> = {}
           for (const r of rowsOut) liveSig[r.sku] = `${r.units}|${r.unitsPerCase}`
           const saved = draft.sig as Record<string, string>
@@ -414,7 +444,7 @@ export default function ShippingQueuePage() {
           setPlan(rowsOut)
           setDraftMsg('Order quantities changed — packing was reset to match. Re-lay pallets, then regenerate the BOL & labels.')
           setTimeout(() => setDraftMsg(''), 9000)
-          setBusy('')
+          setBusy(''); packLoadedRef.current = true
           return
         }
         if (Array.isArray(draft.configs)) setConfigs(draft.configs as PalletConfig[])
@@ -422,37 +452,80 @@ export default function ShippingQueuePage() {
         if (typeof draft.parcel === 'boolean') setParcel(draft.parcel)
         if (draft.shipMode === 'partial' || draft.shipMode === 'full') setShipMode(draft.shipMode)
         if (draft.bol) setBolForm(draft.bol)
-        setPlan(rowsOut)
-        if (Array.isArray(draft.configs) && draft.configs.length) { setDraftMsg('Draft restored'); setTimeout(() => setDraftMsg(''), 3000) }
-        setBusy('')
+        // Re-apply the saved Line items edits on top of the live order lines.
+        let restored = rowsOut
+        if (Array.isArray(draft.rows)) {
+          const removed: string[] = Array.isArray(draft.removed) ? draft.removed : []
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const savedRows: any[] = draft.rows
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const findSaved = (r: PlanRow) => savedRows.find((s: any) => !s.manual && ((r.lineId && s.lineId === r.lineId) || (!r.lineId && s.sku === r.sku)))
+          restored = rowsOut.filter(r => !(r.lineId && removed.includes(r.lineId))).map(r => {
+            const sv = findSaved(r)
+            if (!sv) return r
+            const boxes: BoxSpec[] = Array.isArray(sv.boxes) && sv.boxes.length ? sv.boxes : r.boxes
+            return { ...r, uom: sv.uom ?? r.uom, unitsPerCase: Number(sv.unitsPerCase) || r.unitsPerCase, units: Number(sv.units ?? r.units),
+              shippedUnits: Number(sv.shippedUnits ?? r.shippedUnits), boxes, cases: boxes.length,
+              caseWeightLb: Number(sv.caseWeightLb ?? r.caseWeightLb), sameBox: sv.sameBox ?? r.sameBox,
+              description: sv.description || r.description }
+          })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          for (const sv of savedRows.filter((x: any) => x.manual)) {
+            const boxes: BoxSpec[] = Array.isArray(sv.boxes) && sv.boxes.length ? sv.boxes : makeBoxes(Number(sv.shippedUnits) || 1, Number(sv.unitsPerCase) || 1, undefined, 0)
+            restored.push({ sku: sv.sku || '', description: sv.description || '', units: Number(sv.units) || 0, unitsPerCase: Number(sv.unitsPerCase) || 1,
+              cases: boxes.length, caseWeightLb: Number(sv.caseWeightLb) || 0, gramsPerUnit: 0, upc: null, customerPart: null, gtinImageUrl: null,
+              uom: sv.uom || 'ea', packaging: '', done: 0, productId: null, lineId: null, unitPrice: Number(sv.unitPrice) || 0,
+              shippedUnits: Number(sv.shippedUnits) || 0, boxes, sameBox: sv.sameBox !== false, manual: true })
+          }
+          setRemovedLineIds(removed)
+        }
+        setPlan(restored)
+        if ((Array.isArray(draft.configs) && draft.configs.length) || Array.isArray(draft.rows)) { setDraftMsg('Saved packing restored'); setTimeout(() => setDraftMsg(''), 3000) }
+        setBusy(''); packLoadedRef.current = true
         return
       }
     } catch { /* no draft / column — start fresh */ }
-    setPlan(rowsOut); setBusy('')
+    setPlan(rowsOut); setBusy(''); packLoadedRef.current = true
   }
 
   // Save the current pack/ship progress so it can be resumed later.
   async function saveDraft(opts?: { silent?: boolean }) {
-    if (!activeItem) return
-    const hasProgress = configs.length > 0 || boxConfigs.length > 0 || !!bolForm || parcel
-    if (!hasProgress) return
+    if (!activeItem || !packLoadedRef.current) return
     const draft = {
       savedAt: new Date().toISOString(),
       parcel,
       shipMode,
       configs,
       boxConfigs,
+      // The whole Line items card, so every edit comes back exactly as it was left.
+      rows: plan.map(r => ({ lineId: r.lineId, sku: r.sku, description: r.description, manual: !!r.manual, uom: r.uom,
+        unitsPerCase: r.unitsPerCase, units: r.units, shippedUnits: r.shippedUnits, boxes: r.boxes, sameBox: r.sameBox,
+        caseWeightLb: r.caseWeightLb, unitPrice: r.unitPrice })),
+      removed: removedLineIds,
       lines: plan.map(r => ({ sku: r.sku, cases: r.cases, unitsPerCase: r.unitsPerCase })),
-      sig: Object.fromEntries(plan.map(r => [r.sku, `${r.units}|${r.unitsPerCase}`])),
+      baseSig: baseSigRef.current,
       bol: bolForm,
     }
-    try {
-      await sb.from('sales_orders').update({ pack_draft: draft }).eq('id', activeItem.sales_order_id)
-      if (!opts?.silent) { setDraftMsg('Draft saved ✓'); setTimeout(() => setDraftMsg(''), 2500) }
-    } catch {
-      if (!opts?.silent) { setDraftMsg('Could not save draft'); setTimeout(() => setDraftMsg(''), 2500) }
+    setSaveState('saving')
+    const { error } = await sb.from('sales_orders').update({ pack_draft: draft }).eq('id', activeItem.sales_order_id)
+    if (error) {
+      setSaveState('error')
+      setDraftMsg('Could not save: ' + error.message); setTimeout(() => setDraftMsg(''), 6000)
+      return
     }
+    setSaveState('saved')
+    if (!opts?.silent) { setDraftMsg('Saved ✓'); setTimeout(() => setDraftMsg(''), 2500) }
   }
+
+  // Autosave the packing a moment after any change, so nothing typed here is ever lost.
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!openId || !packLoadedRef.current) return
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    setSaveState('saving')
+    autosaveTimer.current = setTimeout(() => { void saveDraft({ silent: true }) }, 1200)
+    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
+  }, [plan, configs, boxConfigs, parcel, shipMode, bolForm, removedLineIds]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Editing packing after the BOL was reviewed/finalized invalidates it (labels must come from a fresh BOL).
   function invalidateBol() { if (finalized) setFinalized(false); if (bolForm) setBolForm(null) }
@@ -472,6 +545,8 @@ export default function ShippingQueuePage() {
 
   function removeLine(i: number) {
     const sku = plan[i]?.sku
+    const lid = plan[i]?.lineId
+    if (lid) setRemovedLineIds(ids => ids.includes(lid) ? ids : [...ids, lid])
     setPlan(p => p.filter((_, idx) => idx !== i))
     if (sku) setConfigs(cs => cs.map(c => ({ ...c, contents: c.contents.filter(ct => ct.sku !== sku) })).filter(c => c.contents.length > 0))
     invalidateBol()
@@ -511,7 +586,7 @@ export default function ShippingQueuePage() {
     }))
     invalidateBol()
   }
-  // Session-only line-item editors.
+  // Line-item editors (autosaved).
   function setUom(i: number, v: string) {
     setPlan(p => p.map((r, idx) => idx === i ? { ...r, uom: v } : r)); invalidateBol()
   }
@@ -1701,7 +1776,7 @@ export default function ShippingQueuePage() {
                         {draftMsg && <span className="text-white/90 text-xs font-medium whitespace-nowrap">{draftMsg}</span>}
                         <button onClick={moveToPipeline} className="text-xs font-semibold text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">↩ Move to Pipeline</button>
                         <button onClick={deleteQueueOrder} className="text-xs font-semibold text-white hover:text-white border border-red-300/60 hover:border-red-200 bg-red-500/25 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">🗑 Delete</button>
-                        <button onClick={() => saveDraft()} className="text-xs font-semibold text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">💾 Save Draft</button>
+                        <button onClick={() => saveDraft()} className="text-xs font-semibold text-white/90 hover:text-white border border-white/30 hover:border-white/60 bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">💾 Save</button>
                         <button onClick={() => { saveDraft({ silent: true }); setOpenId(null); resetPackState() }} className="mon-modal-close" aria-label="Close">×</button>
                       </div>
                     </div>
@@ -1740,12 +1815,13 @@ export default function ShippingQueuePage() {
                             <span className="text-xs text-gray-400">{parcel ? 'Enter box size & weight below; the packing list shows box details.' : 'No per-box entry — build pallets below; the packing list shows pallet details.'}</span>
                           </div>
                         </div>
-                        {/* STEP 0 — Line items: UOM, units per case, ordered/shipped, per-case boxes (session only) */}
+                        {/* STEP 0 — Line items: UOM, units per case, ordered/shipped, per-case boxes (autosaved to pack_draft) */}
                         <div className="rounded-xl border border-gray-200 bg-white p-4 mb-3 shadow-sm">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-xs flex items-center justify-center font-semibold shrink-0">✎</span>
                             <span className="text-sm font-semibold text-[#1A1D2E]">Line items</span>
                             <button onClick={addManualLine} className="text-[11px] font-semibold text-[#0086C0] hover:underline">+ Add line</button>
+                            {saveState && <span className={`text-[11px] font-medium ${saveState === 'error' ? 'text-red-600' : saveState === 'saving' ? 'text-gray-400' : 'text-emerald-600'}`}>{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? '✓ Saved' : '⚠ Not saved'}</span>}
                             <span className="ml-auto text-[11px] text-gray-400">Set UOM, units per case, and the qty shipped — the boxes below fill automatically. Give each case its own size &amp; weight.</span>
                           </div>
                           {stockLines.length > 0 && (
@@ -1783,9 +1859,9 @@ export default function ShippingQueuePage() {
                                       </>)}
                                     </div>
                                     <div className="w-[84px]"><label className={lbl}>UOM</label><input list="uom-options" value={r.uom} onChange={e => setUom(i, e.target.value)} className="w-full rounded border border-gray-300 px-1.5 py-1 text-xs" /></div>
-                                    <div className="w-[70px]"><label className={lbl}>Units / Case</label><input type="number" min={1} value={r.unitsPerCase} onChange={e => setUnitsPerCase(i, parseInt(e.target.value) || 1)} className={nf} /></div>
-                                    <div className="w-[72px]"><label className={lbl}>Ordered ({r.uom || 'ea'})</label><input type="number" min={0} value={r.units} onChange={e => setOrdered(i, parseInt(e.target.value) || 0)} className={nf} /></div>
-                                    <div className="w-[72px]"><label className={lbl}>Shipped ({r.uom || 'ea'})</label><input type="number" min={0} value={r.shippedUnits} onChange={e => setShipped(i, parseInt(e.target.value) || 0)} className={`${nf} ${over ? 'border-amber-400 text-amber-700' : ''}`} /></div>
+                                    <div className="w-[70px]"><label className={lbl}>Units / Case</label><NumInput min={1} value={r.unitsPerCase} onCommit={n => setUnitsPerCase(i, n)} className={nf} /></div>
+                                    <div className="w-[72px]"><label className={lbl}>Ordered ({r.uom || 'ea'})</label><NumInput value={r.units} onCommit={n => setOrdered(i, n)} className={nf} /></div>
+                                    <div className="w-[72px]"><label className={lbl}>Shipped ({r.uom || 'ea'})</label><NumInput value={r.shippedUnits} onCommit={n => setShipped(i, n)} className={`${nf} ${over ? 'border-amber-400 text-amber-700' : ''}`} /></div>
                                     <div className="text-center w-[64px]"><label className={lbl}>Total Cases</label><div className="text-sm font-semibold text-[#1A1D2E] py-1">{r.boxes.length}</div></div>
                                     <button onClick={() => removeLine(i)} className="ml-auto text-gray-300 hover:text-red-500 text-sm self-start" title="Remove this SKU from the shipment">✕</button>
                                   </div>
