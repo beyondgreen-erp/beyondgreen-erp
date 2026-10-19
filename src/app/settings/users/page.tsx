@@ -303,9 +303,9 @@ export default function UsersPage() {
 
       {/* Edit modal */}
       {editing && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-[#E4E6EE] rounded-xl p-6 w-full max-w-lg space-y-4">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl w-full max-w-lg max-h-[90dvh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#E4E6EE] shrink-0">
               <h2 className="text-[#1A1D2E] font-semibold">Edit User</h2>
               {editing && <ShareLink id={editing.id} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1A1D2E] border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white px-2.5 py-1.5 rounded-lg transition-colors shrink-0" />}
               <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-gray-700">
@@ -314,6 +314,7 @@ export default function UsersPage() {
                 </svg>
               </button>
             </div>
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-[#1A1D2E] font-bold" style={{ backgroundColor: editing.avatar_color }}>
                 {editing.avatar_initials ?? editing.full_name[0]}
@@ -413,7 +414,8 @@ export default function UsersPage() {
                 {notice.msg}
               </div>
             )}
-            <div className="flex gap-3 pt-1">
+        </div>
+            <div className="flex gap-3 px-6 py-4 border-t border-[#E4E6EE] shrink-0 bg-white">
               <button onClick={() => setEditing(null)} className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-[#E4E6EE] text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>
               <button onClick={saveEdit} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
                 {saving ? 'Saving…' : 'Save Changes'}
