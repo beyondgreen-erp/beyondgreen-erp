@@ -61,7 +61,8 @@ interface PlanGroup { key: string; load: Load | null; rank: number; orders: WoOr
 function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku: Record<string, Prog>): PlanGroup[] {
   if (!woOrders.length) return []
   const loadBy = new Map(loads.map(l => [l.load_number, l]))
-  const relKey = new Set(woRel.map(r => r.walmart_order_id + '|' + normSku(r.sku)))
+  const relBy: Record<string, number> = {}
+  for (const r of woRel) relBy[r.walmart_order_id + '|' + normSku(r.sku)] = (relBy[r.walmart_order_id + '|' + normSku(r.sku)] || 0) + num(r.qty)
   const relQty: Record<string, number> = {}
   for (const r of woRel) relQty[normSku(r.sku)] = (relQty[normSku(r.sku)] || 0) + num(r.qty)
   const pool: Record<string, number> = {}
@@ -94,11 +95,13 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
         if (!q || !SKU_SET.has(sku)) continue
         const b = g.bySku[sku] || (g.bySku[sku] = { need: 0, done: 0, covered: 0 })
         b.need += q
-        if (built || relKey.has(o.id + '|' + sku)) { b.done += q; os[sku] = 'done'; continue }
-        const c = Math.min(pool[sku] || 0, q)
+        const rq = built ? q : Math.min(q, relBy[o.id + '|' + sku] || 0)   // released / claimed so far
+        b.done += rq
+        if (rq >= q) { os[sku] = 'done'; continue }
+        const c = Math.min(pool[sku] || 0, q - rq)
         pool[sku] = (pool[sku] || 0) - c
         b.covered += c
-        os[sku] = c >= q ? 'covered' : c > 0 ? 'partial' : 'open'
+        os[sku] = rq + c >= q ? 'covered' : rq + c > 0 ? 'partial' : 'open'
       }
       g.orderSku[o.id] = os
     }
@@ -581,9 +584,12 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
     }
     let relMsg = ''
     if (releaseMode && po && okSkus.length) {
-      const { data: rel, error: rErr } = await sb.rpc('walmart_release_po', { p_walmart_order: po.id, p_skus: okSkus, p_entry: firstEntry, p_note: note.trim() || null })
+      const relQty = Object.fromEntries(rows.filter(([k]) => okSkus.includes(k)).map(([k, v]) => [k, Number(v)]))
+      const { data: rel, error: rErr } = await sb.rpc('walmart_release_po', { p_walmart_order: po.id, p_skus: okSkus, p_entry: firstEntry, p_note: note.trim() || null, p_qty: relQty })
       if (rErr) { setBusy(false); onSaved(`⚠ Production saved (${okRows.join(', ')}) — but the release to PO ${po.po_number} did NOT go through: ${rErr.message}. Do not log it again; ask the office to release it.`); return }
-      relMsg = ` Released to PO ${po.po_number} for the build team.` + (((rel as any)?.already || []).length ? ` (${(rel as any).already.join(', ')} were already released.)` : '')
+      const rr = ((rel as any)?.rows || []) as { sku: string; qty: number; line_qty: number; released_total: number }[]
+      relMsg = rr.length ? ` Released to PO ${po.po_number}: ${rr.map(x => `${fmtN(x.qty)} ${meta(x.sku).short} (${fmtN(x.released_total)} of ${fmtN(x.line_qty)})`).join(', ')}.` : ''
+      if (((rel as any)?.already || []).length) relMsg += ` ${(rel as any).already.map((k: string) => meta(k).short).join(', ')} already fully released on PO ${po.po_number} — that production stays in stock.`
     }
     setBusy(false)
     if (Object.keys(failed).length) {
@@ -1076,7 +1082,7 @@ function PickupSchedule({ plan, canEdit, onManage }: { plan: PlanGroup[]; canEdi
           <p className="px-3 py-2 text-[11px] text-gray-500 border-t border-[#F0F2F6]">
             <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-100 align-middle mr-1" />released / building
             <span className="inline-block w-2.5 h-2.5 rounded-sm bg-sky-100 align-middle ml-3 mr-1" />made, waiting to release
-            <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-100 align-middle ml-3 mr-1" />partly made
+            <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-100 align-middle ml-3 mr-1" />partly made / partly released
             <span className="ml-3">plain = still to make</span>
           </p>
         </div>
