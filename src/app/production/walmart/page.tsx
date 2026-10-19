@@ -47,9 +47,10 @@ const fmtN = (v: any) => num(v).toLocaleString('en-US', { maximumFractionDigits:
 const nameOf = (email: string | null) => (email || '').split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || '—'
 
 interface WO { id: string; wo_code: string | null; wo_number: number; status: string | null; start_date: string; due_date: string | null; notes: string | null; qty_ordered: number | null; qty_completed: number | null }
-interface Prog { sku: string; product_name: string | null; target_qty: number; made_qty: number; left_qty: number; on_hand_qty: number | null }
+interface Prog { work_order_id?: string; sku: string; product_name: string | null; target_qty: number; made_qty: number; left_qty: number; on_hand_qty: number | null }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
 interface Move { id: string; ref_id: string; ref_table: string; sku: string; movement_type: string; qty: number; created_at: string }
+interface Release { id: string; walmart_order_id: string; work_order_id: string | null; sku: string; qty: number; status: string; released_by: string | null; released_at: string; claimed_by: string | null; claimed_at: string | null; note: string | null; walmart_board_orders: { po_number: string | null; name: string | null; group_name: string | null; ship_due_date: string | null } | null }
 interface Prod { sku: string; product_name: string | null; on_hand_qty: number | null; unit_of_measure: string | null }
 
 function Bar({ value, total, color }: { value: number; total: number; color: string }) {
@@ -84,6 +85,11 @@ export default function WalmartProductionPage() {
   const [showVoided, setShowVoided] = useState(false)
   const [ledgerOpen, setLedgerOpen] = useState(false)
   const [flash, setFlash] = useState('')
+  const [tab, setTab] = useState<'production' | 'build'>('production')
+  const [safety, setSafety] = useState<WO[]>([])
+  const [safetyProg, setSafetyProg] = useState<Prog[]>([])
+  const [releases, setReleases] = useState<Release[]>([])
+  const [showSafety, setShowSafety] = useState(false)
   const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
@@ -110,6 +116,20 @@ export default function WalmartProductionPage() {
       const { data: pg } = await sb.from('v_walmart_wo_progress').select('*').eq('work_order_id', w.id)
       if (seq === loadSeq.current) setProg((pg as Prog[]) || [])
     } else setProg([])
+    const [ssR, relR] = await Promise.all([
+      sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed')
+        .eq('form_type', 'walmart_safety').not('status', 'in', '("Complete","Cancelled")').order('created_at'),
+      sb.from('walmart_releases').select('*, walmart_board_orders(po_number,name,group_name,ship_due_date)')
+        .or(`status.eq.Released,and(status.eq.Claimed,claimed_at.gte.${addDays(today, -14)})`).order('released_at', { ascending: false }),
+    ])
+    if (seq !== loadSeq.current) return
+    const ssList = (ssR.data as WO[]) || []
+    setSafety(ssList)
+    if (ssList.length) {
+      const { data: sp } = await sb.from('v_walmart_wo_progress').select('*').in('work_order_id', ssList.map(x => x.id))
+      if (seq === loadSeq.current) setSafetyProg((sp as Prog[]) || [])
+    } else setSafetyProg([])
+    setReleases((relR.data as Release[]) || [])
     const ids = ents.map(e => e.id)
     if (ids.length) {
       const { data: mv } = await sb.from('inventory_movements').select('id,ref_id,ref_table,sku,movement_type,qty,created_at')
@@ -117,7 +137,7 @@ export default function WalmartProductionPage() {
       if (seq === loadSeq.current) setMoves((mv as Move[]) || [])
     } else setMoves([])
     setLoading(false)
-  }, [sb, week])
+  }, [sb, week, today])
 
   useEffect(() => {   // deep link from the Work Orders board: ?week=YYYY-MM-DD
     const w = new URLSearchParams(window.location.search).get('week')
@@ -130,6 +150,7 @@ export default function WalmartProductionPage() {
     const ch = sb.channel('walmart-production-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_production_entries' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_wo_targets' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_releases' }, bump)
       .subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb, load])
@@ -204,6 +225,14 @@ export default function WalmartProductionPage() {
         <button onClick={() => setShowLog(true)} className="w-full sm:w-auto sm:px-8 h-14 mb-4 rounded-2xl text-white text-base font-bold shadow-md active:scale-[.99]" style={{ background: ACCENT }}>+ Log production</button>
       )}
 
+      <div className="flex gap-1 p-1 mb-4 rounded-xl bg-[#EEF0F4] w-full sm:w-auto sm:inline-flex">
+        {([['production', 'Production'], ['build', 'Build team']] as const).map(([k, l]) => {
+          const n = k === 'build' ? releases.filter(r => r.status === 'Released').length : 0
+          return <button key={k} onClick={() => setTab(k)} data-ro-ok className={`flex-1 sm:flex-none h-10 px-5 rounded-lg text-sm font-semibold ${tab === k ? 'bg-white shadow-sm text-[#1A1D2E]' : 'text-gray-500'}`}>{l}{n ? <span className="ml-1.5 text-[11px] text-white rounded-full px-1.5 py-0.5" style={{ background: '#e2445c' }}>{n}</span> : null}</button>
+        })}
+      </div>
+
+      {tab === 'build' ? <BuildTeam sb={sb} releases={releases} canEdit={canEdit} onDone={(m) => { setFlash(m); load() }} /> : <>
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — each entry adds the finished SRPs to inventory, takes out every packaging part and cutlery piece used, posts to the Inventory Ledger, and updates this week&apos;s Walmart work order.</div>
 
       {flash && <div className="mb-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-4 py-3 font-medium">{flash}</div>}
@@ -218,7 +247,10 @@ export default function WalmartProductionPage() {
               <p className="font-bold text-[#1A1D2E] truncate">{wo.wo_code} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: wo.status === 'Complete' ? '#00c875' : wo.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{wo.status}</span></p>
             ) : <p className="font-semibold text-gray-500">No work order for this week yet</p>}
           </div>
-          {canEdit && <button onClick={() => setShowWo(true)} className="shrink-0 text-sm font-semibold rounded-xl px-3 py-2 border" style={{ borderColor: ACCENT, color: ACCENT }}>{wo ? '✎ Targets' : '+ Create WO'}</button>}
+          {canEdit && <div className="flex gap-1.5 shrink-0">
+            <button onClick={() => setShowSafety(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">+ Safety stock</button>
+            <button onClick={() => setShowWo(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={{ borderColor: ACCENT, color: ACCENT }}>{wo ? '✎ Targets' : '+ Create WO'}</button>
+          </div>}
         </div>
         {wo && totalTarget > 0 && (
           <div className="px-4 pb-3">
@@ -252,6 +284,21 @@ export default function WalmartProductionPage() {
         </div>
         {wo?.notes && <p className="px-4 pb-3 text-xs text-gray-500">📝 {wo.notes}</p>}
       </div>
+
+      {safety.map(ss => {
+        const rows = safetyProg.filter(p => p.work_order_id === ss.id)
+        const t = rows.reduce((a, p) => a + num(p.target_qty), 0), m = rows.reduce((a, p) => a + Math.min(num(p.made_qty), num(p.target_qty)), 0)
+        return (
+          <div key={ss.id} className="bg-white rounded-2xl shadow-sm border border-[#ECEEF3] mb-4 overflow-hidden">
+            <div className="px-4 py-3" style={{ borderLeft: '5px solid #9699a6' }}>
+              <p className="text-[11px] uppercase tracking-wide text-gray-400">Safety stock work order · no POs</p>
+              <p className="font-bold text-[#1A1D2E]">{ss.wo_code} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: ss.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{ss.status}</span>{ss.notes ? <span className="ml-2 text-xs font-normal text-gray-500">{ss.notes}</span> : null}</p>
+              <div className="flex items-center justify-between text-xs text-gray-500 mt-2 mb-1"><span>{fmtN(m)} of {fmtN(t)} SRP</span><span className="font-semibold text-[#1A1D2E]">{fmtN(Math.max(t - m, 0))} left</span></div>
+              <Bar value={m} total={t} color="#9699a6" />
+              <div className="flex flex-wrap gap-2 mt-2">{rows.map(p => <span key={p.sku} className="text-[11px] rounded-full px-2 py-0.5 bg-[#F2F4F8]"><b style={{ color: meta(p.sku).color }}>{meta(p.sku).short}</b> {fmtN(p.made_qty)}/{fmtN(p.target_qty)}</span>)}</div>
+            </div>
+          </div>)
+      })}
 
       {/* Daily log — record board */}
       <div className="flex items-center justify-between mb-2">
@@ -351,7 +398,10 @@ export default function WalmartProductionPage() {
         <p className="px-4 py-2 text-[11px] text-gray-400">SRP = 1 case of 6 packs. Allocated = open Walmart order lines not yet shipped.</p>
       </div>
 
-      {showLog && <LogSheet sb={sb} wo={wo} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
+      </>}
+
+      {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); load() }} />}
+      {showLog && <LogSheet sb={sb} wo={wo} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg) => { setFlash(msg); setShowLog(false); load() }} />}
       {showWo && <WoModal sb={sb} wo={wo} week={week} prods={prods} alloc={alloc} prog={prog} onClose={() => setShowWo(false)}
         onSaved={(msg) => { setFlash(msg); setShowWo(false); load() }} />}
@@ -362,10 +412,24 @@ export default function WalmartProductionPage() {
 }
 
 /* ───────────────── Log production (whiteboard-style: one row per SKU) ───────────────── */
-function LogSheet({ sb, wo, progBySku, today, onClose, onSaved }: {
-  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; progBySku: Record<string, Prog>; today: string
+function LogSheet({ sb, wo, safety, safetyProg, progBySku, today, onClose, onSaved }: {
+  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; safety: WO[]; safetyProg: Prog[]; progBySku: Record<string, Prog>; today: string
   onClose: () => void; onSaved: (msg: string) => void
 }) {
+  const [woId, setWoId] = useState<string>(wo?.id || safety[0]?.id || '')
+  const [releaseMode, setReleaseMode] = useState(false)
+  const [poId, setPoId] = useState('')
+  const [pos, setPos] = useState<{ id: string; po_number: string | null; skus: string[] }[]>([])
+  const isSafety = !!safety.find(s => s.id === woId)
+  const progFor: Record<string, Prog> = isSafety ? Object.fromEntries(safetyProg.filter(p => p.work_order_id === woId).map(p => [p.sku, p])) : progBySku
+  useEffect(() => {
+    setPoId(''); setPos([])
+    if (!woId || isSafety) return
+    sb.from('walmart_wo_orders').select('walmart_order_id, walmart_board_orders(id,po_number,group_name,walmart_board_lines(part_number,qty))').eq('work_order_id', woId).then(({ data }) => {
+      setPos(((data as any[]) || []).map(r => r.walmart_board_orders).filter((o: any) => o && (o.group_name || 'Walmart Orders') === 'Walmart Orders')
+        .map((o: any) => ({ id: o.id, po_number: o.po_number, skus: (o.walmart_board_lines || []).filter((l: any) => num(l.qty) > 0).map((l: any) => String(l.part_number || '').trim().toUpperCase()) })))
+    })
+  }, [woId, isSafety, sb])
   const [date, setDate] = useState(today)
   const [qty, setQty] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
@@ -383,13 +447,24 @@ function LogSheet({ sb, wo, progBySku, today, onClose, onSaved }: {
     const bad = rows.find(([, v]) => !/^\d+$/.test(v.trim()))
     if (bad) { setErr(`${meta(bad[0]).short}: enter a whole number.`); return }
     if (date < minDate || date > today) { setErr('Pick a date within the last 14 days.'); return }
+    if (releaseMode && !poId) { setErr('Pick the PO this production is for, or tap “Log only”.'); return }
+    const po = pos.find(x => x.id === poId)
+    if (releaseMode && po && !rows.some(([sku]) => po.skus.includes(sku))) { setErr(`PO ${po.po_number} has none of the SKUs you entered.`); return }
     setBusy(true)
     const failed: Record<string, string> = {}
     const okRows: string[] = []
+    const okSkus: string[] = []
+    let firstEntry: string | null = null
     for (const [sku, v] of rows) {
-      const { error } = await sb.rpc('walmart_record_production', { p_sku: sku, p_qty: Number(v), p_date: date, p_wo: null, p_note: note.trim() || null })
+      const { data, error } = await sb.rpc('walmart_record_production', { p_sku: sku, p_qty: Number(v), p_date: date, p_wo: woId || null, p_note: note.trim() || null })
       if (error) failed[sku] = error.message
-      else okRows.push(`${v} ${meta(sku).short}`)
+      else { okRows.push(`${v} ${meta(sku).short}`); okSkus.push(sku); firstEntry = firstEntry || (data as any)?.id || null }
+    }
+    let relMsg = ''
+    if (releaseMode && po && okSkus.length) {
+      const { data: rel, error: rErr } = await sb.rpc('walmart_release_po', { p_walmart_order: po.id, p_skus: okSkus, p_entry: firstEntry, p_note: note.trim() || null })
+      if (rErr) { setBusy(false); setErr(`Production saved (${okRows.join(', ')}), but the release did NOT go through: ${rErr.message}`); setQty({}); return }
+      relMsg = ` Released to PO ${po.po_number} for the build team.` + (((rel as any)?.already || []).length ? ` (${(rel as any).already.join(', ')} were already released.)` : '')
     }
     setBusy(false)
     if (Object.keys(failed).length) {
@@ -398,7 +473,7 @@ function LogSheet({ sb, wo, progBySku, today, onClose, onSaved }: {
       setErr(okRows.length ? `Saved: ${okRows.join(', ')}. The rows in red did NOT save.` : 'Nothing was saved — see the rows in red.')
       return
     }
-    onSaved(`✓ Saved ${okRows.join(', ')} for ${fmtDay(date)} — inventory updated.`)
+    onSaved(`✓ Saved ${okRows.join(', ')} for ${fmtDay(date)} — inventory updated.${relMsg}`)
   }
 
   return (
@@ -416,10 +491,18 @@ function LogSheet({ sb, wo, progBySku, today, onClose, onSaved }: {
             <span className="text-xs font-semibold text-gray-500">Date made</span>
             <input type="date" value={date} min={minDate} max={today} onChange={e => setDate(e.target.value)} className="mt-1 w-full h-12 rounded-xl border border-[#E4E6EE] px-3 text-base" />
           </label>
-          {!wo && <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">No Walmart work order covers this week yet — production still goes into inventory, but ask the office to create the week&apos;s WO.</p>}
+          {(wo || safety.length > 0) ? (
+            <label className="block">
+              <span className="text-xs font-semibold text-gray-500">Work order</span>
+              <select value={woId} onChange={e => setWoId(e.target.value)} className="mt-1 w-full h-12 rounded-xl border border-[#E4E6EE] px-3 text-base bg-white">
+                {wo && <option value={wo.id}>{wo.wo_code} — this week&apos;s Walmart POs</option>}
+                {safety.map(s => <option key={s.id} value={s.id}>{s.wo_code} — safety stock</option>)}
+              </select>
+            </label>
+          ) : <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">No Walmart work order covers this week yet — production still goes into inventory, but ask the office to create the week&apos;s WO.</p>}
           <div className="space-y-2">
             {SKUS.map(s => {
-              const p = progBySku[s.sku]
+              const p = progFor[s.sku]
               const left = p ? Math.max(num(p.target_qty) - num(p.made_qty), 0) : null
               return (
                 <div key={s.sku} className={`rounded-xl border px-3 py-2.5 flex items-center gap-3 ${errs[s.sku] ? 'border-red-300 bg-red-50' : 'border-[#ECEEF3]'}`}>
@@ -444,12 +527,31 @@ function LogSheet({ sb, wo, progBySku, today, onClose, onSaved }: {
             <span className="text-xs font-semibold text-gray-500">Note (optional)</span>
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Shift, line, anything unusual…" className="mt-1 w-full rounded-xl border border-[#E4E6EE] px-3 py-2 text-base" />
           </label>
+          {releaseMode && (
+            <div className="rounded-xl border-2 border-[#00a85a] bg-emerald-50 p-3">
+              <p className="text-xs font-bold text-emerald-800 mb-1">Release to which PO?</p>
+              {isSafety ? <p className="text-xs text-emerald-800">Safety stock has no POs — use “Log only”.</p> : pos.length === 0 ? <p className="text-xs text-emerald-800">No open POs on this work order.</p> : (
+                <select value={poId} onChange={e => setPoId(e.target.value)} className="w-full h-12 rounded-xl border border-emerald-300 px-3 text-base bg-white">
+                  <option value="">Choose a PO…</option>
+                  {pos.map(o => { const has = Object.entries(qty).some(([k, v]) => Number(v) > 0 && o.skus.includes(k)); return <option key={o.id} value={o.id} disabled={!has}>PO {o.po_number} · {o.skus.map(k => meta(k).short).join(', ')}{has ? '' : ' (none of these SKUs)'}</option> })}
+                </select>)}
+              <p className="text-[11px] text-emerald-700 mt-1">The build team sees it on their tab and claims it; the PO then moves to Building Order.</p>
+            </div>
+          )}
           {err && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{err}</p>}
         </div>
-        <div className="px-5 py-3 border-t border-[#EEF0F4] pb-[max(12px,env(safe-area-inset-bottom))]">
-          <button onClick={save} disabled={busy || total <= 0} className="w-full h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: ACCENT }}>
-            {busy ? 'Saving…' : total > 0 ? `Save ${fmtN(total)} SRP` : 'Enter quantities'}
-          </button>
+        <div className="px-5 py-3 border-t border-[#EEF0F4] pb-[max(12px,env(safe-area-inset-bottom))] flex gap-2">
+          {!releaseMode ? <>
+            <button onClick={save} disabled={busy || total <= 0} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: ACCENT }}>
+              {busy ? 'Saving…' : total > 0 ? `Log ${fmtN(total)} SRP` : 'Enter quantities'}
+            </button>
+            <button onClick={() => { setReleaseMode(true); setErr('') }} disabled={busy || total <= 0 || isSafety} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>Log &amp; release</button>
+          </> : <>
+            <button onClick={() => { setReleaseMode(false); setPoId('') }} disabled={busy} className="h-14 px-4 rounded-2xl border border-[#E4E6EE] text-sm font-semibold text-gray-600">Log only</button>
+            <button onClick={save} disabled={busy || total <= 0 || !poId} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>
+              {busy ? 'Saving…' : poId ? `Log & release to PO ${pos.find(x => x.id === poId)?.po_number || ''}` : 'Pick a PO'}
+            </button>
+          </>}
         </div>
       </div>
     </div>
@@ -474,7 +576,7 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
   useEffect(() => {
     (async () => {
       const [oR, aR] = await Promise.all([
-        sb.from('walmart_board_orders').select('id,name,po_number,status,order_date,ship_due_date,archived,walmart_board_lines(part_number,qty)').eq('archived', false).order('order_date', { ascending: false }).limit(200),
+        sb.from('walmart_board_orders').select('id,name,po_number,status,group_name,order_date,ship_due_date,archived,walmart_board_lines(part_number,qty)').eq('archived', false).eq('group_name', 'Walmart Orders').order('order_date', { ascending: false }).limit(200),
         sb.from('walmart_wo_orders').select('work_order_id,walmart_order_id,work_orders(wo_code,status)'),
       ])
       if (oR.error) { setErr(oR.error.message); setLoading(false); return }
@@ -670,4 +772,103 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
       </div>
     </div>
   )
+}
+
+
+/* ───────────────── Build team: claim released POs ───────────────── */
+function BuildTeam({ sb, releases, canEdit, onDone }: {
+  sb: ReturnType<typeof createSupabaseBrowserClient>; releases: Release[]; canEdit: boolean; onDone: (m: string) => void
+}) {
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const group = (st: string) => {
+    const m = new Map<string, Release[]>()
+    for (const r of releases.filter(x => x.status === st)) { if (!m.has(r.walmart_order_id)) m.set(r.walmart_order_id, []); m.get(r.walmart_order_id)!.push(r) }
+    return Array.from(m.entries())
+  }
+  const open = group('Released'), done = group('Claimed')
+  async function claim(id: string, po: string) {
+    setErr(''); setBusy(id)
+    const { error } = await sb.rpc('walmart_claim_po', { p_walmart_order: id })
+    setBusy('')
+    if (error) { setErr(error.message); return }
+    onDone(`✓ PO ${po} claimed — moved to Building Order; its SKUs show Completed on the Order Pipeline.`)
+  }
+  async function undo(r: Release) {
+    const reason = window.prompt('Why undo this release?'); if (!reason) return
+    const { error } = await sb.rpc('walmart_unrelease', { p_release: r.id, p_reason: reason })
+    if (error) { setErr(error.message); return }
+    onDone('Release undone.')
+  }
+  const Card = ({ id, rows, claimed }: { id: string; rows: Release[]; claimed?: boolean }) => {
+    const o = rows[0].walmart_board_orders
+    return (
+      <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${claimed ? 'border-[#ECEEF3] opacity-70' : 'border-[#00a85a]/40'}`}>
+        <div className="px-4 py-3 flex items-start justify-between gap-3" style={{ borderLeft: '5px solid ' + (claimed ? '#9699a6' : '#00a85a') }}>
+          <div className="min-w-0">
+            <p className="font-bold text-[#1A1D2E]">PO {o?.po_number || '—'}</p>
+            <p className="text-[11px] text-gray-500">{o?.ship_due_date ? 'Due ' + fmtShort(o.ship_due_date) + ' · ' : ''}{claimed ? `Claimed by ${nameOf(rows[0].claimed_by)} ${rows[0].claimed_at ? new Date(rows[0].claimed_at).toLocaleString() : ''}` : `Released by ${nameOf(rows[0].released_by)} · ${new Date(rows[0].released_at).toLocaleString()}`}</p>
+          </div>
+          {!claimed && canEdit && <button onClick={() => claim(id, o?.po_number || '')} disabled={busy === id} className="shrink-0 h-11 px-4 rounded-xl text-white text-sm font-bold disabled:opacity-50" style={{ background: '#00a85a' }}>{busy === id ? 'Claiming…' : 'Claim'}</button>}
+        </div>
+        <div className="divide-y divide-[#F0F2F6]">
+          {rows.map(r => (
+            <div key={r.id} className="px-4 py-2 flex items-center gap-3 text-sm">
+              <span className="w-2 h-6 rounded-full" style={{ background: meta(r.sku).color }} />
+              <span className="flex-1"><b>{meta(r.sku).short}</b> <span className="font-mono text-[10px] text-gray-400">{r.sku}</span></span>
+              <span className="font-bold">{fmtN(r.qty)} SRP</span>
+              {!claimed && canEdit && <button onClick={() => undo(r)} className="text-[11px] text-gray-400 hover:text-red-600">Undo</button>}
+            </div>))}
+        </div>
+      </div>)
+  }
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">Production released for a Walmart PO shows up here. <b>Claim</b> it when you start building — the PO moves to <b>Building Order</b> on the Walmart board and Order Pipeline, and its SKUs are marked Completed.</div>
+      {err && <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{err}</div>}
+      <h2 className="font-bold text-[#1A1D2E]">Ready to claim <span className="text-gray-400 font-normal">({open.length})</span></h2>
+      {open.length === 0 && <div className="bg-white rounded-xl border border-[#ECEEF3] p-6 text-center text-sm text-gray-500">Nothing released yet.</div>}
+      {open.map(([id, rows]) => <Card key={id} id={id} rows={rows} />)}
+      {done.length > 0 && <h2 className="font-bold text-[#1A1D2E] pt-3">Claimed — last 14 days</h2>}
+      {done.map(([id, rows]) => <Card key={id} id={id} rows={rows} claimed />)}
+    </div>)
+}
+
+/* ───────────────── Safety stock WO (no POs) ───────────────── */
+function SafetyModal({ sb, onClose, onSaved }: { sb: ReturnType<typeof createSupabaseBrowserClient>; onClose: () => void; onSaved: (m: string) => void }) {
+  const [t, setT] = useState<Record<string, string>>({})
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  async function save() {
+    setErr('')
+    const targets: Record<string, number> = {}
+    for (const s of SKUS) { const v = (t[s.sku] || '').trim(); if (v && Number(v) > 0) targets[s.sku] = Number(v) }
+    if (!Object.keys(targets).length) { setErr('Enter a quantity for at least one SKU.'); return }
+    setBusy(true)
+    const { error } = await sb.rpc('walmart_safety_wo_create', { p_targets: targets, p_notes: notes.trim() || null })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    onSaved('✓ Safety stock work order created — it shows on this board and the Work Orders board.')
+  }
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" style={{ background: 'rgba(26,32,53,0.55)' }}>
+      <div className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[94vh] flex flex-col">
+        <div className="px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+          <div><p className="text-[11px] uppercase tracking-wide text-gray-400">No POs — builds stock ahead</p><h2 className="text-lg font-bold text-[#1A1D2E]">Safety stock work order</h2></div>
+          <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close">&times;</button>
+        </div>
+        <div className="overflow-y-auto px-5 py-3 space-y-2">
+          {SKUS.map(s => (
+            <div key={s.sku} className="flex items-center gap-3 rounded-xl border border-[#ECEEF3] px-3 py-2">
+              <span className="w-2.5 h-8 rounded-full" style={{ background: s.color }} />
+              <span className="flex-1 text-sm"><b>{s.short}</b> <span className="font-mono text-[10px] text-gray-400">{s.sku}</span></span>
+              <input inputMode="numeric" value={t[s.sku] || ''} placeholder="0" onChange={e => setT(x => ({ ...x, [s.sku]: e.target.value.replace(/[^\d]/g, '') }))} className="w-24 h-10 rounded-lg border border-[#E4E6EE] text-right px-2 font-bold" />
+            </div>))}
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Reason / notes" className="w-full rounded-xl border border-[#E4E6EE] px-3 py-2 text-sm" />
+          {err && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{err}</p>}
+        </div>
+        <div className="px-5 py-3 border-t border-[#EEF0F4]"><button onClick={save} disabled={busy} className="w-full h-12 rounded-2xl text-white font-bold disabled:opacity-50" style={{ background: ACCENT }}>{busy ? 'Creating…' : 'Create safety stock WO'}</button></div>
+      </div>
+    </div>)
 }
