@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic'
   from inventory.
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
 import Comments from '@/components/Comments'
@@ -154,7 +155,7 @@ export default function WalmartProductionPage() {
       .subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb, load])
-  useEffect(() => { if (!flash) return; const t = setTimeout(() => setFlash(''), 4000); return () => clearTimeout(t) }, [flash])
+  useEffect(() => { if (!flash) return; const t = setTimeout(() => setFlash(''), flash.startsWith('⚠') ? 20000 : 6000); return () => clearTimeout(t) }, [flash])
 
   const live = entries.filter(e => !e.voided_at)
   const madeBySku = useMemo(() => {
@@ -232,10 +233,11 @@ export default function WalmartProductionPage() {
         })}
       </div>
 
+      {tab === 'build' && flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
       {tab === 'build' ? <BuildTeam sb={sb} releases={releases} canEdit={canEdit} onDone={(m) => { setFlash(m); load() }} /> : <>
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — each entry adds the finished SRPs to inventory, takes out every packaging part and cutlery piece used, posts to the Inventory Ledger, and updates this week&apos;s Walmart work order.</div>
 
-      {flash && <div className="mb-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-4 py-3 font-medium">{flash}</div>}
+      {flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
       {loadErr && <div className="mb-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">Could not load: {loadErr}</div>}
 
       {/* Weekly work order */}
@@ -402,13 +404,26 @@ export default function WalmartProductionPage() {
 
       {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); load() }} />}
       {showLog && <LogSheet sb={sb} wo={wo} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
-        onSaved={(msg) => { setFlash(msg); setShowLog(false); load() }} />}
+        onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); load(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
       {showWo && <WoModal sb={sb} wo={wo} week={week} prods={prods} alloc={alloc} prog={prog} onClose={() => setShowWo(false)}
         onSaved={(msg) => { setFlash(msg); setShowWo(false); load() }} />}
       {detail && <EntryDetail sb={sb} entry={detail} wo={wo} moves={moves.filter(m => m.ref_id === detail.id)} itemName={itemName} me={me}
         canEdit={canEdit} isAdmin={perms.is_admin} onClose={() => setDetail(null)} onChanged={(msg) => { setFlash(msg); setDetail(null); load() }} />}
     </div>
   )
+}
+
+/** Pop-ups render straight into <body>. Inside the app's scrolling <main>, iOS Safari clips
+ *  position:fixed children to the scroller, which cut off the bottom buttons on phones. */
+function Overlay({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+  return mounted ? createPortal(children, document.body) : null
 }
 
 /* ───────────────── Log production (whiteboard-style: one row per SKU) ───────────────── */
@@ -463,7 +478,7 @@ function LogSheet({ sb, wo, safety, safetyProg, progBySku, today, onClose, onSav
     let relMsg = ''
     if (releaseMode && po && okSkus.length) {
       const { data: rel, error: rErr } = await sb.rpc('walmart_release_po', { p_walmart_order: po.id, p_skus: okSkus, p_entry: firstEntry, p_note: note.trim() || null })
-      if (rErr) { setBusy(false); setErr(`Production saved (${okRows.join(', ')}), but the release did NOT go through: ${rErr.message}`); setQty({}); return }
+      if (rErr) { setBusy(false); onSaved(`⚠ Production saved (${okRows.join(', ')}) — but the release to PO ${po.po_number} did NOT go through: ${rErr.message}. Do not log it again; ask the office to release it.`); return }
       relMsg = ` Released to PO ${po.po_number} for the build team.` + (((rel as any)?.already || []).length ? ` (${(rel as any).already.join(', ')} were already released.)` : '')
     }
     setBusy(false)
@@ -477,14 +492,15 @@ function LogSheet({ sb, wo, safety, safetyProg, progBySku, today, onClose, onSav
   }
 
   return (
-    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
       <div className="w-full sm:max-w-lg mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
-        <div className="px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-wide text-gray-400">Finished SRPs (cases of 6 packs)</p>
             <h2 className="text-lg font-bold text-[#1A1D2E]">Log production</h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close">&times;</button>
+          <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
         <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-3 space-y-3">
           <label className="block">
@@ -555,6 +571,7 @@ function LogSheet({ sb, wo, safety, safetyProg, progBySku, today, onClose, onSav
         </div>
       </div>
     </div>
+    </Overlay>
   )
 }
 
@@ -623,14 +640,15 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
       <div className="w-full sm:max-w-3xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 py-4 text-white rounded-t-3xl sm:rounded-t-2xl flex items-start justify-between" style={{ background: ACCENT }}>
           <div>
             <p className="text-white/70 text-xs uppercase tracking-wide">Weekly Walmart work order</p>
             <h2 className="text-lg font-bold">{wo?.wo_code || 'New'} · {fmtShort(week)} – {fmtShort(addDays(week, 6))}</h2>
           </div>
-          <button onClick={onClose} className="text-white/80 text-3xl leading-none px-2" aria-label="Close">&times;</button>
+          <button onClick={onClose} className="text-white/80 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
         <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-4 space-y-4">
           <div>
@@ -692,6 +710,7 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
         </div>
       </div>
     </div>
+    </Overlay>
   )
 }
 
@@ -720,7 +739,8 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
   }
 
   return (
-    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
       <div className="w-full sm:max-w-xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col overflow-hidden pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 py-4 text-white flex items-start justify-between" style={{ background: m.color }}>
           <div>
@@ -728,7 +748,7 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
             <h2 className="text-xl font-bold">{fmtN(entry.qty)} SRP · {m.short}</h2>
             <p className="text-white/80 text-xs mt-0.5">{entry.sku} · {fmtN(num(entry.qty) * 6)} packs</p>
           </div>
-          <button onClick={onClose} className="text-white/80 text-3xl leading-none px-2" aria-label="Close">&times;</button>
+          <button onClick={onClose} className="text-white/80 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
         <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-4 space-y-4">
           {entry.voided_at && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">Removed by {nameOf(entry.voided_by)} on {new Date(entry.voided_at).toLocaleString()} — {entry.void_reason}. Inventory was put back.</p>}
@@ -771,6 +791,7 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
         </div>
       </div>
     </div>
+    </Overlay>
   )
 }
 
@@ -852,11 +873,12 @@ function SafetyModal({ sb, onClose, onSaved }: { sb: ReturnType<typeof createSup
     onSaved('✓ Safety stock work order created — it shows on this board and the Work Orders board.')
   }
   return (
-    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
       <div className="w-full sm:max-w-md mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
-        <div className="px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
           <div><p className="text-[11px] uppercase tracking-wide text-gray-400">No POs — builds stock ahead</p><h2 className="text-lg font-bold text-[#1A1D2E]">Safety stock work order</h2></div>
-          <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close">&times;</button>
+          <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
         <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-3 space-y-2">
           {SKUS.map(s => (
@@ -870,5 +892,6 @@ function SafetyModal({ sb, onClose, onSaved }: { sb: ReturnType<typeof createSup
         </div>
         <div className="shrink-0 px-5 py-3 border-t border-[#EEF0F4]"><button onClick={save} disabled={busy} className="w-full h-12 rounded-2xl text-white font-bold disabled:opacity-50" style={{ background: ACCENT }}>{busy ? 'Creating…' : 'Create safety stock WO'}</button></div>
       </div>
-    </div>)
+    </div>
+    </Overlay>)
 }
