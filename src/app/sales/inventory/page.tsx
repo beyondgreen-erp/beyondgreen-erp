@@ -725,6 +725,8 @@ export default function InventoryPage() {
   // Finished goods committed to open sales orders. Without this the Alloc/Avail column
   // was blank for every finished product, because component allocations only cover BOM parts.
   const [soAlloc, setSoAlloc] = useState<Record<string, { qty: number; orders: number }>>({})
+  // Walmart finished goods sitting in “Prepped & Ready for Dispatch” — consumed, but still on hand until the shipment posts.
+  const [wmDispatch, setWmDispatch] = useState<Record<string, { qty: number; orders: number }>>({})
   const [allocProduct, setAllocProduct] = useState<Product | null>(null)
   const [allocDetail, setAllocDetail] = useState<Product | null>(null)
   const ms = useMultiSelect<Product>()
@@ -732,7 +734,7 @@ export default function InventoryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }, { data: mal }, { data: uf }, { data: soa }] = await Promise.all([
+    const [{ data: p, error: pErr }, { data: b }, { data: pz }, { data: alloc }, { data: lr }, { data: mal }, { data: uf }, { data: soa }, { data: wmd }] = await Promise.all([
       sb.from('products').select('*').order('sku', { ascending: true }),
       sb.from('product_bom').select('finished_good_sku'),
       sb.from('product_zones').select('product_id'),
@@ -741,7 +743,9 @@ export default function InventoryPage() {
       sb.from('v_manual_allocation_totals').select('sku, allocated_qty'),
       sb.from('product_uom_flags').select('sku, fix, ea_line_count, units_seen, ea_on_orders'),
       sb.from('v_fg_allocation_totals').select('sku_key, allocated_qty, open_orders'),
+      sb.from('v_walmart_awaiting_dispatch').select('sku, qty, orders'),
     ])
+    { const m: Record<string, { qty: number; orders: number }> = {}; for (const r of (wmd as any[]) || []) { if (r.sku) m[String(r.sku).trim().toUpperCase()] = { qty: Number(r.qty) || 0, orders: Number(r.orders) || 0 } } setWmDispatch(m) }
     { const m: Record<string, string> = {}; for (const r of (lr as any[]) || []) { if (r.sku) m[r.sku] = r.last_received } setLastRecv(m) }
     { const m: Record<string, any> = {}; for (const r of (uf as any[]) || []) { if (r.sku) m[r.sku] = r } setUomFlags(m) }
     if (pErr) { setLoadError(`Failed to load: ${pErr.message}`) }
@@ -856,7 +860,7 @@ export default function InventoryPage() {
   }
 
   function exportInventory(list: Product[], scope: string) {
-    const header = ['SKU','Product','Category','UOM','On Hand','Qty Last Updated','Updated How','Updated By','Allocated','Available','Unit Cost','Inventory Value','UPC']
+    const header = ['SKU','Product','Category','UOM','On Hand','Qty Last Updated','Updated How','Updated By','Allocated','Consumed Awaiting Dispatch','Available','Unit Cost','Inventory Value','UPC']
     const data = list.map(p => {
       const k = String(p.sku ?? '').trim().toUpperCase()
       const so = soAlloc[k]?.qty || 0
@@ -869,7 +873,7 @@ export default function InventoryPage() {
       const how = p.qty_updated_source === 'manual' ? 'Manual' : p.qty_updated_source === 'auto' ? 'Auto' : ''
       return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh,
               stampedAt && !isNaN(+stampedAt) ? stampedAt.toLocaleString() : '', how, p.qty_updated_by ?? '',
-              alloc, oh - alloc, uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
+              alloc, wmDispatch[k]?.qty || 0, oh - alloc, uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
     })
     const ws = XLSX.utils.aoa_to_sheet([header, ...data])
     ws['!cols'] = [{wch:20},{wch:50},{wch:18},{wch:8},{wch:11},{wch:20},{wch:12},{wch:26},{wch:11},{wch:11},{wch:12},{wch:15},{wch:16}]
@@ -1462,7 +1466,7 @@ export default function InventoryPage() {
                                     a>0?`${a.toLocaleString()} BOM`:null,
                                     ma>0?`${ma.toLocaleString()} manual`:null,
                                   ].filter(Boolean).join(' + ')
-                                  return <div className="leading-tight" title={`Reserved: ${parts} — click to see what it's for`}><button type="button" onClick={(e)=>{e.stopPropagation(); setAllocDetail(p)}} className="text-[11px] text-violet-600 font-semibold underline decoration-dotted underline-offset-2 hover:text-violet-800">{tot.toLocaleString()} alloc{ma>0?' *':''}</button><div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
+                                  return <div className="leading-tight" title={`Reserved: ${parts} — click to see what it's for`}><button type="button" onClick={(e)=>{e.stopPropagation(); setAllocDetail(p)}} className="text-[11px] text-violet-600 font-semibold underline decoration-dotted underline-offset-2 hover:text-violet-800">{tot.toLocaleString()} alloc{ma>0?' *':''}</button>{wmDispatch[k]?.qty > 0 && <div className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={`Consumed Inventory Waiting Dispatch — ${wmDispatch[k].qty.toLocaleString()} on ${wmDispatch[k].orders} Walmart PO(s) in Prepped & Ready for Dispatch. Included in alloc; comes off on-hand when shipped.`}>{wmDispatch[k].qty.toLocaleString()} consumed · awaiting dispatch</div>}<div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
                                 })()}</td>
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
@@ -1558,6 +1562,7 @@ export default function InventoryPage() {
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-gray-500">
                                   <span>On hand <b className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}>{p.on_hand_qty ?? 0}</b> {p.unit_of_measure ?? ''}</span>
                                   {tot > 0 && <button type="button" onClick={e=>{e.stopPropagation(); setAllocDetail(p)}} className="text-violet-600 font-semibold underline decoration-dotted underline-offset-2">{tot.toLocaleString()} alloc</button>}
+                                  {wmDispatch[k]?.qty > 0 && <span className="text-amber-700 font-semibold">{wmDispatch[k].qty.toLocaleString()} consumed · awaiting dispatch</span>}
                                   {tot > 0 && <span className={avail < 0 ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'}>{avail.toLocaleString()} avail</span>}
                                   <span>{fmt$(p.unit_cost)}</span>
                                   {invValue > 0 && <span className="text-emerald-600">{fmtV(invValue)}</span>}
