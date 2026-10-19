@@ -2565,7 +2565,7 @@ export default function OrdersPage() {
       customer_id: form.customer_id || null,
       subtotal: form.total_amount ? parseFloat(form.total_amount) : 0,
       total: form.total_amount ? parseFloat(form.total_amount) : 0,
-      total_amount: form.total_amount ? parseFloat(form.total_amount) : 0,
+      // total_amount is a GENERATED column (= total) in the database — never write it.
       tax_pct: 0,
       shipping_address: form.shipping_address || null,
       billing_address: form.billing_address || null,
