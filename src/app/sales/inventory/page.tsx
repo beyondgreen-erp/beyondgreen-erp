@@ -126,6 +126,7 @@ const emptyForm = {
   category: '',
   unit_of_measure: 'EA',
   on_hand_qty: '0',
+  oh_reason: 'Manual adjustment',
   reorder_point: '0',
   unit_cost: '',
   product_location: '',
@@ -388,8 +389,15 @@ const EditPanel = memo(function EditPanel({
                 <label className={lblCalc}>On Hand Qty <span className="text-blue-400 font-normal">· counted in {baseUom}</span></label>
                 {editing ? (
                   <>
-                    <input type="number" value={form.on_hand_qty} readOnly className={inpCalc + ' bg-gray-50 text-gray-600 cursor-not-allowed'} title="On-hand moves through receipts, production, shipments and physical counts — not free typing." />
-                    <p className="text-[10px] text-gray-500 mt-1">Ledger-controlled. Wrong number? Use <b>Count</b> on the board row to post a physical count with a reason.</p>
+                    <input type="number" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inpCalc} />
+                    {String(Number(editing.on_hand_qty ?? 0)) !== String(parseFloat(form.on_hand_qty) || 0) ? (
+                      <div className="mt-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1.5">
+                        <p className="text-[10px] text-amber-800 mb-1">Changing on-hand {Number(editing.on_hand_qty ?? 0)} → {parseFloat(form.on_hand_qty) || 0}. It is logged in the Inventory Ledger with your name. Reason:</p>
+                        <select value={(form as any).oh_reason} onChange={e => setForm(p => ({ ...p, oh_reason: e.target.value }))} className={inpCalc + ' py-1 text-xs'}>
+                          {['Manual adjustment', 'Cycle count', 'Found stock', 'Damaged / scrapped', 'Shrink / missing', 'Data entry correction', 'Returned to stock', 'Production not yet booked', 'Other'].map(r => <option key={r}>{r}</option>)}
+                        </select>
+                      </div>
+                    ) : <p className="text-[10px] text-gray-500 mt-1">Type the correct number to adjust — every change is logged with a reason.</p>}
                   </>
                 ) : (
                   <input type="number" value={form.on_hand_qty} onChange={e => setForm(p => ({ ...p, on_hand_qty: e.target.value }))} className={inpCalc} placeholder="Opening stock" />
@@ -931,6 +939,7 @@ export default function InventoryPage() {
       category: r.category ?? '',
       unit_of_measure: r.unit_of_measure ?? 'EA',
       on_hand_qty: String(r.on_hand_qty ?? 0),
+      oh_reason: 'Manual adjustment',
       reorder_point: String(r.reorder_point ?? 0),
       unit_cost: r.unit_cost != null ? String(r.unit_cost) : '',
       product_location: r.product_location ?? '',
@@ -1086,6 +1095,10 @@ export default function InventoryPage() {
         }
       }
     }
+    // On an existing product, on-hand is never written directly: another screen may have posted a
+    // shipment or production while this window was open, and a plain update would wipe it out.
+    // A changed number goes through the logged adjustment below instead.
+    if (editing) delete payload.on_hand_qty
     const { error } = editing
       ? await sb.from('products').update(payload).eq('id', editing.id)
       : await sb.from('products').insert(payload)
@@ -1095,19 +1108,18 @@ export default function InventoryPage() {
         : error.message
       setErr(msg); setSaving(false); return
     }
-    // Log a manual on-hand adjustment so the team's manual entry shows in the item's Activity feed.
+    // Manual on-hand change → logged adjustment (sets the new number, writes the ledger row with who/why).
     if (editing) {
       const oldOnHand = Number(editing.on_hand_qty ?? 0)
       const newOnHand = parseFloat(form.on_hand_qty) || 0
-      const delta = newOnHand - oldOnHand
-      if (delta !== 0) {
-        try {
-          await sb.from('inventory_movements').insert({
-            product_id: editing.id, sku: payload.sku, movement_type: 'adjust',
-            qty: delta, uom: payload.unit_of_measure || null, ref_table: 'manual',
-            note: `Manual on-hand adjustment (${oldOnHand} \u2192 ${newOnHand})`, created_by: userEmail || null,
-          })
-        } catch { /* never block the save on activity logging */ }
+      if (newOnHand !== oldOnHand) {
+        if (newOnHand < 0) { setErr('On-hand cannot be set below zero. Other changes were saved.'); setSaving(false); load(); return }
+        const { error: adjErr } = await sb.rpc('inventory_cycle_count', {
+          p_product_id: editing.id, p_counted: newOnHand,
+          p_reason: (form as any).oh_reason || 'Manual adjustment',
+          p_note: `Edited in product window (${oldOnHand} \u2192 ${newOnHand})`,
+        })
+        if (adjErr) { setErr('Other changes saved, but on-hand was NOT changed: ' + adjErr.message); setSaving(false); load(); return }
       }
     }
     setSaving(false); closeEdit(); load()
