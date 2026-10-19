@@ -477,8 +477,8 @@ function LogSheet({ sb, wo, safety, safetyProg, progBySku, today, onClose, onSav
   }
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center" style={{ background: 'rgba(26,32,53,0.55)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <div className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col" style={{ maxHeight: 'calc(100dvh - 12px)' }}>
+    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+      <div className="w-full sm:max-w-lg mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-wide text-gray-400">Finished SRPs (cases of 6 packs)</p>
@@ -486,7 +486,7 @@ function LogSheet({ sb, wo, safety, safetyProg, progBySku, today, onClose, onSav
           </div>
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close">&times;</button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-3 space-y-3">
+        <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-3 space-y-3">
           <label className="block">
             <span className="text-xs font-semibold text-gray-500">Date made</span>
             <input type="date" value={date} min={minDate} max={today} onChange={e => setDate(e.target.value)} className="mt-1 w-full h-12 rounded-xl border border-[#E4E6EE] px-3 text-base" />
@@ -623,8 +623,8 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center" style={{ background: 'rgba(26,32,53,0.55)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <div className="w-full sm:max-w-3xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col" style={{ maxHeight: 'calc(100dvh - 12px)' }}>
+    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+      <div className="w-full sm:max-w-3xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 py-4 text-white rounded-t-3xl sm:rounded-t-2xl flex items-start justify-between" style={{ background: ACCENT }}>
           <div>
             <p className="text-white/70 text-xs uppercase tracking-wide">Weekly Walmart work order</p>
@@ -632,7 +632,7 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
           </div>
           <button onClick={onClose} className="text-white/80 text-3xl leading-none px-2" aria-label="Close">&times;</button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+        <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-4 space-y-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">1 · Walmart orders this WO covers</p>
             {loading ? <p className="text-sm text-gray-400">Loading orders…</p> : orders.length === 0 ? <p className="text-sm text-gray-400">No open Walmart orders.</p> : (
@@ -720,8 +720,8 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
   }
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center" style={{ background: 'rgba(26,32,53,0.55)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <div className="w-full sm:max-w-xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden" style={{ maxHeight: 'calc(100dvh - 12px)' }}>
+    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+      <div className="w-full sm:max-w-xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col overflow-hidden pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 py-4 text-white flex items-start justify-between" style={{ background: m.color }}>
           <div>
             <p className="text-white/75 text-xs uppercase tracking-wide">Walmart production · {fmtDay(entry.production_date)}</p>
@@ -730,7 +730,7 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
           </div>
           <button onClick={onClose} className="text-white/80 text-3xl leading-none px-2" aria-label="Close">&times;</button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+        <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-4 space-y-4">
           {entry.voided_at && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">Removed by {nameOf(entry.voided_by)} on {new Date(entry.voided_at).toLocaleString()} — {entry.void_reason}. Inventory was put back.</p>}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><p className="text-[11px] uppercase text-gray-400">Entered by</p><p className="text-gray-800">{nameOf(entry.entered_by)}</p></div>
@@ -852,13 +852,13 @@ function SafetyModal({ sb, onClose, onSaved }: { sb: ReturnType<typeof createSup
     onSaved('✓ Safety stock work order created — it shows on this board and the Work Orders board.')
   }
   return (
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center" style={{ background: 'rgba(26,32,53,0.55)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <div className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col" style={{ maxHeight: 'calc(100dvh - 12px)' }}>
+    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+      <div className="w-full sm:max-w-md mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
           <div><p className="text-[11px] uppercase tracking-wide text-gray-400">No POs — builds stock ahead</p><h2 className="text-lg font-bold text-[#1A1D2E]">Safety stock work order</h2></div>
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close">&times;</button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-3 space-y-2">
+        <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-3 space-y-2">
           {SKUS.map(s => (
             <div key={s.sku} className="flex items-center gap-3 rounded-xl border border-[#ECEEF3] px-3 py-2">
               <span className="w-2.5 h-8 rounded-full" style={{ background: s.color }} />
