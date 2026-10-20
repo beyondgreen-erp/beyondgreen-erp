@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic'
 */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { planSnippet, copyText } from '@/lib/planSnippet'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
 import Comments from '@/components/Comments'
@@ -1307,6 +1308,14 @@ function MachinePlan({ sb, wo, week, today, canEdit, progBySku, plan, runs, mach
   const planned: Record<string, number> = {}
   for (const r of dayRuns) planned[r.piece] = (planned[r.piece] || 0) + num(r.target_pcs)
   const mcode = (id: string) => machs.find(m => m.id === id)?.machine_code || '—'
+  const [copied, setCopied] = useState(false)
+  async function copyDay() {
+    const { data: pl } = await sb.from('production_day_plans').select('id,share_token').eq('plan_date', day).maybeSingle()
+    if (!pl) { alert(`No Daily Plan for ${fmtDay(day)} yet — plan the machines first.`); return }
+    const { data: ln } = await sb.from('production_plan_lines').select('machine_code,product,operator,status').eq('plan_id', (pl as any).id)
+    const ok = await copyText(planSnippet(day, (ln as any[]) || [], `${window.location.origin}/dp/${(pl as any).share_token}`))
+    if (ok) { setCopied(true); setTimeout(() => setCopied(false), 2500) } else alert('Could not copy on this device.')
+  }
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-[#ECEEF3] mb-4 overflow-hidden">
       <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderLeft: '5px solid #784bd1' }}>
@@ -1314,7 +1323,10 @@ function MachinePlan({ sb, wo, week, today, canEdit, progBySku, plan, runs, mach
           <p className="text-[11px] uppercase tracking-wide text-gray-400">Machine plan · molds per day</p>
           <p className="font-bold text-[#1A1D2E]">{dayRuns.length ? `${dayRuns.length} machine${dayRuns.length === 1 ? '' : 's'} on ${fmtDay(day)}` : `Nothing planned for ${fmtDay(day)}`}</p>
         </div>
-        {canEdit && <button onClick={() => setOpen(true)} className="shrink-0 text-sm font-semibold rounded-xl px-3 py-2 border border-[#784bd1] text-[#784bd1]">Plan machines</button>}
+        <div className="flex gap-1.5 shrink-0">
+          <button data-ro-ok onClick={copyDay} className="text-sm font-semibold rounded-xl px-3 py-2 bg-[#25D366] text-white" title="Copy the whole day's plan (all machines) + operator link for WhatsApp">{copied ? 'Copied ✓' : 'Copy for WhatsApp'}</button>
+          {canEdit && <button onClick={() => setOpen(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#784bd1] text-[#784bd1]">{dayRuns.length ? 'Edit machines' : 'Plan machines'}</button>}
+        </div>
       </div>
       <div className="flex gap-1 px-3 pb-2 overflow-x-auto">
         {days.map(d => { const n = runs.filter(r => r.run_date === d).length
