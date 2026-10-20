@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { queuesByMachine, fmtClock, woLabel, todayISO, type SchedulableWO } from '@/lib/productionSchedule'
+import { planSnippet, copyText } from '@/lib/planSnippet'
 
 interface Plan { id: string; plan_date: string; share_token: string; title: string | null; status: string; notes: string | null }
 interface Line { id: string; plan_id: string; machine_code: string; product: string | null; operator: string | null; status: string; sort_order: number }
@@ -133,6 +134,15 @@ export default function DailyPlanPage() {
     setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
+  useEffect(() => {   // operators tapping Start / logging output show up here without a refresh
+    let t: any
+    const bump = () => { clearTimeout(t); t = setTimeout(load, 600) }
+    const ch = sb.channel('daily-plan-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_plan_lines' }, bump)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'production_output_logs' }, bump)
+      .subscribe()
+    return () => { clearTimeout(t); sb.removeChannel(ch) }
+  }, [sb, load])
   useEffect(() => { (async () => {
     const [{ data: m }, { data: pr }, { data: emp }, { data: ow }] = await Promise.all([
       sb.from('machines').select('machine_code').order('machine_code'),
@@ -150,6 +160,15 @@ export default function DailyPlanPage() {
 
   function flash(m: string) { setToast(m); setTimeout(() => setToast(''), 2500) }
   function publicUrl(token: string) { return `${typeof window !== 'undefined' ? window.location.origin : ''}/dp/${token}` }
+  async function copyWhatsApp(p: Plan) {
+    const ok = await copyText(planSnippet(p.plan_date, linesByPlan[p.id] || [], publicUrl(p.share_token)))
+    flash(ok ? 'Plan copied — paste it into the WhatsApp group' : 'Could not copy — use Copy operator link')
+  }
+  async function updLine(l: Line, patch: Partial<Line>) {
+    setLinesByPlan(m => ({ ...m, [l.plan_id]: (m[l.plan_id] || []).map(x => x.id === l.id ? { ...x, ...patch } : x) }))
+    const { error } = await sb.from('production_plan_lines').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', l.id)
+    if (error) { flash(error.message); load() } else if (patch.status) flash(`${l.machine_code} set to ${patch.status}${patch.status === 'Running' || patch.status === 'Down' ? ' — Machine Status updated' : ''}`)
+  }
   function copyLink(p: Plan) { navigator.clipboard?.writeText(publicUrl(p.share_token)); flash('Operator link copied — paste it into WhatsApp') }
 
   async function sendDayToWhatsApp(date: string) {
@@ -240,7 +259,8 @@ export default function DailyPlanPage() {
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => openAssign(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#3B6FE0] text-white font-semibold hover:opacity-90">+ Schedule work order</button>
             <a href={`/production/walmart?week=${p.plan_date}`} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#0071ce] text-white font-semibold hover:opacity-90" title="Pick which molding machines run which mold for the Walmart work order">Walmart machines</a>
-            <button onClick={() => sendDayToWhatsApp(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#25D366] text-white font-semibold hover:opacity-90">Send to WhatsApp</button>
+            <button onClick={() => copyWhatsApp(p)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#25D366] text-white font-semibold hover:opacity-90" title="Copies the whole day's machine plan + operator link, ready to paste into WhatsApp">Copy plan for WhatsApp</button>
+            <button onClick={() => sendDayToWhatsApp(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg border border-[#25D366] text-[#128C4B] font-semibold hover:bg-[#25D366]/10">Send WOs to WhatsApp</button>
             <button onClick={() => copyLink(p)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#037f4c] text-white font-semibold hover:opacity-90">Copy operator link</button>
             <a href={publicUrl(p.share_token)} target="_blank" rel="noreferrer" className="text-[11px] px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Open ↗</a>
             <button onClick={() => deletePlan(p)} className="text-[11px] px-2 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50">Delete</button>
@@ -294,9 +314,9 @@ export default function DailyPlanPage() {
                 return (
                   <tr key={l.id} className="border-b border-[#EEF0F4] last:border-0">
                     <td className="px-4 py-2.5 font-bold text-[#1A1D2E]">{l.machine_code}</td>
-                    <td className="px-3 py-2.5 text-gray-700">{l.product || '—'}</td>
-                    <td className="px-3 py-2.5 text-gray-500">{l.operator || '—'}</td>
-                    <td className="px-3 py-2.5"><span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${LINE_SC[live] || 'bg-gray-100 text-gray-500'}`}>{live}</span></td>
+                    <td className="px-3 py-2"><input defaultValue={l.product || ''} key={'p' + l.id + (l.product || '')} onBlur={e => { const v = e.target.value.trim(); if (v !== (l.product || '')) updLine(l, { product: v || null }) }} title={/^WM-/.test(l.product || '') ? 'Walmart line — change it on Walmart Production → Plan machines, or it is overwritten on the next save there' : undefined} className="w-full min-w-[220px] bg-transparent border border-transparent hover:border-[#E4E6EE] focus:border-[#037f4c] focus:bg-white rounded-md px-2 py-1 text-sm text-gray-700" /></td>
+                    <td className="px-3 py-2"><input list="dl-employees" defaultValue={l.operator || ''} key={'o' + l.id + (l.operator || '')} onBlur={e => { const v = e.target.value.trim(); if (v !== (l.operator || '')) updLine(l, { operator: v || null }) }} placeholder="Operator…" className="w-full min-w-[120px] bg-transparent border border-transparent hover:border-[#E4E6EE] focus:border-[#037f4c] focus:bg-white rounded-md px-2 py-1 text-sm text-gray-500" /></td>
+                    <td className="px-3 py-2"><select value={live} onChange={e => updLine(l, { status: e.target.value })} className={`text-[11px] font-semibold rounded-full px-2 py-1 border-0 cursor-pointer ${LINE_SC[live] || 'bg-gray-100 text-gray-500'}`}>{['Planned', 'Running', 'Down', 'Offline', 'Complete'].map(o => <option key={o} value={o}>{o}</option>)}</select></td>
                     <td className="px-3 py-2.5 text-right font-semibold text-[#1A1D2E]">{s && s.count ? `${s.qty} ${s.unit}` : <span className="text-gray-300">no logs</span>}</td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">{s?.lastAt ? `${fmtTime(s.lastAt)} · ${s.count} log${s.count === 1 ? '' : 's'}` : '—'}</td>
                     <td className="px-3 py-2.5 text-right"><button onClick={() => delLine(l)} className="text-[11px] text-gray-400 hover:text-red-500">remove</button></td>
