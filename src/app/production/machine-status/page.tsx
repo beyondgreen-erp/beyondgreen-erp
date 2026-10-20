@@ -21,6 +21,7 @@ export default function MachineStatusPage() {
   const sb=useMemo(()=>createSupabaseBrowserClient(),[])
   const [rows,setRows]=useState<Machine[]>([])
   const [jobs,setJobs]=useState<Record<string,RunningJob>>({})
+  const [today,setToday]=useState<Record<string,{product:string|null;operator:string|null;status:string}>>({})
   const [loading,setLoading]=useState(true)
   const [search,setSearch]=useState('')
   const [archived,setArchived]=useState(false)
@@ -50,9 +51,18 @@ export default function MachineStatusPage() {
       if(!map[mid]||(job.status==='In Progress'&&map[mid].status!=='In Progress'))map[mid]=job
     }
     setJobs(map)
+    { const d=new Date(); const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      const{data:pl}=await sb.from('production_day_plans').select('id').eq('plan_date',iso).maybeSingle()
+      const t:Record<string,{product:string|null;operator:string|null;status:string}>={}
+      if(pl){const{data:ln}=await sb.from('production_plan_lines').select('machine_code,product,operator,status').eq('plan_id',(pl as any).id)
+        for(const l of (ln as any[])||[]) t[String(l.machine_code||'').trim().toUpperCase()]={product:l.product,operator:l.operator,status:l.status}}
+      setToday(t) }
     setLoading(false)
   }
   useEffect(()=>{load()},[]) // eslint-disable-line
+  useEffect(()=>{ let t:any; const bump=()=>{clearTimeout(t);t=setTimeout(load,600)}
+    const ch=sb.channel('machine-status-live').on('postgres_changes',{event:'*',schema:'public',table:'machines'},bump).on('postgres_changes',{event:'*',schema:'public',table:'production_plan_lines'},bump).subscribe()
+    return()=>{clearTimeout(t);sb.removeChannel(ch)} },[sb]) // eslint-disable-line
 
   const filtered=rows.filter(r=>{
     if(!archived&&!r.is_active) return false
@@ -121,11 +131,13 @@ export default function MachineStatusPage() {
       <div className="rounded-xl border border-[#E4E6EE] bg-white overflow-x-auto">
         {loading?<div className="flex items-center justify-center py-20"><svg className="w-5 h-5 animate-spin text-gray-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
         :filtered.length===0?<div className="flex items-center justify-center py-20"><p className="text-gray-500 text-sm">{search?'No matches.':archived?'No archived machines.':'No machines yet.'}</p></div>
-        :<table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b border-[#E4E6EE]">{['Machine Name','Code','Status','Department','Type','Location','Customer','Notes'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
+        :<table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b border-[#E4E6EE]">{['Machine Name','Code','Status',"Today's plan",'Department','Type','Location','Customer','Notes'].map(h=><th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>)}</tr></thead>
         <tbody>{filtered.map((r,i)=><tr key={r.id} onClick={()=>openEdit(r)} className={`border-b border-[#E4E6EE]/60 last:border-0 cursor-pointer hover:bg-[#F9FAFB] transition-colors ${i%2===0?'':'bg-[#F5F6FA]/10'}`}>
           <td className="px-5 py-3.5 text-[#1A1D2E] font-medium">{r.name}</td>
           <td className="px-5 py-3.5 text-gray-400 font-mono text-xs">{r.machine_code}</td>
           <td className="px-5 py-3.5"><span className={`text-xs px-2 py-1 rounded-full font-medium border flex items-center gap-1.5 w-fit ${SC[r.status]||SC.Idle}`}><span className={`w-1.5 h-1.5 rounded-full ${DOT[r.status]}`}/>{r.status}</span></td>
+          <td className="px-5 py-3.5 text-xs max-w-[260px]">{(()=>{const p=today[String(r.machine_code||'').trim().toUpperCase()]; if(!p) return <span className="text-gray-300">not on today's plan</span>
+            return <div className="leading-tight"><span className="text-[#1A1D2E] font-medium block truncate" title={p.product||''}>{p.product||'—'}</span><span className="block text-[10px] text-gray-400">{p.status}{p.operator?` · ${p.operator}`:''}</span></div>})()}</td>
           <td className="px-5 py-3.5 text-gray-500 text-xs">{r.equipment_group||'—'}</td>
           <td className="px-5 py-3.5 text-gray-500 text-xs">{r.equipment_type||'—'}</td>
           <td className="px-5 py-3.5 text-gray-400">{r.location||'—'}</td>
