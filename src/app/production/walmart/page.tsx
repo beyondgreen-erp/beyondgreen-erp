@@ -52,6 +52,9 @@ const isRealLoad = (t?: string | null) => !!t && t.trim() !== '' && !/^(pending|
 const PRIO_COLORS = ['#e2445c', '#fdab3d', '#579bfc', '#a25ddc', '#00c875', '#9699a6']
 const prioColor = (rank: number) => rank ? PRIO_COLORS[Math.min(rank, PRIO_COLORS.length) - 1] : '#c4c4c4'
 const normSku = (v: any) => String(v || '').trim().toUpperCase()
+const PIECES = [{ sku: 'BGFRK', name: 'Fork', color: '#579bfc' }, { sku: 'BGSPN', name: 'Spoon', color: '#00c875' }, { sku: 'BGKNF', name: 'Knife', color: '#e2445c' }] as const
+interface MRun { id: string; work_order_id: string; run_date: string; machine_id: string; piece: string; skus: string[]; target_pcs: number | null; hours: number | null; operator: string | null; notes: string | null }
+interface Mach { id: string; machine_code: string; status: string | null; oph: number }
 interface Load { id: string; load_number: string; pickup_date: string | null; priority: number | null; status: string; notes: string | null }
 interface WoOrder { id: string; po_number: string | null; name: string | null; group_name: string | null; status: string | null; load_number: string | null; pallets: string | null; archived: boolean | null; walmart_board_lines: { part_number: string | null; qty: number | null }[] }
 interface WoRel { walmart_order_id: string; sku: string; qty: number; status: string }
@@ -157,6 +160,9 @@ export default function WalmartProductionPage() {
   const [woOrders, setWoOrders] = useState<WoOrder[]>([])
   const [woRel, setWoRel] = useState<WoRel[]>([])
   const [showLoads, setShowLoads] = useState(false)
+  const [runs, setRuns] = useState<MRun[]>([])
+  const [machs, setMachs] = useState<Mach[]>([])
+  const [bomPcs, setBomPcs] = useState<Record<string, Record<string, number>>>({})
   const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
@@ -180,18 +186,20 @@ export default function WalmartProductionPage() {
     setProds(Object.fromEntries(((prodR.data as Prod[]) || []).map(p => [p.sku, p])))
     setAlloc(Object.fromEntries(((allocR.data as any[]) || []).map(a => [a.sku_key, num(a.allocated_qty)])))
     if (w) {
-      const [pgR, woR2, relR2, ldR] = await Promise.all([
+      const [pgR, woR2, relR2, ldR, runR] = await Promise.all([
         sb.from('v_walmart_wo_progress').select('*').eq('work_order_id', w.id),
         sb.from('walmart_wo_orders').select('walmart_board_orders(id,po_number,name,group_name,status,load_number,pallets,archived,walmart_board_lines(part_number,qty))').eq('work_order_id', w.id),
         sb.from('walmart_releases').select('walmart_order_id,sku,qty,status').eq('work_order_id', w.id).neq('status', 'Cancelled'),
         sb.from('walmart_loads').select('*').neq('status', 'Cancelled').order('pickup_date', { ascending: true, nullsFirst: false }),
+        sb.from('walmart_machine_runs').select('*').eq('work_order_id', w.id).order('run_date'),
       ])
       if (seq !== loadSeq.current) return
       setProg((pgR.data as Prog[]) || [])
       setWoOrders((((woR2.data as any[]) || []).map(r => r.walmart_board_orders).filter((o: any) => o && !o.archived)) as WoOrder[])
       setWoRel((relR2.data as WoRel[]) || [])
       setLoads((ldR.data as Load[]) || [])
-    } else { setProg([]); setWoOrders([]); setWoRel([]) }
+      setRuns((runR.data as MRun[]) || [])
+    } else { setProg([]); setWoOrders([]); setWoRel([]); setRuns([]) }
     const [ssR, relR] = await Promise.all([
       sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed')
         .eq('form_type', 'walmart_safety').not('status', 'in', '("Complete","Cancelled")').order('created_at'),
@@ -220,6 +228,20 @@ export default function WalmartProductionPage() {
     if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) setWeek(mondayOf(w))
   }, [])
   useEffect(() => { setLoading(true); load() }, [load])
+  useEffect(() => { (async () => {
+    const [mR, rR, bR] = await Promise.all([
+      sb.from('machines').select('id,machine_code,status,is_active,equipment_group').eq('equipment_group', 'MOLDING').eq('is_active', true),
+      sb.from('machine_rates').select('machine_id,output_per_hour,is_active,updated_at').eq('is_active', true),
+      sb.from('product_bom').select('finished_good_sku,component_sku,qty_value').like('finished_good_sku', '22GV%').in('component_sku', PIECES.map(x => x.sku)),
+    ])
+    const rate: Record<string, number> = {}
+    for (const r of ((rR.data as any[]) || []).sort((a, b) => String(a.updated_at).localeCompare(String(b.updated_at)))) rate[r.machine_id] = num(r.output_per_hour)
+    setMachs(((mR.data as any[]) || []).map(m => ({ id: m.id, machine_code: m.machine_code, status: m.status, oph: rate[m.id] || 0 }))
+      .sort((a, b) => a.machine_code.localeCompare(b.machine_code, undefined, { numeric: true })))
+    const bm: Record<string, Record<string, number>> = {}
+    for (const b of (bR.data as any[]) || []) { const k = normSku(b.finished_good_sku); (bm[k] ||= {})[normSku(b.component_sku)] = num(b.qty_value) }
+    setBomPcs(bm)
+  })() }, [sb])
   useEffect(() => {
     let t: any
     const bump = () => { clearTimeout(t); t = setTimeout(load, 300) }
@@ -228,6 +250,7 @@ export default function WalmartProductionPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_wo_targets' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_releases' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_loads' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'walmart_machine_runs' }, bump)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'walmart_board_orders' }, bump)
       .subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
@@ -392,6 +415,8 @@ export default function WalmartProductionPage() {
       </div>
 
       {wo && (plan.length > 0 || canEdit) && <PickupSchedule plan={plan} canEdit={canEdit} onManage={() => setShowLoads(true)} />}
+
+      {wo && <MachinePlan sb={sb} wo={wo} week={week} today={today} canEdit={canEdit} progBySku={progBySku} plan={plan} runs={runs} machs={machs} bomPcs={bomPcs} onSaved={(m) => { setFlash(m); load() }} />}
 
       {safety.map(ss => {
         const rows = safetyProg.filter(p => p.work_order_id === ss.id)
@@ -1249,6 +1274,164 @@ function MovePoModal({ sb, rel, onClose, onDone }: { sb: ReturnType<typeof creat
         <div className="shrink-0 px-5 py-3 border-t border-[#EEF0F4] flex justify-end gap-2">
           <button onClick={onClose} className="h-11 px-4 rounded-xl border border-[#E4E6EE] text-sm text-gray-600">Cancel</button>
           <button onClick={go} disabled={busy || !target} className="h-11 px-5 rounded-xl text-white text-sm font-bold disabled:opacity-40" style={{ background: ACCENT }}>{busy ? 'Moving…' : 'Move to new PO'}</button>
+        </div>
+      </div>
+    </div>
+    </Overlay>)
+}
+
+
+/* ───────────────── Machine plan: which molding machine runs which mold, per day ───────────────── */
+const pieceName = (k: string) => PIECES.find(x => x.sku === k)?.name || k
+function piecesFor(skuQty: Record<string, number>, bomPcs: Record<string, Record<string, number>>) {
+  const out: Record<string, number> = {}
+  for (const [sku, q] of Object.entries(skuQty)) for (const [pc, per] of Object.entries(bomPcs[sku] || {})) out[pc] = (out[pc] || 0) + Math.max(0, q) * per
+  return out
+}
+function MachinePlan({ sb, wo, week, today, canEdit, progBySku, plan, runs, machs, bomPcs, onSaved }: {
+  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO; week: string; today: string; canEdit: boolean
+  progBySku: Record<string, Prog>; plan: PlanGroup[]; runs: MRun[]; machs: Mach[]; bomPcs: Record<string, Record<string, number>>; onSaved: (m: string) => void
+}) {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(week, i))
+  const linked = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('week') : null   // Daily Plan deep link carries the day
+  const [day, setDay] = useState(linked && days.includes(linked) ? linked : days.includes(today) ? today : week)
+  useEffect(() => { setDay(d => days.includes(d) ? d : (linked && days.includes(linked) ? linked : days.includes(today) ? today : week)) }, [week]) // eslint-disable-line
+  const [open, setOpen] = useState(false)
+  const left: Record<string, number> = {}
+  for (const s of SKUS) { const p = progBySku[s.sku]; if (p) left[s.sku] = Math.max(num(p.target_qty) - num(p.made_qty), 0) }
+  const p1 = plan.find(g => g.rank === 1)
+  const p1Left: Record<string, number> = {}
+  if (p1) for (const [sku, b] of Object.entries(p1.bySku)) p1Left[sku] = Math.max(b.need - b.done - b.covered, 0)
+  const needWo = piecesFor(left, bomPcs), needP1 = piecesFor(p1Left, bomPcs)
+  const dayRuns = runs.filter(r => r.run_date === day)
+  const planned: Record<string, number> = {}
+  for (const r of dayRuns) planned[r.piece] = (planned[r.piece] || 0) + num(r.target_pcs)
+  const mcode = (id: string) => machs.find(m => m.id === id)?.machine_code || '—'
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-[#ECEEF3] mb-4 overflow-hidden">
+      <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderLeft: '5px solid #784bd1' }}>
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-wide text-gray-400">Machine plan · molds per day</p>
+          <p className="font-bold text-[#1A1D2E]">{dayRuns.length ? `${dayRuns.length} machine${dayRuns.length === 1 ? '' : 's'} on ${fmtDay(day)}` : `Nothing planned for ${fmtDay(day)}`}</p>
+        </div>
+        {canEdit && <button onClick={() => setOpen(true)} className="shrink-0 text-sm font-semibold rounded-xl px-3 py-2 border border-[#784bd1] text-[#784bd1]">Plan machines</button>}
+      </div>
+      <div className="flex gap-1 px-3 pb-2 overflow-x-auto">
+        {days.map(d => { const n = runs.filter(r => r.run_date === d).length
+          return <button key={d} data-ro-ok onClick={() => setDay(d)} className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${d === day ? 'bg-[#784bd1] text-white border-[#784bd1]' : 'bg-white text-gray-600 border-[#E4E6EE]'}`}>{fmtDay(d).split(',')[0]} {d.slice(8)}{n ? <span className="ml-1 opacity-80">· {n}</span> : null}{d === today ? ' •' : ''}</button> })}
+      </div>
+      <div className="grid grid-cols-3 gap-2 px-3 pb-3">
+        {PIECES.map(pc => { const need = needWo[pc.sku] || 0, pl = planned[pc.sku] || 0
+          return (
+            <div key={pc.sku} className="rounded-xl border border-[#ECEEF3] p-2.5" style={{ borderTop: '4px solid ' + pc.color }}>
+              <p className="text-xs font-bold text-[#1A1D2E]">{pc.name}s <span className="font-mono text-[10px] text-gray-400">{pc.sku}</span></p>
+              <p className="text-[11px] text-gray-500 mt-1">WO still needs <b className="text-[#1A1D2E]">{fmtN(need)}</b></p>
+              {p1 && <p className="text-[11px] text-gray-500">P1 load needs <b className="text-[#e2445c]">{fmtN(needP1[pc.sku] || 0)}</b></p>}
+              <p className="text-[11px] text-gray-500">Planned {fmtDay(day).split(',')[0]} <b style={{ color: pl ? pc.color : undefined }}>{fmtN(pl)}</b></p>
+            </div>)
+        })}
+      </div>
+      {dayRuns.length > 0 && (
+        <div className="border-t border-[#F0F2F6] divide-y divide-[#F0F2F6]">
+          {dayRuns.sort((a, b) => mcode(a.machine_id).localeCompare(mcode(b.machine_id), undefined, { numeric: true })).map(r => (
+            <div key={r.id} className="px-4 py-2 flex items-center gap-3 text-sm">
+              <span className="font-bold w-14">{mcode(r.machine_id)}</span>
+              <span className="text-[11px] font-semibold text-white rounded px-1.5 py-0.5" style={{ background: PIECES.find(x => x.sku === r.piece)?.color }}>{pieceName(r.piece)} mold</span>
+              <span className="flex-1 min-w-0 truncate text-xs text-gray-500">{r.skus?.length ? 'for ' + r.skus.map(k => meta(k).short).join(', ') : ''}{r.operator ? ` · ${r.operator}` : ''}</span>
+              <span className="text-xs font-semibold">{fmtN(r.target_pcs)} pcs{r.hours ? ` · ${fmtN(r.hours)} h` : ''}</span>
+            </div>))}
+          <p className="px-4 py-2 text-[11px] text-gray-400">Also on the Daily Plan for {fmtDay(day)} — the operator link and WhatsApp send include these machines.</p>
+        </div>
+      )}
+      {open && <MachinePlanModal sb={sb} wo={wo} day={day} runs={dayRuns} machs={machs} bomPcs={bomPcs} needWo={needWo} needP1={needP1} left={left} onClose={() => setOpen(false)} onSaved={(m) => { setOpen(false); onSaved(m) }} />}
+    </div>)
+}
+
+function MachinePlanModal({ sb, wo, day, runs, machs, bomPcs, needWo, needP1, left, onClose, onSaved }: {
+  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO; day: string; runs: MRun[]; machs: Mach[]; bomPcs: Record<string, Record<string, number>>
+  needWo: Record<string, number>; needP1: Record<string, number>; left: Record<string, number>; onClose: () => void; onSaved: (m: string) => void
+}) {
+  type Row = { on: boolean; piece: string; skus: string[]; hours: string; target: string; touched: boolean; operator: string }
+  const [rows, setRows] = useState<Record<string, Row>>(() => {
+    const m: Record<string, Row> = {}
+    for (const mc of machs) { const r = runs.find(x => x.machine_id === mc.id)
+      m[mc.id] = r ? { on: true, piece: r.piece, skus: r.skus || [], hours: r.hours != null ? String(r.hours) : '24', target: r.target_pcs != null ? String(r.target_pcs) : '', touched: true, operator: r.operator || '' }
+                   : { on: false, piece: '', skus: [], hours: '24', target: '', touched: false, operator: '' } }
+    return m
+  })
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const set = (id: string, patch: Partial<Row>) => setRows(r => ({ ...r, [id]: { ...r[id], ...patch } }))
+  const auto = (mc: Mach, row: Row) => Math.round(mc.oph * (Number(row.hours) || 0))
+  const tgt = (mc: Mach, row: Row) => row.touched ? (Number(row.target) || 0) : auto(mc, row)
+  const skusFor = (piece: string) => SKUS.filter(s => (bomPcs[s.sku] || {})[piece] && (left[s.sku] || 0) > 0)
+  const planned: Record<string, number> = {}
+  for (const mc of machs) { const r = rows[mc.id]; if (r?.on && r.piece) planned[r.piece] = (planned[r.piece] || 0) + tgt(mc, r) }
+  async function save() {
+    setErr('')
+    const sel = machs.filter(mc => rows[mc.id]?.on)
+    const bad = sel.find(mc => !rows[mc.id].piece)
+    if (bad) { setErr(`Pick the mold for ${bad.machine_code}.`); return }
+    const payload = sel.map(mc => { const r = rows[mc.id]; return { machine_id: mc.id, piece: r.piece, skus: r.skus, hours: Number(r.hours) || null, target_pcs: tgt(mc, r) || null, operator: r.operator.trim() || null } })
+    setBusy(true)
+    const { error } = await sb.rpc('walmart_machine_plan_save', { p_date: day, p_wo: wo.id, p_runs: payload })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    onSaved(`✓ Machine plan saved for ${fmtDay(day)} — ${payload.length} machine${payload.length === 1 ? '' : 's'}${payload.length ? ': ' + sel.map(m => `${m.machine_code} ${pieceName(rows[m.id].piece)}`).join(', ') : ''}. It's on the Daily Plan too.`)
+  }
+  return (
+    <Overlay>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+      <div className="w-full sm:max-w-3xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+          <div><p className="text-[11px] uppercase tracking-wide text-gray-400">{wo.wo_code} · tick the machines running and their mold</p><h2 className="text-lg font-bold text-[#1A1D2E]">Machine plan · {fmtDay(day)}</h2></div>
+          <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            {PIECES.map(pc => { const pl = planned[pc.sku] || 0, need = needWo[pc.sku] || 0
+              return (
+                <div key={pc.sku} className="rounded-xl border border-[#ECEEF3] p-2.5" style={{ borderTop: '4px solid ' + pc.color }}>
+                  <p className="text-xs font-bold">{pc.name}s</p>
+                  <p className="text-[11px] text-gray-500">Planned <b className="text-[#1A1D2E]">{fmtN(pl)}</b> / WO needs {fmtN(need)}</p>
+                  {needP1[pc.sku] ? <p className="text-[11px] text-gray-500">P1 load needs {fmtN(needP1[pc.sku])}</p> : null}
+                  <div className="h-1.5 rounded-full bg-[#EEF0F4] mt-1 overflow-hidden"><div className="h-full" style={{ width: `${need ? Math.min(100, pl / need * 100) : 0}%`, background: pc.color }} /></div>
+                </div>)
+            })}
+          </div>
+          <div className="rounded-xl border border-[#ECEEF3] divide-y divide-[#F0F2F6]">
+            {machs.length === 0 && <p className="px-3 py-3 text-sm text-gray-500">No active molding machines found.</p>}
+            {machs.map(mc => { const r = rows[mc.id]; if (!r) return null
+              return (
+                <div key={mc.id} className={`px-3 py-2.5 ${r.on ? 'bg-[#FAF8FF]' : ''}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2 w-28 shrink-0 cursor-pointer">
+                      <input type="checkbox" className="w-4 h-4" checked={r.on} onChange={e => set(mc.id, { on: e.target.checked })} />
+                      <span className="font-bold text-sm">{mc.machine_code}</span>
+                    </label>
+                    <span className="text-[11px] text-gray-400 w-24">{mc.oph ? `${fmtN(mc.oph)} pcs/h` : 'no rate'}</span>
+                    {r.on && <>
+                      <div className="flex gap-1">{PIECES.map(pc => <button key={pc.sku} type="button" onClick={() => set(mc.id, { piece: pc.sku, skus: skusFor(pc.sku).map(s => s.sku) })} className={`h-9 px-3 rounded-lg text-xs font-semibold border ${r.piece === pc.sku ? 'text-white' : 'text-gray-600 bg-white border-[#E4E6EE]'}`} style={r.piece === pc.sku ? { background: pc.color, borderColor: pc.color } : undefined}>{pc.name}</button>)}</div>
+                      <label className="flex items-center gap-1 text-[11px] text-gray-500">h<input inputMode="decimal" value={r.hours} onChange={e => set(mc.id, { hours: e.target.value.replace(/[^\d.]/g, '') })} className="w-12 h-9 rounded-lg border border-[#E4E6EE] text-center text-sm" /></label>
+                      <label className="flex items-center gap-1 text-[11px] text-gray-500">pcs<input inputMode="numeric" value={r.touched ? r.target : String(auto(mc, r))} onChange={e => set(mc.id, { target: e.target.value.replace(/[^\d]/g, ''), touched: true })} className="w-24 h-9 rounded-lg border border-[#E4E6EE] text-right px-2 text-sm font-semibold" /></label>
+                      <input value={r.operator} onChange={e => set(mc.id, { operator: e.target.value })} placeholder="Operator" className="w-28 h-9 rounded-lg border border-[#E4E6EE] px-2 text-sm" />
+                    </>}
+                  </div>
+                  {r.on && r.piece && (
+                    <div className="flex flex-wrap gap-1 mt-2 ml-0 sm:ml-28">
+                      <span className="text-[11px] text-gray-400 mr-1">For SKUs:</span>
+                      {SKUS.filter(s => (bomPcs[s.sku] || {})[r.piece]).map(s => { const on = r.skus.includes(s.sku)
+                        return <button key={s.sku} type="button" onClick={() => set(mc.id, { skus: on ? r.skus.filter(x => x !== s.sku) : [...r.skus, s.sku] })} className={`text-[11px] px-2 py-0.5 rounded-full border ${on ? 'text-white' : 'text-gray-500 bg-white border-[#E4E6EE]'}`} style={on ? { background: s.color, borderColor: s.color } : undefined}>{s.short}{left[s.sku] ? ` · ${fmtN(left[s.sku])} SRP left` : ''}</button> })}
+                    </div>)}
+                </div>)
+            })}
+          </div>
+          <p className="text-[11px] text-gray-500">Pieces default to the machine's rate × hours; type a number to override. Saving adds these machines to the Daily Plan for {fmtDay(day)}; untick a machine to take it off.</p>
+          {err && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{err}</p>}
+        </div>
+        <div className="shrink-0 px-5 py-3 border-t border-[#EEF0F4] flex justify-end gap-2">
+          <button onClick={onClose} className="h-11 px-4 rounded-xl border border-[#E4E6EE] text-sm text-gray-600">Cancel</button>
+          <button onClick={save} disabled={busy} className="h-11 px-5 rounded-xl text-white text-sm font-bold disabled:opacity-50" style={{ background: '#784bd1' }}>{busy ? 'Saving…' : 'Save machine plan'}</button>
         </div>
       </div>
     </div>
