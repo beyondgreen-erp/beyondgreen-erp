@@ -912,6 +912,7 @@ function BuildTeam({ sb, releases, canEdit, onDone }: {
 }) {
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
+  const [moveRel, setMoveRel] = useState<Release | null>(null)
   const group = (st: string) => {
     const m = new Map<string, Release[]>()
     for (const r of releases.filter(x => x.status === st)) { if (!m.has(r.walmart_order_id)) m.set(r.walmart_order_id, []); m.get(r.walmart_order_id)!.push(r) }
@@ -948,6 +949,7 @@ function BuildTeam({ sb, releases, canEdit, onDone }: {
               <span className="w-2 h-6 rounded-full" style={{ background: meta(r.sku).color }} />
               <span className="flex-1"><b>{meta(r.sku).short}</b> <span className="font-mono text-[10px] text-gray-400">{r.sku}</span></span>
               <span className="font-bold">{fmtN(r.qty)} SRP</span>
+              {canEdit && <button onClick={() => setMoveRel(r)} className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-[#E4E6EE] text-[#0071ce] hover:bg-[#F2F7FD]">Change PO</button>}
               {!claimed && canEdit && <button onClick={() => undo(r)} className="text-[11px] text-gray-400 hover:text-red-600">Undo</button>}
             </div>))}
         </div>
@@ -962,6 +964,7 @@ function BuildTeam({ sb, releases, canEdit, onDone }: {
       {open.map(([id, rows]) => <Card key={id} id={id} rows={rows} />)}
       {done.length > 0 && <h2 className="font-bold text-[#1A1D2E] pt-3">Claimed — last 14 days</h2>}
       {done.map(([id, rows]) => <Card key={id} id={id} rows={rows} claimed />)}
+      {moveRel && <MovePoModal sb={sb} rel={moveRel} onClose={() => setMoveRel(null)} onDone={(m) => { setMoveRel(null); onDone(m) }} />}
     </div>)
 }
 
@@ -1171,6 +1174,81 @@ function LoadsModal({ sb, loads, orders, rankByOrder, onClose, onChanged }: {
             </div>
             <p className="text-[11px] text-gray-500 mt-2">Assigning a PO sets its Load ID and ship date on the Walmart board and the Order Pipeline, so the Master BOL groups it automatically.</p>
           </section>
+        </div>
+      </div>
+    </div>
+    </Overlay>)
+}
+
+
+/* ───────────────── Move a release (released or claimed) to a different PO ───────────────── */
+function MovePoModal({ sb, rel, onClose, onDone }: { sb: ReturnType<typeof createSupabaseBrowserClient>; rel: Release; onClose: () => void; onDone: (m: string) => void }) {
+  const [opts, setOpts] = useState<{ id: string; po: string | null; group: string; load: string | null; line: number; released: number; left: number }[] | null>(null)
+  const [pick, setPick] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await sb.from('walmart_board_orders').select('id,po_number,group_name,load_number,archived,walmart_board_lines(part_number,qty)')
+        .eq('archived', false).in('group_name', ['Walmart Orders', 'Building Order'])
+      if (error) { setErr(error.message); setOpts([]); return }
+      const os = ((data as any[]) || []).map(o => ({ o, line: (o.walmart_board_lines || []).filter((l: any) => normSku(l.part_number) === rel.sku).reduce((a: number, l: any) => a + num(l.qty), 0) })).filter(x => x.line > 0)
+      const ids = os.map(x => x.o.id)
+      const relBy: Record<string, number> = {}
+      if (ids.length) {
+        const { data: rs } = await sb.from('walmart_releases').select('walmart_order_id,qty').eq('sku', rel.sku).in('status', ['Released', 'Claimed']).in('walmart_order_id', ids)
+        for (const r of (rs as any[]) || []) relBy[r.walmart_order_id] = (relBy[r.walmart_order_id] || 0) + num(r.qty)
+      }
+      setOpts(os.map(x => ({ id: x.o.id, po: x.o.po_number, group: x.o.group_name || 'Walmart Orders', load: isRealLoad(x.o.load_number) ? x.o.load_number : null, line: x.line, released: relBy[x.o.id] || 0, left: Math.max(0, x.line - (relBy[x.o.id] || 0)) }))
+        .sort((a, b) => (b.left > 0 ? 1 : 0) - (a.left > 0 ? 1 : 0) || String(a.po).localeCompare(String(b.po))))
+    })()
+  }, [sb, rel.sku])
+  const target = opts?.find(o => o.id === pick)
+  const moving = target ? Math.min(num(rel.qty), target.left) : 0
+  async function go() {
+    setErr('')
+    if (!target) { setErr('Pick the PO this production belongs to.'); return }
+    setBusy(true)
+    const { data, error } = await sb.rpc('walmart_reassign_release', { p_release: rel.id, p_new_order: target.id, p_reason: reason.trim() || null })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    const d = data as any
+    onDone(`✓ Moved ${fmtN(d.moved)} ${meta(d.sku).short} from PO ${d.from} to PO ${d.to}.` + (d.kept > 0 ? ` ${fmtN(d.kept)} stays on PO ${d.from} (PO ${d.to} only needed ${fmtN(d.moved)}).` : '') + (d.old_back_to_orders ? ` PO ${d.from} went back to Walmart Orders.` : '') + (d.new_to_building ? ` PO ${d.to} moved to Building Order.` : ''))
+  }
+  const from = rel.walmart_board_orders?.po_number || '—'
+  return (
+    <Overlay>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+      <div className="w-full sm:max-w-lg mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+          <div><p className="text-[11px] uppercase tracking-wide text-gray-400">{rel.status === 'Claimed' ? 'Claimed' : 'Released'} · {fmtN(rel.qty)} SRP {meta(rel.sku).short}</p><h2 className="text-lg font-bold text-[#1A1D2E]">Change PO {from} → ?</h2></div>
+          <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {opts === null ? <p className="text-sm text-gray-400">Loading POs…</p> : (
+            <div className="rounded-xl border border-[#ECEEF3] divide-y divide-[#F0F2F6] max-h-[50vh] overflow-y-auto">
+              {opts.length === 0 && <p className="px-3 py-3 text-sm text-gray-500">No other open PO has a {meta(rel.sku).short} line.</p>}
+              {opts.map(o => { const cur = o.id === rel.walmart_order_id, dis = cur || o.left <= 0
+                return (
+                  <label key={o.id} className={`flex items-center gap-3 px-3 py-2.5 text-sm ${dis ? 'opacity-45' : 'cursor-pointer hover:bg-[#F7F9FC]'}`}>
+                    <input type="radio" name="newpo" disabled={dis} checked={pick === o.id} onChange={() => setPick(o.id)} className="w-4 h-4" />
+                    <span className="flex-1 min-w-0">
+                      <span className="font-mono font-semibold">PO {o.po}</span>{cur && <span className="ml-1 text-[11px] text-gray-500">(current)</span>}
+                      <span className="block text-[11px] text-gray-500">{o.group}{o.load ? ` · Load ${o.load}` : ' · no load'} · line {fmtN(o.line)}, released {fmtN(o.released)}</span>
+                    </span>
+                    <span className={`text-xs font-semibold ${o.left > 0 ? 'text-[#1A1D2E]' : 'text-gray-400'}`}>{o.left > 0 ? `needs ${fmtN(o.left)}` : 'full'}</span>
+                  </label>)
+              })}
+            </div>
+          )}
+          {target && <p className="text-xs rounded-lg bg-sky-50 border border-sky-200 text-sky-900 px-3 py-2">Moves <b>{fmtN(moving)}</b> SRP to PO {target.po}{moving < num(rel.qty) ? `; ${fmtN(num(rel.qty) - moving)} stays on PO ${from}` : ''}.{rel.status === 'Claimed' ? ' Done quantities on both POs update.' : ''}</p>}
+          <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (e.g. released to wrong PO, load booked)" className="w-full h-11 rounded-xl border border-[#E4E6EE] px-3 text-sm" />
+          {err && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{err}</p>}
+        </div>
+        <div className="shrink-0 px-5 py-3 border-t border-[#EEF0F4] flex justify-end gap-2">
+          <button onClick={onClose} className="h-11 px-4 rounded-xl border border-[#E4E6EE] text-sm text-gray-600">Cancel</button>
+          <button onClick={go} disabled={busy || !target} className="h-11 px-5 rounded-xl text-white text-sm font-bold disabled:opacity-40" style={{ background: ACCENT }}>{busy ? 'Moving…' : 'Move to new PO'}</button>
         </div>
       </div>
     </div>
