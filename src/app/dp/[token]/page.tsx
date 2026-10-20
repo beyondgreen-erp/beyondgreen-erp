@@ -40,6 +40,14 @@ export default function DailyPlanPortal() {
   }
   function setField(id: string, patch: any) { setForms(f => ({ ...f, [id]: { ...f[id], ...patch } })) }
 
+  async function quick(ln: any, running_status: string) {
+    setSaving(ln.id)
+    try {
+      const r = await fetch(`/api/dp/${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line_id: ln.id, running_status, operator: ln.operator || '', output_qty: null, unit: 'pieces' }) })
+      if (!r.ok) { alert((await r.json()).error || 'Could not save.'); setSaving(null); return }
+      setSaving(null); setSavedId(ln.id); setTimeout(() => setSavedId(null), 2500); load()
+    } catch { alert('Could not save.'); setSaving(null) }
+  }
   async function submit(ln: any) {
     const form = forms[ln.id]
     setSaving(ln.id)
@@ -99,6 +107,11 @@ export default function DailyPlanPortal() {
                   </div>
                 </button>
 
+                {!isOpen && !offlinePlan && (
+                  (ln.last_status || ln.planned_status) === 'Running'
+                    ? <div className="flex border-t border-[#EEF0F4]"><button onClick={() => openForm(ln)} className="flex-1 py-2.5 text-sm font-bold text-[#00854a]">＋ Log output</button><button onClick={() => quick(ln, 'Down')} disabled={saving === ln.id} className="flex-1 py-2.5 text-sm font-bold text-[#df2f4a] border-l border-[#EEF0F4] disabled:opacity-50">■ Machine down</button></div>
+                    : <button onClick={() => quick(ln, 'Running')} disabled={saving === ln.id} className="w-full py-3 text-white font-bold text-base disabled:opacity-50" style={{ background: '#00854a' }}>{saving === ln.id ? 'Starting…' : '▶ Start machine'}</button>
+                )}
                 {isOpen && (
                   <div className="px-4 pb-4 pt-1 border-t border-[#EEF0F4]">
                     <div className="grid grid-cols-3 gap-2 mt-3">
