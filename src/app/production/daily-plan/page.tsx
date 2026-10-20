@@ -239,6 +239,7 @@ export default function DailyPlanPage() {
           </span>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => openAssign(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#3B6FE0] text-white font-semibold hover:opacity-90">+ Schedule work order</button>
+            <a href={`/production/walmart?week=${p.plan_date}`} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#0071ce] text-white font-semibold hover:opacity-90" title="Pick which molding machines run which mold for the Walmart work order">Walmart machines</a>
             <button onClick={() => sendDayToWhatsApp(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#25D366] text-white font-semibold hover:opacity-90">Send to WhatsApp</button>
             <button onClick={() => copyLink(p)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#037f4c] text-white font-semibold hover:opacity-90">Copy operator link</button>
             <a href={publicUrl(p.share_token)} target="_blank" rel="noreferrer" className="text-[11px] px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Open ↗</a>
