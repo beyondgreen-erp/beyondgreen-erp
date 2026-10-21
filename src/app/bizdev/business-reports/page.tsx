@@ -365,9 +365,9 @@ export default function BusinessReportsPage() {
         <div className="overflow-x-auto">
           {loading ? <div className="flex justify-center py-16"><i className="ti ti-loader-2 animate-spin text-gray-300 text-2xl" /></div>
           : filtered.length === 0 ? <div className="text-center py-16 text-gray-400 text-sm">No exception reports yet — upload one to get started.</div>
-          : <table className="w-full min-w-[1100px]">
+          : <table className="w-full min-w-[940px]">
               <thead><tr className="bg-[#FAFBFC] border-b border-[#E4E6EE]">
-                {['PO #', 'Confirmed beyondGREEN PO', 'Date', 'Delivery No.', 'CenterPoint', 'Carrier', 'Over', 'Short', 'Damaged', 'Freight Qty', 'Over Qty', 'Short Qty', 'Dmg Qty', 'Claim Penalty', 'Comment', 'File', ''].map(h =>
+                {['PO #', 'Confirmed beyondGREEN PO', 'Date', 'Delivery No.', 'CenterPoint', 'Carrier', 'Freight Qty', 'Over Qty', 'Short Qty', 'Dmg Qty', 'Claim Penalty', 'Comment', 'File', ''].map(h =>
                   <th key={h} className={th}>{h}</th>)}
               </tr></thead>
               <tbody>
@@ -383,9 +383,6 @@ export default function BusinessReportsPage() {
                     <td className={td + ' font-mono'}>{r.delivery_no || '—'}</td>
                     <td className={td}>{r.centerpoint || '—'}</td>
                     <td className={td}>{r.carrier_name || '—'}</td>
-                    <td className={td}>{flag(r.over)}</td>
-                    <td className={td}>{flag(r.short)}</td>
-                    <td className={td}>{flag(r.damaged)}</td>
                     <td className={td + ' text-right tabular-nums'}>{r.po_freight_bill_qty ?? '—'}</td>
                     <td className={td + ' text-right tabular-nums'}>{r.over_qty ?? 0}</td>
                     <td className={td + ' text-right tabular-nums font-semibold ' + ((r.short_qty || 0) > 0 ? 'text-red-600' : '')}>{r.short_qty ?? 0}</td>
