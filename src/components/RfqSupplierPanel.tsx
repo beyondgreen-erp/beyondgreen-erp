@@ -46,6 +46,63 @@ export interface SendRow {
   opened_at: string | null
   responded_at: string | null
   error: string | null
+  selection?: 'working' | 'won' | null
+  selected_at?: string | null
+  selected_by?: string | null
+}
+
+/* ------------------------------------------------- Who we're going with */
+
+export const SELECTION_META: Record<'working' | 'won', { label: string; icon: string; bg: string; text: string }> = {
+  won: { label: 'Won', icon: '🏆', bg: '#FEF3C7', text: '#92400E' },
+  working: { label: 'Working with', icon: '🤝', bg: '#E0E7FF', text: '#3730A3' },
+}
+
+export function SelectionBadge({ selection, at, by }: { selection?: string | null; at?: string | null; by?: string | null }) {
+  if (selection !== 'won' && selection !== 'working') return null
+  const m = SELECTION_META[selection]
+  return (
+    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap border"
+      style={{ background: m.bg, color: m.text, borderColor: m.text + '33' }}
+      title={[at ? `Set ${new Date(at).toLocaleString()}` : '', by ? `by ${by}` : ''].filter(Boolean).join(' ')}>
+      {m.icon} {m.label}
+    </span>
+  )
+}
+
+/** Small picker: Not chosen / Working with / Won. Only one winner per RFQ (enforced in the DB). */
+export function SelectionPicker({ send, onChanged }: { send: SendRow; onChanged: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [busy, setBusy] = useState(false)
+  async function pick(v: string) {
+    setBusy(true)
+    const { error } = await supabase.rpc('rfq_set_selection', { p_send: send.id, p_selection: v || null })
+    setBusy(false)
+    if (error) { alert(error.message); return }
+    onChanged()
+  }
+  return (
+    <select
+      value={send.selection || ''}
+      disabled={busy}
+      onChange={e => pick(e.target.value)}
+      onClick={e => e.stopPropagation()}
+      title="Mark who you're working with, or who won this RFQ"
+      className="text-[11px] border border-gray-300 rounded-md px-1.5 py-0.5 bg-white text-gray-700 disabled:opacity-50"
+    >
+      <option value="">Pick supplier…</option>
+      <option value="working">🤝 Working with</option>
+      <option value="won">🏆 Won (awarded)</option>
+    </select>
+  )
+}
+
+/** One-line summary for an RFQ: "🏆 Won: X" or "🤝 Working with: X, Y". */
+export function selectionSummary(sends: { vendor_name: string; selection?: string | null }[]): { kind: 'won' | 'working'; text: string } | null {
+  const won = sends.find(s => s.selection === 'won')
+  if (won) return { kind: 'won', text: won.vendor_name }
+  const w = sends.filter(s => s.selection === 'working').map(s => s.vendor_name)
+  return w.length ? { kind: 'working', text: w.join(', ') } : null
 }
 
 interface RespLine {
@@ -869,7 +926,7 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
     setLoading(true)
     const [{ data: s }, { data: r }] = await Promise.all([
       supabase.from('rfq_sends')
-        .select('id, vendor_id, vendor_name, recipient_email, status, sent_at, opened_at, responded_at, error')
+        .select('id, vendor_id, vendor_name, recipient_email, status, sent_at, opened_at, responded_at, error, selection, selected_at, selected_by')
         .eq('quotation_id', quotationId).order('sent_at', { ascending: false }),
       supabase.from('rfq_vendor_responses')
         .select('*, rfq_response_lines(*)')
@@ -913,12 +970,22 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
           <h4 className="text-xs font-bold uppercase tracking-wide text-gray-500">Suppliers contacted <span className="normal-case font-normal text-gray-400">— click a name to enter a quote they emailed</span></h4>
           <button onClick={load} className="text-[11px] text-emerald-700 hover:underline">Refresh</button>
         </div>
+        {(() => {
+          const sum = selectionSummary(sends)
+          if (!sum) return null
+          const m = SELECTION_META[sum.kind]
+          return (
+            <div className="mb-2 rounded-lg px-3 py-2 text-sm font-semibold border" style={{ background: m.bg, color: m.text, borderColor: m.text + '33' }}>
+              {m.icon} {sum.kind === 'won' ? 'Awarded to' : 'Working with'} {sum.text}
+            </div>
+          )
+        })()}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           {sends.map(s => {
             const c = statusColor(s.status)
             const logged = responses.find(r => r.rfq_send_id === s.id) || responses.find(r => !!r.vendor_id && r.vendor_id === s.vendor_id)
             return (
-              <div key={s.id} className="flex items-center justify-between px-3 py-2 text-sm border-b border-gray-100 last:border-0">
+              <div key={s.id} className={`flex items-center justify-between gap-2 px-3 py-2 text-sm border-b border-gray-100 last:border-0 ${s.selection === 'won' ? 'bg-amber-50' : s.selection === 'working' ? 'bg-indigo-50/50' : ''}`}>
                 <div className="min-w-0">
                   <button
                     type="button"
@@ -931,7 +998,9 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
                   <div className="text-[11px] text-gray-400 truncate">{s.recipient_email} · sent {new Date(s.sent_at).toLocaleDateString()}</div>
                   {s.error && <div className="text-[11px] text-red-600">{s.error}</div>}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                  <SelectionBadge selection={s.selection} at={s.selected_at} by={s.selected_by} />
+                  <SelectionPicker send={s} onChanged={load} />
                   <button type="button" onClick={() => setEntering(s)} className="text-[11px] text-emerald-700 hover:underline">
                     {logged ? 'Edit quote' : 'Enter quote'}
                   </button>
@@ -958,7 +1027,10 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
               <thead>
                 <tr style={{ background: DEEP }} className="text-white text-xs">
                   <th className="text-left px-3 py-2 font-semibold sticky left-0" style={{ background: DEEP }}>Item</th>
-                  {responses.map(r => <th key={r.id} className="text-right px-3 py-2 font-semibold whitespace-nowrap">{r.vendor_name}</th>)}
+                  {responses.map(r => {
+                    const sel = sends.find(x => x.id === r.rfq_send_id)?.selection
+                    return <th key={r.id} className="text-right px-3 py-2 font-semibold whitespace-nowrap">{sel === 'won' ? '🏆 ' : sel === 'working' ? '🤝 ' : ''}{r.vendor_name}</th>
+                  })}
                 </tr>
               </thead>
               <tbody>
