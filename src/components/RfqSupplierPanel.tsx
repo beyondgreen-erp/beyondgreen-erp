@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
 import FileUpload from '@/components/FileUpload'
-import { downloadFile, formatFileSize } from '@/lib/fileHelpers'
+import { downloadFile, formatFileSize, uploadFile } from '@/lib/fileHelpers'
 
 /**
  * Outbound supplier RFQ, from inside the quotations page.
@@ -510,6 +510,98 @@ export function RfqManualQuoteModal({
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  // "Read their email" — paste the thread / drop what they sent, AI fills the form.
+  const [emailText, setEmailText] = useState('')
+  const [picked, setPicked] = useState<File[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const [reading, setReading] = useState(false)
+  const [aiNote, setAiNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [replaceTyped, setReplaceTyped] = useState(false)
+  const [filesKey, setFilesKey] = useState(0)
+
+  async function readWithAI() {
+    setReading(true); setAiNote(null); setErr('')
+    try {
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+      const safeVendor = (send.vendor_name || 'supplier').replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 40)
+      const uploads: File[] = [...picked]
+      if (emailText.trim()) {
+        uploads.unshift(new File([emailText], `email-${safeVendor}-${stamp}.txt`, { type: 'text/plain' }))
+      }
+      for (const file of uploads) {
+        const r = await uploadFile(supabase, file, 'rfq_response', responseId, currentUserEmail)
+        if (!r.success) throw new Error(`Could not attach ${file.name}: ${r.error}`)
+      }
+      if (uploads.length) { setPicked([]); setEmailText(''); setFilesKey(k => k + 1) }
+
+      const res = await fetch('/api/rfq/extract-quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ responseId, quotationId, vendorName: send.vendor_name }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.ok) throw new Error(j.error || 'Could not read the email/files.')
+      const d = j.data || {}
+      const filled: string[] = []
+      const str = (v: any) => (v === null || v === undefined || v === '' ? null : String(v))
+
+      setF(prev => {
+        const next: any = { ...prev }
+        const keys = ['contact_name', 'contact_email', 'currency', 'incoterm', 'payment_terms', 'lead_time_days', 'moq_note',
+          'validity_days', 'plate_die_charges', 'overrun_tolerance', 'certifications', 'exclusions'] as const
+        keys.forEach(k => {
+          const v = str(d[k]); if (v == null) return
+          if (replaceTyped || !String(prev[k] ?? '').trim() || (k === 'currency' && prev[k] === 'USD')) {
+            if (next[k] !== v) { next[k] = v; filled.push(k.replace(/_/g, ' ')) }
+          }
+        })
+        if (d.sample_available === true || d.sample_available === false) {
+          const v = d.sample_available ? 'yes' : 'no'
+          if (replaceTyped || !prev.sample_available) { next.sample_available = v; filled.push('samples') }
+        }
+        const extra = [str(d.notes), Array.isArray(d.unmatched) && d.unmatched.length ? `Also quoted (not on our RFQ): ${d.unmatched.join('; ')}` : null]
+          .filter(Boolean).join('\n')
+        if (extra && !String(prev.notes || '').includes(extra)) {
+          next.notes = prev.notes?.trim() ? `${prev.notes.trim()}\n\n— From their email (${new Date().toLocaleDateString()}) —\n${extra}` : extra
+          filled.push('notes')
+        }
+        return next
+      })
+
+      let linesFilled = 0
+      setPrices(prev => {
+        const next = { ...prev }
+        for (const l of (d.lines || []) as any[]) {
+          const cur = next[l.quotation_line_id] || { unit_price: '', pcs_per_case: '', case_price: '', notes: '' }
+          const row = { ...cur }
+          let touched = false
+          ;(['unit_price', 'pcs_per_case', 'case_price', 'notes'] as const).forEach(k => {
+            const v = str(l[k]); if (v == null) return
+            if (replaceTyped || !String(cur[k] ?? '').trim()) { row[k] = v; touched = true }
+          })
+          if (touched) { next[l.quotation_line_id] = row; linesFilled++ }
+        }
+        return next
+      })
+      // setPrices runs synchronously enough for a count; fall back to the payload size.
+      const nLines = linesFilled || (d.lines || []).length
+      const parts = [
+        nLines ? `${nLines} line price${nLines === 1 ? '' : 's'}` : null,
+        filled.length ? filled.join(', ') : null,
+      ].filter(Boolean)
+      setAiNote({
+        ok: true,
+        text: (parts.length ? `Filled in: ${parts.join(' · ')}.` : 'Read it, but found nothing new to fill in.')
+          + ` Read ${j.read?.length || 0} file${j.read?.length === 1 ? '' : 's'}.`
+          + (j.skipped?.length ? ` Skipped: ${j.skipped.join(', ')}.` : '')
+          + ' Check the numbers, then Save quote.',
+      })
+    } catch (e: any) {
+      setAiNote({ ok: false, text: e?.message || 'Could not read the email/files.' })
+    } finally {
+      setReading(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -638,6 +730,64 @@ export function RfqManualQuoteModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <section
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) setPicked(p => [...p, ...Array.from(e.dataTransfer.files)]) }}
+            className={`rounded-lg border-2 border-dashed p-4 ${dragOver ? 'border-emerald-500 bg-emerald-50' : 'border-emerald-200 bg-emerald-50/40'}`}
+          >
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: DEEP }}>✨ Read their email &amp; files</h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">Paste the email thread and/or drop what they sent (PDF, Excel, photos, .eml or .msg). A copy is saved to this quote and the form below fills itself in.</p>
+              </div>
+            </div>
+            <textarea
+              rows={4}
+              value={emailText}
+              onChange={e => setEmailText(e.target.value)}
+              placeholder="Paste the whole email thread here (Ctrl/Cmd+A, Ctrl/Cmd+C in the email, then paste)"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <label className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
+                📎 Add files
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.xlsx,.xls,.xlsm,.csv,.tsv,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.txt,.html,.htm"
+                  className="hidden"
+                  onChange={e => { const fl = e.target.files; if (fl?.length) setPicked(p => [...p, ...Array.from(fl)]); e.target.value = '' }}
+                />
+              </label>
+              {picked.map((p, i) => (
+                <span key={i} className="inline-flex items-center gap-1 text-[11px] bg-white border border-gray-200 rounded-full px-2 py-0.5">
+                  {p.name}
+                  <button type="button" onClick={() => setPicked(x => x.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600">×</button>
+                </span>
+              ))}
+              <div className="flex-1" />
+              <label className="flex items-center gap-1 text-[11px] text-gray-500">
+                <input type="checkbox" checked={replaceTyped} onChange={e => setReplaceTyped(e.target.checked)} />
+                Overwrite what&apos;s already typed
+              </label>
+              <button
+                type="button"
+                onClick={readWithAI}
+                disabled={reading}
+                className="px-4 py-1.5 rounded-lg text-white text-xs font-semibold disabled:opacity-50"
+                style={{ background: GREEN }}
+              >
+                {reading ? 'Reading…' : (emailText.trim() || picked.length) ? 'Attach & fill in' : 'Fill in from attached files'}
+              </button>
+            </div>
+            {aiNote && (
+              <div className={`mt-2 text-[12px] rounded-md px-3 py-2 ${aiNote.ok ? 'bg-white text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                {aiNote.text}
+              </div>
+            )}
+          </section>
+
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Item pricing</h3>
             {qlines.length === 0 ? (
@@ -686,8 +836,8 @@ export function RfqManualQuoteModal({
 
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Files from {send.vendor_name}</h3>
-            <p className="text-[11px] text-gray-400 mb-2">Quote sheets, PDFs, proofs, certificates — anything they attached to their email.</p>
-            <FileUpload supabase={supabase} recordType="rfq_response" recordId={responseId} currentUserEmail={currentUserEmail} />
+            <p className="text-[11px] text-gray-400 mb-2">Quote sheets, PDFs, proofs, certificates and saved email copies. Files added here are read too when you press “Fill in from attached files”.</p>
+            <FileUpload key={filesKey} supabase={supabase} recordType="rfq_response" recordId={responseId} currentUserEmail={currentUserEmail} />
           </section>
         </div>
 
@@ -766,6 +916,7 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           {sends.map(s => {
             const c = statusColor(s.status)
+            const logged = responses.find(r => r.rfq_send_id === s.id) || responses.find(r => !!r.vendor_id && r.vendor_id === s.vendor_id)
             return (
               <div key={s.id} className="flex items-center justify-between px-3 py-2 text-sm border-b border-gray-100 last:border-0">
                 <div className="min-w-0">
@@ -782,9 +933,16 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button type="button" onClick={() => setEntering(s)} className="text-[11px] text-emerald-700 hover:underline">
-                    {responses.some(r => r.rfq_send_id === s.id || (r.vendor_id && r.vendor_id === s.vendor_id)) ? 'Edit quote' : 'Enter quote'}
+                    {logged ? 'Edit quote' : 'Enter quote'}
                   </button>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: c.bg, color: c.text }}>{s.status}</span>
+                  {logged ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: GREEN }}
+                      title={logged.submitted_at ? `Quote logged ${new Date(logged.submitted_at).toLocaleString()}` : 'Quote logged'}>
+                      ✓ Completed{logged.submitted_at ? ` · ${new Date(logged.submitted_at).toLocaleDateString()}` : ''}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: c.bg, color: c.text }}>{s.status === 'Sent' ? 'Waiting' : s.status}</span>
+                  )}
                 </div>
               </div>
             )
