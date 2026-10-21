@@ -159,6 +159,7 @@ export default function BusinessReportsPage() {
         setReviewPrompt(null); setUploading(false); return
       }
       const ins = j.inserted || 0
+      if (j.record) setUploadRecord(j.record)
       setMsg(`Added ${ins} line item${ins === 1 ? '' : 's'}.`)
       setReviewPrompt(null)
       await load()
@@ -180,6 +181,7 @@ export default function BusinessReportsPage() {
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Upload failed')
       const ins = j.inserted || 0, upd = j.updated || 0
+      if (j.record) setUploadRecord(j.record)
       setMsg(mode === 'overwrite'
         ? `Updated ${upd} existing line${upd === 1 ? '' : 's'} and added ${ins} new one${ins === 1 ? '' : 's'}.`
         : `Added ${ins} line item${ins === 1 ? '' : 's'} \u2014 duplicates included.`)
@@ -256,9 +258,9 @@ export default function BusinessReportsPage() {
         )}
 
         {reviewPrompt && (
-          <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 p-4 mb-4">
-            <p className="text-sky-300 text-sm font-semibold mb-1">Please check these quantities before saving</p>
-            <p className="text-sky-200/90 text-xs mb-3 leading-relaxed">
+          <div className="rounded-xl border border-[#B6DCF5] bg-[#EFF7FD] p-4 mb-4">
+            <p className="text-[#0B4C73] text-sm font-semibold mb-1">Please check these quantities before saving</p>
+            <p className="text-[#1A1D2E] text-xs mb-3 leading-relaxed">
               {reviewPrompt.exceptionCount} of {reviewPrompt.total} line{reviewPrompt.total === 1 ? '' : 's'} on {reviewPrompt.fileName || 'this report'} came back with an exception
               {reviewPrompt.delivery_no ? ` for delivery ${reviewPrompt.delivery_no}` : ''}
               {reviewPrompt.report_date ? `, dated ${reviewPrompt.report_date}` : ''}.
@@ -268,17 +270,17 @@ export default function BusinessReportsPage() {
               {(reviewPrompt.confirmedRows || []).map((r: any, i: number) => (
                 (Number(r.over_qty) > 0 || Number(r.short_qty) > 0 || Number(r.damaged_qty) > 0) ? (
                   <div key={i} className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-mono text-gray-200 w-28">PO {r.po_number}</span>
-                    <span className="text-gray-500 w-24">bill qty {r.po_freight_bill_qty ?? '-'}</span>
-                    <label className="flex items-center gap-1 text-gray-400">Over
+                    <span className="font-mono text-[#1A1D2E] w-28">PO {r.po_number}</span>
+                    <span className="text-[#4A5568] w-24">bill qty {r.po_freight_bill_qty ?? '-'}</span>
+                    <label className="flex items-center gap-1 text-[#4A5568]">Over
                       <input type="number" min={0} value={r.over_qty ?? 0} onChange={e => setQty(i, 'over_qty', e.target.value)}
-                        className="w-16 px-1.5 py-0.5 rounded bg-black/30 border border-gray-600 text-gray-100" /></label>
-                    <label className="flex items-center gap-1 text-gray-400">Short
+                        className="w-16 px-1.5 py-0.5 rounded bg-white border border-[#CBD5E1] text-[#1A1D2E]" /></label>
+                    <label className="flex items-center gap-1 text-[#4A5568]">Short
                       <input type="number" min={0} value={r.short_qty ?? 0} onChange={e => setQty(i, 'short_qty', e.target.value)}
-                        className="w-16 px-1.5 py-0.5 rounded bg-black/30 border border-gray-600 text-gray-100" /></label>
-                    <label className="flex items-center gap-1 text-gray-400">Damage
+                        className="w-16 px-1.5 py-0.5 rounded bg-white border border-[#CBD5E1] text-[#1A1D2E]" /></label>
+                    <label className="flex items-center gap-1 text-[#4A5568]">Damage
                       <input type="number" min={0} value={r.damaged_qty ?? 0} onChange={e => setQty(i, 'damaged_qty', e.target.value)}
-                        className="w-16 px-1.5 py-0.5 rounded bg-black/30 border border-gray-600 text-gray-100" /></label>
+                        className="w-16 px-1.5 py-0.5 rounded bg-white border border-[#CBD5E1] text-[#1A1D2E]" /></label>
                   </div>
                 ) : null
               ))}
@@ -289,20 +291,20 @@ export default function BusinessReportsPage() {
                 Confirm and save
               </button>
               <button onClick={() => viewFile(reviewPrompt.storagePath)} disabled={uploading}
-                className="px-3 py-1.5 rounded-lg border border-gray-600 text-gray-200 hover:bg-white/5 text-xs font-semibold disabled:opacity-50">
+                className="px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-[#1A1D2E] hover:bg-[#F7F8FB] text-xs font-semibold disabled:opacity-50">
                 Open the scan
               </button>
               <button onClick={() => setReviewPrompt(null)} disabled={uploading}
-                className="px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 text-xs font-semibold disabled:opacity-50">
+                className="px-3 py-1.5 rounded-lg text-[#4A5568] hover:text-[#1A1D2E] text-xs font-semibold disabled:opacity-50">
                 Cancel
               </button>
             </div>
           </div>
         )}
         {dupPrompt && (
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 mb-4">
-            <p className="text-amber-300 text-sm font-semibold mb-1">This report is already in the system</p>
-            <p className="text-amber-200/90 text-xs mb-3 leading-relaxed">
+          <div className="rounded-xl border border-[#F3D08A] bg-[#FDF6E7] p-4 mb-4">
+            <p className="text-[#7A4A05] text-sm font-semibold mb-1">This report is already in the system</p>
+            <p className="text-[#1A1D2E] text-xs mb-3 leading-relaxed">
               {dupPrompt.duplicateCount} of {dupPrompt.total} line{dupPrompt.total === 1 ? '' : 's'} on {dupPrompt.fileName || 'this file'} already exist
               {dupPrompt.delivery_no ? ` for delivery ${dupPrompt.delivery_no}` : ''}
               {dupPrompt.report_date ? `, dated ${dupPrompt.report_date}` : ''}.
@@ -316,11 +318,11 @@ export default function BusinessReportsPage() {
                 Overwrite{dupPrompt.newCount > 0 ? ` \u2014 keep existing, add ${dupPrompt.newCount} new` : ' \u2014 nothing new to add'}
               </button>
               <button onClick={() => confirmUpload('duplicate')} disabled={uploading}
-                className="px-3 py-1.5 rounded-lg border border-gray-600 text-gray-200 hover:bg-white/5 text-xs font-semibold disabled:opacity-50">
+                className="px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-[#1A1D2E] hover:bg-[#F7F8FB] text-xs font-semibold disabled:opacity-50">
                 Add anyway \u2014 create duplicates
               </button>
               <button onClick={() => setDupPrompt(null)} disabled={uploading}
-                className="px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 text-xs font-semibold disabled:opacity-50">
+                className="px-3 py-1.5 rounded-lg text-[#4A5568] hover:text-[#1A1D2E] text-xs font-semibold disabled:opacity-50">
                 Cancel
               </button>
             </div>
