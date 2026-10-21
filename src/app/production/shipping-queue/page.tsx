@@ -1412,20 +1412,31 @@ export default function ShippingQueuePage() {
         if (!r.sku || qty <= 0) continue
         try {
           let pid = r.productId
-          if (!pid) {
-            const { data: pf } = await sb.from('products').select('id').ilike('sku', r.sku).limit(1)
-            pid = (pf?.[0] as any)?.id ?? null
+          let prod: any = null
+          if (pid) {
+            const { data } = await sb.from('products').select('id, on_hand_qty, unit_of_measure, packs_per_case, case_qty').eq('id', pid).maybeSingle()
+            prod = data
+          } else {
+            const { data: pf } = await sb.from('products').select('id, on_hand_qty, unit_of_measure, packs_per_case, case_qty').ilike('sku', r.sku).limit(1)
+            prod = (pf?.[0] as any) ?? null
+            pid = prod?.id ?? null
           }
+          // A line shipped as "1 CASE" must take a whole case of packs off the shelf, not one
+          // pack. Without this conversion on-hand drifts upward on every case shipment.
+          const isCaseUom = (u?: string | null) => ['case','cases','cs'].includes(String(u ?? '').trim().toLowerCase())
+          const perCase = Number(prod?.packs_per_case || prod?.case_qty || 0) || 1
+          const needsConv = isCaseUom(r.uom) && !isCaseUom(prod?.unit_of_measure)
+          const stockQty = needsConv ? qty * perCase : qty
+          const stockUom = needsConv ? (prod?.unit_of_measure ?? null) : (r.uom || null)
           await sb.from('inventory_movements').insert({
-            product_id: pid, sku: r.sku, movement_type: 'ship', qty: -qty, uom: r.uom || null,
+            product_id: pid, sku: r.sku, movement_type: 'ship', qty: -stockQty, uom: stockUom,
             ref_table: 'shipments', ref_id: targetId,
             note: `Shipped on ${o.order_number || 'order'}${o.po_number ? ' / PO ' + o.po_number : ''} → ${st.name || 'customer'}`,
             created_by: userEmail || 'system',
           })
           if (pid) {
-            const { data: pr } = await sb.from('products').select('on_hand_qty').eq('id', pid).maybeSingle()
-            const cur = Number((pr as any)?.on_hand_qty || 0)
-            const nu = cur - qty
+            const cur = Number(prod?.on_hand_qty || 0)
+            const nu = cur - stockQty
             if (nu < 0) negWarn.push(`${r.sku} (now ${nu})`)
             await sb.from('products').update({ on_hand_qty: nu }).eq('id', pid)
           }
