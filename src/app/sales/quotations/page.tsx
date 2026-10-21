@@ -185,6 +185,8 @@ export default function QuotationsPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [portals, setPortals] = useState<PortalClient[]>([])
   const [lineCounts, setLineCounts] = useState<Record<string, number>>({})
+  // Supplier-quote progress per RFQ: how many suppliers were asked vs. how many quotes are logged.
+  const [rfqProgress, setRfqProgress] = useState<Record<string, { asked: number; got: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -258,6 +260,20 @@ export default function QuotationsPage() {
         }
       }
       setLinkedNames(nm)
+    }
+    {
+      const [{ data: sd }, { data: rd }] = await Promise.all([
+        supabase.from('rfq_sends').select('id, quotation_id, vendor_id'),
+        supabase.from('rfq_vendor_responses').select('quotation_id, rfq_send_id, vendor_id'),
+      ])
+      const prog: Record<string, { asked: number; got: number }> = {}
+      const resp = (rd ?? []) as any[]
+      for (const sRow of (sd ?? []) as any[]) {
+        const p = (prog[sRow.quotation_id] ||= { asked: 0, got: 0 })
+        p.asked++
+        if (resp.some(r => r.rfq_send_id === sRow.id || (r.vendor_id && r.vendor_id === sRow.vendor_id && r.quotation_id === sRow.quotation_id))) p.got++
+      }
+      setRfqProgress(prog)
     }
     if (lData) {
       const counts: Record<string, number> = {}
@@ -1027,6 +1043,16 @@ export default function QuotationsPage() {
                             <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{quote.expiry_date ? new Date(quote.expiry_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
                             <td className="px-3 py-2.5">
                               <span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block whitespace-nowrap" style={{ background: rbStatusColor(quote.status) }}>{quote.status || 'Draft'}</span>
+                              {quote.type === 'rfq' && rfqProgress[quote.id]?.asked ? (() => {
+                                const pr = rfqProgress[quote.id]
+                                const done = pr.got >= pr.asked
+                                return (
+                                  <div className={`mt-1 text-[10px] font-semibold whitespace-nowrap ${done ? 'text-emerald-700' : pr.got ? 'text-amber-600' : 'text-gray-400'}`}
+                                    title="Supplier quotes logged / suppliers asked">
+                                    {done ? `✓ Completed · ${pr.got}/${pr.asked} quotes` : `${pr.got}/${pr.asked} supplier quotes in`}
+                                  </div>
+                                )
+                              })() : null}
                             </td>
                             <td className="px-3 py-2.5 text-gray-600">{lineCounts[quote.id] ?? 0}</td>
                             <td className="px-3 py-2.5 text-right font-semibold text-[#1A1D2E]">{fmt$(quote.total)}</td>
