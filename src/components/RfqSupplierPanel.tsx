@@ -36,7 +36,7 @@ export interface RfqVendor {
   source_notes: string | null
 }
 
-interface SendRow {
+export interface SendRow {
   id: string
   vendor_id: string | null
   vendor_name: string
@@ -59,7 +59,7 @@ interface RespLine {
   notes: string | null
 }
 
-interface Resp {
+export interface Resp {
   id: string
   vendor_name: string | null
   contact_name: string | null
@@ -472,7 +472,7 @@ function Field({ label, children, span2 }: { label: string; children: any; span2
   )
 }
 
-function RfqManualQuoteModal({
+export function RfqManualQuoteModal({
   send,
   existing,
   quotationId,
