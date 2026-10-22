@@ -230,6 +230,9 @@ export default function WalmartProductionPage() {
     if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) setWeek(mondayOf(w))
   }, [])
   useEffect(() => { setLoading(true); load() }, [load])
+  // After any change on this page, reload now and once more a moment later so phones
+  // never keep showing the old numbers.
+  const reload = useCallback(() => { load(); setTimeout(load, 900) }, [load])
   useEffect(() => { (async () => {
     const [mR, rR, bR] = await Promise.all([
       sb.from('machines').select('id,machine_code,status,is_active,equipment_group').eq('equipment_group', 'MOLDING').eq('is_active', true),
@@ -348,7 +351,7 @@ export default function WalmartProductionPage() {
       </div>
 
       {tab === 'build' && flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
-      {tab === 'build' ? <BuildTeam sb={sb} releases={releases} canEdit={canEdit} onDone={(m) => { setFlash(m); load() }} /> : <>
+      {tab === 'build' ? <BuildTeam sb={sb} releases={releases} canEdit={canEdit} onDone={(m) => { setFlash(m); reload() }} /> : <>
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — each entry adds the finished SRPs to inventory, takes out every packaging part and cutlery piece used, posts to the Inventory Ledger, and updates this week&apos;s Walmart work order.</div>
 
       {flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
@@ -421,7 +424,7 @@ export default function WalmartProductionPage() {
 
       {wo && (plan.length > 0 || canEdit) && <PickupSchedule plan={plan} canEdit={canEdit} onManage={() => setShowLoads(true)} />}
 
-      {wo && <MachinePlan sb={sb} wo={wo} week={week} today={today} canEdit={canEdit} progBySku={progBySku} plan={plan} runs={runs} machs={machs} bomPcs={bomPcs} onSaved={(m) => { setFlash(m); load() }} />}
+      {wo && <MachinePlan sb={sb} wo={wo} week={week} today={today} canEdit={canEdit} progBySku={progBySku} plan={plan} runs={runs} machs={machs} bomPcs={bomPcs} onSaved={(m) => { setFlash(m); reload() }} />}
 
       {safety.map(ss => {
         const rows = safetyProg.filter(p => p.work_order_id === ss.id)
@@ -538,28 +541,43 @@ export default function WalmartProductionPage() {
 
       </>}
 
-      {showLoads && wo && <LoadsModal sb={sb} loads={loads} orders={woOrders} rankByOrder={rankByOrder} onClose={() => setShowLoads(false)} onChanged={load} />}
-      {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); load() }} />}
+      {showLoads && wo && <LoadsModal sb={sb} loads={loads} orders={woOrders} rankByOrder={rankByOrder} onClose={() => setShowLoads(false)} onChanged={reload} />}
+      {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); reload() }} />}
       {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
-        onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); load(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
+        onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); reload(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
       {showWo && <WoModal sb={sb} wo={wo} week={week} prods={prods} alloc={alloc} prog={prog} onClose={() => setShowWo(false)}
-        onSaved={(msg) => { setFlash(msg); setShowWo(false); load() }} />}
+        onSaved={(msg) => { setFlash(msg); setShowWo(false); reload() }} />}
       {detail && <EntryDetail sb={sb} entry={detail} wo={wo} moves={moves.filter(m => m.ref_id === detail.id)} itemName={itemName} me={me}
-        canEdit={canEdit} isAdmin={perms.is_admin} onClose={() => setDetail(null)} onChanged={(msg) => { setFlash(msg); setDetail(null); load() }} />}
+        canEdit={canEdit} isAdmin={perms.is_admin} onClose={() => setDetail(null)} onChanged={(msg) => { setFlash(msg); setDetail(null); reload() }} />}
     </div>
   )
 }
 
 /** Pop-ups render straight into <body>. Inside the app's scrolling <main>, iOS Safari clips
  *  position:fixed children to the scroller, which cut off the bottom buttons on phones. */
-function Overlay({ children }: { children: React.ReactNode }) {
+function Overlay({ children, onClose }: { children: React.ReactNode; onClose?: () => void }) {
   const [mounted, setMounted] = useState(false)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
   useEffect(() => {
     setMounted(true)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = prev }
   }, [])
+  // Phone / browser Back button closes the sheet instead of leaving the board.
+  const hasClose = !!onClose
+  useEffect(() => {
+    if (!hasClose) return
+    let poppedByUser = false
+    window.history.pushState({ ...(window.history.state || {}), wmSheet: true }, '')
+    const onPop = () => { poppedByUser = true; closeRef.current?.() }
+    window.addEventListener('popstate', onPop)
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      if (!poppedByUser && window.history.state?.wmSheet) window.history.back()
+    }
+  }, [hasClose])
   return mounted ? createPortal(children, document.body) : null
 }
 
@@ -658,10 +676,10 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
   }
 
   return (
-    <Overlay>
-    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay onClose={onClose}>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
       <div className="w-full sm:max-w-lg mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
-        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between" style={{ top: 'env(safe-area-inset-top)' }}>
           <div>
             <p className="text-[11px] uppercase tracking-wide text-gray-400">Finished SRPs (cases of 6 packs)</p>
             <h2 className="text-lg font-bold text-[#1A1D2E]">{stockMode ? 'Release logged SRPs' : 'Log production'}</h2>
@@ -729,6 +747,7 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
           {err && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{err}</p>}
         </div>
         <div className="shrink-0 px-5 py-3 border-t border-[#EEF0F4] pb-[max(12px,env(safe-area-inset-bottom))] flex gap-2">
+          <button type="button" onClick={onClose} disabled={busy} className="sm:hidden h-14 px-3 rounded-2xl border border-[#E4E6EE] text-sm font-semibold text-gray-600 shrink-0" aria-label="Back to the board">← Back</button>
           {stockMode ? (
             <button onClick={save} disabled={busy || total <= 0 || !poId} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>
               {busy ? 'Releasing…' : !poId ? 'Pick a PO' : total > 0 ? `Release ${fmtN(total)} SRP to PO ${pos.find(x => x.id === poId)?.po_number || ''}` : 'Enter quantities'}
@@ -816,8 +835,8 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
   }
 
   return (
-    <Overlay>
-    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay onClose={onClose}>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
       <div className="w-full sm:max-w-3xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 py-4 text-white rounded-t-3xl sm:rounded-t-2xl flex items-start justify-between" style={{ background: ACCENT }}>
           <div>
@@ -915,8 +934,8 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
   }
 
   return (
-    <Overlay>
-    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay onClose={onClose}>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
       <div className="w-full sm:max-w-xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col overflow-hidden pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
         <div className="px-5 py-4 text-white flex items-start justify-between" style={{ background: m.color }}>
           <div>
@@ -1052,10 +1071,10 @@ function SafetyModal({ sb, onClose, onSaved }: { sb: ReturnType<typeof createSup
     onSaved('✓ Safety stock work order created — it shows on this board and the Work Orders board.')
   }
   return (
-    <Overlay>
-    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay onClose={onClose}>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
       <div className="w-full sm:max-w-md mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
-        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between" style={{ top: 'env(safe-area-inset-top)' }}>
           <div><p className="text-[11px] uppercase tracking-wide text-gray-400">No POs — builds stock ahead</p><h2 className="text-lg font-bold text-[#1A1D2E]">Safety stock work order</h2></div>
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
@@ -1188,10 +1207,10 @@ function LoadsModal({ sb, loads, orders, rankByOrder, onClose, onChanged }: {
   const sorted = [...orders].sort((a, b) => ((rankByOrder[a.id]?.rank || 999) - (rankByOrder[b.id]?.rank || 999)) || String(a.po_number).localeCompare(String(b.po_number)))
   const inp = 'h-10 rounded-lg border border-[#E4E6EE] px-2 text-sm bg-white'
   return (
-    <Overlay>
-    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay onClose={onClose}>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
       <div className="w-full sm:max-w-3xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
-        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between" style={{ top: 'env(safe-area-inset-top)' }}>
           <div><p className="text-[11px] uppercase tracking-wide text-gray-400">Earliest pick-up is made first · same date → lower priority # first</p><h2 className="text-lg font-bold text-[#1A1D2E]">Loads &amp; pick-up dates</h2></div>
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
@@ -1284,10 +1303,10 @@ function MovePoModal({ sb, rel, onClose, onDone }: { sb: ReturnType<typeof creat
   }
   const from = rel.walmart_board_orders?.po_number || '—'
   return (
-    <Overlay>
-    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay onClose={onClose}>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
       <div className="w-full sm:max-w-lg mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
-        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between" style={{ top: 'env(safe-area-inset-top)' }}>
           <div><p className="text-[11px] uppercase tracking-wide text-gray-400">{rel.status === 'Claimed' ? 'Claimed' : 'Released'} · {fmtN(rel.qty)} SRP {meta(rel.sku).short}</p><h2 className="text-lg font-bold text-[#1A1D2E]">Change PO {from} → ?</h2></div>
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
@@ -1432,10 +1451,10 @@ function MachinePlanModal({ sb, wo, day, runs, machs, bomPcs, needWo, needP1, le
     onSaved(`✓ Machine plan saved for ${fmtDay(day)} — ${payload.length} machine${payload.length === 1 ? '' : 's'}${payload.length ? ': ' + sel.map(m => `${m.machine_code} ${pieceName(rows[m.id].piece)}`).join(', ') : ''}. It's on the Daily Plan too.`)
   }
   return (
-    <Overlay>
-    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch' }}>
+    <Overlay onClose={onClose}>
+    <div className="fixed inset-0 z-[110] overflow-y-auto overscroll-contain flex flex-col sm:p-4" style={{ background: 'rgba(26,32,53,0.55)', WebkitOverflowScrolling: 'touch', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
       <div className="w-full sm:max-w-3xl mt-auto sm:my-auto sm:mx-auto shrink-0 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col pb-[calc(env(safe-area-inset-bottom)+72px)] sm:pb-0">
-        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between" style={{ top: 'env(safe-area-inset-top)' }}>
           <div><p className="text-[11px] uppercase tracking-wide text-gray-400">{wo.wo_code} · tick the machines running and their mold</p><h2 className="text-lg font-bold text-[#1A1D2E]">Machine plan · {fmtDay(day)}</h2></div>
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
