@@ -13,7 +13,7 @@ const ACCENT = '#1F9A3A'
 interface Quote { id: string; quote_number: string | null; status: string | null; quote_date: string | null; customer_id: string | null; notes: string | null }
 interface Send extends SendRow { quotation_id: string; expires_at: string | null; reminder_count: number | null }
 interface Line { quotation_id: string; sku: string | null; product_name: string | null; description: string | null; quantity: number | null }
-type Status = 'received' | 'waiting' | 'noreply'
+type Status = 'received' | 'waiting' | 'noreply' | 'declined'
 
 const fmtD = (s?: string | null) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
 const money = (n: number | null | undefined, c = 'USD') => n == null ? '—' : `${c === 'USD' ? '$' : c + ' '}${Number(n).toLocaleString('en-US', { maximumFractionDigits: n < 10 ? 4 : 2 })}`
@@ -75,7 +75,7 @@ export default function SupplierQuotesPage() {
 
   const respBySend = useMemo(() => { const m: Record<string, Resp> = {}; for (const r of resps) if (r.rfq_send_id) m[r.rfq_send_id] = r; return m }, [resps])
   const now = Date.now()
-  const statusOf = (s: Send): Status => respBySend[s.id] || s.status === 'Responded' ? 'received' : (s.expires_at && Date.parse(s.expires_at) < now) || Date.parse(s.sent_at) < now - 21 * 864e5 ? 'noreply' : 'waiting'
+  const statusOf = (s: Send): Status => s.selection === 'declined' ? 'declined' : respBySend[s.id] || s.status === 'Responded' ? 'received' : (s.expires_at && Date.parse(s.expires_at) < now) || Date.parse(s.sent_at) < now - 21 * 864e5 ? 'noreply' : 'waiting'
   const qById = useMemo(() => Object.fromEntries(quotes.map(x => [x.id, x])), [quotes])
   const custOf = (qid: string) => { const x = qById[qid]; return x?.customer_id ? custs[x.customer_id] || '—' : '—' }
   const itemsOf = (qid: string) => lines.filter(l => l.quotation_id === qid)
@@ -96,12 +96,13 @@ export default function SupplierQuotesPage() {
     return Array.from(gm.entries()).sort((a, b) => Math.max(...b[1].map(s => Date.parse(s.sent_at))) - Math.max(...a[1].map(s => Date.parse(s.sent_at))))
   }, [sends, q, filter, quoteFilter, qById, custs, lines, respBySend]) // eslint-disable-line
 
-  const counts = { all: sends.length, received: sends.filter(s => statusOf(s) === 'received').length, waiting: sends.filter(s => statusOf(s) === 'waiting').length, noreply: sends.filter(s => statusOf(s) === 'noreply').length }
+  const counts = { all: sends.length, received: sends.filter(s => statusOf(s) === 'received').length, waiting: sends.filter(s => statusOf(s) === 'waiting').length, noreply: sends.filter(s => statusOf(s) === 'noreply').length, declined: sends.filter(s => statusOf(s) === 'declined').length }
   const rfqQuotes = quotes.filter(x => sends.some(s => s.quotation_id === x.id))
   const ST: Record<Status, { label: string; cls: string }> = {
     received: { label: 'Quote received', cls: 'bg-emerald-100 text-emerald-800' },
     waiting: { label: 'Waiting', cls: 'bg-amber-100 text-amber-800' },
     noreply: { label: 'No reply', cls: 'bg-gray-200 text-gray-600' },
+    declined: { label: '✖ RFQ rejected', cls: 'bg-red-100 text-red-700' },
   }
 
   return (
@@ -115,8 +116,8 @@ export default function SupplierQuotesPage() {
         {canEdit && <button onClick={() => setAdding('')} className="h-11 px-5 rounded-xl text-white text-sm font-bold shadow-sm" style={{ background: ACCENT }}>+ Log a supplier quote</button>}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-        {([['all', 'Suppliers asked', '#1A1D2E'], ['received', 'Quotes received', '#037f4c'], ['waiting', 'Waiting on reply', '#b45309'], ['noreply', 'No reply (21+ days)', '#6b7280']] as const).map(([k, l, c]) => (
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+        {([['all', 'Suppliers asked', '#1A1D2E'], ['received', 'Quotes received', '#037f4c'], ['waiting', 'Waiting on reply', '#b45309'], ['noreply', 'No reply (21+ days)', '#6b7280'], ['declined', 'RFQ rejected', '#B91C1C']] as const).map(([k, l, c]) => (
           <button key={k} data-ro-ok onClick={() => setFilter(k)} className={`text-left bg-white rounded-xl border px-4 py-3 ${filter === k ? 'border-[#1F9A3A] ring-2 ring-[#1F9A3A]/15' : 'border-[#ECEEF3]'}`}>
             <p className="text-[11px] uppercase tracking-wide text-gray-400">{l}</p>
             <p className="text-2xl font-extrabold" style={{ color: c }}>{counts[k]}</p>
