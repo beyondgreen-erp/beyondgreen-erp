@@ -20,6 +20,7 @@ import { planSnippet, copyText } from '@/lib/planSnippet'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
 import Comments from '@/components/Comments'
+import WalmartDayPlanner from '@/components/WalmartDayPlanner'
 
 const BOARD = '/production/walmart'
 const SKUS = [
@@ -162,6 +163,7 @@ export default function WalmartProductionPage() {
   const [woOrders, setWoOrders] = useState<WoOrder[]>([])
   const [woRel, setWoRel] = useState<WoRel[]>([])
   const [showLoads, setShowLoads] = useState(false)
+  const [showPlanner, setShowPlanner] = useState(false)
   const [runs, setRuns] = useState<MRun[]>([])
   const [machs, setMachs] = useState<Mach[]>([])
   const [bomPcs, setBomPcs] = useState<Record<string, Record<string, number>>>({})
@@ -424,6 +426,16 @@ export default function WalmartProductionPage() {
 
       {wo && (plan.length > 0 || canEdit) && <PickupSchedule plan={plan} canEdit={canEdit} onManage={() => setShowLoads(true)} />}
 
+      {wo && (
+        <button onClick={() => setShowPlanner(true)} className="w-full mb-4 rounded-2xl border-2 px-4 py-3 text-left flex items-center gap-3 bg-white active:scale-[.99]" style={{ borderColor: ACCENT }}>
+          <span className="text-2xl">🧠</span>
+          <span className="flex-1"><span className="block font-bold text-[#1A1D2E]">Plan tomorrow&apos;s production</span><span className="block text-xs text-gray-500">Machines, molds, hours and packing for the first pick-up priority, then the next — sent straight to the Daily Plan.</span></span>
+          <span className="text-sm font-bold" style={{ color: ACCENT }}>Open →</span>
+        </button>)}
+      {wo && showPlanner && <WalmartDayPlanner sb={sb} wo={{ id: wo.id, wo_code: wo.wo_code }} today={today} canEdit={canEdit} machs={machs} bomPcs={bomPcs}
+        groups={plan.map(g => ({ key: g.key, rank: g.rank, pickup: g.load?.pickup_date || null, label: g.load ? `Load ${g.load.load_number}` : 'POs without a load',
+          todo: Object.fromEntries(Object.entries(g.bySku).map(([k, b]) => [k, Math.max(0, b.need - b.done - b.covered)])) }))}
+        onClose={() => setShowPlanner(false)} onSaved={(m) => { setFlash(m); reload() }} />}
       {wo && <MachinePlan sb={sb} wo={wo} week={week} today={today} canEdit={canEdit} progBySku={progBySku} plan={plan} runs={runs} machs={machs} bomPcs={bomPcs} onSaved={(m) => { setFlash(m); reload() }} />}
 
       {safety.map(ss => {
