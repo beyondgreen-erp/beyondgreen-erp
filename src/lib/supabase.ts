@@ -11,7 +11,12 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placehol
 // makeBrowserClient() is a concrete (non-generic) factory so the returned type stays
 // fully inferred — annotating with ReturnType<typeof createBrowserClient> would widen it.
 function makeBrowserClient() {
-  return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  // cache: 'no-store' — mobile browsers (iOS Safari / installed app) were serving
+  // repeat GET reads from their HTTP cache, so deletes and undos looked like they
+  // had not happened until a hard refresh.
+  return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, cache: 'no-store' }) },
+  })
 }
 let browserClient: ReturnType<typeof makeBrowserClient> | undefined
 export function createSupabaseBrowserClient() {
