@@ -10,7 +10,7 @@ import { aiErrorMessage } from '@/lib/aiError'
  * actually happened on the floor (logged SRPs, confirmed plans, machine downtime, its own
  * past advice) and returns suggestions only. It never changes the plan — the team confirms.
  */
-export const maxDuration = 60
+export const maxDuration = 120
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const NL = String.fromCharCode(10)
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       '- Compare planned vs actual: where the model\'s assumptions (pack rates, packers, machine availability, materials) disagree with what really happens, say so and suggest the correction.',
       '- Learn from your own past advice: do not repeat advice that was clearly not useful; build on what the data shows since.',
       '- Flag material/packaging shortages, machines that keep going down, loads at risk of missing pick-up.',
-      '- Plain English for a shop-floor team. Max 6 suggestions.',
+      '- Plain English for a shop-floor team. Max 5 suggestions, max 4 risks, max 4 learned. Keep every string under 45 words.',
       '',
       `Plan date: ${date}`,
       'TOMORROW\'S PLAN (from the optimiser):', JSON.stringify(plan),
@@ -67,13 +67,27 @@ export async function POST(req: NextRequest) {
       '  "learned": [ "what the real data says about the model\'s assumptions, e.g. real packing speed vs entered rates" ] }',
     ].join(NL)
 
-    const msg = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] })
+    const msg = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 4096, messages: [{ role: 'user', content: prompt }] })
     const text = msg.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('')
-    const advice = firstJson(text)
+    const advice = firstJson(text) || salvageJson(text)
     if (!advice) return NextResponse.json({ error: 'The AI did not return a readable answer. Try again.' }, { status: 502 })
     await sb.from('walmart_ai_insights').insert({ plan_date: date, work_order_id: woId, advice, model: 'claude-sonnet-4-6', created_by: user.email || null })
     return NextResponse.json({ ok: true, advice })
   } catch (e) {
     return NextResponse.json({ error: aiErrorMessage(e, 'The AI advisor could not run.') }, { status: 500 })
   }
+}
+
+// If the answer was cut off mid-JSON, keep everything up to the last complete suggestion.
+function salvageJson(text: string): any {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+  const body = text.slice(start)
+  for (let cut = body.lastIndexOf('}'); cut > 0; cut = body.lastIndexOf('}', cut - 1)) {
+    const head = body.slice(0, cut + 1)
+    for (const tail of [']}', '] }', '"]}', '}']) {
+      try { const j = JSON.parse(head + tail); if (j && j.headline) return { suggestions: [], risks: [], learned: [], ...j } } catch { /* keep trying */ }
+    }
+  }
+  return null
 }
