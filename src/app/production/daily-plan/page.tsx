@@ -169,6 +169,30 @@ export default function DailyPlanPage() {
     const { error } = await sb.from('production_plan_lines').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', l.id)
     if (error) { flash(error.message); load() } else if (patch.status) flash(`${l.machine_code} set to ${patch.status}${patch.status === 'Running' || patch.status === 'Down' ? ' — Machine Status updated' : ''}`)
   }
+  // The floor wants the day plan on paper. Build a clean sheet in a new window
+  // instead of printing the board, so filters, buttons and nav stay off the page.
+  // The blank Actual qty / Notes columns are there for the operators to fill in.
+  function printPlan(p: Plan) {
+    const lines = (linesByPlan[p.id] || []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    const dateLabel = parseISO(p.plan_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    const esc = (v: unknown) => String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+    const rows = lines.length
+      ? lines.map((l) => '<tr><td class="m">' + esc(l.machine_code) + '</td><td>' + (esc(l.product) || '-') + '</td><td>' + esc(l.operator) + '</td><td>' + esc(l.status) + '</td><td class="w"></td><td class="w"></td></tr>').join('')
+      : '<tr><td colspan="6" class="empty">No machines on this plan.</td></tr>'
+    const css = 'body{font-family:Arial,Helvetica,sans-serif;color:#1A1D2E;margin:26px}h1{font-size:20px;margin:0 0 2px}.sub{font-size:13px;color:#555;margin:0 0 4px}.meta{font-size:12px;color:#666;margin:0 0 16px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f3f5;border:1px solid #c9ced6;padding:7px 8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em}td{border:1px solid #d8dde3;padding:10px 8px}td.m{font-weight:700;white-space:nowrap}td.w{width:110px}td.empty{text-align:center;color:#888;padding:18px}.notes{margin-top:16px;font-size:12px;white-space:pre-wrap;border:1px solid #d8dde3;padding:10px;border-radius:6px}.foot{margin-top:22px;font-size:10px;color:#999;text-align:center}@page{size:letter;margin:12mm}@media print{body{margin:0}}'
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Daily Plan ' + esc(p.plan_date) + '</title><style>' + css + '</style></head><body>'
+      + '<h1>Daily Production Plan</h1>'
+      + '<p class="sub">' + esc(dateLabel) + (p.title ? ' - ' + esc(p.title) : '') + '</p>'
+      + '<p class="meta">' + lines.length + ' machine' + (lines.length === 1 ? '' : 's') + ' - status ' + esc(p.status) + ' - beyondGREEN biotech</p>'
+      + '<table><thead><tr><th>Machine</th><th>Product</th><th>Operator</th><th>Status</th><th>Actual qty</th><th>Notes</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      + (p.notes ? '<div class="notes"><strong>Plan notes</strong><br>' + esc(p.notes) + '</div>' : '')
+      + '<p class="foot">Printed ' + esc(new Date().toLocaleString('en-US')) + ' - beyondGREEN ERP</p>'
+      + '</body></html>'
+    const w = window.open('', '_blank')
+    if (!w) { flash('Could not open the print window - please allow pop-ups for this site'); return }
+    w.document.write(html); w.document.close(); w.focus()
+    setTimeout(() => { try { w.print() } catch { /* user can print from the window */ } }, 300)
+  }
   function copyLink(p: Plan) { navigator.clipboard?.writeText(publicUrl(p.share_token)); flash('Operator link copied — paste it into WhatsApp') }
 
   async function sendDayToWhatsApp(date: string) {
@@ -263,6 +287,7 @@ export default function DailyPlanPage() {
             <button onClick={() => sendDayToWhatsApp(p.plan_date)} className="text-[11px] px-2.5 py-1 rounded-lg border border-[#25D366] text-[#128C4B] font-semibold hover:bg-[#25D366]/10">Send WOs to WhatsApp</button>
             <button onClick={() => copyLink(p)} className="text-[11px] px-2.5 py-1 rounded-lg bg-[#037f4c] text-white font-semibold hover:opacity-90">Copy operator link</button>
             <a href={publicUrl(p.share_token)} target="_blank" rel="noreferrer" className="text-[11px] px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50">Open ↗</a>
+            <button onClick={() => printPlan(p)} className="text-[11px] px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-600 hover:bg-gray-50" title="Print this day plan for the floor">Print</button>
             <button onClick={() => deletePlan(p)} className="text-[11px] px-2 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50">Delete</button>
           </div>
         </div>
