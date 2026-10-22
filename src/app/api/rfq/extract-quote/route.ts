@@ -110,7 +110,8 @@ export async function POST(req: NextRequest) {
       '  "moq_note", "validity_days" (number), "plate_die_charges", "overrun_tolerance", "certifications", "sample_available" (true/false/null),',
       '  "exclusions", "notes" (short bullet summary of anything else important: tiers, conditions, open questions, latest reply in the thread),',
       '  "lines": [ { "quotation_line_id" (one of the ids above, matched by sku/description/size), "unit_price" (number per piece), "pcs_per_case" (number), "case_price" (number), "notes" } ],',
-      '  "unmatched": [ "price lines they quoted that do not match any of our items, as short text" ] }',
+      '  "unmatched": [ "price lines they quoted that do not match any of our items, as short text" ],',
+      '  "supplier_declined": true if they said they cannot / will not quote (e.g. below their MOQ, not their product, too busy) and gave no usable prices, else false }',
       'If they quote several quantity tiers, use the tier matching our quantity and put the others in that line\'s notes.',
       'If prices are per 1,000 pcs, convert unit_price to per piece and say so in notes. If the thread has revised prices, use the latest.',
     ].join(NL) })
