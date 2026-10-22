@@ -186,7 +186,7 @@ export default function QuotationsPage() {
   const [portals, setPortals] = useState<PortalClient[]>([])
   const [lineCounts, setLineCounts] = useState<Record<string, number>>({})
   // Supplier-quote progress per RFQ: how many suppliers were asked vs. how many quotes are logged.
-  const [rfqProgress, setRfqProgress] = useState<Record<string, { asked: number; got: number; won?: string; working: string[] }>>({})
+  const [rfqProgress, setRfqProgress] = useState<Record<string, { asked: number; got: number; won?: string; working: string[]; talking: string[] }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -266,13 +266,14 @@ export default function QuotationsPage() {
         supabase.from('rfq_sends').select('id, quotation_id, vendor_id, vendor_name, selection'),
         supabase.from('rfq_vendor_responses').select('quotation_id, rfq_send_id, vendor_id'),
       ])
-      const prog: Record<string, { asked: number; got: number; won?: string; working: string[] }> = {}
+      const prog: Record<string, { asked: number; got: number; won?: string; working: string[]; talking: string[] }> = {}
       const resp = (rd ?? []) as any[]
       for (const sRow of (sd ?? []) as any[]) {
-        const p = (prog[sRow.quotation_id] ||= { asked: 0, got: 0, working: [] })
+        const p = (prog[sRow.quotation_id] ||= { asked: 0, got: 0, working: [], talking: [] })
         p.asked++
         if (sRow.selection === 'won') p.won = sRow.vendor_name
         else if (sRow.selection === 'working') p.working.push(sRow.vendor_name)
+        else if (sRow.selection === 'talking') p.talking.push(sRow.vendor_name)
         if (resp.some(r => r.rfq_send_id === sRow.id || (r.vendor_id && r.vendor_id === sRow.vendor_id && r.quotation_id === sRow.quotation_id))) p.got++
       }
       setRfqProgress(prog)
@@ -1055,8 +1056,12 @@ export default function QuotationsPage() {
                                   </div>
                                   {pr.won ? (
                                     <div className="mt-0.5 text-[10px] font-bold text-amber-800 truncate max-w-[160px]" title={`Won by ${pr.won}`}>🏆 {pr.won}</div>
-                                  ) : pr.working.length ? (
+                                  ) : null}
+                                  {!pr.won && pr.working.length ? (
                                     <div className="mt-0.5 text-[10px] font-bold text-indigo-700 truncate max-w-[160px]" title={`Working with ${pr.working.join(', ')}`}>🤝 {pr.working.join(', ')}</div>
+                                  ) : null}
+                                  {!pr.won && pr.talking.length ? (
+                                    <div className="mt-0.5 text-[10px] font-bold text-sky-700 truncate max-w-[160px]" title={`In conversation with ${pr.talking.join(', ')}`}>💬 {pr.talking.join(', ')}</div>
                                   ) : null}
                                 </>)
                               })() : null}
