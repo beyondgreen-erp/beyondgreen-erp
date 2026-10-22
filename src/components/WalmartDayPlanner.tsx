@@ -29,13 +29,14 @@ const clock = (start: string, h: number) => {
 export interface PlannerGroup { key: string; label: string; rank: number; pickup: string | null; todo: Record<string, number> }
 export interface PlannerMach { id: string; machine_code: string; status: string | null }
 
-interface Settings { shifts: number; shift_hours: number; overlap_hours: number; packers_per_shift: number; manual_packing: boolean; efficiency_pct: number; mold_ahead: boolean; start_time: string; strategy: 'fewest' | 'fastest'; enforce_materials: boolean; use_learned: boolean }
+type Blend = Partial<Record<Piece, Record<string, number>>> | null
+interface Settings { shifts: number; shift_hours: number; overlap_hours: number; packers_per_shift: number; manual_packing: boolean; efficiency_pct: number; mold_ahead: boolean; start_time: string; strategy: 'fewest' | 'fastest'; enforce_materials: boolean; use_learned: boolean; blend: Blend }
 interface MoldRow { machine_code: string; piece: Piece; cavities: number; cycle_sec: number; available: boolean; notes: string | null; _new?: boolean }
 interface RateRow { sku: string; srp_per_hour: number; people: number; notes: string | null; _new?: boolean }
 interface DraftRun { key: string; machine_id: string; code: string; piece: Piece; hours: number; target_pcs: number; skus: string[]; operator: string; notes: string }
 interface DraftPack { key: string; shift: number; sku: string; srps: number; people: number; hours: number; notes: string }
 
-const DEFAULT_SETTINGS: Settings = { shifts: 2, shift_hours: 12, overlap_hours: 1, packers_per_shift: 1, manual_packing: true, efficiency_pct: 100, mold_ahead: true, start_time: '06:00', strategy: 'fewest', enforce_materials: true, use_learned: true }
+const DEFAULT_SETTINGS: Settings = { shifts: 2, shift_hours: 12, overlap_hours: 1, packers_per_shift: 1, manual_packing: true, efficiency_pct: 100, mold_ahead: true, start_time: '06:00', strategy: 'fewest', enforce_materials: true, use_learned: true, blend: null }
 const SRP_SKUS = ['22GVA24', '22GVA48', '22GVF24', '22GVF48', '22GVK48', '22GVS24', '22GVS48']
 const GRAMS_PER_LB = 453.592
 const inputCls = 'h-9 rounded-lg border border-[#E4E6EE] px-2 text-sm bg-white w-full'
@@ -119,6 +120,41 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
   const machByCode = useMemo(() => Object.fromEntries(machs.map(m => [m.machine_code.toUpperCase(), m])), [machs])
   const horizon = Math.max(0, settings.shifts * settings.shift_hours - settings.overlap_hours * Math.max(0, settings.shifts - 1))
 
+  // ── resin blend: the BOM's blend unless the team picked another one for this plan (e.g. no PLA, IA + regrind only)
+  const bomBlend = useMemo(() => {
+    const out: Partial<Record<Piece, Record<string, number>>> = {}
+    for (const p of PIECE_LIST) {
+      const lines = bomRows.filter(r => r.fg === p)
+      const total = lines.reduce((a, r) => a + r.qty, 0)
+      if (lines.length && total > 95 && total < 105) out[p] = Object.fromEntries(lines.map(r => [r.comp, r.qty]))
+    }
+    return out
+  }, [bomRows])
+  const blend: Partial<Record<Piece, Record<string, number>>> = settings.blend || bomBlend
+  const resins = useMemo(() => Array.from(new Set(PIECE_LIST.flatMap(p => Object.keys({ ...(bomBlend[p] || {}), ...((settings.blend || {})[p] || {}) }))))
+    .sort((a, b) => a.localeCompare(b)), [bomBlend, settings.blend])
+  const isPla = (k: string) => k === '3251D' || /\b(PLA|INGEO)\b/i.test(prodInfo[k]?.name || '')
+  const blendLabel = !settings.blend ? 'BOM blend' : PIECE_LIST.every(p => resins.every(r => !isPla(r) || !(settings.blend?.[p]?.[r]))) ? 'No PLA' : 'Custom blend'
+  function setBlendCell(p: Piece, r: string, v: number) {
+    setSettings(s => {
+      const base = s.blend || bomBlend
+      const next: Partial<Record<Piece, Record<string, number>>> = {}
+      for (const q of PIECE_LIST) next[q] = { ...(base[q] || {}) }
+      next[p] = { ...(next[p] || {}), [r]: v }
+      return { ...s, blend: next }
+    })
+  }
+  function noPlaBlend() {
+    const next: Partial<Record<Piece, Record<string, number>>> = {}
+    for (const p of PIECE_LIST) {
+      const b = bomBlend[p]; if (!b) continue
+      const keep = Object.entries(b).filter(([k]) => !isPla(k))
+      const tot = keep.reduce((a, [, v]) => a + v, 0) || 1
+      next[p] = Object.fromEntries(Object.entries(b).map(([k, v]) => [k, isPla(k) ? 0 : Math.round(v / tot * 1000) / 10]))
+    }
+    setSettings(s => ({ ...s, blend: next }))
+  }
+
   // ── every non-piece BOM input, rolled up per SRP (packs, trays) or per molded piece (resin blend %)
   const components: (Component & { usedBy: string[]; enforce: boolean; onHand: number })[] = useMemo(() => {
     const out: Record<string, Component & { usedBy: string[]; enforce: boolean; onHand: number }> = {}
@@ -133,9 +169,18 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
       }
     }
     for (const p of PIECE_LIST) {
+      const grams = prodInfo[p]?.grams || 0
+      const bl = blend[p]
+      if (bl && grams > 0) {   // blend % of the piece weight → lbs of each resin per piece
+        for (const [comp, pct] of Object.entries(bl)) {
+          const c = get(comp)
+          c.perPiece[p] = (c.perPiece[p] || 0) + (grams / GRAMS_PER_LB) * (Math.max(0, pct) / 100)
+          if (pct > 0 && !c.usedBy.includes(PIECE_NAME[p])) c.usedBy.push(PIECE_NAME[p])
+        }
+        continue
+      }
       const lines = bomRows.filter(r => r.fg === p)
       const total = lines.reduce((a, r) => a + r.qty, 0)
-      const grams = prodInfo[p]?.grams || 0
       for (const r of lines) {
         const c = get(r.comp)
         // blend lines that add up to ~100 are percentages of the piece weight → lbs of resin per piece
@@ -145,7 +190,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
       }
     }
     return Object.values(out).sort((a, b) => (Object.keys(a.perPiece).length ? 0 : 1) - (Object.keys(b.perPiece).length ? 0 : 1) || a.key.localeCompare(b.key))
-  }, [bomRows, prodInfo, matOverride, matEnforce, settings.enforce_materials])
+  }, [bomRows, prodInfo, matOverride, matEnforce, settings.enforce_materials, blend])
 
   // ── learned packing speed: how many packer-hours the real logged output would have needed at the
   // entered rates, divided by the packer-hours the settings say exist. Median over finished days.
@@ -220,6 +265,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
       machines: input.machines.map(m => ({ code: m.code, mold: PIECE_NAME[m.piece], pcs_per_hour: Math.round(m.rate), available: m.available, planned_hours: Math.round((result.machineHours[m.id] || 0) * 10) / 10 })),
       packing: { packer_hours_available: result.packHoursAvail, used: Math.round(result.packHoursUsed * 10) / 10, lines: result.pack },
       materials: components.map(c => ({ name: c.name, sku: c.key, uom: c.uom, on_hand: c.onHand, needed_for_plan: Math.round((result.compUsed[c.key] || 0) * 10) / 10, enforced: c.enforce })),
+      resin_blend: { mode: blendLabel, percent_by_piece: blend },
       bottlenecks: result.bottlenecks, optimiser_suggestions: tips.map(t => t.text),
     }
     try {
@@ -480,6 +526,24 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                 <h3 className="text-sm font-bold text-[#1A1D2E] flex-1">Materials &amp; packaging (from the BOM)</h3>
                 <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={settings.enforce_materials} onChange={e => setSettings(s => ({ ...s, enforce_materials: e.target.checked }))} />Only plan what the materials on hand allow</label>
               </div>
+              <div className="mb-3 rounded-2xl border border-[#ECEEF3] p-3 bg-[#FCFCFE]">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <p className="text-xs font-bold text-[#1A1D2E] flex-1">Resin blend for this plan <span className="ml-1 rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: !settings.blend ? '#579bfc' : blendLabel === 'No PLA' ? '#00a85a' : '#fdab3d' }}>{blendLabel}</span></p>
+                  <button onClick={() => setSettings(s => ({ ...s, blend: null }))} className={`h-8 px-3 rounded-lg text-xs font-semibold border ${!settings.blend ? 'bg-[#579bfc] text-white border-[#579bfc]' : 'border-[#E4E6EE] text-gray-700 bg-white'}`}>As per BOM</button>
+                  <button onClick={noPlaBlend} className={`h-8 px-3 rounded-lg text-xs font-semibold border ${blendLabel === 'No PLA' ? 'bg-[#00a85a] text-white border-[#00a85a]' : 'border-[#E4E6EE] text-gray-700 bg-white'}`}>No PLA — IA + regrind only</button>
+                </div>
+                <div className="overflow-x-auto"><table className="text-xs">
+                  <thead><tr className="text-[10px] uppercase text-gray-400"><th className="text-left pr-4 py-1">Resin</th>{PIECE_LIST.map(p => <th key={p} className="px-2 text-right">{PIECE_NAME[p]} %</th>)}</tr></thead>
+                  <tbody>
+                    {resins.map(r => <tr key={r}>
+                      <td className="pr-4 py-0.5"><b>{prodInfo[r]?.name || r}</b> <span className="font-mono text-gray-400">{r}</span>{isPla(r) ? <span className="ml-1 text-[10px] text-gray-400">(PLA)</span> : null}</td>
+                      {PIECE_LIST.map(p => <td key={p} className="px-2 text-right"><input inputMode="decimal" value={String(blend[p]?.[r] ?? 0)} onChange={e => setBlendCell(p, r, num(e.target.value.replace(/[^\d.]/g, '')))} className="w-16 h-7 rounded-md border border-[#E4E6EE] text-right px-1.5" /></td>)}
+                    </tr>)}
+                    <tr className="border-t border-[#ECEEF3]"><td className="pr-4 py-1 text-gray-500">Total</td>{PIECE_LIST.map(p => { const t = resins.reduce((a, r) => a + (blend[p]?.[r] || 0), 0); return <td key={p} className={`px-2 text-right font-bold ${Math.abs(t - 100) > 0.5 ? 'text-red-600' : 'text-emerald-700'}`}>{fmtN(t, 1)}%</td> })}</tr>
+                  </tbody>
+                </table></div>
+                <p className="text-[11px] text-gray-500 mt-1">Pick the blend the floor will actually run tomorrow — resin needs and limits below follow it. Each column should add up to 100%. “Save as default” on Shift settings keeps it for next time.</p>
+              </div>
               <div className="overflow-x-auto rounded-2xl border border-[#ECEEF3]">
                 <table className="w-full text-sm min-w-[760px]">
                   <thead><tr className="text-[10px] uppercase text-gray-400 bg-[#FAFBFD] text-left"><th className="px-3 py-2">Input</th><th>Used for</th><th className="text-right">Per unit</th><th className="w-32 text-right">On hand</th><th className="text-right">Needed for this plan</th><th className="text-right pr-3">Left after</th><th>Limit plan</th></tr></thead>
@@ -502,7 +566,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                   })}</tbody>
                 </table>
               </div>
-              <p className="text-[11px] text-gray-500 mt-1">Resin is worked out from the piece weight and the blend % on each piece&apos;s BOM. On-hand comes from inventory — type over it for this plan if a delivery is due; untick “Limit plan” to plan without that input.</p>
+              <p className="text-[11px] text-gray-500 mt-1">Resin is worked out from the piece weight and the blend above. On-hand comes from inventory — type over it for this plan if a delivery is due; untick “Limit plan” to plan without that input.</p>
             </section>
 
             {/* machine timeline */}
