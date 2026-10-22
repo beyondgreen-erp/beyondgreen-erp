@@ -46,20 +46,24 @@ export interface SendRow {
   opened_at: string | null
   responded_at: string | null
   error: string | null
-  selection?: 'working' | 'won' | null
+  selection?: 'talking' | 'working' | 'won' | null
   selected_at?: string | null
   selected_by?: string | null
 }
 
 /* ------------------------------------------------- Who we're going with */
 
-export const SELECTION_META: Record<'working' | 'won', { label: string; icon: string; bg: string; text: string }> = {
-  won: { label: 'Won', icon: '🏆', bg: '#FEF3C7', text: '#92400E' },
-  working: { label: 'Working with', icon: '🤝', bg: '#E0E7FF', text: '#3730A3' },
+export type Selection = 'talking' | 'working' | 'won'
+export const SELECTION_META: Record<Selection, { label: string; icon: string; bg: string; text: string; row: string }> = {
+  won: { label: 'Won', icon: '🏆', bg: '#FEF3C7', text: '#92400E', row: 'bg-amber-50' },
+  working: { label: 'Working with', icon: '🤝', bg: '#E0E7FF', text: '#3730A3', row: 'bg-indigo-50/50' },
+  talking: { label: 'In conversation', icon: '💬', bg: '#E0F2FE', text: '#075985', row: 'bg-sky-50/60' },
 }
+const isSel = (v: unknown): v is Selection => v === 'won' || v === 'working' || v === 'talking'
+export const selectionRow = (v: unknown) => (isSel(v) ? SELECTION_META[v].row : '')
 
 export function SelectionBadge({ selection, at, by }: { selection?: string | null; at?: string | null; by?: string | null }) {
-  if (selection !== 'won' && selection !== 'working') return null
+  if (!isSel(selection)) return null
   const m = SELECTION_META[selection]
   return (
     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap border"
@@ -91,19 +95,31 @@ export function SelectionPicker({ send, onChanged }: { send: SendRow; onChanged:
       className="text-[11px] border border-gray-300 rounded-md px-1.5 py-0.5 bg-white text-gray-700 disabled:opacity-50"
     >
       <option value="">Pick supplier…</option>
+      <option value="talking">💬 In conversation</option>
       <option value="working">🤝 Working with</option>
       <option value="won">🏆 Won (awarded)</option>
     </select>
   )
 }
 
-/** One-line summary for an RFQ: "🏆 Won: X" or "🤝 Working with: X, Y". */
-export function selectionSummary(sends: { vendor_name: string; selection?: string | null }[]): { kind: 'won' | 'working'; text: string } | null {
+/** Summary for an RFQ, strongest first: Won, then Working with, then In conversation. */
+export function selectionSummary(sends: { vendor_name: string; selection?: string | null }[]): { kind: Selection; text: string } | null {
   const won = sends.find(s => s.selection === 'won')
   if (won) return { kind: 'won', text: won.vendor_name }
-  const w = sends.filter(s => s.selection === 'working').map(s => s.vendor_name)
-  return w.length ? { kind: 'working', text: w.join(', ') } : null
+  for (const k of ['working', 'talking'] as const) {
+    const names = sends.filter(s => s.selection === k).map(s => s.vendor_name)
+    if (names.length) return { kind: k, text: names.join(', ') }
+  }
+  return null
 }
+
+/** Every non-empty group, e.g. [🤝 Working with A] [💬 In conversation B, C]. */
+export function selectionGroups(sends: { vendor_name: string; selection?: string | null }[]): { kind: Selection; names: string[] }[] {
+  return (['won', 'working', 'talking'] as const)
+    .map(k => ({ kind: k, names: sends.filter(s => s.selection === k).map(s => s.vendor_name) }))
+    .filter(g => g.names.length > 0)
+}
+export const selectionVerb = (k: Selection) => (k === 'won' ? 'Awarded to' : k === 'working' ? 'Working with' : 'In conversation with')
 
 interface RespLine {
   id: string
@@ -970,22 +986,24 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
           <h4 className="text-xs font-bold uppercase tracking-wide text-gray-500">Suppliers contacted <span className="normal-case font-normal text-gray-400">— click a name to enter a quote they emailed</span></h4>
           <button onClick={load} className="text-[11px] text-emerald-700 hover:underline">Refresh</button>
         </div>
-        {(() => {
-          const sum = selectionSummary(sends)
-          if (!sum) return null
-          const m = SELECTION_META[sum.kind]
-          return (
-            <div className="mb-2 rounded-lg px-3 py-2 text-sm font-semibold border" style={{ background: m.bg, color: m.text, borderColor: m.text + '33' }}>
-              {m.icon} {sum.kind === 'won' ? 'Awarded to' : 'Working with'} {sum.text}
-            </div>
-          )
-        })()}
+        {selectionGroups(sends).length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {selectionGroups(sends).map(g => {
+              const m = SELECTION_META[g.kind]
+              return (
+                <div key={g.kind} className="rounded-lg px-3 py-1.5 text-sm font-semibold border" style={{ background: m.bg, color: m.text, borderColor: m.text + '33' }}>
+                  {m.icon} {selectionVerb(g.kind)} {g.names.join(', ')}
+                </div>
+              )
+            })}
+          </div>
+        )}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           {sends.map(s => {
             const c = statusColor(s.status)
             const logged = responses.find(r => r.rfq_send_id === s.id) || responses.find(r => !!r.vendor_id && r.vendor_id === s.vendor_id)
             return (
-              <div key={s.id} className={`flex items-center justify-between gap-2 px-3 py-2 text-sm border-b border-gray-100 last:border-0 ${s.selection === 'won' ? 'bg-amber-50' : s.selection === 'working' ? 'bg-indigo-50/50' : ''}`}>
+              <div key={s.id} className={`flex items-center justify-between gap-2 px-3 py-2 text-sm border-b border-gray-100 last:border-0 ${selectionRow(s.selection)}`}>
                 <div className="min-w-0">
                   <button
                     type="button"
@@ -1029,7 +1047,7 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
                   <th className="text-left px-3 py-2 font-semibold sticky left-0" style={{ background: DEEP }}>Item</th>
                   {responses.map(r => {
                     const sel = sends.find(x => x.id === r.rfq_send_id)?.selection
-                    return <th key={r.id} className="text-right px-3 py-2 font-semibold whitespace-nowrap">{sel === 'won' ? '🏆 ' : sel === 'working' ? '🤝 ' : ''}{r.vendor_name}</th>
+                    return <th key={r.id} className="text-right px-3 py-2 font-semibold whitespace-nowrap">{isSel(sel) ? SELECTION_META[sel].icon + ' ' : ''}{r.vendor_name}</th>
                   })}
                 </tr>
               </thead>
