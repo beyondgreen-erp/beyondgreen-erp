@@ -33,6 +33,12 @@ export interface PlanGroupIn { key: string; label: string; rank: number; todo: R
 export interface PackRate { perHour: number; people: number }
 /** Any other BOM input (packs, SRP trays, resin…) with what is on hand. */
 export interface Component { key: string; name: string; uom: string; avail: number; perSrp: Record<string, number>; perPiece: Partial<Record<Piece, number>> }
+/** Flexible resin blend. Each piece needs perPiece[p] lbs of resin in total; each pool (resin grade)
+ *  may make up between min and max (0–1) of the blend. The day is feasible when some blend inside
+ *  those limits fits what is on hand — which is a set of linear limits on total resin R:
+ *    min_i·R ≤ avail_i  for every pool,  and  (1 − Σ_{i∉S} max_i)·R ≤ Σ_{i∈S} avail_i  for every subset S. */
+export interface ResinPool { key: string; name: string; uom: string; avail: number; min: number; max: number; target: number }
+export interface ResinInput { perPiece: Partial<Record<Piece, number>>; pools: ResinPool[] }
 export interface PlannerInput {
   groups: PlanGroupIn[]
   bom: Record<string, Record<string, number>>
@@ -46,6 +52,7 @@ export interface PlannerInput {
   strategy: 'fewest' | 'fastest'
   components?: Component[]          // enforced material / packaging limits
   packSpeedFactor?: number          // learned from real output (1 = rates as entered)
+  resin?: ResinInput                 // flexible blend: use whatever resin is on hand within min/max shares
 }
 export interface Segment { machineId: string; code: string; piece: Piece; groupKey: string; label: string; start: number; end: number; pcs: number; skus: string[]; ahead: boolean }
 export interface GroupResult { key: string; label: string; rank: number; todo: Record<string, number>; planned: Record<string, number>; z: number; totalTodo: number; totalPlanned: number }
@@ -64,6 +71,9 @@ export interface PlannerResult {
   warnings: string[]
   compUsed: Record<string, number>
   compAvail: Record<string, number>
+  resinUsed: number
+  resinBlend: { key: string; name: string; lbs: number; share: number }[]
+  resinLimitLbs: number
 }
 
 /* ───────── dense primal simplex: maximise c·x s.t. A x ≤ b, x ≥ 0, b ≥ 0 ───────── */
@@ -139,6 +149,21 @@ export function planDay(inp: PlannerInput): PlannerResult {
   const compLeft: Record<string, number> = Object.fromEntries(comps.map(c => [c.key, Math.max(0, c.avail)]))
   const compUsed: Record<string, number> = Object.fromEntries(comps.map(c => [c.key, 0]))
   const compCoef = (c: Component, sku: string) => (c.perSrp[sku] || 0) + PIECE_LIST.reduce((a, p) => a + pcsPer(inp.bom, sku, p) * (c.perPiece[p] || 0), 0)
+  // resin as one flexible pool (see ResinInput)
+  const resin = inp.resin && inp.resin.pools.length ? inp.resin : null
+  const resinPerSrp = (sku: string) => resin ? PIECE_LIST.reduce((a, p) => a + pcsPer(inp.bom, sku, p) * (resin.perPiece[p] || 0), 0) : 0
+  const resinRows: { k: number; cap: number }[] = []
+  if (resin) {
+    const P = resin.pools, n = P.length
+    for (const q of P) if (q.min > 0) resinRows.push({ k: q.min, cap: Math.max(0, q.avail) })
+    for (let mask = 0; mask < (1 << n); mask++) {
+      let k = 1, cap = 0
+      for (let i = 0; i < n; i++) { if (mask & (1 << i)) cap += Math.max(0, P[i].avail); else k -= Math.min(1, Math.max(0, P[i].max)) }
+      if (k > 1e-9) resinRows.push({ k, cap })
+    }
+  }
+  let resinUsed = 0
+  const resinRoom = () => resinRows.reduce((a, r) => Math.min(a, Math.max(0, (r.cap - r.k * resinUsed) / r.k)), Infinity)
   const warnings: string[] = []
   for (const g of inp.groups) for (const s of Object.keys(g.todo)) {
     if (g.todo[s] > 0 && inp.manualPacking && !inp.packRates[s]) warnings.push(`${s} has no packing rate, so its packing time is not counted.`)
@@ -163,6 +188,7 @@ export function planDay(inp: PlannerInput): PlannerResult {
       for (const p of PIECE_LIST) { const coef = skus.reduce((a, s) => a + pcsPer(inp.bom, s, p) * g.todo[s], 0); if (coef > 0) { A.push([coef]); b.push(capLeft[p]) } }
       if (Number.isFinite(packRem)) { const pc = skus.reduce((a, s) => a + packCost(s) * g.todo[s], 0); if (pc > 0) { A.push([pc]); b.push(packRem) } }
       for (const c of comps) { const co = skus.reduce((a, s) => a + compCoef(c, s) * g.todo[s], 0); if (co > 0) { A.push([co]); b.push(compLeft[c.key]) } }
+      { const rco = skus.reduce((a, s) => a + resinPerSrp(s) * g.todo[s], 0); if (rco > 0) for (const r of resinRows) { A.push([r.k * rco]); b.push(Math.max(0, r.cap - r.k * resinUsed)) } }
       A.push([1]); b.push(1)
       const z = Math.max(0, Math.min(1, simplexMax([1], A, b).x[0]))
       for (const s of skus) planned[s] = z * g.todo[s]
@@ -181,6 +207,7 @@ export function planDay(inp: PlannerInput): PlannerResult {
         const used = skus.reduce((a, s, i) => a + r[i] * planned[s], 0)
         A.push(r); b.push(Math.max(0, compLeft[c.key] - used))
       }
+      { const rr = skus.map(s => resinPerSrp(s)); if (rr.some(v => v > 0)) { const used = resinUsed + skus.reduce((a, s, i) => a + rr[i] * planned[s], 0); for (const r of resinRows) { A.push(rr.map(v => v * r.k)); b.push(Math.max(0, r.cap - r.k * used)) } } }
       const sol = simplexMax(skus.map(() => 1), A, b)
       skus.forEach((s, i) => { planned[s] += Math.max(0, sol.x[i]) })
     }
@@ -196,6 +223,7 @@ export function planDay(inp: PlannerInput): PlannerResult {
     }
     if (Number.isFinite(packRem)) packRem -= skus.reduce((a, s) => a + packCost(s) * planned[s], 0)
     for (const c of comps) { const u = skus.reduce((a, s) => a + compCoef(c, s) * planned[s], 0); compLeft[c.key] -= u; compUsed[c.key] += u }
+    resinUsed += skus.reduce((a, s) => a + resinPerSrp(s) * planned[s], 0)
     const totalTodo = skus.reduce((a, s) => a + g.todo[s], 0), totalPlanned = skus.reduce((a, s) => a + planned[s], 0)
     groupsOut.push({ key: g.key, label: g.label, rank: g.rank, todo: g.todo, planned, z: Math.min(...skus.map(s => planned[s] / g.todo[s])), totalTodo, totalPlanned })
     const rest: Record<string, number> = {}
@@ -209,8 +237,10 @@ export function planDay(inp: PlannerInput): PlannerResult {
       const fromStock = Math.min(stockLeft[p], need); stockLeft[p] -= fromStock; need -= fromStock
       need = Math.min(need, Math.max(0, capLeft[p]))
       for (const c of comps) { const pp = c.perPiece[p] || 0; if (pp > 0) need = Math.min(need, Math.floor(Math.max(0, compLeft[c.key]) / pp)) }
+      if (resin && (resin.perPiece[p] || 0) > 0) need = Math.min(need, Math.floor(resinRoom() / (resin.perPiece[p] || 1)))
       if (need <= 0) continue
       capLeft[p] -= need
+      if (resin) resinUsed += need * (resin.perPiece[p] || 0)
       for (const c of comps) { const pp = c.perPiece[p] || 0; if (pp > 0) { compLeft[c.key] -= need * pp; compUsed[c.key] += need * pp } }
       demand[p].push({ g, pcs: need, skus: Object.keys(rest).filter(s => pcsPer(inp.bom, s, p) > 0), ahead: true })
     }
@@ -280,7 +310,22 @@ export function planDay(inp: PlannerInput): PlannerResult {
     const needed = Object.keys(g1.todo).some(s => g1.todo[s] > (g1.planned[s] || 0) && compCoef(c, s) > 0)
     if (needed && compLeft[c.key] < Math.max(1, c.avail * 0.02)) bottlenecks.push(`Material: ${c.name} — only ${Math.round(c.avail).toLocaleString('en-US')} ${c.uom} on hand.`)
   }
-  return { compUsed, compAvail: Object.fromEntries(comps.map(c => [c.key, c.avail])), groups: groupsOut, segments, machineHours, piecesNeeded, piecesMade, piecesCapacity: Object.fromEntries(PIECE_LIST.map(p => [p, stock[p] + machCap[p]])), packHoursUsed, packHoursAvail: packAvail, pack, bottlenecks, warnings: Array.from(new Set(warnings)) }
+  // the blend that fits: everyone at their minimum, then towards the target mix, then whatever room is left
+  const resinBlend: PlannerResult['resinBlend'] = []
+  if (resin && resinUsed > 0) {
+    const R = resinUsed
+    const al = resin.pools.map(q => Math.min(Math.max(0, q.avail), q.min * R))
+    let rem = R - al.reduce((a, v) => a + v, 0)
+    for (const pass of [0, 1]) resin.pools.forEach((q, i) => {
+      if (rem <= 1e-9) return
+      const cap = Math.min(Math.max(0, q.avail), (pass === 0 ? Math.max(q.min, Math.min(q.max, q.target)) : q.max) * R)
+      const add = Math.max(0, Math.min(rem, cap - al[i])); al[i] += add; rem -= add
+    })
+    resin.pools.forEach((q, i) => { resinBlend.push({ key: q.key, name: q.name, lbs: al[i], share: R > 0 ? al[i] / R : 0 }); compUsed[q.key] = al[i] })
+  }
+  const resinLimitLbs = resin ? resinRows.reduce((a, r) => Math.min(a, r.cap / r.k), Infinity) : Infinity
+  if (resin && g1 && g1.totalPlanned < g1.totalTodo && resinRoom() < 1) bottlenecks.push(`Material: resin — only ${Math.round(resinLimitLbs).toLocaleString('en-US')} lbs can be used inside the blend limits.`)
+  return { resinUsed, resinBlend, resinLimitLbs, compUsed, compAvail: Object.fromEntries([...comps.map(c => [c.key, c.avail] as [string, number]), ...(resin?.pools || []).map(q => [q.key, q.avail] as [string, number])]), groups: groupsOut, segments, machineHours, piecesNeeded, piecesMade, piecesCapacity: Object.fromEntries(PIECE_LIST.map(p => [p, stock[p] + machCap[p]])), packHoursUsed, packHoursAvail: packAvail, pack, bottlenecks, warnings: Array.from(new Set(warnings)) }
 }
 
 /** Score per priority: (completion of the whole load, SRPs), compared lexicographically. */
