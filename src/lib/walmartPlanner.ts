@@ -31,6 +31,8 @@ export const PIECE_NAME: Record<Piece, string> = { BGFRK: 'Fork', BGSPN: 'Spoon'
 export interface PlanMachine { id: string; code: string; piece: Piece; rate: number; available: boolean }
 export interface PlanGroupIn { key: string; label: string; rank: number; todo: Record<string, number> }
 export interface PackRate { perHour: number; people: number }
+/** Any other BOM input (packs, SRP trays, resin…) with what is on hand. */
+export interface Component { key: string; name: string; uom: string; avail: number; perSrp: Record<string, number>; perPiece: Partial<Record<Piece, number>> }
 export interface PlannerInput {
   groups: PlanGroupIn[]
   bom: Record<string, Record<string, number>>
@@ -42,6 +44,8 @@ export interface PlannerInput {
   shifts: { n: number; hours: number; packers: number }[]
   moldAhead: boolean
   strategy: 'fewest' | 'fastest'
+  components?: Component[]          // enforced material / packaging limits
+  packSpeedFactor?: number          // learned from real output (1 = rates as entered)
 }
 export interface Segment { machineId: string; code: string; piece: Piece; groupKey: string; label: string; start: number; end: number; pcs: number; skus: string[]; ahead: boolean }
 export interface GroupResult { key: string; label: string; rank: number; todo: Record<string, number>; planned: Record<string, number>; z: number; totalTodo: number; totalPlanned: number }
@@ -58,6 +62,8 @@ export interface PlannerResult {
   pack: PackLine[]
   bottlenecks: string[]
   warnings: string[]
+  compUsed: Record<string, number>
+  compAvail: Record<string, number>
 }
 
 /* ───────── dense primal simplex: maximise c·x s.t. A x ≤ b, x ≥ 0, b ≥ 0 ───────── */
@@ -121,13 +127,18 @@ export function planDay(inp: PlannerInput): PlannerResult {
   const stock: Record<string, number> = Object.fromEntries(PIECE_LIST.map(p => [p, Math.max(0, Number(inp.pieceStock[p] || 0))]))
   const machCap: Record<string, number> = Object.fromEntries(PIECE_LIST.map(p => [p, ms.filter(m => m.piece === p).reduce((a, m) => a + m.rate * H, 0)]))
   const capLeft: Record<string, number> = Object.fromEntries(PIECE_LIST.map(p => [p, stock[p] + machCap[p]]))
+  const psf = Math.max(0.05, inp.packSpeedFactor || 1)
   const packAvail = inp.manualPacking ? inp.shifts.reduce((a, s) => a + s.hours * s.packers, 0) : Infinity
   let packRem = packAvail
   const packCost = (sku: string) => {
     if (!inp.manualPacking) return 0
     const r = inp.packRates[sku]
-    return r && r.perHour > 0 ? r.people / r.perHour : 0
+    return r && r.perHour > 0 ? r.people / (r.perHour * psf) : 0
   }
+  const comps = inp.components || []
+  const compLeft: Record<string, number> = Object.fromEntries(comps.map(c => [c.key, Math.max(0, c.avail)]))
+  const compUsed: Record<string, number> = Object.fromEntries(comps.map(c => [c.key, 0]))
+  const compCoef = (c: Component, sku: string) => (c.perSrp[sku] || 0) + PIECE_LIST.reduce((a, p) => a + pcsPer(inp.bom, sku, p) * (c.perPiece[p] || 0), 0)
   const warnings: string[] = []
   for (const g of inp.groups) for (const s of Object.keys(g.todo)) {
     if (g.todo[s] > 0 && inp.manualPacking && !inp.packRates[s]) warnings.push(`${s} has no packing rate, so its packing time is not counted.`)
@@ -151,6 +162,7 @@ export function planDay(inp: PlannerInput): PlannerResult {
       const A: number[][] = [], b: number[] = []
       for (const p of PIECE_LIST) { const coef = skus.reduce((a, s) => a + pcsPer(inp.bom, s, p) * g.todo[s], 0); if (coef > 0) { A.push([coef]); b.push(capLeft[p]) } }
       if (Number.isFinite(packRem)) { const pc = skus.reduce((a, s) => a + packCost(s) * g.todo[s], 0); if (pc > 0) { A.push([pc]); b.push(packRem) } }
+      for (const c of comps) { const co = skus.reduce((a, s) => a + compCoef(c, s) * g.todo[s], 0); if (co > 0) { A.push([co]); b.push(compLeft[c.key]) } }
       A.push([1]); b.push(1)
       const z = Math.max(0, Math.min(1, simplexMax([1], A, b).x[0]))
       for (const s of skus) planned[s] = z * g.todo[s]
@@ -164,6 +176,11 @@ export function planDay(inp: PlannerInput): PlannerResult {
       for (const p of PIECE_LIST) if (skus.some(s => pcsPer(inp.bom, s, p) > 0)) { A.push(skus.map(s => pcsPer(inp.bom, s, p))); b.push(Math.max(0, capLeft[p] - base[p])) }
       skus.forEach((s, i) => { const r = new Array(nS).fill(0); r[i] = 1; A.push(r); b.push(Math.max(0, g.todo[s] - planned[s])) })
       if (Number.isFinite(packRem)) { const r = skus.map(s => packCost(s)); if (r.some(v => v > 0)) { A.push(r); b.push(Math.max(0, packRem - basePk)) } }
+      for (const c of comps) {
+        const r = skus.map(s => compCoef(c, s)); if (!r.some(v => v > 0)) continue
+        const used = skus.reduce((a, s, i) => a + r[i] * planned[s], 0)
+        A.push(r); b.push(Math.max(0, compLeft[c.key] - used))
+      }
       const sol = simplexMax(skus.map(() => 1), A, b)
       skus.forEach((s, i) => { planned[s] += Math.max(0, sol.x[i]) })
     }
@@ -178,6 +195,7 @@ export function planDay(inp: PlannerInput): PlannerResult {
       if (pcs - fromStock > 0) demand[p].push({ g, pcs: pcs - fromStock, skus: skus.filter(s => planned[s] > 0 && pcsPer(inp.bom, s, p) > 0), ahead: false })
     }
     if (Number.isFinite(packRem)) packRem -= skus.reduce((a, s) => a + packCost(s) * planned[s], 0)
+    for (const c of comps) { const u = skus.reduce((a, s) => a + compCoef(c, s) * planned[s], 0); compLeft[c.key] -= u; compUsed[c.key] += u }
     const totalTodo = skus.reduce((a, s) => a + g.todo[s], 0), totalPlanned = skus.reduce((a, s) => a + planned[s], 0)
     groupsOut.push({ key: g.key, label: g.label, rank: g.rank, todo: g.todo, planned, z: Math.min(...skus.map(s => planned[s] / g.todo[s])), totalTodo, totalPlanned })
     const rest: Record<string, number> = {}
@@ -190,8 +208,10 @@ export function planDay(inp: PlannerInput): PlannerResult {
       let need = Object.keys(rest).reduce((a, s) => a + pcsPer(inp.bom, s, p) * rest[s], 0)
       const fromStock = Math.min(stockLeft[p], need); stockLeft[p] -= fromStock; need -= fromStock
       need = Math.min(need, Math.max(0, capLeft[p]))
+      for (const c of comps) { const pp = c.perPiece[p] || 0; if (pp > 0) need = Math.min(need, Math.floor(Math.max(0, compLeft[c.key]) / pp)) }
       if (need <= 0) continue
       capLeft[p] -= need
+      for (const c of comps) { const pp = c.perPiece[p] || 0; if (pp > 0) { compLeft[c.key] -= need * pp; compUsed[c.key] += need * pp } }
       demand[p].push({ g, pcs: need, skus: Object.keys(rest).filter(s => pcsPer(inp.bom, s, p) > 0), ahead: true })
     }
   }
@@ -229,13 +249,13 @@ export function planDay(inp: PlannerInput): PlannerResult {
       for (let i = 0; i < inp.shifts.length && q > 0; i++) {
         const take = Math.min(q, cost > 0 ? Math.floor(shiftLeft[i] / cost + 1e-6) : q)
         if (take <= 0) continue
-        pack.push({ shift: inp.shifts[i].n, sku: s, srps: take, hours: r ? take / r.perHour : 0, people: r?.people || 1, groupKey: g.key })
+        pack.push({ shift: inp.shifts[i].n, sku: s, srps: take, hours: r ? take / (r.perHour * psf) : 0, people: r?.people || 1, groupKey: g.key })
         shiftLeft[i] -= cost * take; packHoursUsed += cost * take; q -= take
       }
       if (q > 0) {   // rounding remainder → last shift
         const n = inp.shifts[inp.shifts.length - 1].n
         const last = pack.find(x => x.sku === s && x.groupKey === g.key && x.shift === n)
-        if (last) { last.srps += q; last.hours += r ? q / r.perHour : 0 } else pack.push({ shift: n, sku: s, srps: q, hours: r ? q / r.perHour : 0, people: r?.people || 1, groupKey: g.key })
+        if (last) { last.srps += q; last.hours += r ? q / (r.perHour * psf) : 0 } else pack.push({ shift: n, sku: s, srps: q, hours: r ? q / (r.perHour * psf) : 0, people: r?.people || 1, groupKey: g.key })
         packHoursUsed += cost * q
       }
     }
@@ -256,7 +276,11 @@ export function planDay(inp: PlannerInput): PlannerResult {
       else if (stock[p] + machCap[p] - piecesNeeded[p] < Math.max(...ms.filter(m => m.piece === p).map(m => m.rate)) * 0.05) bottlenecks.push(`${PIECE_NAME[p]} molding: every ${PIECE_NAME[p].toLowerCase()} machine is full for the day.`)
     }
   }
-  return { groups: groupsOut, segments, machineHours, piecesNeeded, piecesMade, piecesCapacity: Object.fromEntries(PIECE_LIST.map(p => [p, stock[p] + machCap[p]])), packHoursUsed, packHoursAvail: packAvail, pack, bottlenecks, warnings: Array.from(new Set(warnings)) }
+  if (g1 && g1.totalPlanned < g1.totalTodo) for (const c of comps) {
+    const needed = Object.keys(g1.todo).some(s => g1.todo[s] > (g1.planned[s] || 0) && compCoef(c, s) > 0)
+    if (needed && compLeft[c.key] < Math.max(1, c.avail * 0.02)) bottlenecks.push(`Material: ${c.name} — only ${Math.round(c.avail).toLocaleString('en-US')} ${c.uom} on hand.`)
+  }
+  return { compUsed, compAvail: Object.fromEntries(comps.map(c => [c.key, c.avail])), groups: groupsOut, segments, machineHours, piecesNeeded, piecesMade, piecesCapacity: Object.fromEntries(PIECE_LIST.map(p => [p, stock[p] + machCap[p]])), packHoursUsed, packHoursAvail: packAvail, pack, bottlenecks, warnings: Array.from(new Set(warnings)) }
 }
 
 /** Score per priority: (completion of the whole load, SRPs), compared lexicographically. */
