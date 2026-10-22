@@ -257,7 +257,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
 
             {/* KPIs */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <Kpi label="Priority 1 covered" value={g1 ? `${fmtN(g1.totalPlanned)} / ${fmtN(g1.totalTodo)} SRP` : 'Nothing open'} sub={g1 ? `${Math.round(100 * g1.totalPlanned / Math.max(1, g1.totalTodo))}% · slowest SKU ${Math.round(g1.z * 100)}%` : ''} color={g1 && g1.totalPlanned >= g1.totalTodo ? '#00a85a' : '#e2445c'} />
+              <Kpi label={g1 ? `First open priority · P${g1.rank || '–'} ${g1.label}` : 'First open priority'} value={g1 ? `${fmtN(g1.totalPlanned)} / ${fmtN(g1.totalTodo)} SRP` : 'Nothing open'} sub={g1 ? `${Math.round(100 * g1.totalPlanned / Math.max(1, g1.totalTodo))}% · slowest SKU ${Math.round(g1.z * 100)}%` : ''} color={g1 && g1.totalPlanned >= g1.totalTodo ? '#00a85a' : '#e2445c'} />
               <Kpi label="Machine run time" value={`${horizon} h available`} sub={`${usedMachines.size} of ${input.machines.filter(m => m.available).length} machines used`} color={ACCENT} />
               <Kpi label="Packing" value={settings.manual_packing ? `${fmtN(result.packHoursUsed, 1)} / ${fmtN(result.packHoursAvail, 0)} h` : 'Not planned'} sub={settings.manual_packing ? 'packer-hours used' : 'molding only'} color="#a25ddc" />
               <Kpi label="Pieces to mold" value={PIECE_LIST.filter(p => result.piecesMade[p] > 0).map(p => `${PIECE_NAME[p]} ${fmtN(result.piecesMade[p] / 1000, 0)}k`).join(' · ') || '—'} sub="incl. molding ahead" color="#0086c0" />
@@ -265,7 +265,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
 
             {(result.bottlenecks.length > 0 || result.warnings.length > 0) && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 space-y-1">
-                {result.bottlenecks.map(b => <p key={b}><b>Holding back priority 1:</b> {b}</p>)}
+                {result.bottlenecks.map(b => <p key={b}><b>Holding back the first open priority:</b> {b}</p>)}
                 {result.warnings.map(w => <p key={w} className="text-amber-800">⚠ {w}</p>)}
               </div>)}
 
@@ -297,6 +297,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                       <div className="flex-1" />
                       {rg && rg.totalTodo > 0 && <span className={`text-xs font-bold ${rg.totalPlanned >= rg.totalTodo ? 'text-emerald-700' : 'text-amber-700'}`}>{fmtN(rg.totalPlanned)} of {fmtN(rg.totalTodo)} SRP planned</span>}
                     </div>
+                    {!Object.keys(g.todo).some(s => g.todo[s] > 0 || todoEdit[g.key + '|' + s] !== undefined) ? <p className="px-4 py-2 text-sm text-emerald-700 font-semibold">✓ Everything for this load is already made or released — nothing to plan.</p> :
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm min-w-[560px]">
                         <thead><tr className="text-[10px] uppercase text-gray-400"><th className="text-left px-4 py-1.5">SKU</th><th className="text-right px-2">Still to make (SRP)</th><th className="text-right px-2">Planned</th><th className="text-right px-2">Short</th><th className="text-left px-3">Pieces per SRP</th></tr></thead>
@@ -313,7 +314,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                             </tr>)
                         })}</tbody>
                       </table>
-                    </div>
+                    </div>}
                   </div>)
               })}
               <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
