@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
-import { RfqManualQuoteModal, SelectionBadge, SelectionPicker, selectionSummary, SELECTION_META, type SendRow, type Resp } from '@/components/RfqSupplierPanel'
+import { RfqManualQuoteModal, SelectionBadge, SelectionPicker, selectionGroups, selectionVerb, selectionRow, SELECTION_META, type SendRow, type Resp } from '@/components/RfqSupplierPanel'
 
 const BOARD = '/sales/supplier-quotes'
 const ACCENT = '#1F9A3A'
@@ -146,8 +146,8 @@ export default function SupplierQuotesPage() {
                   <div className="min-w-0">
                     <p className="font-bold text-[#1A1D2E]">{qt?.quote_number || 'Quote'} <span className="font-normal text-gray-500">· {custOf(qid)}</span>{qt?.status ? <span className="ml-2 text-[11px] font-semibold rounded-full px-2 py-0.5 bg-[#EEF2FB] text-[#3A4A6B]">{qt.status}</span> : null}</p>
                     <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[680px]">{its.length ? its.map(l => `${l.product_name || l.description || l.sku}${l.quantity ? ` × ${Number(l.quantity).toLocaleString()}` : ''}`).join(' · ') : 'No line items on this quote'}</p>
-                    {(() => { const sum = selectionSummary(ss); if (!sum) return null; const m = SELECTION_META[sum.kind]
-                      return <p className="mt-1.5"><span className="text-xs font-bold rounded-full px-2.5 py-1 border" style={{ background: m.bg, color: m.text, borderColor: m.text + '33' }}>{m.icon} {sum.kind === 'won' ? 'Won by' : 'Working with'} {sum.text}</span></p> })()}
+                    {selectionGroups(ss).length > 0 && <p className="mt-1.5 flex flex-wrap gap-1.5">{selectionGroups(ss).map(g => { const m = SELECTION_META[g.kind]
+                      return <span key={g.kind} className="text-xs font-bold rounded-full px-2.5 py-1 border" style={{ background: m.bg, color: m.text, borderColor: m.text + '33' }}>{m.icon} {selectionVerb(g.kind)} {g.names.join(', ')}</span> })}</p>}
                     <p className="text-[11px] text-gray-400 mt-1">{ss.length} supplier{ss.length === 1 ? '' : 's'} asked · <b className="text-emerald-700">{got.length} quoted</b>{best != null ? ` · lowest total ${money(best)}` : ''}</p>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
@@ -166,7 +166,7 @@ export default function SupplierQuotesPage() {
                         const st = statusOf(s), r = respBySend[s.id], isBest = r?.total_value != null && r.total_value === best && totals.length > 1
                         const exp = r?.validity_days ? addDays(r.submitted_at, r.validity_days) : null
                         return [
-                          <tr key={s.id} className={`border-t border-[#F0F2F6] ${s.selection === 'won' ? 'bg-amber-50' : s.selection === 'working' ? 'bg-indigo-50/50' : isBest ? 'bg-emerald-50/60' : ''}`}>
+                          <tr key={s.id} className={`border-t border-[#F0F2F6] ${selectionRow(s.selection) || (isBest ? 'bg-emerald-50/60' : '')}`}>
                             <td className="px-4 py-2.5"><button data-ro-ok onClick={() => r && setOpen(o => ({ ...o, [s.id]: !o[s.id] }))} className="text-left"><span className="font-semibold text-[#1A1D2E]">{s.vendor_name}</span>{isBest && <span className="ml-1.5 text-[10px] font-bold text-emerald-700">LOWEST</span>}{s.selection ? <span className="ml-1.5"><SelectionBadge selection={s.selection} at={s.selected_at} by={s.selected_by} /></span> : null}<span className="block text-[11px] text-gray-400">{r?.contact_name || s.recipient_email}{r ? ` · ${r.method === 'portal' ? 'via form' : 'logged by hand'}` : ''}{r ? (open[s.id] ? ' ▾' : ' ▸') : ''}</span></button></td>
                             <td className="px-2 py-2.5"><span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${ST[st].cls}`}>{ST[st].label}</span>{st !== 'received' && s.opened_at ? <span className="block text-[10px] text-gray-400 mt-0.5">opened {fmtD(s.opened_at)}</span> : null}</td>
                             <td className="px-2 py-2.5 text-gray-500 text-xs">{fmtD(s.sent_at)}</td>
