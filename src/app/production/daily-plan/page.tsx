@@ -169,29 +169,98 @@ export default function DailyPlanPage() {
     const { error } = await sb.from('production_plan_lines').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', l.id)
     if (error) { flash(error.message); load() } else if (patch.status) flash(`${l.machine_code} set to ${patch.status}${patch.status === 'Running' || patch.status === 'Down' ? ' — Machine Status updated' : ''}`)
   }
-  // The floor wants the day plan on paper. Build a clean sheet in a new window
-  // instead of printing the board, so filters, buttons and nav stay off the page.
-  // The blank Actual qty / Notes columns are there for the operators to fill in.
-  function printPlan(p: Plan) {
+  // The floor sheet needs real numbers, not just a machine list. The day plan
+  // lines only carry free text, so pull the Walmart planner's snapshot for the
+  // same date: it holds the finished-goods target per SKU and the per-machine
+  // part target. Falls back to the plain line list when there is no snapshot.
+  async function printPlan(p: Plan) {
     const lines = (linesByPlan[p.id] || []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    const dateLabel = parseISO(p.plan_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    const PART_NAME: Record<string, string> = { BGFRK: 'Forks', BGSPN: 'Spoons', BGKNF: 'Knives' }
     const esc = (v: unknown) => String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
-    const rows = lines.length
-      ? lines.map((l) => '<tr><td class="m">' + esc(l.machine_code) + '</td><td>' + (esc(l.product) || '-') + '</td><td>' + esc(l.operator) + '</td><td>' + esc(l.status) + '</td><td class="w"></td><td class="w"></td></tr>').join('')
-      : '<tr><td colspan="6" class="empty">No machines on this plan.</td></tr>'
-    const css = 'body{font-family:Arial,Helvetica,sans-serif;color:#1A1D2E;margin:26px}h1{font-size:20px;margin:0 0 2px}.sub{font-size:13px;color:#555;margin:0 0 4px}.meta{font-size:12px;color:#666;margin:0 0 16px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f3f5;border:1px solid #c9ced6;padding:7px 8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em}td{border:1px solid #d8dde3;padding:10px 8px}td.m{font-weight:700;white-space:nowrap}td.w{width:110px}td.empty{text-align:center;color:#888;padding:18px}.notes{margin-top:16px;font-size:12px;white-space:pre-wrap;border:1px solid #d8dde3;padding:10px;border-radius:6px}.foot{margin-top:22px;font-size:10px;color:#999;text-align:center}@page{size:letter;margin:12mm}@media print{body{margin:0}}'
+    const n = (v: unknown) => (Number(v) || 0).toLocaleString('en-US')
+    const { data: snap } = await sb.from('walmart_plan_snapshots').select('planned, machines')
+      .eq('plan_date', p.plan_date).order('confirmed_at', { ascending: false }).limit(1).maybeSingle()
+    const planned: Record<string, number> = ((snap as Record<string, any> | null)?.planned as Record<string, number>) || {}
+    const rawRuns = (snap as Record<string, any> | null)?.machines
+    const runs: Array<Record<string, any>> = Array.isArray(rawRuns) ? rawRuns : []
+    const skus = Object.keys(planned).filter((s) => Number(planned[s]) > 0).sort()
+    const mIds = Array.from(new Set(runs.map((r) => r.machine_id).filter(Boolean)))
+    const [codeRes, bomRes, prodRes] = await Promise.all([
+      mIds.length ? sb.from('machines').select('id, machine_code').in('id', mIds) : Promise.resolve({ data: [] as Array<Record<string, any>> }),
+      skus.length ? sb.from('product_bom').select('finished_good_sku, component_sku, qty_value').in('finished_good_sku', skus).eq('uom_type', 'pcs') : Promise.resolve({ data: [] as Array<Record<string, any>> }),
+      skus.length ? sb.from('products').select('sku, product_name').in('sku', skus) : Promise.resolve({ data: [] as Array<Record<string, any>> }),
+    ])
+    const codeById: Record<string, string> = {}
+    for (const m of ((codeRes.data || []) as Array<Record<string, any>>)) codeById[m.id] = m.machine_code
+    const nameBySku: Record<string, string> = {}
+    for (const r of ((prodRes.data || []) as Array<Record<string, any>>)) nameBySku[r.sku] = r.product_name
+    const perSrp: Record<string, Record<string, number>> = {}
+    for (const b of ((bomRes.data || []) as Array<Record<string, any>>)) {
+      if (!perSrp[b.finished_good_sku]) perSrp[b.finished_good_sku] = {}
+      perSrp[b.finished_good_sku][b.component_sku] = Number(b.qty_value) || 0
+    }
+    const opByMachine: Record<string, string> = {}
+    for (const l of lines) if (l.operator) opByMachine[l.machine_code] = l.operator
+    const needByPart: Record<string, number> = {}
+    for (const s of skus) for (const k of Object.keys(perSrp[s] || {})) needByPart[k] = (needByPart[k] || 0) + perSrp[s][k] * Number(planned[s] || 0)
+    const machByPart: Record<string, number> = {}
+    for (const r of runs) if (r.piece) machByPart[r.piece] = (machByPart[r.piece] || 0) + (Number(r.target_pcs) || 0)
+    const parts = Array.from(new Set(Object.keys(needByPart).concat(Object.keys(machByPart)))).sort()
+    const totalSrp = skus.reduce((a, s) => a + Number(planned[s] || 0), 0)
+    const totalPcs = runs.reduce((a, r) => a + (Number(r.target_pcs) || 0), 0)
+    const fgRows = skus.map((s) => '<tr><td class="b">' + esc(s) + '<div class="sm">' + esc(nameBySku[s] || '') + '</div></td><td class="r big">'
+      + n(planned[s]) + '</td><td class="sm">'
+      + (Object.keys(perSrp[s] || {}).map((k) => n(perSrp[s][k]) + ' ' + esc((PART_NAME[k] || k).toLowerCase())).join(' + ') || '-')
+      + '</td><td class="w"></td><td class="w2"></td></tr>').join('')
+    const mcRows = runs.length
+      ? runs.map((r) => {
+          const code = codeById[r.machine_id] || String(r.machine_id || '-')
+          return '<tr><td class="b">' + esc(code) + '</td><td>' + esc(PART_NAME[r.piece] || r.piece || '-')
+            + ' <span class="sm">' + esc(r.piece || '') + '</span></td><td class="r">' + n(r.hours)
+            + '</td><td class="r big">' + n(r.target_pcs) + '</td><td class="sm">'
+            + esc(Array.isArray(r.skus) ? r.skus.join(', ') : '') + '</td><td class="sm">'
+            + esc(r.operator || opByMachine[code] || '') + '</td><td class="w"></td><td class="w2"></td></tr>'
+        }).join('')
+      : lines.map((l) => '<tr><td class="b">' + esc(l.machine_code) + '</td><td colspan="4">' + (esc(l.product) || '-')
+          + '</td><td class="sm">' + esc(l.operator) + '</td><td class="w"></td><td class="w2"></td></tr>').join('')
+    const partRows = parts.map((k) => {
+      const mt = machByPart[k] || 0, need = needByPart[k] || 0, d = mt - need
+      return '<tr><td class="b">' + esc(PART_NAME[k] || k) + '</td><td class="r">' + n(mt) + '</td><td class="r">' + n(need)
+        + '</td><td class="r ' + (d < 0 ? 'neg' : 'pos') + '">' + (d >= 0 ? '+' : '') + n(d) + '</td></tr>'
+    }).join('')
+    const dateLabel = parseISO(p.plan_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    const css = 'body{font-family:Arial,Helvetica,sans-serif;color:#1A1D2E;margin:22px}h1{font-size:19px;margin:0 0 2px}'
+      + 'h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#1D9E75;border-bottom:2px solid #e6efe9;padding-bottom:4px;margin:18px 0 6px}'
+      + '.sub{font-size:13px;color:#555;margin:0 0 3px}.meta{font-size:11px;color:#777;margin:0}'
+      + 'table{width:100%;border-collapse:collapse;font-size:11px}'
+      + 'th{background:#f1f3f5;border:1px solid #c9ced6;padding:5px 7px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.04em}'
+      + 'td{border:1px solid #d8dde3;padding:7px}td.b{font-weight:700;white-space:nowrap}td.r{text-align:right;white-space:nowrap}'
+      + 'td.big{font-size:14px;font-weight:700}td.sm,.sm{font-size:9px;color:#777}td.w{width:70px}td.w2{width:120px}'
+      + 'td.neg{color:#c0392b;font-weight:700}td.pos{color:#1D9E75;font-weight:700}'
+      + 'tfoot td{background:#fafbfc;font-weight:700}'
+      + '.notes{margin-top:14px;font-size:11px;white-space:pre-wrap;border:1px solid #d8dde3;padding:9px;border-radius:5px}'
+      + '.foot{margin-top:18px;font-size:9px;color:#aaa;text-align:center}'
+      + '@page{size:letter;margin:11mm}@media print{body{margin:0}h2{break-after:avoid}tr{break-inside:avoid}}'
     const html = '<!doctype html><html><head><meta charset="utf-8"><title>Daily Plan ' + esc(p.plan_date) + '</title><style>' + css + '</style></head><body>'
-      + '<h1>Daily Production Plan</h1>'
-      + '<p class="sub">' + esc(dateLabel) + (p.title ? ' - ' + esc(p.title) : '') + '</p>'
-      + '<p class="meta">' + lines.length + ' machine' + (lines.length === 1 ? '' : 's') + ' - status ' + esc(p.status) + ' - beyondGREEN biotech</p>'
-      + '<table><thead><tr><th>Machine</th><th>Product</th><th>Operator</th><th>Status</th><th>Actual qty</th><th>Notes</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      + '<h1>Daily Production Plan</h1><p class="sub">' + esc(dateLabel) + (p.title ? ' - ' + esc(p.title) : '') + '</p>'
+      + '<p class="meta">Status ' + esc(p.status) + ' - ' + lines.length + ' machine' + (lines.length === 1 ? '' : 's') + ' - beyondGREEN biotech</p>'
+      + (skus.length
+        ? '<h2>Finished goods target - what to pack today</h2><table><thead><tr><th>SKU</th><th>Target SRP</th><th>Pieces per SRP</th><th>Packed</th><th>Notes</th></tr></thead><tbody>'
+          + fgRows + '</tbody><tfoot><tr><td>Total</td><td class="r">' + n(totalSrp) + ' SRP</td><td colspan="3"></td></tr></tfoot></table>'
+        : '')
+      + '<h2>Machines running - part target</h2><table><thead><tr><th>Machine</th><th>Part</th><th>Hours</th><th>Target pcs</th><th>Feeds</th><th>Operator</th><th>Actual</th><th>Notes</th></tr></thead><tbody>'
+      + (mcRows || '<tr><td colspan="8" style="text-align:center;color:#888;padding:16px">No machines on this plan.</td></tr>')
+      + '</tbody>' + (runs.length ? '<tfoot><tr><td colspan="3">Total</td><td class="r">' + n(totalPcs) + ' pcs</td><td colspan="4"></td></tr></tfoot>' : '') + '</table>'
+      + (parts.length
+        ? '<h2>Parts check - machine target vs what the finished goods need</h2><table><thead><tr><th>Part</th><th>Machine target</th><th>Needed for today’s SRP</th><th>Over / short</th></tr></thead><tbody>'
+          + partRows + '</tbody></table>'
+        : '')
       + (p.notes ? '<div class="notes"><strong>Plan notes</strong><br>' + esc(p.notes) + '</div>' : '')
-      + '<p class="foot">Printed ' + esc(new Date().toLocaleString('en-US')) + ' - beyondGREEN ERP</p>'
-      + '</body></html>'
+      + '<p class="foot">Printed ' + esc(new Date().toLocaleString('en-US')) + ' - beyondGREEN ERP</p></body></html>'
     const w = window.open('', '_blank')
     if (!w) { flash('Could not open the print window - please allow pop-ups for this site'); return }
     w.document.write(html); w.document.close(); w.focus()
-    setTimeout(() => { try { w.print() } catch { /* user can print from the window */ } }, 300)
+    setTimeout(() => { try { w.print() } catch { /* the window is open, they can print from there */ } }, 400)
   }
   function copyLink(p: Plan) { navigator.clipboard?.writeText(publicUrl(p.share_token)); flash('Operator link copied — paste it into WhatsApp') }
 
