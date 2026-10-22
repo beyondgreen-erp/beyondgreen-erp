@@ -133,7 +133,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
   const blend: Partial<Record<Piece, Record<string, number>>> = settings.blend || bomBlend
   const resins = useMemo(() => Array.from(new Set(PIECE_LIST.flatMap(p => Object.keys({ ...(bomBlend[p] || {}), ...((settings.blend || {})[p] || {}) }))))
     .sort((a, b) => a.localeCompare(b)), [bomBlend, settings.blend])
-  const isPla = (k: string) => k === '3251D' || /\b(PLA|INGEO)\b/i.test(prodInfo[k]?.name || '')
+  const isPla = (k: string) => k === '3251D' || (/\b(PLA|INGEO)\b/i.test(prodInfo[k]?.name || '') && !/REGRIND|-R$/i.test((prodInfo[k]?.name || '') + ' ' + k))   // virgin PLA only — regrind stays
   const blendLabel = !settings.blend ? 'BOM blend' : PIECE_LIST.every(p => resins.every(r => !isPla(r) || !(settings.blend?.[p]?.[r]))) ? 'No PLA' : 'Custom blend'
   function setBlendCell(p: Piece, r: string, v: number) {
     setSettings(s => {
