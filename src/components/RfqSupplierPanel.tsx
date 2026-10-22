@@ -593,6 +593,34 @@ export function RfqManualQuoteModal({
   const [aiNote, setAiNote] = useState<{ ok: boolean; text: string } | null>(null)
   const [replaceTyped, setReplaceTyped] = useState(false)
   const [filesKey, setFilesKey] = useState(0)
+  const [declinedHint, setDeclinedHint] = useState(false)
+  const [dropMsg, setDropMsg] = useState('')
+
+  // Files can be dropped anywhere on the window, pasted, or picked. Outlook often
+  // drags an email as text/link rather than a file — catch that and say so.
+  function takeTransfer(dt: DataTransfer | null) {
+    if (!dt) return
+    const files = Array.from(dt.files || [])
+    if (files.length) {
+      setPicked(p => [...p, ...files])
+      setDropMsg(`Added ${files.length} file${files.length === 1 ? '' : 's'} — press “Attach & fill in”.`)
+      return
+    }
+    const txt = dt.getData('text/plain') || ''
+    if (txt.trim()) {
+      setEmailText(t => (t.trim() ? t + '\n\n' : '') + txt)
+      setDropMsg('Outlook sent text, not a file, so it went into the email box. For attachments, save them to your computer first, then drag them here.')
+      return
+    }
+    setDropMsg('Nothing came through. Outlook can’t drag attachments straight into a browser — save them to your Desktop/Downloads first, then drag them in or use 📎 Add files.')
+  }
+
+  async function markDeclined() {
+    const { error } = await supabase.rpc('rfq_set_selection', { p_send: send.id, p_selection: 'declined' })
+    if (error) { setErr(error.message); return }
+    setDeclinedHint(false)
+    setAiNote({ ok: true, text: 'Marked ✖ RFQ rejected for this supplier. Save the quote to keep their notes.' })
+  }
 
   async function readWithAI() {
     setReading(true); setAiNote(null); setErr('')
@@ -607,7 +635,7 @@ export function RfqManualQuoteModal({
         const r = await uploadFile(supabase, file, 'rfq_response', responseId, currentUserEmail)
         if (!r.success) throw new Error(`Could not attach ${file.name}: ${r.error}`)
       }
-      if (uploads.length) { setPicked([]); setEmailText(''); setFilesKey(k => k + 1) }
+      if (uploads.length) { setPicked([]); setEmailText(''); setFilesKey(k => k + 1); setDropMsg('') }
 
       const res = await fetch('/api/rfq/extract-quote', {
         method: 'POST',
@@ -617,6 +645,7 @@ export function RfqManualQuoteModal({
       const j = await res.json().catch(() => ({}))
       if (!res.ok || !j.ok) throw new Error(j.error || 'Could not read the email/files.')
       const d = j.data || {}
+      setDeclinedHint(d.supplier_declined === true && send.selection !== 'declined')
       const filled: string[] = []
       const str = (v: any) => (v === null || v === undefined || v === '' ? null : String(v))
 
@@ -714,6 +743,18 @@ export function RfqManualQuoteModal({
   async function save() {
     setSaving(true); setErr('')
     try {
+      // Anything picked or pasted but not yet attached is saved with the quote.
+      const pending: File[] = [...picked]
+      if (emailText.trim()) {
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+        const safeVendor = (send.vendor_name || 'supplier').replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 40)
+        pending.unshift(new File([emailText], `email-${safeVendor}-${stamp}.txt`, { type: 'text/plain' }))
+      }
+      for (const file of pending) {
+        const r = await uploadFile(supabase, file, 'rfq_response', responseId, currentUserEmail)
+        if (!r.success) throw new Error(`Could not attach ${file.name}: ${r.error}`)
+      }
+      if (pending.length) { setPicked([]); setEmailText(''); setFilesKey(k => k + 1) }
       const lineRows = qlines.map((l, i) => {
         const pr = prices[l.id] || { unit_price: '', pcs_per_case: '', case_price: '', notes: '' }
         const unit = num(pr.unit_price)
@@ -790,7 +831,10 @@ export function RfqManualQuoteModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+      onDragLeave={e => { if (e.currentTarget === e.target) setDragOver(false) }}
+      onDrop={e => { e.preventDefault(); setDragOver(false); takeTransfer(e.dataTransfer) }}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col">
         <div className="px-6 py-4 border-b border-gray-200 flex items-start justify-between">
           <div>
@@ -808,7 +852,7 @@ export function RfqManualQuoteModal({
           <section
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) setPicked(p => [...p, ...Array.from(e.dataTransfer.files)]) }}
+            onDrop={e => { e.preventDefault(); e.stopPropagation(); setDragOver(false); takeTransfer(e.dataTransfer) }}
             className={`rounded-lg border-2 border-dashed p-4 ${dragOver ? 'border-emerald-500 bg-emerald-50' : 'border-emerald-200 bg-emerald-50/40'}`}
           >
             <div className="flex items-start justify-between gap-3 mb-2">
@@ -821,6 +865,8 @@ export function RfqManualQuoteModal({
               rows={4}
               value={emailText}
               onChange={e => setEmailText(e.target.value)}
+              onPaste={e => { if (e.clipboardData?.files?.length) { e.preventDefault(); takeTransfer(e.clipboardData) } }}
+              onDrop={e => { if (e.dataTransfer?.files?.length) { e.preventDefault(); e.stopPropagation(); setDragOver(false); takeTransfer(e.dataTransfer) } }}
               placeholder="Paste the whole email thread here (Ctrl/Cmd+A, Ctrl/Cmd+C in the email, then paste)"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
@@ -856,6 +902,13 @@ export function RfqManualQuoteModal({
                 {reading ? 'Reading…' : (emailText.trim() || picked.length) ? 'Attach & fill in' : 'Fill in from attached files'}
               </button>
             </div>
+            {dropMsg && <div className="mt-2 text-[12px] text-gray-600">{dropMsg}</div>}
+            {declinedHint && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] rounded-md px-3 py-2 bg-red-50 text-red-700 border border-red-200">
+                It looks like {send.vendor_name} said no to this RFQ.
+                <button type="button" onClick={markDeclined} className="px-2.5 py-1 rounded-md bg-red-600 text-white font-semibold">✖ Mark RFQ rejected</button>
+              </div>
+            )}
             {aiNote && (
               <div className={`mt-2 text-[12px] rounded-md px-3 py-2 ${aiNote.ok ? 'bg-white text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                 {aiNote.text}
