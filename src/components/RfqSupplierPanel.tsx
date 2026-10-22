@@ -46,20 +46,21 @@ export interface SendRow {
   opened_at: string | null
   responded_at: string | null
   error: string | null
-  selection?: 'talking' | 'working' | 'won' | null
+  selection?: 'talking' | 'working' | 'won' | 'declined' | null
   selected_at?: string | null
   selected_by?: string | null
 }
 
 /* ------------------------------------------------- Who we're going with */
 
-export type Selection = 'talking' | 'working' | 'won'
+export type Selection = 'talking' | 'working' | 'won' | 'declined'
 export const SELECTION_META: Record<Selection, { label: string; icon: string; bg: string; text: string; row: string }> = {
   won: { label: 'Won', icon: '🏆', bg: '#FEF3C7', text: '#92400E', row: 'bg-amber-50' },
   working: { label: 'Working with', icon: '🤝', bg: '#E0E7FF', text: '#3730A3', row: 'bg-indigo-50/50' },
   talking: { label: 'In conversation', icon: '💬', bg: '#E0F2FE', text: '#075985', row: 'bg-sky-50/60' },
+  declined: { label: 'RFQ rejected', icon: '✖', bg: '#FEE2E2', text: '#B91C1C', row: 'bg-red-50' },
 }
-const isSel = (v: unknown): v is Selection => v === 'won' || v === 'working' || v === 'talking'
+const isSel = (v: unknown): v is Selection => v === 'won' || v === 'working' || v === 'talking' || v === 'declined'
 export const selectionRow = (v: unknown) => (isSel(v) ? SELECTION_META[v].row : '')
 
 export function SelectionBadge({ selection, at, by }: { selection?: string | null; at?: string | null; by?: string | null }) {
@@ -92,12 +93,13 @@ export function SelectionPicker({ send, onChanged }: { send: SendRow; onChanged:
       onChange={e => pick(e.target.value)}
       onClick={e => e.stopPropagation()}
       title="Mark who you're working with, or who won this RFQ"
-      className="text-[11px] border border-gray-300 rounded-md px-1.5 py-0.5 bg-white text-gray-700 disabled:opacity-50"
+      className={`text-[11px] border rounded-md px-1.5 py-0.5 disabled:opacity-50 ${send.selection === 'declined' ? 'border-red-300 bg-red-50 text-red-700 font-semibold' : 'border-gray-300 bg-white text-gray-700'}`}
     >
       <option value="">Pick supplier…</option>
       <option value="talking">💬 In conversation</option>
       <option value="working">🤝 Working with</option>
       <option value="won">🏆 Won (awarded)</option>
+      <option value="declined">✖ RFQ rejected (supplier said no)</option>
     </select>
   )
 }
@@ -115,11 +117,11 @@ export function selectionSummary(sends: { vendor_name: string; selection?: strin
 
 /** Every non-empty group, e.g. [🤝 Working with A] [💬 In conversation B, C]. */
 export function selectionGroups(sends: { vendor_name: string; selection?: string | null }[]): { kind: Selection; names: string[] }[] {
-  return (['won', 'working', 'talking'] as const)
+  return (['won', 'working', 'talking', 'declined'] as const)
     .map(k => ({ kind: k, names: sends.filter(s => s.selection === k).map(s => s.vendor_name) }))
     .filter(g => g.names.length > 0)
 }
-export const selectionVerb = (k: Selection) => (k === 'won' ? 'Awarded to' : k === 'working' ? 'Working with' : 'In conversation with')
+export const selectionVerb = (k: Selection) => (k === 'won' ? 'Awarded to' : k === 'working' ? 'Working with' : k === 'talking' ? 'In conversation with' : 'RFQ rejected by')
 
 interface RespLine {
   id: string
@@ -1022,7 +1024,7 @@ export function RfqResponses({ quotationId, refreshKey, currentUserEmail = '' }:
                   <button type="button" onClick={() => setEntering(s)} className="text-[11px] text-emerald-700 hover:underline">
                     {logged ? 'Edit quote' : 'Enter quote'}
                   </button>
-                  {logged ? (
+                  {s.selection === 'declined' ? null : logged ? (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: GREEN }}
                       title={logged.submitted_at ? `Quote logged ${new Date(logged.submitted_at).toLocaleString()}` : 'Quote logged'}>
                       ✓ Completed{logged.submitted_at ? ` · ${new Date(logged.submitted_at).toLocaleDateString()}` : ''}
