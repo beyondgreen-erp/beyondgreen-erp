@@ -21,6 +21,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
 import Comments from '@/components/Comments'
 import WalmartDayPlanner from '@/components/WalmartDayPlanner'
+import WalmartActivityLog from '@/components/WalmartActivityLog'
 
 const BOARD = '/production/walmart'
 const SKUS = [
@@ -154,7 +155,7 @@ export default function WalmartProductionPage() {
   const [showVoided, setShowVoided] = useState(false)
   const [ledgerOpen, setLedgerOpen] = useState(false)
   const [flash, setFlash] = useState('')
-  const [tab, setTab] = useState<'production' | 'build'>('production')
+  const [tab, setTab] = useState<'production' | 'build' | 'activity'>('production')
   const [safety, setSafety] = useState<WO[]>([])
   const [safetyProg, setSafetyProg] = useState<Prog[]>([])
   const [releases, setReleases] = useState<Release[]>([])
@@ -346,14 +347,14 @@ export default function WalmartProductionPage() {
       )}
 
       <div className="flex gap-1 p-1 mb-4 rounded-xl bg-[#EEF0F4] w-full sm:w-auto sm:inline-flex">
-        {([['production', 'Production'], ['build', 'Build team']] as const).map(([k, l]) => {
+        {([['production', 'Production'], ['build', 'Build team'], ['activity', 'Activity log']] as const).map(([k, l]) => {
           const n = k === 'build' ? releases.filter(r => r.status === 'Released').length : 0
           return <button key={k} onClick={() => setTab(k)} data-ro-ok className={`flex-1 sm:flex-none h-10 px-5 rounded-lg text-sm font-semibold ${tab === k ? 'bg-white shadow-sm text-[#1A1D2E]' : 'text-gray-500'}`}>{l}{n ? <span className="ml-1.5 text-[11px] text-white rounded-full px-1.5 py-0.5" style={{ background: '#e2445c' }}>{n}</span> : null}</button>
         })}
       </div>
 
       {tab === 'build' && flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
-      {tab === 'build' ? <BuildTeam sb={sb} releases={releases} canEdit={canEdit} onDone={(m) => { setFlash(m); reload() }} /> : <>
+      {tab === 'activity' ? <WalmartActivityLog sb={sb} woId={wo?.id || null} weekLabel={wo ? `${wo.wo_code || 'this week'} (${week} – ${weekEnd})` : undefined} /> : tab === 'build' ? <BuildTeam sb={sb} releases={releases} canEdit={canEdit} onDone={(m) => { setFlash(m); reload() }} /> : <>
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — each entry adds the finished SRPs to inventory, takes out every packaging part and cutlery piece used, posts to the Inventory Ledger, and updates this week&apos;s Walmart work order.</div>
 
       {flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
