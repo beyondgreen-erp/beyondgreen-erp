@@ -594,6 +594,11 @@ export function RfqManualQuoteModal({
   const [replaceTyped, setReplaceTyped] = useState(false)
   const [filesKey, setFilesKey] = useState(0)
   const [declinedHint, setDeclinedHint] = useState(false)
+  const [savedOnce, setSavedOnce] = useState(false)
+  const fState = f
+  const pricesState = prices
+  // Closing after an automatic save still refreshes the RFQ behind it.
+  const close = () => (savedOnce ? onSaved() : onClose())
   const [dropMsg, setDropMsg] = useState('')
 
   // Files can be dropped anywhere on the window, pasted, or picked. Outlook often
@@ -602,8 +607,8 @@ export function RfqManualQuoteModal({
     if (!dt) return
     const files = Array.from(dt.files || [])
     if (files.length) {
-      setPicked(p => [...p, ...files])
-      setDropMsg(`Added ${files.length} file${files.length === 1 ? '' : 's'} — press “Attach & fill in”.`)
+      setDropMsg(`Attaching ${files.length} file${files.length === 1 ? '' : 's'} and reading them…`)
+      readWithAI(files)
       return
     }
     const txt = dt.getData('text/plain') || ''
@@ -622,12 +627,13 @@ export function RfqManualQuoteModal({
     setAiNote({ ok: true, text: 'Marked ✖ RFQ rejected for this supplier. Save the quote to keep their notes.' })
   }
 
-  async function readWithAI() {
+  async function readWithAI(newFiles?: File[]) {
+    if (reading) { if (newFiles?.length) setPicked(p => [...p, ...newFiles]); return }
     setReading(true); setAiNote(null); setErr('')
     try {
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
       const safeVendor = (send.vendor_name || 'supplier').replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 40)
-      const uploads: File[] = [...picked]
+      const uploads: File[] = [...picked, ...(newFiles || [])]
       if (emailText.trim()) {
         uploads.unshift(new File([emailText], `email-${safeVendor}-${stamp}.txt`, { type: 'text/plain' }))
       }
@@ -649,46 +655,45 @@ export function RfqManualQuoteModal({
       const filled: string[] = []
       const str = (v: any) => (v === null || v === undefined || v === '' ? null : String(v))
 
-      setF(prev => {
-        const next: any = { ...prev }
-        const keys = ['contact_name', 'contact_email', 'currency', 'incoterm', 'payment_terms', 'lead_time_days', 'moq_note',
-          'validity_days', 'plate_die_charges', 'overrun_tolerance', 'certifications', 'exclusions'] as const
-        keys.forEach(k => {
-          const v = str(d[k]); if (v == null) return
-          if (replaceTyped || !String(prev[k] ?? '').trim() || (k === 'currency' && prev[k] === 'USD')) {
-            if (next[k] !== v) { next[k] = v; filled.push(k.replace(/_/g, ' ')) }
-          }
-        })
-        if (d.sample_available === true || d.sample_available === false) {
-          const v = d.sample_available ? 'yes' : 'no'
-          if (replaceTyped || !prev.sample_available) { next.sample_available = v; filled.push('samples') }
+      // Merge into the current form synchronously so we can save exactly what is shown.
+      const prev: any = f
+      const nextF: any = { ...prev }
+      const keys = ['contact_name', 'contact_email', 'currency', 'incoterm', 'payment_terms', 'lead_time_days', 'moq_note',
+        'validity_days', 'plate_die_charges', 'overrun_tolerance', 'certifications', 'exclusions'] as const
+      keys.forEach(k => {
+        const v = str(d[k]); if (v == null) return
+        if (replaceTyped || !String(prev[k] ?? '').trim() || (k === 'currency' && prev[k] === 'USD')) {
+          if (nextF[k] !== v) { nextF[k] = v; filled.push(k.replace(/_/g, ' ')) }
         }
-        const extra = [str(d.notes), Array.isArray(d.unmatched) && d.unmatched.length ? `Also quoted (not on our RFQ): ${d.unmatched.join('; ')}` : null]
-          .filter(Boolean).join('\n')
-        if (extra && !String(prev.notes || '').includes(extra)) {
-          next.notes = prev.notes?.trim() ? `${prev.notes.trim()}\n\n— From their email (${new Date().toLocaleDateString()}) —\n${extra}` : extra
-          filled.push('notes')
-        }
-        return next
       })
+      if (d.sample_available === true || d.sample_available === false) {
+        const v = d.sample_available ? 'yes' : 'no'
+        if (replaceTyped || !prev.sample_available) { nextF.sample_available = v; filled.push('samples') }
+      }
+      const extra = [str(d.notes), Array.isArray(d.unmatched) && d.unmatched.length ? `Also quoted (not on our RFQ): ${d.unmatched.join('; ')}` : null]
+        .filter(Boolean).join('\n')
+      if (extra && !String(prev.notes || '').includes(extra)) {
+        nextF.notes = prev.notes?.trim() ? `${prev.notes.trim()}\n\n— From their email (${new Date().toLocaleDateString()}) —\n${extra}` : extra
+        filled.push('notes')
+      }
 
       let linesFilled = 0
-      setPrices(prev => {
-        const next = { ...prev }
-        for (const l of (d.lines || []) as any[]) {
-          const cur = next[l.quotation_line_id] || { unit_price: '', pcs_per_case: '', case_price: '', notes: '' }
-          const row = { ...cur }
-          let touched = false
-          ;(['unit_price', 'pcs_per_case', 'case_price', 'notes'] as const).forEach(k => {
-            const v = str(l[k]); if (v == null) return
-            if (replaceTyped || !String(cur[k] ?? '').trim()) { row[k] = v; touched = true }
-          })
-          if (touched) { next[l.quotation_line_id] = row; linesFilled++ }
-        }
-        return next
-      })
-      // setPrices runs synchronously enough for a count; fall back to the payload size.
-      const nLines = linesFilled || (d.lines || []).length
+      const nextP: Record<string, any> = { ...prices }
+      for (const l of (d.lines || []) as any[]) {
+        const cur = nextP[l.quotation_line_id] || { unit_price: '', pcs_per_case: '', case_price: '', notes: '' }
+        const row = { ...cur }
+        let touched = false
+        ;(['unit_price', 'pcs_per_case', 'case_price', 'notes'] as const).forEach(k => {
+          const v = str(l[k]); if (v == null) return
+          if (replaceTyped || !String(cur[k] ?? '').trim()) { row[k] = v; touched = true }
+        })
+        if (touched) { nextP[l.quotation_line_id] = row; linesFilled++ }
+      }
+      setF(nextF)
+      setPrices(nextP)
+      // Log it straight away — the quote is on the RFQ as soon as the AI has read it.
+      const savedOk = await save({ f: nextF, prices: nextP, stayOpen: true })
+      const nLines = linesFilled
       const parts = [
         nLines ? `${nLines} line price${nLines === 1 ? '' : 's'}` : null,
         filled.length ? filled.join(', ') : null,
@@ -698,7 +703,7 @@ export function RfqManualQuoteModal({
         text: (parts.length ? `Filled in: ${parts.join(' · ')}.` : 'Read it, but found nothing new to fill in.')
           + ` Read ${j.read?.length || 0} file${j.read?.length === 1 ? '' : 's'}.`
           + (j.skipped?.length ? ` Skipped: ${j.skipped.join(', ')}.` : '')
-          + ' Check the numbers, then Save quote.',
+          + (savedOk ? ' ✓ Saved to the RFQ. Edit anything below and press Save changes if needed.' : ' Could not save automatically — check the fields and press Save quote.'),
       })
     } catch (e: any) {
       setAiNote({ ok: false, text: e?.message || 'Could not read the email/files.' })
@@ -740,7 +745,9 @@ export function RfqManualQuoteModal({
 
   const num = (v: string) => (v.trim() === '' || isNaN(Number(v)) ? null : Number(v))
 
-  async function save() {
+  async function save(opts?: { f?: typeof f; prices?: typeof prices; stayOpen?: boolean }): Promise<boolean> {
+    const f = opts?.f ?? fState
+    const prices = opts?.prices ?? pricesState
     setSaving(true); setErr('')
     try {
       // Anything picked or pasted but not yet attached is saved with the quote.
@@ -794,7 +801,7 @@ export function RfqManualQuoteModal({
         total_value: total || null,
       }
 
-      if (existing) {
+      if (existing || savedOnce) {
         const { error } = await supabase.from('rfq_vendor_responses').update(payload).eq('id', responseId)
         if (error) throw error
         const { error: delErr } = await supabase.from('rfq_response_lines').delete().eq('response_id', responseId)
@@ -822,9 +829,12 @@ export function RfqManualQuoteModal({
           .update({ status: 'Responded', responded_at: new Date().toISOString() })
           .eq('id', send.id)
       }
-      onSaved()
+      setSavedOnce(true)
+      if (!opts?.stayOpen) onSaved()
+      return true
     } catch (e: any) {
       setErr(e?.message || 'Could not save the quote.')
+      return false
     } finally {
       setSaving(false)
     }
@@ -845,7 +855,7 @@ export function RfqManualQuoteModal({
                 : 'Type in what they sent by email and attach their files. It shows up in the comparison table like a form response.'}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button onClick={close} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -878,7 +888,7 @@ export function RfqManualQuoteModal({
                   multiple
                   accept=".pdf,.xlsx,.xls,.xlsm,.csv,.tsv,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.txt,.html,.htm"
                   className="hidden"
-                  onChange={e => { const fl = e.target.files; if (fl?.length) setPicked(p => [...p, ...Array.from(fl)]); e.target.value = '' }}
+                  onChange={e => { const arr = Array.from(e.target.files || []); e.target.value = ''; if (arr.length) readWithAI(arr) }}
                 />
               </label>
               {picked.map((p, i) => (
@@ -894,7 +904,7 @@ export function RfqManualQuoteModal({
               </label>
               <button
                 type="button"
-                onClick={readWithAI}
+                onClick={() => readWithAI()}
                 disabled={reading}
                 className="px-4 py-1.5 rounded-lg text-white text-xs font-semibold disabled:opacity-50"
                 style={{ background: GREEN }}
@@ -972,9 +982,9 @@ export function RfqManualQuoteModal({
         <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
           <div className="text-xs text-red-600">{err}</div>
           <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700">Cancel</button>
-            <button onClick={save} disabled={saving} className="px-5 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50" style={{ background: GREEN }}>
-              {saving ? 'Saving…' : existing ? 'Save changes' : 'Save quote'}
+            <button onClick={close} className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700">Cancel</button>
+            <button onClick={() => save()} disabled={saving} className="px-5 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50" style={{ background: GREEN }}>
+              {saving ? 'Saving…' : existing || savedOnce ? 'Save changes' : 'Save quote'}
             </button>
           </div>
         </div>
