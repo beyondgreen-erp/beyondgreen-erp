@@ -30,13 +30,13 @@ export interface PlannerGroup { key: string; label: string; rank: number; pickup
 export interface PlannerMach { id: string; machine_code: string; status: string | null }
 
 type Blend = Partial<Record<Piece, Record<string, number>>> | null
-interface Settings { shifts: number; shift_hours: number; overlap_hours: number; packers_per_shift: number; manual_packing: boolean; efficiency_pct: number; mold_ahead: boolean; start_time: string; strategy: 'fewest' | 'fastest'; enforce_materials: boolean; use_learned: boolean; blend: Blend }
+interface Settings { shifts: number; shift_hours: number; overlap_hours: number; packers_per_shift: number; manual_packing: boolean; efficiency_pct: number; mold_ahead: boolean; start_time: string; strategy: 'fewest' | 'fastest'; enforce_materials: boolean; use_learned: boolean; blend: Blend; machine_hours: number; blend_mode: 'auto' | 'fixed'; blend_ranges: Record<string, { min: number; max: number }> | null }
 interface MoldRow { machine_code: string; piece: Piece; cavities: number; cycle_sec: number; available: boolean; notes: string | null; _new?: boolean }
 interface RateRow { sku: string; srp_per_hour: number; people: number; notes: string | null; _new?: boolean }
 interface DraftRun { key: string; machine_id: string; code: string; piece: Piece; hours: number; target_pcs: number; skus: string[]; operator: string; notes: string }
 interface DraftPack { key: string; shift: number; sku: string; srps: number; people: number; hours: number; notes: string }
 
-const DEFAULT_SETTINGS: Settings = { shifts: 2, shift_hours: 12, overlap_hours: 1, packers_per_shift: 1, manual_packing: true, efficiency_pct: 100, mold_ahead: true, start_time: '06:00', strategy: 'fewest', enforce_materials: true, use_learned: true, blend: null }
+const DEFAULT_SETTINGS: Settings = { shifts: 2, shift_hours: 12, overlap_hours: 1, packers_per_shift: 1, manual_packing: true, efficiency_pct: 100, mold_ahead: true, start_time: '06:00', strategy: 'fewest', enforce_materials: true, use_learned: true, blend: null, machine_hours: 24, blend_mode: 'auto', blend_ranges: null }
 const SRP_SKUS = ['22GVA24', '22GVA48', '22GVF24', '22GVF48', '22GVK48', '22GVS24', '22GVS48']
 const GRAMS_PER_LB = 453.592
 const inputCls = 'h-9 rounded-lg border border-[#E4E6EE] px-2 text-sm bg-white w-full'
@@ -84,7 +84,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
       sb.from('walmart_pack_rates').select('*').order('sku'),
     ])
     if (sR.error || mR.error || rR.error) setErr((sR.error || mR.error || rR.error).message)
-    if (sR.data) setSettings({ ...DEFAULT_SETTINGS, ...sR.data, shifts: num(sR.data.shifts), shift_hours: num(sR.data.shift_hours), overlap_hours: num(sR.data.overlap_hours), packers_per_shift: num(sR.data.packers_per_shift), efficiency_pct: num(sR.data.efficiency_pct) })
+    if (sR.data) setSettings({ ...DEFAULT_SETTINGS, ...sR.data, shifts: num(sR.data.shifts), shift_hours: num(sR.data.shift_hours), overlap_hours: num(sR.data.overlap_hours), packers_per_shift: num(sR.data.packers_per_shift), efficiency_pct: num(sR.data.efficiency_pct), machine_hours: sR.data.machine_hours == null ? 24 : num(sR.data.machine_hours) })
     setMolds(((mR.data as any[]) || []).map(m => ({ ...m, cavities: num(m.cavities), cycle_sec: num(m.cycle_sec) }))
       .sort((a, b) => a.machine_code.localeCompare(b.machine_code, undefined, { numeric: true })))
     setRates(((rR.data as any[]) || []).map(r => ({ ...r, srp_per_hour: num(r.srp_per_hour), people: num(r.people) })))
@@ -118,7 +118,9 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
   useEffect(() => { loadSaved() }, [loadSaved])
 
   const machByCode = useMemo(() => Object.fromEntries(machs.map(m => [m.machine_code.toUpperCase(), m])), [machs])
-  const horizon = Math.max(0, settings.shifts * settings.shift_hours - settings.overlap_hours * Math.max(0, settings.shifts - 1))
+  // machines run on their own clock (default 24 h) — packing shifts only limit what gets packed
+  const shiftSpan = Math.max(0, settings.shifts * settings.shift_hours - settings.overlap_hours * Math.max(0, settings.shifts - 1))
+  const horizon = Math.max(0, Math.min(24, settings.machine_hours || shiftSpan))
 
   // ── resin blend: the BOM's blend unless the team picked another one for this plan (e.g. no PLA, IA + regrind only)
   const bomBlend = useMemo(() => {
@@ -155,6 +157,15 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     setSettings(s => ({ ...s, blend: next }))
   }
 
+  // ── auto blend: use whatever resin is on hand, each grade kept inside its min/max share
+  const isRegrind = (k: string) => /-R$/i.test(k) || /REGRIND/i.test(prodInfo[k]?.name || '')
+  const autoBlend = settings.blend_mode !== 'fixed'
+  const rangeOf = (k: string) => settings.blend_ranges?.[k] || (isPla(k) ? { min: 0, max: 30 } : isRegrind(k) ? { min: 0, max: 30 } : { min: 40, max: 100 })
+  const targetOf = (k: string) => { const v = PIECE_LIST.map(p => bomBlend[p]?.[k]).filter((x): x is number => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0 }
+  function setRange(k: string, f: 'min' | 'max', v: number) {
+    setSettings(s => ({ ...s, blend_ranges: { ...(s.blend_ranges || {}), [k]: { ...rangeOf(k), [f]: Math.min(100, Math.max(0, v)) } } }))
+  }
+
   // ── every non-piece BOM input, rolled up per SRP (packs, trays) or per molded piece (resin blend %)
   const components: (Component & { usedBy: string[]; enforce: boolean; onHand: number })[] = useMemo(() => {
     const out: Record<string, Component & { usedBy: string[]; enforce: boolean; onHand: number }> = {}
@@ -171,6 +182,10 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     for (const p of PIECE_LIST) {
       const grams = prodInfo[p]?.grams || 0
       const bl = blend[p]
+      if (autoBlend && bomBlend[p] && grams > 0) {   // resin is handled as one flexible pool by the planner
+        for (const comp of Object.keys(bomBlend[p] || {})) { const c = get(comp); if (!c.usedBy.includes(PIECE_NAME[p])) c.usedBy.push(PIECE_NAME[p]) }
+        continue
+      }
       if (bl && grams > 0) {   // blend % of the piece weight → lbs of each resin per piece
         for (const [comp, pct] of Object.entries(bl)) {
           const c = get(comp)
@@ -190,7 +205,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
       }
     }
     return Object.values(out).sort((a, b) => (Object.keys(a.perPiece).length ? 0 : 1) - (Object.keys(b.perPiece).length ? 0 : 1) || a.key.localeCompare(b.key))
-  }, [bomRows, prodInfo, matOverride, matEnforce, settings.enforce_materials, blend])
+  }, [bomRows, prodInfo, matOverride, matEnforce, settings.enforce_materials, blend, autoBlend, bomBlend])
 
   // ── learned packing speed: how many packer-hours the real logged output would have needed at the
   // entered rates, divided by the packer-hours the settings say exist. Median over finished days.
@@ -228,9 +243,16 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     shifts: Array.from({ length: settings.shifts }, (_, i) => ({ n: i + 1, hours: settings.shift_hours, packers: settings.packers_per_shift })),
     moldAhead: settings.mold_ahead,
     strategy: settings.strategy,
-    components: components.filter(c => c.enforce),
+    components: components.filter(c => c.enforce && !(autoBlend && resins.includes(c.key))),
     packSpeedFactor: psf,
-  }), [groups, incl, todoEdit, bomPcs, molds, machByCode, dayAvail, dayPiece, settings, horizon, stockIn, rates, components, psf])
+    resin: autoBlend && resins.length ? {
+      perPiece: Object.fromEntries(PIECE_LIST.filter(p => bomBlend[p] && (prodInfo[p]?.grams || 0) > 0).map(p => [p, (prodInfo[p]!.grams) / GRAMS_PER_LB])),
+      pools: resins.map(k => {
+        const c = components.find(x => x.key === k)
+        return { key: k, name: prodInfo[k]?.name || k, uom: prodInfo[k]?.uom || 'LBS', avail: c && c.enforce ? c.onHand : 1e12, min: rangeOf(k).min / 100, max: rangeOf(k).max / 100, target: targetOf(k) / 100 }
+      }),
+    } : undefined,
+  }), [groups, incl, todoEdit, bomPcs, molds, machByCode, dayAvail, dayPiece, settings, horizon, stockIn, rates, components, psf, autoBlend, resins, bomBlend, prodInfo])
 
   const result: PlannerResult = useMemo(() => planDay(input), [input])
   const tips: Suggestion[] = useMemo(() => (molds.length ? suggest(input, result) : []), [input, result, molds.length])
@@ -265,7 +287,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
       machines: input.machines.map(m => ({ code: m.code, mold: PIECE_NAME[m.piece], pcs_per_hour: Math.round(m.rate), available: m.available, planned_hours: Math.round((result.machineHours[m.id] || 0) * 10) / 10 })),
       packing: { packer_hours_available: result.packHoursAvail, used: Math.round(result.packHoursUsed * 10) / 10, lines: result.pack },
       materials: components.map(c => ({ name: c.name, sku: c.key, uom: c.uom, on_hand: c.onHand, needed_for_plan: Math.round((result.compUsed[c.key] || 0) * 10) / 10, enforced: c.enforce })),
-      resin_blend: { mode: blendLabel, percent_by_piece: blend },
+      resin_blend: autoBlend ? { mode: 'auto (from what is on hand)', used: result.resinBlend.map(b => ({ resin: b.name, lbs: Math.round(b.lbs), share_pct: Math.round(b.share * 1000) / 10 })) } : { mode: blendLabel, percent_by_piece: blend },
       bottlenecks: result.bottlenecks, optimiser_suggestions: tips.map(t => t.text),
     }
     try {
@@ -528,10 +550,24 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
               </div>
               <div className="mb-3 rounded-2xl border border-[#ECEEF3] p-3 bg-[#FCFCFE]">
                 <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <p className="text-xs font-bold text-[#1A1D2E] flex-1">Resin blend for this plan <span className="ml-1 rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: !settings.blend ? '#579bfc' : blendLabel === 'No PLA' ? '#00a85a' : '#fdab3d' }}>{blendLabel}</span></p>
-                  <button onClick={() => setSettings(s => ({ ...s, blend: null }))} className={`h-8 px-3 rounded-lg text-xs font-semibold border ${!settings.blend ? 'bg-[#579bfc] text-white border-[#579bfc]' : 'border-[#E4E6EE] text-gray-700 bg-white'}`}>As per BOM</button>
-                  <button onClick={noPlaBlend} className={`h-8 px-3 rounded-lg text-xs font-semibold border ${blendLabel === 'No PLA' ? 'bg-[#00a85a] text-white border-[#00a85a]' : 'border-[#E4E6EE] text-gray-700 bg-white'}`}>No PLA — IA + regrind only</button>
+                  <p className="text-xs font-bold text-[#1A1D2E] flex-1">Resin blend for this plan <span className="ml-1 rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: autoBlend ? '#7e3af2' : !settings.blend ? '#579bfc' : blendLabel === 'No PLA' ? '#00a85a' : '#fdab3d' }}>{autoBlend ? 'Auto — what\'s on hand' : blendLabel}</span></p>
+                  <button onClick={() => setSettings(s => ({ ...s, blend_mode: 'auto' }))} className={`h-8 px-3 rounded-lg text-xs font-semibold border ${autoBlend ? 'bg-[#7e3af2] text-white border-[#7e3af2]' : 'border-[#E4E6EE] text-gray-700 bg-white'}`}>Auto (use what&apos;s on hand)</button>
+                  <button onClick={() => setSettings(s => ({ ...s, blend_mode: 'fixed', blend: null }))} className={`h-8 px-3 rounded-lg text-xs font-semibold border ${!autoBlend && !settings.blend ? 'bg-[#579bfc] text-white border-[#579bfc]' : 'border-[#E4E6EE] text-gray-700 bg-white'}`}>As per BOM</button>
+                  <button onClick={() => { noPlaBlend(); setSettings(s => ({ ...s, blend_mode: 'fixed' })) }} className={`h-8 px-3 rounded-lg text-xs font-semibold border ${!autoBlend && blendLabel === 'No PLA' ? 'bg-[#00a85a] text-white border-[#00a85a]' : 'border-[#E4E6EE] text-gray-700 bg-white'}`}>No PLA — IA + regrind only</button>
                 </div>
+                {autoBlend ? <>
+                  <div className="overflow-x-auto"><table className="text-xs">
+                    <thead><tr className="text-[10px] uppercase text-gray-400"><th className="text-left pr-4 py-1">Resin</th><th className="px-2 text-right">On hand</th><th className="px-2 text-right">Min %</th><th className="px-2 text-right">Max %</th><th className="px-2 text-right">Plan uses</th></tr></thead>
+                    <tbody>{resins.map(r => { const u = result.resinBlend.find(b => b.key === r); const c = components.find(x => x.key === r); return <tr key={r}>
+                      <td className="pr-4 py-0.5"><b>{prodInfo[r]?.name || r}</b> <span className="font-mono text-gray-400">{r}</span></td>
+                      <td className="px-2 text-right">{fmtN(c?.onHand || 0)} {prodInfo[r]?.uom || ''}</td>
+                      <td className="px-2 text-right"><input inputMode="decimal" value={String(rangeOf(r).min)} onChange={e => setRange(r, 'min', num(e.target.value.replace(/[^\d.]/g, '')))} className="w-14 h-7 rounded-md border border-[#E4E6EE] text-right px-1.5" /></td>
+                      <td className="px-2 text-right"><input inputMode="decimal" value={String(rangeOf(r).max)} onChange={e => setRange(r, 'max', num(e.target.value.replace(/[^\d.]/g, '')))} className="w-14 h-7 rounded-md border border-[#E4E6EE] text-right px-1.5" /></td>
+                      <td className="px-2 text-right font-semibold">{u && u.lbs > 0 ? `${fmtN(u.share * 100, 1)}% · ${fmtN(u.lbs)} lbs` : '—'}</td>
+                    </tr> })}</tbody>
+                  </table></div>
+                  <p className="text-[11px] text-gray-500 mt-1">The planner picks tomorrow&apos;s blend from the resin actually on hand, keeping each grade between its min and max share — so running out of PLA no longer stops the plan. Total resin for this plan: <b>{fmtN(result.resinUsed)} lbs</b>.</p>
+                </> : <>
                 <div className="overflow-x-auto"><table className="text-xs">
                   <thead><tr className="text-[10px] uppercase text-gray-400"><th className="text-left pr-4 py-1">Resin</th>{PIECE_LIST.map(p => <th key={p} className="px-2 text-right">{PIECE_NAME[p]} %</th>)}</tr></thead>
                   <tbody>
@@ -543,6 +579,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                   </tbody>
                 </table></div>
                 <p className="text-[11px] text-gray-500 mt-1">Pick the blend the floor will actually run tomorrow — resin needs and limits below follow it. Each column should add up to 100%. “Save as default” on Shift settings keeps it for next time.</p>
+                </>}
               </div>
               <div className="overflow-x-auto rounded-2xl border border-[#ECEEF3]">
                 <table className="w-full text-sm min-w-[760px]">
@@ -551,7 +588,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                     const need = result.compUsed[c.key] || 0
                     const left = c.onHand - need
                     const short_ = c.enforce ? left < 0.5 && need > 0 && c.onHand <= need + 0.5 : left < 0
-                    const per = Object.keys(c.perPiece).length ? PIECE_LIST.filter(p => c.perPiece[p]).map(p => `${fmtN(c.perPiece[p]! * (c.uom.toUpperCase().startsWith('LB') ? 1000 : 1), 2)}${c.uom.toUpperCase().startsWith('LB') ? ' lb/1k' : ''} ${PIECE_NAME[p].toLowerCase()}`).join(' · ')
+                    const per = autoBlend && resins.includes(c.key) ? 'auto blend' : Object.keys(c.perPiece).length ? PIECE_LIST.filter(p => c.perPiece[p]).map(p => `${fmtN(c.perPiece[p]! * (c.uom.toUpperCase().startsWith('LB') ? 1000 : 1), 2)}${c.uom.toUpperCase().startsWith('LB') ? ' lb/1k' : ''} ${PIECE_NAME[p].toLowerCase()}`).join(' · ')
                       : Object.entries(c.perSrp).map(([k, v]) => `${fmtN(v)}/${short(k)} SRP`).join(' · ')
                     return (
                       <tr key={c.key} className={`border-t border-[#F0F2F6] ${c.onHand <= 0 ? 'bg-red-50' : short_ ? 'bg-amber-50' : ''}`}>
@@ -572,7 +609,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
             {/* machine timeline */}
             <section>
               <h3 className="text-sm font-bold text-[#1A1D2E] mb-1">Suggested machine schedule</h3>
-              <p className="text-xs text-gray-500 mb-2">{settings.shifts} × {settings.shift_hours} h shifts{settings.shifts > 1 && settings.overlap_hours ? ` with ${settings.overlap_hours} h overlap` : ''} → {horizon} h of run time from {clock(settings.start_time, 0)}. 20-second cycles unless changed on Machines &amp; molds. Striped = molding ahead for later.</p>
+              <p className="text-xs text-gray-500 mb-2">Machines run {horizon} h from {clock(settings.start_time, 0)} (packing: {settings.shifts} × {settings.shift_hours} h shifts). 20-second cycles unless changed on Machines &amp; molds. Striped = molding ahead for later.</p>
               <div className="rounded-2xl border border-[#ECEEF3] overflow-hidden">
                 {input.machines.map(m => {
                   const segs = result.segments.filter(s => s.machineId === m.id)
@@ -724,11 +761,12 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
               <Field label="First shift starts"><input type="time" value={settings.start_time} onChange={e => setSettings(s => ({ ...s, start_time: e.target.value }))} className={inputCls} /></Field>
               <Field label="Packers per shift"><input inputMode="numeric" value={settings.packers_per_shift} onChange={e => setSettings(s => ({ ...s, packers_per_shift: Math.max(0, Math.round(num(e.target.value))) }))} className={inputCls} /></Field>
               <Field label="Manual packing required (default)"><select value={settings.manual_packing ? 'y' : 'n'} onChange={e => setSettings(s => ({ ...s, manual_packing: e.target.value === 'y' }))} className={inputCls}><option value="y">Yes</option><option value="n">No</option></select></Field>
+              <Field label="Machine run hours per day"><input inputMode="decimal" value={settings.machine_hours} onChange={e => setSettings(s => ({ ...s, machine_hours: Math.min(24, Math.max(0, num(e.target.value))) }))} className={inputCls} /></Field>
               <Field label="Machine efficiency %"><input inputMode="decimal" value={settings.efficiency_pct} onChange={e => setSettings(s => ({ ...s, efficiency_pct: Math.min(100, Math.max(1, num(e.target.value))) }))} className={inputCls} /></Field>
               <Field label="Machine layout"><select value={settings.strategy} onChange={e => setSettings(s => ({ ...s, strategy: e.target.value as any }))} className={inputCls}><option value="fewest">Fewest machines that fit the day</option><option value="fastest">All machines in parallel (finish soonest)</option></select></Field>
               <Field label="Use spare machine time to mold ahead"><select value={settings.mold_ahead ? 'y' : 'n'} onChange={e => setSettings(s => ({ ...s, mold_ahead: e.target.value === 'y' }))} className={inputCls}><option value="y">Yes — build pieces for the next priorities</option><option value="n">No — only what gets packed</option></select></Field>
               <div className="sm:col-span-2 flex items-center gap-3">
-                <p className="text-xs text-gray-500 flex-1">Machine run time per day = shifts × hours − overlap = <b>{horizon} h</b>. Packer time = {fmtN(settings.shifts * settings.packers_per_shift * settings.shift_hours)} packer-hours.</p>
+                <p className="text-xs text-gray-500 flex-1">Machines run <b>{horizon} h</b> a day (independent of packing shifts). Packer time = {fmtN(settings.shifts * settings.packers_per_shift * settings.shift_hours)} packer-hours.</p>
                 {canEdit && <button onClick={saveSettings} disabled={!!busy} className="h-10 px-4 rounded-xl text-white text-sm font-bold" style={{ background: ACCENT }}>Save as default</button>}
               </div>
             </section>
