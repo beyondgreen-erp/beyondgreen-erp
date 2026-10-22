@@ -147,6 +147,7 @@ export default function WalmartProductionPage() {
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
   const [showLog, setShowLog] = useState(false)
+  const [logStock, setLogStock] = useState(false)
   const [showWo, setShowWo] = useState(false)
   const [detail, setDetail] = useState<Entry | null>(null)
   const [showVoided, setShowVoided] = useState(false)
@@ -333,7 +334,10 @@ export default function WalmartProductionPage() {
       </div>
 
       {canEdit && (
-        <button onClick={() => setShowLog(true)} className="w-full sm:w-auto sm:px-8 h-14 mb-4 rounded-2xl text-white text-base font-bold shadow-md active:scale-[.99]" style={{ background: ACCENT }}>+ Log production</button>
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+          <button onClick={() => { setLogStock(false); setShowLog(true) }} className="w-full sm:w-auto sm:px-8 h-14 rounded-2xl text-white text-base font-bold shadow-md active:scale-[.99]" style={{ background: ACCENT }}>+ Log production</button>
+          <button onClick={() => { setLogStock(true); setShowLog(true) }} className="w-full sm:w-auto sm:px-6 h-14 rounded-2xl text-base font-bold border-2 active:scale-[.99]" style={{ borderColor: '#00a85a', color: '#00a85a' }}>↗ Release logged SRPs</button>
+        </div>
       )}
 
       <div className="flex gap-1 p-1 mb-4 rounded-xl bg-[#EEF0F4] w-full sm:w-auto sm:inline-flex">
@@ -536,7 +540,7 @@ export default function WalmartProductionPage() {
 
       {showLoads && wo && <LoadsModal sb={sb} loads={loads} orders={woOrders} rankByOrder={rankByOrder} onClose={() => setShowLoads(false)} onChanged={load} />}
       {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); load() }} />}
-      {showLog && <LogSheet sb={sb} wo={wo} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
+      {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); load(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
       {showWo && <WoModal sb={sb} wo={wo} week={week} prods={prods} alloc={alloc} prog={prog} onClose={() => setShowWo(false)}
         onSaved={(msg) => { setFlash(msg); setShowWo(false); load() }} />}
@@ -560,12 +564,16 @@ function Overlay({ children }: { children: React.ReactNode }) {
 }
 
 /* ───────────────── Log production (whiteboard-style: one row per SKU) ───────────────── */
-function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, onClose, onSaved }: {
+function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, onClose, onSaved, startStock = false }: {
+  startStock?: boolean
   sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; rankByOrder: Record<string, { rank: number; label: string }>; safety: WO[]; safetyProg: Prog[]; progBySku: Record<string, Prog>; today: string
   onClose: () => void; onSaved: (msg: string) => void
 }) {
   const [woId, setWoId] = useState<string>(wo?.id || safety[0]?.id || '')
   const [releaseMode, setReleaseMode] = useState(false)
+  // Stock mode: release SRPs that were already logged — nothing new is produced or added to inventory.
+  const [stockMode, setStockMode] = useState(startStock)
+  const [avail, setAvail] = useState<Record<string, number>>({})
   const [poId, setPoId] = useState('')
   const [pos, setPos] = useState<{ id: string; po_number: string | null; skus: string[] }[]>([])
   const isSafety = !!safety.find(s => s.id === woId)
@@ -578,6 +586,13 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
         .map((o: any) => ({ id: o.id, po_number: o.po_number, skus: (o.walmart_board_lines || []).filter((l: any) => num(l.qty) > 0).map((l: any) => String(l.part_number || '').trim().toUpperCase()) })))
     })
   }, [woId, isSafety, sb])
+  const loadAvail = useCallback(() => {
+    if (!woId || isSafety) { setAvail({}); return }
+    sb.rpc('walmart_unreleased_stock', { p_wo: woId }).then(({ data }: any) => {
+      setAvail(Object.fromEntries(((data as any[]) || []).map(r => [String(r.sku).toUpperCase(), num(r.available)])))
+    })
+  }, [sb, woId, isSafety])
+  useEffect(() => { loadAvail() }, [loadAvail])
   const [date, setDate] = useState(today)
   const [qty, setQty] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
@@ -592,6 +607,21 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
     setErr(''); setErrs({})
     const rows = Object.entries(qty).filter(([, v]) => v.trim() !== '' && Number(v) > 0)
     if (!rows.length) { setErr('Enter how many SRPs were made for at least one SKU.'); return }
+    if (stockMode) {
+      if (isSafety) { setErr('Safety stock has no POs to release to.'); return }
+      if (!poId) { setErr('Pick the PO you are handing these SRPs over for.'); return }
+      const over = rows.find(([k, v]) => Number(v) > (avail[k] || 0))
+      if (over) { setErr(`${meta(over[0]).short}: only ${fmtN(avail[over[0]] || 0)} logged and not yet released.`); return }
+      const po = pos.find(x => x.id === poId)
+      setBusy(true)
+      const { data: rel, error } = await sb.rpc('walmart_release_from_stock', { p_walmart_order: poId, p_qty: Object.fromEntries(rows.map(([k, v]) => [k, Number(v)])), p_note: note.trim() || null })
+      setBusy(false)
+      if (error) { setErr(error.message); loadAvail(); return }
+      const rr = ((rel as any)?.rows || []) as { sku: string; qty: number; line_qty: number; released_total: number }[]
+      const probs = ((rel as any)?.problems || []) as string[]
+      onSaved(`✓ Released to PO ${po?.po_number || ''}: ${rr.map(x => `${fmtN(x.qty)} ${meta(x.sku).short} (${fmtN(x.released_total)} of ${fmtN(x.line_qty)})`).join(', ')} — from already-logged SRPs, inventory unchanged.${probs.length ? ' Skipped: ' + probs.join('; ') + '.' : ''}`)
+      return
+    }
     const bad = rows.find(([, v]) => !/^\d+$/.test(v.trim()))
     if (bad) { setErr(`${meta(bad[0]).short}: enter a whole number.`); return }
     if (date < minDate || date > today) { setErr('Pick a date within the last 14 days.'); return }
@@ -634,15 +664,20 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
         <div className="sticky top-0 z-10 bg-white rounded-t-3xl sm:rounded-t-2xl px-5 pt-4 pb-3 border-b border-[#EEF0F4] flex items-center justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-wide text-gray-400">Finished SRPs (cases of 6 packs)</p>
-            <h2 className="text-lg font-bold text-[#1A1D2E]">Log production</h2>
+            <h2 className="text-lg font-bold text-[#1A1D2E]">{stockMode ? 'Release logged SRPs' : 'Log production'}</h2>
           </div>
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
         <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-3 space-y-3">
-          <label className="block">
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[#F2F4F8]">
+            <button type="button" onClick={() => { setStockMode(false); setErr('') }} className={`h-10 rounded-lg text-sm font-bold ${!stockMode ? 'bg-white shadow text-[#1A1D2E]' : 'text-gray-500'}`}>Log what was made</button>
+            <button type="button" onClick={() => { setStockMode(true); setReleaseMode(false); setErr('') }} className={`h-10 rounded-lg text-sm font-bold ${stockMode ? 'bg-white shadow text-[#00a85a]' : 'text-gray-500'}`}>Release logged SRPs</button>
+          </div>
+          {stockMode && <p className="text-[11px] rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-2">Use this when you physically hand SRPs to the build team that were already logged (e.g. yesterday&apos;s end-of-day count). Nothing is added to production or inventory — it only sends them to the build queue for a PO. Release only what you are handing over right now.</p>}
+          {!stockMode && <label className="block">
             <span className="text-xs font-semibold text-gray-500">Date made</span>
             <input type="date" value={date} min={minDate} max={today} onChange={e => setDate(e.target.value)} className="mt-1 w-full h-12 rounded-xl border border-[#E4E6EE] px-3 text-base" />
-          </label>
+          </label>}
           {(wo || safety.length > 0) ? (
             <label className="block">
               <span className="text-xs font-semibold text-gray-500">Work order</span>
@@ -661,7 +696,8 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
                   <span className="w-2.5 h-10 rounded-full shrink-0" style={{ background: s.color }} />
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-[#1A1D2E] text-[15px] leading-tight">{s.short}</p>
-                    <p className="text-[11px] text-gray-400"><span className="font-mono">{s.sku}</span>{left !== null ? ` · ${fmtN(left)} left` : ''}</p>
+                    <p className="text-[11px] text-gray-400"><span className="font-mono">{s.sku}</span>{stockMode ? '' : left !== null ? ` · ${fmtN(left)} left` : ''}</p>
+                    {stockMode && <p className={`text-[11px] font-semibold ${(avail[s.sku] || 0) > 0 ? 'text-emerald-700' : 'text-gray-400'}`}>{fmtN(avail[s.sku] || 0)} logged, not released</p>}
                     {errs[s.sku] && <p className="text-[11px] text-red-600 mt-0.5">{errs[s.sku]}</p>}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -679,7 +715,7 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
             <span className="text-xs font-semibold text-gray-500">Note (optional)</span>
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Shift, line, anything unusual…" className="mt-1 w-full rounded-xl border border-[#E4E6EE] px-3 py-2 text-base" />
           </label>
-          {releaseMode && (
+          {(releaseMode || stockMode) && (
             <div className="rounded-xl border-2 border-[#00a85a] bg-emerald-50 p-3">
               <p className="text-xs font-bold text-emerald-800 mb-1">Release to which PO?</p>
               {isSafety ? <p className="text-xs text-emerald-800">Safety stock has no POs — use “Log only”.</p> : pos.length === 0 ? <p className="text-xs text-emerald-800">No open POs on this work order.</p> : (
@@ -693,7 +729,11 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
           {err && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{err}</p>}
         </div>
         <div className="shrink-0 px-5 py-3 border-t border-[#EEF0F4] pb-[max(12px,env(safe-area-inset-bottom))] flex gap-2">
-          {!releaseMode ? <>
+          {stockMode ? (
+            <button onClick={save} disabled={busy || total <= 0 || !poId} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>
+              {busy ? 'Releasing…' : !poId ? 'Pick a PO' : total > 0 ? `Release ${fmtN(total)} SRP to PO ${pos.find(x => x.id === poId)?.po_number || ''}` : 'Enter quantities'}
+            </button>
+          ) : !releaseMode ? <>
             <button onClick={save} disabled={busy || total <= 0} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: ACCENT }}>
               {busy ? 'Saving…' : total > 0 ? `Log ${fmtN(total)} SRP` : 'Enter quantities'}
             </button>
