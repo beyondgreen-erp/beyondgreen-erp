@@ -150,8 +150,18 @@ interface BolForm {
   lines: BolLineForm[]
 }
 
+// An order with no linked customer record keeps the customer name in notes
+// (e.g. "Faire - Gone to the Dogs"). Without this fallback the shipment, the BOL,
+// the labels and the finance bill email all go out reading just "Customer".
+// Notes sometimes carry a reference after a pipe, so take the part before it.
+function partyName(o?: OrderInfo): string {
+  const linked = (o?.customers?.company_name ?? '').trim()
+  if (linked) return linked
+  const fromNotes = String(o?.notes ?? '').split('|')[0].trim()
+  return fromNotes || 'Customer'
+}
 function shipTo(o?: OrderInfo): { name: string; addr: string } {
-  return { name: o?.customers?.company_name || 'Customer', addr: (o?.shipping_address || o?.customers?.shipping_address || '').toString() }
+  return { name: partyName(o), addr: (o?.shipping_address || o?.customers?.shipping_address || '').toString() }
 }
 function fmtMoney(n?: number | null) { return n != null ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—' }
 
