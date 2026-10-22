@@ -140,7 +140,12 @@ export default function WalmartProductionPage() {
 
   const [week, setWeek] = useState(mondayOf(today))
   const weekEnd = addDays(week, 6)
-  const [wo, setWo] = useState<WO | null>(null)
+  // several weekly work orders can share a week — keep the list and which one is selected
+  const [wos, setWos] = useState<WO[]>([])
+  const [woSel, setWoSel] = useState<string>('')
+  const woSelRef = useRef('')
+  woSelRef.current = woSel
+  const wo: WO | null = wos.find(w => w.id === woSel) || wos[0] || null
   const [prog, setProg] = useState<Prog[]>([])
   const [entries, setEntries] = useState<Entry[]>([])
   const [moves, setMoves] = useState<Move[]>([])
@@ -151,6 +156,7 @@ export default function WalmartProductionPage() {
   const [showLog, setShowLog] = useState(false)
   const [logStock, setLogStock] = useState(false)
   const [showWo, setShowWo] = useState(false)
+  const [woNew, setWoNew] = useState(false)
   const [detail, setDetail] = useState<Entry | null>(null)
   const [showVoided, setShowVoided] = useState(false)
   const [ledgerOpen, setLedgerOpen] = useState(false)
@@ -175,7 +181,7 @@ export default function WalmartProductionPage() {
     setLoadErr('')
     const [woR, entR, prodR, allocR] = await Promise.all([
       sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed')
-        .eq('form_type', 'walmart_weekly').eq('start_date', week).neq('status', 'Cancelled').maybeSingle(),
+        .eq('form_type', 'walmart_weekly').eq('start_date', week).neq('status', 'Cancelled').order('created_at', { ascending: true }),
       sb.from('walmart_production_entries').select('*').gte('production_date', week).lte('production_date', addDays(week, 6))
         .order('production_date', { ascending: false }).order('created_at', { ascending: false }),
       sb.from('products').select('sku,product_name,on_hand_qty,unit_of_measure').in('sku', SKUS.map(s => s.sku)),
@@ -184,8 +190,10 @@ export default function WalmartProductionPage() {
     if (seq !== loadSeq.current) return
     const err = woR.error || entR.error || prodR.error
     if (err) { setLoadErr(err.message); setLoading(false); return }
-    const w = (woR.data as WO) || null
-    setWo(w)
+    const list = (woR.data as WO[]) || []
+    const w = list.find(x => x.id === woSelRef.current) || list[0] || null
+    setWos(list)
+    if (w && w.id !== woSelRef.current) { woSelRef.current = w.id; setWoSel(w.id) }
     const ents = (entR.data as Entry[]) || []
     setEntries(ents)
     setProds(Object.fromEntries(((prodR.data as Prod[]) || []).map(p => [p.sku, p])))
@@ -226,7 +234,7 @@ export default function WalmartProductionPage() {
       if (seq === loadSeq.current) setMoves((mv as Move[]) || [])
     } else setMoves([])
     setLoading(false)
-  }, [sb, week, today])
+  }, [sb, week, today, woSel])
 
   useEffect(() => {   // deep link from the Work Orders board: ?week=YYYY-MM-DD
     const w = new URLSearchParams(window.location.search).get('week')
@@ -365,13 +373,19 @@ export default function WalmartProductionPage() {
         <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderLeft: '5px solid ' + ACCENT }}>
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-wide text-gray-400">Work order · what to make this week</p>
+            {wos.length > 1 && (
+              <select value={wo?.id || ''} onChange={e => setWoSel(e.target.value)} data-ro-ok className="mt-0.5 mb-0.5 h-8 rounded-lg border border-[#E4E6EE] px-2 text-sm font-semibold bg-white max-w-full" title="This week has more than one work order">
+                {wos.map(w => <option key={w.id} value={w.id}>{w.wo_code} · {w.status}{w.notes && w.notes !== 'Weekly Walmart packaging work order' ? ` — ${w.notes.slice(0, 40)}` : ''}</option>)}
+              </select>
+            )}
             {wo ? (
-              <p className="font-bold text-[#1A1D2E] truncate">{wo.wo_code} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: wo.status === 'Complete' ? '#00c875' : wo.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{wo.status}</span></p>
+              <p className="font-bold text-[#1A1D2E] truncate">{wo.wo_code}{wos.length > 1 ? <span className="ml-1 text-[11px] font-normal text-gray-400">({wos.findIndex(w => w.id === wo.id) + 1} of {wos.length} this week)</span> : null} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: wo.status === 'Complete' ? '#00c875' : wo.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{wo.status}</span></p>
             ) : <p className="font-semibold text-gray-500">No work order for this week yet</p>}
           </div>
           {canEdit && <div className="flex gap-1.5 shrink-0">
             <button onClick={() => setShowSafety(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">+ Safety stock</button>
-            <button onClick={() => setShowWo(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={{ borderColor: ACCENT, color: ACCENT }}>{wo ? '✎ Targets' : '+ Create WO'}</button>
+            {wo && <button onClick={() => { setWoNew(false); setShowWo(true) }} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={{ borderColor: ACCENT, color: ACCENT }}>✎ Edit work order</button>}
+            <button onClick={() => { setWoNew(true); setShowWo(true) }} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={wo ? { borderColor: '#E4E6EE', color: '#4b5563' } : { borderColor: ACCENT, color: ACCENT }}>+ Create WO</button>
           </div>}
         </div>
         {wo && totalTarget > 0 && (
@@ -556,10 +570,10 @@ export default function WalmartProductionPage() {
 
       {showLoads && wo && <LoadsModal sb={sb} loads={loads} orders={woOrders} rankByOrder={rankByOrder} onClose={() => setShowLoads(false)} onChanged={reload} />}
       {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); reload() }} />}
-      {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
+      {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} wos={wos} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); reload(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
-      {showWo && <WoModal sb={sb} wo={wo} week={week} prods={prods} alloc={alloc} prog={prog} onClose={() => setShowWo(false)}
-        onSaved={(msg) => { setFlash(msg); setShowWo(false); reload() }} />}
+      {showWo && <WoModal sb={sb} wo={woNew ? null : wo} existing={wos.length} week={week} prods={prods} alloc={alloc} prog={woNew ? [] : prog} onClose={() => setShowWo(false)}
+        onSaved={(msg, id) => { setFlash(msg); setShowWo(false); if (id) { woSelRef.current = id; setWoSel(id) } reload() }} />}
       {detail && <EntryDetail sb={sb} entry={detail} wo={wo} moves={moves.filter(m => m.ref_id === detail.id)} itemName={itemName} me={me}
         canEdit={canEdit} isAdmin={perms.is_admin} onClose={() => setDetail(null)} onChanged={(msg) => { setFlash(msg); setDetail(null); reload() }} />}
     </div>
@@ -595,9 +609,9 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose?: (
 }
 
 /* ───────────────── Log production (whiteboard-style: one row per SKU) ───────────────── */
-function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, onClose, onSaved, startStock = false }: {
+function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku, today, onClose, onSaved, startStock = false }: {
   startStock?: boolean
-  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; rankByOrder: Record<string, { rank: number; label: string }>; safety: WO[]; safetyProg: Prog[]; progBySku: Record<string, Prog>; today: string
+  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; wos?: WO[]; rankByOrder: Record<string, { rank: number; label: string }>; safety: WO[]; safetyProg: Prog[]; progBySku: Record<string, Prog>; today: string
   onClose: () => void; onSaved: (msg: string) => void
 }) {
   const [woId, setWoId] = useState<string>(wo?.id || safety[0]?.id || '')
@@ -608,7 +622,13 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
   const [poId, setPoId] = useState('')
   const [pos, setPos] = useState<{ id: string; po_number: string | null; skus: string[] }[]>([])
   const isSafety = !!safety.find(s => s.id === woId)
-  const progFor: Record<string, Prog> = isSafety ? Object.fromEntries(safetyProg.filter(p => p.work_order_id === woId).map(p => [p.sku, p])) : progBySku
+  // another weekly WO of the same week picked here → load its own progress
+  const [otherProg, setOtherProg] = useState<Record<string, Prog> | null>(null)
+  useEffect(() => {
+    if (!woId || isSafety || woId === wo?.id) { setOtherProg(null); return }
+    sb.from('v_walmart_wo_progress').select('*').eq('work_order_id', woId).then(({ data }) => setOtherProg(Object.fromEntries(((data as Prog[]) || []).map(p => [p.sku, p]))))
+  }, [sb, woId, isSafety, wo?.id])
+  const progFor: Record<string, Prog> = isSafety ? Object.fromEntries(safetyProg.filter(p => p.work_order_id === woId).map(p => [p.sku, p])) : (otherProg || progBySku)
   useEffect(() => {
     setPoId(''); setPos([])
     if (!woId || isSafety) return
@@ -713,7 +733,7 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
             <label className="block">
               <span className="text-xs font-semibold text-gray-500">Work order</span>
               <select value={woId} onChange={e => setWoId(e.target.value)} className="mt-1 w-full h-12 rounded-xl border border-[#E4E6EE] px-3 text-base bg-white">
-                {wo && <option value={wo.id}>{wo.wo_code} — this week&apos;s Walmart POs</option>}
+                {(wos.length ? wos : wo ? [wo] : []).map(w => <option key={w.id} value={w.id}>{w.wo_code} — this week&apos;s Walmart POs</option>)}
                 {safety.map(s => <option key={s.id} value={s.id}>{s.wo_code} — safety stock</option>)}
               </select>
             </label>
@@ -784,9 +804,9 @@ function LogSheet({ sb, wo, rankByOrder, safety, safetyProg, progBySku, today, o
 }
 
 /* ───────────────── Weekly work order: targets from Thursday's Walmart orders ───────────────── */
-function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
-  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; week: string; prods: Record<string, Prod>; alloc: Record<string, number>; prog: Prog[]
-  onClose: () => void; onSaved: (msg: string) => void
+function WoModal({ sb, wo, existing = 0, week, prods, alloc, prog, onClose, onSaved }: {
+  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; existing?: number; week: string; prods: Record<string, Prod>; alloc: Record<string, number>; prog: Prog[]
+  onClose: () => void; onSaved: (msg: string, id?: string) => void
 }) {
   const [orders, setOrders] = useState<any[]>([])
   const [taken, setTaken] = useState<Record<string, string>>({})
@@ -841,10 +861,10 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
     }
     if (!Object.values(t).some(v => v > 0)) { setErr('Set a target for at least one SKU.'); return }
     setBusy(true)
-    const { error } = await sb.rpc('walmart_wo_save', { p_week_start: week, p_targets: t, p_order_ids: Array.from(picked), p_notes: notes.trim() || null, p_wo: wo?.id ?? null })
+    const { data, error } = await sb.rpc('walmart_wo_save', { p_week_start: week, p_targets: t, p_order_ids: Array.from(picked), p_notes: notes.trim() || null, p_wo: wo?.id ?? null, p_new: !wo })
     setBusy(false)
     if (error) { setErr(error.message); return }
-    onSaved(wo ? '✓ Work order targets updated.' : '✓ Weekly Walmart work order created — it also shows on the Work Orders board.')
+    onSaved(wo ? '✓ Work order updated.' : existing > 0 ? `✓ Another work order created for this week (${existing + 1} now) — pick it from the selector on the card.` : '✓ Weekly Walmart work order created — it also shows on the Work Orders board.', (data as unknown as string) || undefined)
   }
 
   return (
@@ -854,7 +874,7 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
         <div className="px-5 py-4 text-white rounded-t-3xl sm:rounded-t-2xl flex items-start justify-between" style={{ background: ACCENT }}>
           <div>
             <p className="text-white/70 text-xs uppercase tracking-wide">Weekly Walmart work order</p>
-            <h2 className="text-lg font-bold">{wo?.wo_code || 'New'} · {fmtShort(week)} – {fmtShort(addDays(week, 6))}</h2>
+            <h2 className="text-lg font-bold">{wo?.wo_code || (existing > 0 ? `New work order #${existing + 1}` : 'New')} · {fmtShort(week)} – {fmtShort(addDays(week, 6))}</h2>
           </div>
           <button onClick={onClose} className="text-white/80 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
@@ -914,7 +934,7 @@ function WoModal({ sb, wo, week, prods, alloc, prog, onClose, onSaved }: {
         </div>
         <div className="shrink-0 px-5 py-3 border-t border-[#EEF0F4] flex justify-end gap-2 pb-[max(12px,env(safe-area-inset-bottom))]">
           <button onClick={onClose} className="h-11 px-4 rounded-xl border border-[#E4E6EE] text-sm text-gray-600">Cancel</button>
-          <button onClick={save} disabled={busy || loading} className="h-11 px-5 rounded-xl text-white text-sm font-bold disabled:opacity-50" style={{ background: ACCENT }}>{busy ? 'Saving…' : wo ? 'Save targets' : 'Create work order'}</button>
+          <button onClick={save} disabled={busy || loading} className="h-11 px-5 rounded-xl text-white text-sm font-bold disabled:opacity-50" style={{ background: ACCENT }}>{busy ? 'Saving…' : wo ? 'Save work order' : 'Create work order'}</button>
         </div>
       </div>
     </div>
