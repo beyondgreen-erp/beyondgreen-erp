@@ -5,7 +5,7 @@
 // Everything is editable: mold set-up, pack rates, settings, and the draft plan itself.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { planDay, suggest, PIECE_LIST, PIECE_NAME, type Piece, type PlannerInput, type PlannerResult, type Suggestion } from '@/lib/walmartPlanner'
+import { planDay, suggest, PIECE_LIST, PIECE_NAME, type Piece, type PlannerInput, type PlannerResult, type Suggestion, type Component } from '@/lib/walmartPlanner'
 
 type SB = any
 const ACCENT = '#0071ce'
@@ -29,13 +29,15 @@ const clock = (start: string, h: number) => {
 export interface PlannerGroup { key: string; label: string; rank: number; pickup: string | null; todo: Record<string, number> }
 export interface PlannerMach { id: string; machine_code: string; status: string | null }
 
-interface Settings { shifts: number; shift_hours: number; overlap_hours: number; packers_per_shift: number; manual_packing: boolean; efficiency_pct: number; mold_ahead: boolean; start_time: string; strategy: 'fewest' | 'fastest' }
+interface Settings { shifts: number; shift_hours: number; overlap_hours: number; packers_per_shift: number; manual_packing: boolean; efficiency_pct: number; mold_ahead: boolean; start_time: string; strategy: 'fewest' | 'fastest'; enforce_materials: boolean; use_learned: boolean }
 interface MoldRow { machine_code: string; piece: Piece; cavities: number; cycle_sec: number; available: boolean; notes: string | null; _new?: boolean }
 interface RateRow { sku: string; srp_per_hour: number; people: number; notes: string | null; _new?: boolean }
 interface DraftRun { key: string; machine_id: string; code: string; piece: Piece; hours: number; target_pcs: number; skus: string[]; operator: string; notes: string }
 interface DraftPack { key: string; shift: number; sku: string; srps: number; people: number; hours: number; notes: string }
 
-const DEFAULT_SETTINGS: Settings = { shifts: 2, shift_hours: 12, overlap_hours: 1, packers_per_shift: 1, manual_packing: true, efficiency_pct: 100, mold_ahead: true, start_time: '06:00', strategy: 'fewest' }
+const DEFAULT_SETTINGS: Settings = { shifts: 2, shift_hours: 12, overlap_hours: 1, packers_per_shift: 1, manual_packing: true, efficiency_pct: 100, mold_ahead: true, start_time: '06:00', strategy: 'fewest', enforce_materials: true, use_learned: true }
+const SRP_SKUS = ['22GVA24', '22GVA48', '22GVF24', '22GVF48', '22GVK48', '22GVS24', '22GVS48']
+const GRAMS_PER_LB = 453.592
 const inputCls = 'h-9 rounded-lg border border-[#E4E6EE] px-2 text-sm bg-white w-full'
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -64,6 +66,14 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
   const [draftRuns, setDraftRuns] = useState<DraftRun[] | null>(null)
   const [draftPack, setDraftPack] = useState<DraftPack[] | null>(null)
   const [saved, setSaved] = useState<{ runs: any[]; pack: any[] }>({ runs: [], pack: [] })
+  // BOM inputs beyond the cutlery pieces (packs, SRP trays, resin) + what the real data has taught us
+  const [bomRows, setBomRows] = useState<{ fg: string; comp: string; qty: number }[]>([])
+  const [prodInfo, setProdInfo] = useState<Record<string, { name: string; uom: string; onHand: number; grams: number }>>({})
+  const [matOverride, setMatOverride] = useState<Record<string, string>>({})
+  const [matEnforce, setMatEnforce] = useState<Record<string, boolean>>({})
+  const [learning, setLearning] = useState<any>(null)
+  const [dailyBySku, setDailyBySku] = useState<{ day: string; sku: string; srps: number }[]>([])
+  const [ai, setAi] = useState<{ loading: boolean; advice: any; err: string; for: string }>({ loading: false, advice: null, err: '', for: '' })
 
   const load = useCallback(async () => {
     setLoading(true); setErr('')
@@ -77,6 +87,22 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     setMolds(((mR.data as any[]) || []).map(m => ({ ...m, cavities: num(m.cavities), cycle_sec: num(m.cycle_sec) }))
       .sort((a, b) => a.machine_code.localeCompare(b.machine_code, undefined, { numeric: true })))
     setRates(((rR.data as any[]) || []).map(r => ({ ...r, srp_per_hour: num(r.srp_per_hour), people: num(r.people) })))
+    // full BOM for the SRPs and the molded pieces, plus on-hand for every input
+    const fgs = [...SRP_SKUS, ...PIECE_LIST]
+    const [bR, lR, dR] = await Promise.all([
+      sb.from('product_bom').select('finished_good_sku, component_sku, qty_value').in('finished_good_sku', fgs),
+      sb.rpc('walmart_planner_learning', { p_days: 42 }),
+      sb.rpc('walmart_planner_daily_by_sku', { p_days: 28 }),
+    ])
+    const rows = ((bR.data as any[]) || []).map(r => ({ fg: String(r.finished_good_sku).toUpperCase(), comp: String(r.component_sku).toUpperCase(), qty: num(r.qty_value) }))
+    setBomRows(rows)
+    const compSkus = Array.from(new Set([...rows.map(r => r.comp), ...PIECE_LIST]))
+    if (compSkus.length) {
+      const { data: pr } = await sb.from('products').select('sku, product_name, unit_of_measure, on_hand_qty, weight_per_unit_grams').in('sku', compSkus)
+      setProdInfo(Object.fromEntries(((pr as any[]) || []).map(p => [String(p.sku).toUpperCase(), { name: p.product_name || p.sku, uom: p.unit_of_measure || '', onHand: num(p.on_hand_qty), grams: num(p.weight_per_unit_grams) }])))
+    }
+    setLearning(lR.data || null)
+    setDailyBySku(((dR.data as any[]) || []).map(x => ({ day: x.day, sku: String(x.sku).toUpperCase(), srps: num(x.srps) })))
     setLoading(false)
   }, [sb])
   useEffect(() => { load() }, [load])
@@ -92,6 +118,52 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
 
   const machByCode = useMemo(() => Object.fromEntries(machs.map(m => [m.machine_code.toUpperCase(), m])), [machs])
   const horizon = Math.max(0, settings.shifts * settings.shift_hours - settings.overlap_hours * Math.max(0, settings.shifts - 1))
+
+  // ── every non-piece BOM input, rolled up per SRP (packs, trays) or per molded piece (resin blend %)
+  const components: (Component & { usedBy: string[]; enforce: boolean; onHand: number })[] = useMemo(() => {
+    const out: Record<string, Component & { usedBy: string[]; enforce: boolean; onHand: number }> = {}
+    const get = (key: string) => {
+      const info = prodInfo[key]
+      const onHand = matOverride[key] !== undefined && matOverride[key] !== '' ? num(matOverride[key]) : Math.max(0, info?.onHand ?? 0)
+      return out[key] || (out[key] = { key, name: info?.name || key, uom: info?.uom || '', avail: onHand, onHand, perSrp: {}, perPiece: {}, usedBy: [], enforce: settings.enforce_materials && matEnforce[key] !== false })
+    }
+    for (const r of bomRows) {
+      if (SRP_SKUS.includes(r.fg) && !PIECE_LIST.includes(r.comp as Piece)) {
+        const c = get(r.comp); c.perSrp[r.fg] = (c.perSrp[r.fg] || 0) + r.qty; if (!c.usedBy.includes(short(r.fg))) c.usedBy.push(short(r.fg))
+      }
+    }
+    for (const p of PIECE_LIST) {
+      const lines = bomRows.filter(r => r.fg === p)
+      const total = lines.reduce((a, r) => a + r.qty, 0)
+      const grams = prodInfo[p]?.grams || 0
+      for (const r of lines) {
+        const c = get(r.comp)
+        // blend lines that add up to ~100 are percentages of the piece weight → lbs of resin per piece
+        const perPiece = total > 95 && total < 105 && grams > 0 ? (grams / GRAMS_PER_LB) * (r.qty / 100) : r.qty
+        c.perPiece[p] = (c.perPiece[p] || 0) + perPiece
+        if (!c.usedBy.includes(PIECE_NAME[p])) c.usedBy.push(PIECE_NAME[p])
+      }
+    }
+    return Object.values(out).sort((a, b) => (Object.keys(a.perPiece).length ? 0 : 1) - (Object.keys(b.perPiece).length ? 0 : 1) || a.key.localeCompare(b.key))
+  }, [bomRows, prodInfo, matOverride, matEnforce, settings.enforce_materials])
+
+  // ── learned packing speed: how many packer-hours the real logged output would have needed at the
+  // entered rates, divided by the packer-hours the settings say exist. Median over finished days.
+  const learned = useMemo(() => {
+    const byDay: Record<string, number> = {}
+    for (const d of dailyBySku) {
+      if (d.day >= today) continue
+      const r = rates.find(x => x.sku === d.sku); if (!r || r.srp_per_hour <= 0) continue
+      byDay[d.day] = (byDay[d.day] || 0) + d.srps * r.people / r.srp_per_hour
+    }
+    const avail = settings.shifts * settings.shift_hours * Math.max(1, settings.packers_per_shift)
+    const ratios = Object.values(byDay).filter(h => h > 0).map(h => h / avail).sort((a, b) => a - b)
+    if (ratios.length < 2) return null
+    const mid = Math.floor(ratios.length / 2)
+    const median = ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2
+    return { factor: Math.max(0.2, Math.min(10, median)), days: ratios.length }
+  }, [dailyBySku, rates, settings.shifts, settings.shift_hours, settings.packers_per_shift, today])
+  const psf = settings.use_learned && learned ? learned.factor : 1
 
   const input: PlannerInput = useMemo(() => ({
     groups: groups.filter(g => incl[g.key] !== false).map(g => ({
@@ -111,7 +183,9 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     shifts: Array.from({ length: settings.shifts }, (_, i) => ({ n: i + 1, hours: settings.shift_hours, packers: settings.packers_per_shift })),
     moldAhead: settings.mold_ahead,
     strategy: settings.strategy,
-  }), [groups, incl, todoEdit, bomPcs, molds, machByCode, dayAvail, dayPiece, settings, horizon, stockIn, rates])
+    components: components.filter(c => c.enforce),
+    packSpeedFactor: psf,
+  }), [groups, incl, todoEdit, bomPcs, molds, machByCode, dayAvail, dayPiece, settings, horizon, stockIn, rates, components, psf])
 
   const result: PlannerResult = useMemo(() => planDay(input), [input])
   const tips: Suggestion[] = useMemo(() => (molds.length ? suggest(input, result) : []), [input, result, molds.length])
@@ -138,6 +212,29 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     setMsg('Draft ready — edit anything below, then send it to the Daily Plan.')
   }
 
+  async function askAi() {
+    setAi(a => ({ ...a, loading: true, err: '' }))
+    const plan = {
+      settings: { ...settings, machine_hours: horizon, pack_speed_factor_used: psf },
+      priorities: result.groups.map(g => ({ load: g.label, rank: g.rank, pickup: groups.find(x => x.key === g.key)?.pickup, still_to_make: g.todo, planned_tomorrow: g.planned })),
+      machines: input.machines.map(m => ({ code: m.code, mold: PIECE_NAME[m.piece], pcs_per_hour: Math.round(m.rate), available: m.available, planned_hours: Math.round((result.machineHours[m.id] || 0) * 10) / 10 })),
+      packing: { packer_hours_available: result.packHoursAvail, used: Math.round(result.packHoursUsed * 10) / 10, lines: result.pack },
+      materials: components.map(c => ({ name: c.name, sku: c.key, uom: c.uom, on_hand: c.onHand, needed_for_plan: Math.round((result.compUsed[c.key] || 0) * 10) / 10, enforced: c.enforce })),
+      bottlenecks: result.bottlenecks, optimiser_suggestions: tips.map(t => t.text),
+    }
+    try {
+      const res = await fetch('/api/walmart/plan-advisor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ woId: wo.id, date, plan }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.ok) throw new Error(j.error || 'The AI advisor could not run.')
+      setAi({ loading: false, advice: j.advice, err: '', for: date })
+    } catch (e: any) { setAi({ loading: false, advice: null, err: e?.message || 'The AI advisor could not run.', for: date }) }
+  }
+  useEffect(() => {   // ask once per date, after the plan has settled
+    if (loading || ai.loading || ai.for === date || !groups.length) return
+    const t = setTimeout(() => { askAi() }, 1200)
+    return () => clearTimeout(t)
+  }, [loading, date, groups.length])  // eslint-disable-line react-hooks/exhaustive-deps
+
   const rateOf = (code: string) => { const m = molds.find(x => x.machine_code === code); return m ? m.cavities * 3600 / Math.max(1, m.cycle_sec) * settings.efficiency_pct / 100 : 0 }
   const packRate = (sku: string) => rates.find(r => r.sku === sku)
 
@@ -152,6 +249,16 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     const { error: e2 } = await sb.rpc('walmart_pack_plan_save', { p_date: date, p_wo: wo.id, p_lines: settings.manual_packing ? lines : [] })
     setBusy('')
     if (e2) { setErr(e2.message); return }
+    // memory for the brain: what the team confirmed for this day
+    const plannedBySku: Record<string, number> = {}
+    if (settings.manual_packing) for (const p of draftPack) plannedBySku[p.sku] = (plannedBySku[p.sku] || 0) + Math.round(p.srps)
+    else for (const g of result.groups) for (const [k, v] of Object.entries(g.planned)) plannedBySku[k] = (plannedBySku[k] || 0) + v
+    const { data: { user } } = await sb.auth.getUser()
+    await sb.from('walmart_plan_snapshots').upsert({
+      plan_date: date, work_order_id: wo.id, planned: plannedBySku, machines: runs, pack: lines,
+      materials: components.map(c => ({ key: c.key, name: c.name, uom: c.uom, on_hand: c.onHand, need: Math.round((result.compUsed[c.key] || 0) * 10) / 10 })),
+      settings: { ...settings, pack_speed_factor_used: psf }, confirmed_by: user?.email || null, confirmed_at: new Date().toISOString(),
+    }, { onConflict: 'plan_date,work_order_id' })
     await loadSaved()
     onSaved(`✓ Plan for ${fmtDay(date)} sent to the Daily Plan — ${runs.length} machine${runs.length === 1 ? '' : 's'}${settings.manual_packing ? `, ${lines.length} packing line${lines.length === 1 ? '' : 's'}` : ''}.`)
   }
@@ -162,6 +269,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
     const b = await sb.rpc('walmart_pack_plan_save', { p_date: date, p_wo: wo.id, p_lines: [] })
     setBusy('')
     if (a.error || b.error) { setErr((a.error || b.error).message); return }
+    await sb.from('walmart_plan_snapshots').delete().eq('plan_date', date).eq('work_order_id', wo.id)
     await loadSaved(); setMsg('Saved plan for that day removed.')
   }
   function loadSavedIntoDraft() {
@@ -269,6 +377,49 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                 {result.warnings.map(w => <p key={w} className="text-amber-800">⚠ {w}</p>)}
               </div>)}
 
+            {/* AI brain — suggestions only */}
+            <div className="rounded-2xl border-2 overflow-hidden" style={{ borderColor: '#a25ddc' }}>
+              <div className="px-4 py-2 flex flex-wrap items-center gap-2" style={{ background: '#f6f0fd' }}>
+                <span className="text-sm font-bold text-[#1A1D2E] flex-1">🧠 AI brain — suggestions for {fmtDay(date)}</span>
+                {ai.advice?.confidence && <span className="text-[11px] font-semibold text-[#784bd1]">confidence: {ai.advice.confidence}</span>}
+                <button onClick={askAi} disabled={ai.loading} className="h-8 px-3 rounded-lg text-xs font-bold text-white disabled:opacity-50" style={{ background: '#a25ddc' }}>{ai.loading ? 'Thinking…' : ai.advice ? '↻ Ask again' : 'Ask the AI'}</button>
+              </div>
+              <div className="px-4 py-3 text-sm space-y-2">
+                <p className="text-[11px] text-gray-500">The AI reviews this plan against what really happened on the floor (logged SRPs, confirmed plans, machine downtime, materials, its own past advice). It only suggests — the team decides and confirms the plan.</p>
+                {ai.err && <p className="text-red-700">{ai.err}</p>}
+                {ai.loading && !ai.advice && <p className="text-gray-400">Reviewing the plan and the last six weeks of data…</p>}
+                {ai.advice && <>
+                  {ai.advice.headline && <p className="font-semibold text-[#1A1D2E]">{ai.advice.headline}</p>}
+                  {(ai.advice.suggestions || []).map((x: any, i: number) => (
+                    <div key={i} className="rounded-xl border border-[#ECEEF3] px-3 py-2">
+                      <p className="font-semibold">💡 {x.title} {x.area && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-400">{x.area}</span>}</p>
+                      {x.why && <p className="text-xs text-gray-600 mt-0.5"><b>Why:</b> {x.why}</p>}
+                      {x.impact && <p className="text-xs text-emerald-700 mt-0.5"><b>Impact:</b> {x.impact}</p>}
+                    </div>))}
+                  {(ai.advice.risks || []).length > 0 && <div className="text-xs text-red-700">{ai.advice.risks.map((r: string, i: number) => <p key={i}>⚠ {r}</p>)}</div>}
+                  {(ai.advice.learned || []).length > 0 && <div className="text-xs text-[#784bd1]">{ai.advice.learned.map((r: string, i: number) => <p key={i}>📈 {r}</p>)}</div>}
+                </>}
+              </div>
+            </div>
+
+            {/* what the real data has taught the planner */}
+            {learning && (
+              <div className="rounded-2xl border border-[#ECEEF3] px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-bold text-[#1A1D2E] flex-1">📈 Learned from real output</p>
+                  {learned && <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={settings.use_learned} onChange={e => setSettings(s => ({ ...s, use_learned: e.target.checked }))} />Plan with the learned packing speed</label>}
+                </div>
+                <p className="text-xs text-gray-600 mt-1">
+                  Average {fmtN(learning.avg_daily_srps)} SRP logged per day (best {fmtN(learning.best_day_srps)}) over {(learning.daily_totals || []).length} production days · {learning.confirmed_plans || 0} confirmed plan{learning.confirmed_plans === 1 ? '' : 's'} to compare against.
+                </p>
+                {learned ? <p className="text-xs mt-1">At the packing rates entered and {settings.packers_per_shift} packer{settings.packers_per_shift === 1 ? '' : 's'} per shift, the real output would have needed <b>{fmtN(learned.factor, 1)}×</b> the packer-hours available (median of {learned.days} days). {settings.use_learned ? 'The plan uses that learned speed.' : 'Tick the box to plan with it.'} If that looks wrong, update the packing rates or packers per shift.</p>
+                  : <p className="text-xs text-gray-400 mt-1">Needs at least two finished production days to learn the real packing speed.</p>}
+                {(learning.per_sku || []).some((x: any) => x.attainment != null) && (
+                  <p className="text-xs mt-1">Plan vs actual: {(learning.per_sku || []).filter((x: any) => x.attainment != null).map((x: any) => `${short(x.sku)} ${Math.round(x.attainment * 100)}%`).join(' · ')}</p>)}
+                {(learning.machines || []).some((m: any) => m.days_down > 0) && (
+                  <p className="text-xs mt-1 text-red-700">Down on planned days: {(learning.machines || []).filter((m: any) => m.days_down > 0).map((m: any) => `${m.machine} ${m.days_down}/${m.days_planned}`).join(' · ')}</p>)}
+              </div>)}
+
             {tips.length > 0 && (
               <div className="rounded-2xl border border-[#ECEEF3] overflow-hidden">
                 <div className="px-4 py-2 bg-[#F7F9FC] text-sm font-bold text-[#1A1D2E]">Suggestions</div>
@@ -321,6 +472,37 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                 Loose pieces already molded (not yet packed):
                 {PIECE_LIST.map(p => <label key={p} className="flex items-center gap-1">{PIECE_NAME[p]}<input inputMode="numeric" value={stockIn[p] ?? ''} placeholder="0" onChange={e => setStockIn(x => ({ ...x, [p]: e.target.value.replace(/[^\d]/g, '') }))} className="w-24 h-8 rounded-lg border border-[#E4E6EE] px-2 text-right" /></label>)}
               </div>
+            </section>
+
+            {/* materials & packaging from the BOM */}
+            <section>
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <h3 className="text-sm font-bold text-[#1A1D2E] flex-1">Materials &amp; packaging (from the BOM)</h3>
+                <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={settings.enforce_materials} onChange={e => setSettings(s => ({ ...s, enforce_materials: e.target.checked }))} />Only plan what the materials on hand allow</label>
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-[#ECEEF3]">
+                <table className="w-full text-sm min-w-[760px]">
+                  <thead><tr className="text-[10px] uppercase text-gray-400 bg-[#FAFBFD] text-left"><th className="px-3 py-2">Input</th><th>Used for</th><th className="text-right">Per unit</th><th className="w-32 text-right">On hand</th><th className="text-right">Needed for this plan</th><th className="text-right pr-3">Left after</th><th>Limit plan</th></tr></thead>
+                  <tbody>{components.map(c => {
+                    const need = result.compUsed[c.key] || 0
+                    const left = c.onHand - need
+                    const short_ = c.enforce ? left < 0.5 && need > 0 && c.onHand <= need + 0.5 : left < 0
+                    const per = Object.keys(c.perPiece).length ? PIECE_LIST.filter(p => c.perPiece[p]).map(p => `${fmtN(c.perPiece[p]! * (c.uom.toUpperCase().startsWith('LB') ? 1000 : 1), 2)}${c.uom.toUpperCase().startsWith('LB') ? ' lb/1k' : ''} ${PIECE_NAME[p].toLowerCase()}`).join(' · ')
+                      : Object.entries(c.perSrp).map(([k, v]) => `${fmtN(v)}/${short(k)} SRP`).join(' · ')
+                    return (
+                      <tr key={c.key} className={`border-t border-[#F0F2F6] ${c.onHand <= 0 ? 'bg-red-50' : short_ ? 'bg-amber-50' : ''}`}>
+                        <td className="px-3 py-1.5"><b>{c.name}</b> <span className="text-[10px] font-mono text-gray-400">{c.key}</span></td>
+                        <td className="text-xs text-gray-600">{c.usedBy.join(', ')}</td>
+                        <td className="text-right text-xs text-gray-500">{per}</td>
+                        <td className="text-right pl-2"><input inputMode="decimal" value={matOverride[c.key] ?? String(Math.round(c.onHand))} onChange={e => setMatOverride(m => ({ ...m, [c.key]: e.target.value.replace(/[^\d.]/g, '') }))} className="w-28 h-8 rounded-lg border border-[#E4E6EE] text-right px-2" title="Override for this plan only" /> <span className="text-[10px] text-gray-400">{c.uom}</span></td>
+                        <td className="text-right font-semibold">{fmtN(need, need < 100 ? 1 : 0)}</td>
+                        <td className={`text-right pr-3 ${left < 0 ? 'text-red-600 font-bold' : 'text-gray-600'}`}>{fmtN(left, Math.abs(left) < 100 ? 1 : 0)}</td>
+                        <td><input type="checkbox" checked={c.enforce} disabled={!settings.enforce_materials} onChange={e => setMatEnforce(m => ({ ...m, [c.key]: e.target.checked }))} /></td>
+                      </tr>)
+                  })}</tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">Resin is worked out from the piece weight and the blend % on each piece&apos;s BOM. On-hand comes from inventory — type over it for this plan if a delivery is due; untick “Limit plan” to plan without that input.</p>
             </section>
 
             {/* machine timeline */}
@@ -417,7 +599,7 @@ export default function WalmartDayPlanner({ sb, wo, groups, machs, bomPcs, today
                     <button onClick={() => setDraftPack(d => [...(d || []), { key: uid(), shift: 1, sku: '22GVS24', srps: 0, people: 1, hours: 0, notes: '' }])} className="mt-2 text-xs font-semibold" style={{ color: ACCENT }}>+ Add packing line</button>
                   </div>)}
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button onClick={sendToDailyPlan} disabled={!canEdit || busy === 'send'} className="h-11 px-5 rounded-xl text-white text-sm font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>{busy === 'send' ? 'Sending…' : `Send to Daily Plan for ${fmtDay(date)}`}</button>
+                  <button onClick={sendToDailyPlan} disabled={!canEdit || busy === 'send'} className="h-11 px-5 rounded-xl text-white text-sm font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>{busy === 'send' ? 'Sending…' : `✓ Team confirms — send to Daily Plan for ${fmtDay(date)}`}</button>
                   <button onClick={() => { setDraftRuns(null); setDraftPack(null) }} className="h-11 px-4 rounded-xl border border-[#E4E6EE] text-sm font-semibold text-gray-600">Discard draft</button>
                 </div>
               </>}
