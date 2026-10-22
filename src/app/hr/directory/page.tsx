@@ -16,13 +16,13 @@ const STATUSES = ['Active', 'Past', 'Maternity/paternity leave']
 const SITES = ['bG - Wakeham', 'bG - Dietrich', 'Remote']
 const DEPARTMENTS = ['Sales', 'Marketing', 'Business Development', 'HR', 'IT', 'Customer Support', 'Manufacturing', 'Shipping/Receiving', 'Accounting', 'Warehouse Operations', 'Admin', 'Legal']
 const JOB_DESCRIPTIONS = ['Sales', 'Operations', 'IT', 'Marketing', 'Legal', 'Web Development', 'Content Creation', 'Business Development', 'Product Development', 'Vendor Relations', 'Sourcing', 'Shipping / Receiving', 'Production', 'Warehouse', 'Executive', 'Accounting', 'Admin', 'Compliance']
-const SENIORITIES = ['Executive', 'Manager', 'Team Lead', 'Mid-level', 'Operator', 'Packer', 'Contract', 'NA']
+const SENIORITIES = ['Executive', 'Manager', 'Team Lead', 'Mid-level', 'Operator', 'Packer', 'Operator/Packer', 'Material Handler', 'Contract', 'NA']
 const GENDERS = ['Male', 'Female', 'Diverse']
 
 const STATUS_COLORS: Record<string, string> = { 'Active': '#00c875', 'Past': '#9d50dd', 'Maternity/paternity leave': '#fdab3d' }
 const SITE_COLORS: Record<string, string> = { 'bG - Wakeham': '#fdab3d', 'bG - Dietrich': '#037f4c', 'Remote': '#ff007f' }
 const DEPT_COLORS: Record<string, string> = { 'Sales': '#66ccff', 'Marketing': '#784bd1', 'Business Development': '#4eccc6', 'HR': '#ff5ac4', 'IT': '#00c875', 'Customer Support': '#cd9282', 'Manufacturing': '#579bfc', 'Shipping/Receiving': '#cab641', 'Accounting': '#ffcb00', 'Warehouse Operations': '#333333', 'Admin': '#7e3b8a', 'Legal': '#401694' }
-const SEN_COLORS: Record<string, string> = { 'Executive': '#00c875', 'Manager': '#784bd1', 'Team Lead': '#9d50dd', 'Mid-level': '#cab641', 'Operator': '#ff7575', 'Packer': '#ff642e', 'Contract': '#007eb5', 'NA': '#ffcb00' }
+const SEN_COLORS: Record<string, string> = { 'Executive': '#00c875', 'Manager': '#784bd1', 'Team Lead': '#9d50dd', 'Mid-level': '#cab641', 'Operator': '#ff7575', 'Packer': '#ff642e', 'Operator/Packer': '#e2445c', 'Material Handler': '#579bfc', 'Contract': '#007eb5', 'NA': '#ffcb00' }
 
 const fmtDate = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
 const initials = (name: string) => (name || '?').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
