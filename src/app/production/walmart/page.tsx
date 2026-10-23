@@ -59,7 +59,7 @@ const PIECES = [{ sku: 'BGFRK', name: 'Fork', color: '#579bfc' }, { sku: 'BGSPN'
 interface MRun { id: string; work_order_id: string; run_date: string; machine_id: string; piece: string; skus: string[]; target_pcs: number | null; hours: number | null; operator: string | null; notes: string | null }
 interface Mach { id: string; machine_code: string; status: string | null; oph: number }
 interface Load { id: string; load_number: string; pickup_date: string | null; priority: number | null; status: string; notes: string | null }
-interface WoOrder { id: string; po_number: string | null; name: string | null; group_name: string | null; status: string | null; load_number: string | null; pallets: string | null; archived: boolean | null; walmart_board_lines: { part_number: string | null; qty: number | null }[] }
+interface WoOrder { id: string; po_number: string | null; name: string | null; group_name: string | null; status: string | null; load_number: string | null; pallets: string | null; archived: boolean | null; walmart_board_lines: { part_number: string | null; qty: number | null; finished_manual?: number | null }[] }
 interface WoRel { walmart_order_id: string; sku: string; qty: number; status: string }
 interface SkuPlan { need: number; done: number; covered: number }
 interface PlanGroup { key: string; load: Load | null; rank: number; orders: WoOrder[]; bySku: Record<string, SkuPlan>; orderSku: Record<string, Record<string, 'done' | 'covered' | 'partial' | 'open'>> }
@@ -101,7 +101,7 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
         if (!q || !SKU_SET.has(sku)) continue
         const b = g.bySku[sku] || (g.bySku[sku] = { need: 0, done: 0, covered: 0 })
         b.need += q
-        const rq = built ? q : Math.min(q, relBy[o.id + '|' + sku] || 0)   // released / claimed so far
+        const rq = built ? q : Math.min(q, Math.max(relBy[o.id + '|' + sku] || 0, num(l.finished_manual)))   // released / claimed so far, or finished typed in on the Order Pipeline
         b.done += rq
         if (rq >= q) { os[sku] = 'done'; continue }
         const c = Math.min(pool[sku] || 0, q - rq)
@@ -201,7 +201,7 @@ export default function WalmartProductionPage() {
     if (w) {
       const [pgR, woR2, relR2, ldR, runR] = await Promise.all([
         sb.from('v_walmart_wo_progress').select('*').eq('work_order_id', w.id),
-        sb.from('walmart_wo_orders').select('walmart_board_orders(id,po_number,name,group_name,status,load_number,pallets,archived,walmart_board_lines(part_number,qty))').eq('work_order_id', w.id),
+        sb.from('walmart_wo_orders').select('walmart_board_orders(id,po_number,name,group_name,status,load_number,pallets,archived,walmart_board_lines(part_number,qty,finished_manual))').eq('work_order_id', w.id),
         sb.from('walmart_releases').select('walmart_order_id,sku,qty,status').eq('work_order_id', w.id).neq('status', 'Cancelled'),
         sb.from('walmart_loads').select('*').neq('status', 'Cancelled').order('pickup_date', { ascending: true, nullsFirst: false }),
         sb.from('walmart_machine_runs').select('*').eq('work_order_id', w.id).order('run_date'),
