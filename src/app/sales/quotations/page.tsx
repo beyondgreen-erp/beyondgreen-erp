@@ -24,6 +24,7 @@ interface Quote {
   payment_terms: string | null
   notes: string | null
   price_term?: string | null
+  doc_style?: 'official' | 'estimate' | null
   export_country?: string | null
   client_portal_visible?: boolean | null
   client_portal_name?: string | null
@@ -224,6 +225,7 @@ export default function QuotationsPage() {
     notes: '',
     tax_rate: '0',
     type: 'quote' as 'quote' | 'rfq',
+    doc_style: 'official' as 'official' | 'estimate',
     price_term: 'ddp',
     export_country: 'China',
     client_portal_visible: false,
@@ -403,6 +405,7 @@ export default function QuotationsPage() {
       notes: '',
       tax_rate: '0',
       type: kind,
+      doc_style: 'official',
       price_term: 'ddp',
       export_country: 'China',
       client_portal_visible: false,
@@ -436,6 +439,7 @@ export default function QuotationsPage() {
       notes: q.notes ?? '',
       tax_rate: String(q.tax_pct ?? 0),   // was hard-coded '0': saved tax vanished on reopen
       type: (q.type as 'quote' | 'rfq') || 'quote',
+      doc_style: (q.doc_style === 'estimate' ? 'estimate' : 'official'),
       price_term: (q as any).price_term ?? 'ddp',
       export_country: (q as any).export_country ?? 'China',
       client_portal_visible: q.client_portal_visible ?? false,
@@ -658,6 +662,7 @@ export default function QuotationsPage() {
         tax_pct: taxRate,
         total: total,
         type: form.type,
+        doc_style: form.type === 'quote' ? form.doc_style : 'official',
         price_term: form.price_term || null,
         export_country: form.export_country || null,
         client_portal_visible: !!form.client_portal_visible,
@@ -754,6 +759,7 @@ export default function QuotationsPage() {
         billing_address: form.billing_address || null,
         shipping_address: form.shipping_address || null,
         export_country: form.export_country || null,
+        doc_style: form.doc_style,
       },
       pdfLines,
       customer ? { company_name: customer.company_name } : null
@@ -1146,7 +1152,7 @@ export default function QuotationsPage() {
             <h2 className="font-semibold text-base" style={{ color: '#1A1D2E' }}>
               {(() => {
                 const isRfq = (editing?.type || form.type) === 'rfq'
-                const label = isRfq ? 'RFQ' : 'Quote'
+                const label = isRfq ? 'RFQ' : (form.doc_style === 'estimate' ? 'Estimate' : 'Quote')
                 if (editing) return `${label} ${editing.quote_number}`
                 return `New ${label}`
               })()}
@@ -1277,6 +1283,15 @@ export default function QuotationsPage() {
                     {(form.type === 'rfq' ? ['Quoting', 'Quoted', 'Accepted'] : ['Draft', 'Sent', 'Accepted', 'Rejected', 'Converted', 'Expired']).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
+                {form.type === 'quote' && (
+                  <div>
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: '#374151' }}>Document type</label>
+                    <select value={form.doc_style} onChange={e => setForm(p => ({ ...p, doc_style: e.target.value as 'official' | 'estimate' }))} className={inp} style={{ ...inpStyle, cursor: 'pointer' }}>
+                      <option value="official">Official Quote (totals + Terms &amp; Conditions)</option>
+                      <option value="estimate">Estimate (item pricing only, no totals or terms)</option>
+                    </select>
+                  </div>
+                )}
                 {form.type === 'rfq' && (
                   <>
                     <div>

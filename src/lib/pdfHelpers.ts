@@ -685,7 +685,7 @@ function drawTermsPage(doc: jsPDF, order: PDFOrder) {
 }
 
 export async function generateQuotePDF(
-  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null; payment_terms?: string | null; po_number?: string | null; billing_address?: string | null; shipping_address?: string | null; export_country?: string | null },
+  quote: { quote_number: string; quote_date: string | null; expiry_date: string | null; status: string; tax_pct: number; subtotal: number; total: number; notes?: string | null; payment_terms?: string | null; po_number?: string | null; billing_address?: string | null; shipping_address?: string | null; export_country?: string | null; doc_style?: 'official' | 'estimate' | null },
   lines: PDFLine[],
   customer: PDFCustomer | null
 ) {
@@ -706,7 +706,7 @@ export async function generateQuotePDF(
     sales_rep: 'RP',
     export_country: quote.export_country ?? null,
   }
-  await renderSalesDocumentPDF('quote', orderLike, lines, customer)
+  await renderSalesDocumentPDF(quote.doc_style === 'estimate' ? 'estimate' : 'quote', orderLike, lines, customer)
 }
 
 export async function generateRFQPDF(
@@ -760,7 +760,7 @@ export async function generateRFQPDF(
  * labels and whether pricing is shown.
  */
 async function renderSalesDocumentPDF(
-  kind: 'so' | 'quote' | 'rfq',
+  kind: 'so' | 'quote' | 'estimate' | 'rfq',
   order: PDFOrder,
   lines: PDFLine[],
   customer: PDFCustomer | null,
@@ -781,11 +781,17 @@ async function renderSalesDocumentPDF(
       'This quote is valid for the period shown above. Pricing subject to change after expiry. Custom projects require a 40% deposit to confirm; balance due at time of shipment unless approved credit terms apply.',
       'Freight billed on an actual basis. Acceptance of this quote is subject to the Terms & Conditions of Sale on the following page.',
     ] },
+    // Estimate: per-item pricing for planning and comparison. No totals, no payment-terms footer and no
+    // Terms & Conditions page; program details belong in the Notes field.
+    estimate: { title: 'Estimate',       numLabel: 'Estimate #',    filePrefix: 'estimate',    showPricing: true,  buyerBoxLabel: 'Prepared For',      shipBoxLabel: 'Ship To', shipByLabel: 'Valid Until', includeTerms: false, footerNotes: [
+      'This is a pricing estimate for planning and comparison purposes only. It is not an offer of sale. Final pricing, quantities and terms are confirmed on an official quote.',
+    ] },
     rfq:   { title: 'Request for Quote',  numLabel: 'RFQ #',         filePrefix: 'RFQ',         showPricing: false, buyerBoxLabel: 'Project / End Customer', shipBoxLabel: 'Deliver To (if awarded)', shipByLabel: 'Response Due', includeTerms: false, footerNotes: [
       'Please provide your best pricing, lead time, MOQ (if any), payment terms, and any assumptions or exclusions.',
       'You may reply in whatever format works best for you — fill in this PDF, send a quote sheet, or reply directly by email. Response due by the date shown above.',
     ] },
   }[kind]
+  const isEstimate = kind === 'estimate'
 
   const _payShort = paymentShort(order.terms)
   KIND.footerNotes = KIND.footerNotes.map(n => n
@@ -834,7 +840,13 @@ async function renderSalesDocumentPDF(
 
   // Info row — RFQ has 4 columns (no FOB, wider Terms). SO/Quote keep the 5-column layout.
   const iY = bY + boxH + 12, infoRowH = 20
-  const infoCols = kind === 'rfq'
+  const infoCols = isEstimate
+    ? [
+      { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 180 },
+      { label: 'Pricing',        value: 'FOB ' + (order.fob || 'Santa Ana') + ', CA', w: 180 },
+      { label: 'Sales Rep',      value: order.sales_rep || 'RP', w: 180 },
+    ]
+    : kind === 'rfq'
     ? [
       { label: 'P.O. No.',       value: order.po_number || '', w: 120 },
       { label: KIND.shipByLabel, value: fmtDate(order.required_ship_date, true), w: 120 },
@@ -886,12 +898,17 @@ async function renderSalesDocumentPDF(
   autoTable(doc, {
     startY: iY + infoRowH * 2,
     margin: { left: L, right: 36 },
-    head: [['Item', 'Description', 'Qty', 'Cost', 'U/M', 'Total']],
-    body: bodyRows,
+    head: isEstimate ? [['Item', 'Description', 'U/M', 'Price']] : [['Item', 'Description', 'Qty', 'Cost', 'U/M', 'Total']],
+    body: isEstimate ? lines.map(l => { const u = unitOf(l); return [l.sku ?? '', l.description ?? '', l.unit_of_measure ?? '', u ? fmtCost(u) : ''] }) : bodyRows,
     theme: 'grid',
     styles: { font: 'times', fontSize: 10, textColor: [0, 0, 0], lineColor: [120, 120, 120], lineWidth: 0.5, cellPadding: 3, valign: 'top' },
     headStyles: { fillColor: [238, 238, 238], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center', lineColor: [90, 90, 90], lineWidth: 0.6 },
-    columnStyles: {
+    columnStyles: isEstimate ? {
+      0: { cellWidth: 100 },
+      1: { cellWidth: 300 },
+      2: { cellWidth: 60, halign: 'center' },
+      3: { cellWidth: 80, halign: 'right' },
+    } : {
       0: { cellWidth: 74 },
       1: { cellWidth: 252 },
       2: { cellWidth: 52, halign: 'right' },
@@ -914,10 +931,11 @@ async function renderSalesDocumentPDF(
   // long Notes field pushed both of them over. Q-2026-0055 carried its payment terms in Notes and
   // printed five line items on page 1, a page of empty space beneath them, and the $15,579.16
   // total alone on page 2. A total belongs on the page carrying the figures it adds up.
-  if (KIND.showPricing && afterY - 8 + TOTAL_H > BOTTOM) { doc.addPage(); afterY = 54 }
+  const showTotal = KIND.showPricing && !isEstimate
+  if (showTotal && afterY - 8 + TOTAL_H > BOTTOM) { doc.addPage(); afterY = 54 }
 
   const tbW = TOTAL_W, tbX = R - tbW, tbY = afterY - 8
-  if (KIND.showPricing) {
+  if (showTotal) {
     doc.setDrawColor(0); doc.setLineWidth(0.8)
     doc.rect(tbX, tbY, tbW, TOTAL_H)
     doc.setFont('times', 'bold'); doc.setFontSize(16)
