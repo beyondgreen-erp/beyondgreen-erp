@@ -1133,12 +1133,13 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                 {editing ? (
                   <div className="border border-[#EEF0F4] rounded-lg overflow-x-auto">
                     <table className="w-full text-sm min-w-[680px]">
-                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[70px]">Qty</th><th className="text-left px-2 py-2 w-[70px]">UOM</th><th className="text-left px-2 py-2 w-[80px]">Packaging</th><th className="text-right px-2 py-2 w-[90px]">Unit Price</th><th className="text-right px-2 py-2 w-[90px]">Line Total</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
+                      <thead><tr className="bg-[#FBFCFE] text-[11px] uppercase text-gray-400"><th className="text-left px-2 py-2">SKU</th><th className="text-left px-2 py-2 w-[70px]">Qty</th><th className="text-left px-2 py-2 w-[80px]" title="Finished SRPs on this PO line — typed in by hand. Claims from the production board never lower it.">Finished</th><th className="text-left px-2 py-2 w-[70px]">UOM</th><th className="text-left px-2 py-2 w-[80px]">Packaging</th><th className="text-right px-2 py-2 w-[90px]">Unit Price</th><th className="text-right px-2 py-2 w-[90px]">Line Total</th><th className="text-left px-2 py-2">Inventory</th><th className="px-1 py-2 w-[32px]"></th></tr></thead>
                       <tbody>
                         {lineForms.map((l, i) => (
                           <tr key={l.id || 'n' + i} className="border-t border-[#F0F2F6]">
                             <td className="px-2 py-1.5"><input list="wm-skus" className={cellCls + ' font-mono'} value={l.part_number ?? ''} onChange={e => setLine(i, { part_number: e.target.value })} /></td>
                             <td className="px-2 py-1.5"><input type="number" className={cellCls} value={l.qty ?? ''} onChange={e => setLine(i, { qty: e.target.value === '' ? null : Number(e.target.value) })} /></td>
+                            <td className="px-2 py-1.5"><input type="number" min={0} className={cellCls + ' font-semibold text-emerald-700'} value={l.completed_qty ?? ''} placeholder="0" onChange={e => setLine(i, { completed_qty: e.target.value === '' ? null : Math.max(0, Number(e.target.value)) })} /></td>
                             <td className="px-2 py-1.5"><input className={cellCls} value={l.uom ?? ''} onChange={e => setLine(i, { uom: e.target.value })} /></td>
                             <td className="px-2 py-1.5"><input className={cellCls} value={l.packaging ?? ''} onChange={e => setLine(i, { packaging: e.target.value })} /></td>
                             <td className="px-2 py-1.5"><input type="number" step="any" className={cellCls + ' text-right'} value={l.unit_price ?? (sellPriceOf(l.part_number) ?? '')} onChange={e => setLine(i, { unit_price: e.target.value === '' ? null : Number(e.target.value) })} placeholder="0.00" /></td>
@@ -1147,7 +1148,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                             <td className="px-1 py-1.5 text-center"><button onClick={() => removeLine(i)} className="text-gray-300 hover:text-red-500 text-base leading-none" title="Remove">×</button></td>
                           </tr>
                         ))}
-                        {lineForms.length === 0 && <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-400 text-sm">No lines. Click “＋ Add line”.</td></tr>}
+                        {lineForms.length === 0 && <tr><td colSpan={9} className="px-3 py-4 text-center text-gray-400 text-sm">No lines. Click “＋ Add line”.</td></tr>}
                       </tbody>
                       {lineForms.length > 0 && <tfoot><tr className="border-t-2 border-[#E4E6EE] bg-[#FBFCFE] font-semibold"><td className="px-2 py-2 text-right text-gray-500" colSpan={5}>Order Total</td><td className="px-2 py-2 text-right text-emerald-700">{fmt$(linesTotalOf(lineForms))}</td><td colSpan={2}></td></tr></tfoot>}
                     </table>
