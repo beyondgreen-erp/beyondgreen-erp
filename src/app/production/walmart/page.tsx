@@ -115,6 +115,7 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
   return groups
 }
 
+interface StockRow { lu: number; oh: number; res: number; erp: number }
 interface WO { id: string; wo_code: string | null; wo_number: number; status: string | null; start_date: string; due_date: string | null; notes: string | null; qty_ordered: number | null; qty_completed: number | null }
 interface Prog { work_order_id?: string; sku: string; product_name: string | null; target_qty: number; made_qty: number; left_qty: number; on_hand_qty: number | null }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
@@ -150,7 +151,8 @@ export default function WalmartProductionPage() {
   const [entries, setEntries] = useState<Entry[]>([])
   const [moves, setMoves] = useState<Move[]>([])
   const [prods, setProds] = useState<Record<string, Prod>>({})
-  const [alloc, setAlloc] = useState<Record<string, number>>({})
+  // finished-goods position from the board's own flow (see walmart_stock_status)
+  const [stock, setStock] = useState<Record<string, StockRow>>({})
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
   const [showLog, setShowLog] = useState(false)
@@ -185,7 +187,7 @@ export default function WalmartProductionPage() {
       sb.from('walmart_production_entries').select('*').gte('production_date', week).lte('production_date', addDays(week, 6))
         .order('production_date', { ascending: false }).order('created_at', { ascending: false }),
       sb.from('products').select('sku,product_name,on_hand_qty,unit_of_measure').in('sku', SKUS.map(s => s.sku)),
-      sb.from('v_fg_allocation_totals').select('sku_key,allocated_qty').in('sku_key', SKUS.map(s => s.sku)),
+      sb.rpc('walmart_stock_status'),
     ])
     if (seq !== loadSeq.current) return
     const err = woR.error || entR.error || prodR.error
@@ -197,7 +199,7 @@ export default function WalmartProductionPage() {
     const ents = (entR.data as Entry[]) || []
     setEntries(ents)
     setProds(Object.fromEntries(((prodR.data as Prod[]) || []).map(p => [p.sku, p])))
-    setAlloc(Object.fromEntries(((allocR.data as any[]) || []).map(a => [a.sku_key, num(a.allocated_qty)])))
+    setStock(Object.fromEntries(((allocR.data as any[]) || []).map(a => [String(a.sku).toUpperCase(), { lu: num(a.logged_unreleased), oh: num(a.on_hand), res: num(a.reserved), erp: num(a.erp_on_hand) }])))
     if (w) {
       const [pgR, woR2, relR2, ldR, runR] = await Promise.all([
         sb.from('v_walmart_wo_progress').select('*').eq('work_order_id', w.id),
@@ -540,30 +542,37 @@ export default function WalmartProductionPage() {
         )}
       </div>
 
-      {/* Allocation check (office) */}
+      {/* Finished-goods position (from the board's own log → release → claim → ship flow) */}
       <div className="mt-4 bg-white rounded-xl shadow-sm border border-[#ECEEF3] overflow-x-auto">
-        <p className="px-4 pt-3 font-bold text-[#1A1D2E] text-sm">Stock vs. open Walmart orders</p>
-        <table className="w-full text-sm min-w-[520px] mt-2">
+        <p className="px-4 pt-3 font-bold text-[#1A1D2E] text-sm">Walmart finished goods</p>
+        <table className="w-full text-sm min-w-[640px] mt-2">
           <thead><tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
-            <th className="text-left px-4 py-2">SKU</th><th className="text-right px-3 py-2">On hand</th><th className="text-right px-3 py-2">Allocated</th><th className="text-right px-3 py-2">Short</th><th className="text-right px-4 py-2">Left this week</th>
+            <th className="text-left px-4 py-2">SKU</th>
+            <th className="text-right px-3 py-2" title="Released by production, not yet claimed by the build team">On hand</th>
+            <th className="text-right px-3 py-2" title="Claimed by the build team, PO not shipped yet">Reserved</th>
+            <th className="text-right px-3 py-2" title="Logged by production but not released to a PO yet">Logged, not released</th>
+            <th className="text-right px-3 py-2" title="products.on_hand_qty — the inventory record, for comparison">Inventory record</th>
+            <th className="text-right px-4 py-2">Left this week</th>
           </tr></thead>
           <tbody>
             {SKUS.map(s => {
-              const oh = num(prods[s.sku]?.on_hand_qty), al = num(alloc[s.sku]), short = Math.max(al - oh, 0)
+              const st = stock[s.sku] || { lu: 0, oh: 0, res: 0, erp: 0 }
+              const gap = st.erp - (st.oh + st.res + st.lu)
               const p = progBySku[s.sku]
               return (
                 <tr key={s.sku} className="border-b border-[#F4F5F8]">
                   <td className="px-4 py-2"><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: s.color }} />{s.short} <span className="font-mono text-[10px] text-gray-400">{s.sku}</span></td>
-                  <td className="px-3 py-2 text-right">{fmtN(oh)}</td>
-                  <td className="px-3 py-2 text-right">{fmtN(al)}</td>
-                  <td className={`px-3 py-2 text-right font-semibold ${short > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{short > 0 ? fmtN(short) : '✓'}</td>
+                  <td className="px-3 py-2 text-right font-bold text-[#1A1D2E]">{fmtN(st.oh)}</td>
+                  <td className="px-3 py-2 text-right text-[#7e3af2] font-semibold">{fmtN(st.res)}</td>
+                  <td className="px-3 py-2 text-right text-gray-600">{fmtN(st.lu)}</td>
+                  <td className="px-3 py-2 text-right text-gray-400">{fmtN(st.erp)}{Math.abs(gap) >= 1 ? <span className={`ml-1 text-[10px] font-semibold ${gap > 0 ? 'text-amber-600' : 'text-red-600'}`}>({gap > 0 ? '+' : ''}{fmtN(gap)})</span> : null}</td>
                   <td className="px-4 py-2 text-right">{p ? fmtN(p.left_qty) : '—'}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-        <p className="px-4 py-2 text-[11px] text-gray-400">SRP = 1 case of 6 packs. Allocated = open Walmart order lines not yet shipped.</p>
+        <p className="px-4 py-2 text-[11px] text-gray-400">SRP = 1 case of 6 packs. <b>On hand</b> = released by production and not yet claimed. <b>Reserved</b> = claimed by the build team, waiting to ship (comes off when the PO ships). <b>Inventory record</b> is the ERP on-hand for comparison — the bracket shows how far it is from what the board can account for.</p>
       </div>
 
       </>}
@@ -572,7 +581,7 @@ export default function WalmartProductionPage() {
       {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); reload() }} />}
       {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} wos={wos} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); reload(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
-      {showWo && <WoModal sb={sb} wo={woNew ? null : wo} existing={wos.length} week={week} prods={prods} alloc={alloc} prog={woNew ? [] : prog} onClose={() => setShowWo(false)}
+      {showWo && <WoModal sb={sb} wo={woNew ? null : wo} existing={wos.length} week={week} prods={prods} stock={stock} prog={woNew ? [] : prog} onClose={() => setShowWo(false)}
         onSaved={(msg, id) => { setFlash(msg); setShowWo(false); if (id) { woSelRef.current = id; setWoSel(id) } reload() }} />}
       {detail && <EntryDetail sb={sb} entry={detail} wo={wo} moves={moves.filter(m => m.ref_id === detail.id)} itemName={itemName} me={me}
         canEdit={canEdit} isAdmin={perms.is_admin} onClose={() => setDetail(null)} onChanged={(msg) => { setFlash(msg); setDetail(null); reload() }} />}
@@ -804,8 +813,8 @@ function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku
 }
 
 /* ───────────────── Weekly work order: targets from Thursday's Walmart orders ───────────────── */
-function WoModal({ sb, wo, existing = 0, week, prods, alloc, prog, onClose, onSaved }: {
-  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; existing?: number; week: string; prods: Record<string, Prod>; alloc: Record<string, number>; prog: Prog[]
+function WoModal({ sb, wo, existing = 0, week, prods, stock, prog, onClose, onSaved }: {
+  sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; existing?: number; week: string; prods: Record<string, Prod>; stock: Record<string, StockRow>; prog: Prog[]
   onClose: () => void; onSaved: (msg: string, id?: string) => void
 }) {
   const [orders, setOrders] = useState<any[]>([])
@@ -906,15 +915,15 @@ function WoModal({ sb, wo, existing = 0, week, prods, alloc, prog, onClose, onSa
             <div className="overflow-x-auto rounded-xl border border-[#ECEEF3]">
               <table className="w-full text-sm min-w-[560px]">
                 <thead><tr className="text-[11px] uppercase text-gray-400 bg-[#FBFCFE]">
-                  <th className="text-left px-3 py-2">SKU</th><th className="text-right px-2 py-2">From orders</th><th className="text-right px-2 py-2">On hand</th><th className="text-right px-2 py-2">All open alloc.</th><th className="text-right px-3 py-2 w-28">Target</th>
+                  <th className="text-left px-3 py-2">SKU</th><th className="text-right px-2 py-2">From orders</th><th className="text-right px-2 py-2" title="Released, not claimed">On hand</th><th className="text-right px-2 py-2" title="Claimed by the build team, not shipped">Reserved</th><th className="text-right px-3 py-2 w-28">Target</th>
                 </tr></thead>
                 <tbody>
                   {SKUS.map(s => (
                     <tr key={s.sku} className="border-t border-[#F0F2F6]">
                       <td className="px-3 py-1.5"><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: s.color }} />{s.short} <span className="font-mono text-[10px] text-gray-400">{s.sku}</span></td>
                       <td className="px-2 py-1.5 text-right">{fmtN(fromOrders[s.sku] || 0)}</td>
-                      <td className="px-2 py-1.5 text-right text-gray-500">{fmtN(prods[s.sku]?.on_hand_qty)}</td>
-                      <td className="px-2 py-1.5 text-right text-gray-500">{fmtN(alloc[s.sku])}</td>
+                      <td className="px-2 py-1.5 text-right text-gray-500">{fmtN(stock[s.sku]?.oh || 0)}</td>
+                      <td className="px-2 py-1.5 text-right text-gray-500">{fmtN(stock[s.sku]?.res || 0)}</td>
                       <td className="px-3 py-1.5 text-right">
                         <input inputMode="numeric" value={val(s.sku)} onChange={e => { const v = e.target.value.replace(/[^\d]/g, ''); setTouched(t => new Set(t).add(s.sku)); setTargets(x => ({ ...x, [s.sku]: v })) }}
                           className="w-24 h-9 rounded-lg border border-[#E4E6EE] text-right px-2 font-semibold" />
