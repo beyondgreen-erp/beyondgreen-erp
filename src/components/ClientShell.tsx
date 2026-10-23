@@ -12,6 +12,7 @@ import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import AuthWatcher from './AuthWatcher'
+import UpdateWatcher from './UpdateWatcher'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -125,6 +126,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     return (
       <ToastProvider>
         <AuthWatcher />
+        <UpdateWatcher />
         <div className="min-h-screen flex flex-col" style={{ background: '#F5F6FA' }}>
           <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-white border-b border-[#E3E7EE]">
             <div className="flex items-center gap-2"><span className="w-8 h-8 rounded-lg inline-flex items-center justify-center text-white font-bold" style={{ background: '#0F7A4E' }}>bG</span><span className="font-bold text-[#1A1D2E]">beyondGREEN ERP</span></div>
@@ -146,6 +148,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   return (
     <ToastProvider>
       <AuthWatcher />
+      <UpdateWatcher />
       <InstallPrompt />
       <div className="flex h-screen" style={{ background: '#F5F6FA' }}>
         {/* Top-nav-only layout (sidebar removed) */}
