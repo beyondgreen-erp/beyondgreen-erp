@@ -28,10 +28,14 @@ const STYLE: Record<string, { bg: string; fg: string; icon: string }> = {
 // ── tiny job queue so a folder of 70 files doesn't fire 70 renders at once
 let active = 0
 const queue: (() => void)[] = []
-function enqueue<T>(fn: () => Promise<T>): Promise<T> {
-  return new Promise((res, rej) => { queue.push(() => { active++; fn().then(res, rej).finally(() => { active--; pump() }) }); pump() })
+const JOB_TIMEOUT = 60000
+function withTimeout<T>(p: Promise<T>): Promise<T> {
+  return new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('preview timed out')), JOB_TIMEOUT); p.then(v => { clearTimeout(t); res(v) }, e => { clearTimeout(t); rej(e) }) })
 }
-function pump() { while (active < 2 && queue.length) queue.shift()!() }
+function enqueue<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise((res, rej) => { queue.push(() => { active++; withTimeout(fn()).then(res, rej).finally(() => { active--; pump() }) }); pump() })
+}
+function pump() { while (active < 3 && queue.length) queue.shift()!() }
 const inflight = new Map<string, Promise<string | null>>()
 const failed = new Set<string>()
 
