@@ -35,6 +35,17 @@ const PRIORITY_DOT: Record<string, string> = {
 
 const inputCls = 'w-full bg-white border border-[#E4E6EE] rounded-xl px-3 py-2 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none focus:border-[#3B6FE0] transition-all'
 
+// One row per email conversation instead of one per person on it, tagged by who
+// the conversation is with. v_reminder_threads does the grouping server side so
+// the Command Center and the digest can use the same buckets.
+interface Thread {
+  thread_key: string; category: string; subject: string | null; sample_title: string
+  people: string[] | null; emails: string[] | null; reminder_count: number
+  next_due: string | null; overdue: boolean | null; reminder_ids: string[]
+  top_priority_rank: number | null; latest_note: string | null
+}
+const CATEGORY_ORDER = ['Customers', 'Business development', 'Suppliers', 'Internal', 'Other', 'Tasks and deadlines']
+
 export default function RemindersWidget() {
   const supabase = createSupabaseBrowserClient()
   const [reminders, setReminders] = useState<Reminder[]>([])
@@ -46,6 +57,7 @@ export default function RemindersWidget() {
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState<Reminder | null>(null)
+  const [threads, setThreads] = useState<Thread[]>([])
   const [form, setForm] = useState({
     title: '', notes: '', due_date: '', due_time: '',
     priority: 'medium', reminder_type: 'personal', color: '#1D9E75',
@@ -78,6 +90,11 @@ export default function RemindersWidget() {
     }
 
     setReminders(data || [])
+    const { data: td } = await supabase.from('v_reminder_threads').select('*').eq('user_email', email)
+    setThreads(((td || []) as Thread[]).sort((x, y) =>
+      Number(!!y.overdue) - Number(!!x.overdue)
+      || (x.next_due || '9999').localeCompare(y.next_due || '9999')
+      || (x.top_priority_rank || 9) - (y.top_priority_rank || 9)))
     setLoading(false)
   }, [supabase])
 
@@ -152,6 +169,11 @@ export default function RemindersWidget() {
     await fetchReminders(userEmail)
   }
 
+  async function completeThread(ids: string[]) {
+    if (!ids?.length) return
+    await supabase.from('user_reminders').update({ is_completed: true, completed_at: new Date().toISOString() }).in('id', ids)
+    if (userEmail) fetchReminders(userEmail)
+  }
   async function completeReminder(id: string) {
     await supabase.from('user_reminders').update({ is_completed: true, completed_at: new Date().toISOString() }).eq('id', id)
     setReminders(prev => prev.filter(r => r.id !== id))
@@ -290,21 +312,18 @@ export default function RemindersWidget() {
           </div>
         )}
 
-        {overdue.map(r => <ReminderRow key={r.id} reminder={r} isOverdue onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} onOpen={setDetail} />)}
-
-        {dueToday.length > 0 && (
-          <div className="px-4 py-1.5 bg-amber-500/5">
-            <p className="text-xs text-amber-400 font-medium uppercase tracking-wide">Due Today</p>
-          </div>
-        )}
-        {dueToday.map(r => <ReminderRow key={r.id} reminder={r} isToday onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} onOpen={setDetail} />)}
-
-        {upcoming.length > 0 && dueToday.length > 0 && (
-          <div className="px-4 py-1.5 bg-[#F5F6FA]">
-            <p className="text-xs text-[#9CA3AF] font-medium uppercase tracking-wide">Upcoming</p>
-          </div>
-        )}
-        {upcoming.map(r => <ReminderRow key={r.id} reminder={r} onComplete={completeReminder} onDelete={deleteReminder} typeIcons={TYPE_ICONS} priorityDot={PRIORITY_DOT} onOpen={setDetail} />)}
+            {CATEGORY_ORDER.filter((cat) => threads.some((t) => t.category === cat)).map((cat) => {
+              const rows = threads.filter((t) => t.category === cat)
+              return (
+                <div key={cat}>
+                  <div className="px-4 py-1.5 bg-[#F5F6FA] flex items-center justify-between sticky top-0">
+                    <p className="text-xs text-[#5A5A6A] font-semibold uppercase tracking-wide">{cat}</p>
+                    <span className="text-[10px] text-[#9CA3AF]">{rows.length}</span>
+                  </div>
+                  {rows.map((t) => <ThreadRow key={t.thread_key} t={t} onComplete={completeThread} />)}
+                </div>
+              )
+            })}
       </div>
     </div>
     {detail && (
@@ -385,6 +404,33 @@ function ReminderRow({ reminder: r, isOverdue, isToday, typeIcons, priorityDot, 
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
       </button>
+    </div>
+  )
+}
+
+function ThreadRow({ t, onComplete }: { t: Thread; onComplete: (ids: string[]) => void }) {
+  // Titles sometimes carry a raw address where no display name was known.
+  const people = (t.people || []).map((x) => (x.includes('@') ? x.split('@')[0] : x))
+  const due = t.next_due ? new Date(t.next_due + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+  return (
+    <div className="px-4 py-2.5 border-b border-[#F0F1F5] hover:bg-[#FAFBFC] flex items-start gap-3">
+      <button
+        onClick={() => onComplete(t.reminder_ids)}
+        title={t.reminder_count > 1 ? 'Mark this whole conversation done' : 'Mark done'}
+        className="mt-1 w-4 h-4 rounded-full border-2 border-[#D1D5DB] hover:border-[#1D9E75] shrink-0"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-[#1A1D2E] truncate">{t.subject || t.sample_title}</p>
+        <p className="text-[11px] text-[#9CA3AF] truncate">
+          {people.join(', ') || 'No contact on file'}
+          {t.reminder_count > 1 && (
+            <span className="ml-1 text-[#D0803E] font-semibold">· {t.reminder_count} reminders on this thread</span>
+          )}
+        </p>
+      </div>
+      {due && (
+        <span className={'text-[11px] shrink-0 mt-0.5 ' + (t.overdue ? 'text-red-500 font-semibold' : 'text-[#9CA3AF]')}>{due}</span>
+      )}
     </div>
   )
 }
