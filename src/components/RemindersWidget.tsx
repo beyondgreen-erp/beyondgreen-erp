@@ -45,6 +45,14 @@ interface Thread {
   top_priority_rank: number | null; latest_note: string | null
 }
 const CATEGORY_ORDER = ['Customers', 'Business development', 'Suppliers', 'Internal', 'Other', 'Tasks and deadlines']
+const CAT_COLOR: Record<string, string> = {
+  'Customers': '#0073EA',
+  'Business development': '#A25DDC',
+  'Suppliers': '#FF9900',
+  'Internal': '#00C875',
+  'Other': '#9CA3AF',
+  'Tasks and deadlines': '#E2445C',
+}
 
 export default function RemindersWidget() {
   const supabase = createSupabaseBrowserClient()
@@ -59,8 +67,10 @@ export default function RemindersWidget() {
   const [detail, setDetail] = useState<Reminder | null>(null)
   const [threads, setThreads] = useState<Thread[]>([])
   const [view, setView] = useState<'overdue' | 'today' | 'all' | null>(null)
-  const [openCats, setOpenCats] = useState<Record<string, boolean>>({})
-  const [showAll, setShowAll] = useState<Record<string, boolean>>({})
+  const [folder, setFolder] = useState<string | null>(null)
+  const [openThread, setOpenThread] = useState<Thread | null>(null)
+  const [threadItems, setThreadItems] = useState<Reminder[]>([])
+  const [threadLoading, setThreadLoading] = useState(false)
   const [form, setForm] = useState({
     title: '', notes: '', due_date: '', due_time: '',
     priority: 'medium', reminder_type: 'personal', color: '#1D9E75',
@@ -177,6 +187,17 @@ export default function RemindersWidget() {
     await supabase.from('user_reminders').update({ is_completed: true, completed_at: new Date().toISOString() }).in('id', ids)
     if (userEmail) fetchReminders(userEmail)
   }
+  async function openThreadDetail(t: Thread) {
+    setOpenThread(t)
+    setThreadItems([])
+    setThreadLoading(true)
+    const { data } = await supabase.from('user_reminders').select('*').in('id', t.reminder_ids || [])
+    const got = ((data || []) as Reminder[]).slice()
+    got.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'))
+    setThreadItems(got)
+    setThreadLoading(false)
+  }
+
   async function completeReminder(id: string) {
     await supabase.from('user_reminders').update({ is_completed: true, completed_at: new Date().toISOString() }).eq('id', id)
     setReminders(prev => prev.filter(r => r.id !== id))
@@ -329,10 +350,12 @@ export default function RemindersWidget() {
               : threads
           const cats = CATEGORY_ORDER.filter((cat) => pool.some((t) => t.category === cat))
           const chip = (k: 'overdue' | 'today' | 'all', label: string, n: number) => (
-            <button key={k} onClick={() => setView(k)} className={'px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ' + (effView === k ? 'bg-[#1A1D2E] text-white border-[#1A1D2E]' : 'bg-white text-[#5A5A6A] border-[#E4E6EE] hover:bg-[#F5F6FA]')}>
+            <button key={k} onClick={() => { setView(k); setFolder(null) }} className={'px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ' + (effView === k ? 'bg-[#1A1D2E] text-white border-[#1A1D2E]' : 'bg-white text-[#5A5A6A] border-[#E4E6EE] hover:bg-[#F5F6FA]')}>
               {label} {n}
             </button>
           )
+          const open = folder && cats.indexOf(folder) >= 0 ? folder : null
+          const items = open ? pool.filter((t) => t.category === open) : []
           return (
             <div>
               <div className="px-4 py-2 flex items-center gap-2 border-b border-[#E4E6EE] bg-white sticky top-0 z-10">
@@ -343,35 +366,115 @@ export default function RemindersWidget() {
               {pool.length === 0 && (
                 <div className="p-6 text-center text-sm text-[#9CA3AF]">Nothing here right now. Tap All to see the rest.</div>
               )}
-              {cats.map((cat) => {
-                const rows = pool.filter((t) => t.category === cat)
-                const late = rows.filter((t) => t.overdue).length
-                const isOpen = cat in openCats ? openCats[cat] : rows.length <= 5
-                const shown = showAll[cat] ? rows : rows.slice(0, 6)
-                return (
-                  <div key={cat}>
-                    <button onClick={() => setOpenCats({ ...openCats, [cat]: !isOpen })} className="w-full px-4 py-2 bg-[#F5F6FA] flex items-center justify-between hover:bg-[#EEF0F6] border-b border-[#E4E6EE]">
-                      <span className="flex items-center gap-2">
-                        <span className="text-[#9CA3AF] text-[10px]">{isOpen ? '▾' : '▸'}</span>
-                        <span className="text-xs text-[#5A5A6A] font-semibold uppercase tracking-wide">{cat}</span>
-                        {late > 0 && <span className="text-[10px] font-semibold text-red-500">{late} late</span>}
-                      </span>
-                      <span className="text-[10px] text-[#5A5A6A] bg-white border border-[#E4E6EE] rounded-full px-1.5 py-0.5">{rows.length}</span>
-                    </button>
-                    {isOpen && shown.map((t) => <ThreadRow key={t.thread_key} t={t} onComplete={completeThread} />)}
-                    {isOpen && rows.length > shown.length && (
-                      <button onClick={() => setShowAll({ ...showAll, [cat]: true })} className="w-full px-4 py-1.5 text-xs text-[#8D8DE0] font-semibold hover:bg-[#FAFBFC] border-b border-[#F0F1F5] text-left">
-                        Show the other {rows.length - shown.length}
+              {!open && pool.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 p-3">
+                  {cats.map((cat) => {
+                    const rows = pool.filter((t) => t.category === cat)
+                    const late = rows.filter((t) => t.overdue).length
+                    return (
+                      <button key={cat} onClick={() => setFolder(cat)} className="rounded-xl border border-[#E4E6EE] bg-white hover:bg-[#F5F6FA] hover:border-[#C9CEDB] p-3 text-left transition-colors">
+                        <div className="flex items-start justify-between">
+                          <svg viewBox="0 0 24 24" fill={CAT_COLOR[cat] || '#9CA3AF'} className="w-8 h-8">
+                            <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+                          </svg>
+                          <span className="text-[11px] font-bold text-[#1A1D2E] bg-[#F1F2F6] rounded-full px-1.5 py-0.5">{rows.length}</span>
+                        </div>
+                        <p className="mt-2 text-xs font-semibold text-[#1A1D2E] leading-tight">{cat}</p>
+                        {late > 0 && <p className="text-[11px] text-red-500 font-semibold mt-0.5">{late} late</p>}
                       </button>
-                    )}
+                    )
+                  })}
+                </div>
+              )}
+              {open && (
+                <div>
+                  <div className="px-3 py-2 flex items-center gap-2 border-b border-[#E4E6EE] bg-[#FAFBFC] sticky top-[41px] z-10">
+                    <button onClick={() => setFolder(null)} className="text-xs font-semibold text-[#5A5A6A] hover:text-[#1A1D2E]">&larr; Folders</button>
+                    <span className="w-2 h-2 rounded-full" style={{ background: CAT_COLOR[open] || '#9CA3AF' }} />
+                    <span className="text-xs font-semibold text-[#1A1D2E]">{open}</span>
+                    <span className="text-[11px] text-[#9CA3AF]">{items.length}</span>
                   </div>
-                )
-              })}
+                  <div className="grid grid-cols-2 gap-2 p-3">
+                    {items.map((t) => (
+                      <button key={t.thread_key} onClick={() => openThreadDetail(t)} className="rounded-xl border border-[#E4E6EE] bg-white hover:bg-[#F5F6FA] hover:border-[#C9CEDB] p-2.5 text-left transition-colors">
+                        <div className="flex items-start justify-between">
+                          <span className="rounded-lg p-1.5 text-white inline-flex" style={{ background: CAT_COLOR[open] || '#9CA3AF' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="w-4 h-4">
+                              <rect x="2.5" y="5" width="19" height="14" rx="2" />
+                              <path d="M3 7l9 6 9-6" />
+                            </svg>
+                          </span>
+                          {t.reminder_count > 1 && <span className="text-[10px] font-bold text-[#5A5A6A] bg-[#F1F2F6] rounded-full px-1.5 py-0.5">{t.reminder_count}</span>}
+                        </div>
+                        <p className="mt-1.5 text-[11px] font-semibold text-[#1A1D2E] leading-snug h-7 overflow-hidden">{t.subject || t.sample_title}</p>
+                        <p className="text-[10px] text-[#9CA3AF] truncate">{(t.people && t.people[0]) || ''}</p>
+                        {t.next_due && (
+                          <p className={'text-[10px] mt-0.5 ' + (t.overdue ? 'text-red-500 font-semibold' : 'text-[#5A5A6A]')}>
+                            {new Date(t.next_due + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )
         })()}
       </div>
     </div>
+    {openThread && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} onClick={() => setOpenThread(null)}>
+        <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="px-5 py-4 border-b border-[#E4E6EE]">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: CAT_COLOR[openThread.category] || '#9CA3AF' }}>{openThread.category}</p>
+                <h3 className="text-[#1A1D2E] font-semibold text-base leading-snug break-words">{openThread.subject || openThread.sample_title}</h3>
+              </div>
+              <button onClick={() => setOpenThread(null)} className="text-[#9CA3AF] hover:text-[#1A1D2E] text-2xl leading-none shrink-0">&times;</button>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2 text-xs">
+              <span className="px-2 py-0.5 rounded-full bg-[#F1F2F6] text-[#5A5A6A]">{openThread.reminder_count} on this thread</span>
+              {openThread.next_due && (
+                <span className={'px-2 py-0.5 rounded-full ' + (openThread.overdue ? 'bg-red-50 text-red-600 font-semibold' : 'bg-[#F1F2F6] text-[#5A5A6A]')}>
+                  {openThread.overdue ? 'Late since ' : 'Due '}
+                  {new Date(openThread.next_due + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              )}
+              {(openThread.people || []).slice(0, 3).map((who) => (
+                <span key={who} className="px-2 py-0.5 rounded-full bg-[#F1F2F6] text-[#5A5A6A]">{who}</span>
+              ))}
+            </div>
+            {(openThread.emails || []).length > 0 && (
+              <p className="text-[11px] text-[#9CA3AF] mt-1 break-all">{(openThread.emails || []).join(', ')}</p>
+            )}
+          </div>
+          <div className="max-h-[50vh] overflow-y-auto divide-y divide-[#F0F1F5]">
+            {threadLoading && <p className="p-5 text-sm text-[#9CA3AF]">Loading the conversation...</p>}
+            {!threadLoading && threadItems.length === 0 && <p className="p-5 text-sm text-[#9CA3AF]">Nothing left open on this thread.</p>}
+            {threadItems.map((r) => (
+              <div key={r.id} className="px-5 py-3">
+                <div className="flex items-start gap-2">
+                  <span className={'w-2 h-2 rounded-full mt-1.5 shrink-0 ' + (PRIORITY_DOT[r.priority] || 'bg-[#D0D3E0]')} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-[#1A1D2E] font-medium break-words">{r.title}</p>
+                    {r.due_date && <p className="text-xs text-[#9CA3AF] mt-0.5">Due {new Date(r.due_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
+                    {r.notes && <p className="text-xs text-[#5A5A6A] mt-1 whitespace-pre-wrap break-words">{r.notes.length > 400 ? r.notes.slice(0, 400) + '...' : r.notes}</p>}
+                  </div>
+                  <button onClick={async () => { await completeThread([r.id]); setThreadItems((prev) => prev.filter((x) => x.id !== r.id)) }} className="text-xs font-semibold text-[#00C896] hover:text-[#00B085] shrink-0">Done</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="px-5 py-3 border-t border-[#E4E6EE] flex items-center justify-between gap-2">
+            <button onClick={() => setOpenThread(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-[#5A5A6A] hover:bg-[#F5F6FA]">Close</button>
+            <button onClick={async () => { await completeThread(openThread.reminder_ids); setOpenThread(null) }} className="text-sm px-4 py-2 rounded-lg bg-[#00C896] hover:bg-[#00B085] text-white font-semibold">Mark this whole conversation done</button>
+          </div>
+        </div>
+      </div>
+    )}
+
     {detail && (
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.5)' }} >
         <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
