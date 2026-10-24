@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import TagInput, { TagInputHandle } from '@/components/TagInput'
 import ImportExportBar from '@/components/ImportExportBar'
 import FileUpload from '@/components/FileUpload'
+import LinkedDocuments from '@/components/LinkedDocuments'
 import Comments from '@/components/Comments'
 import LinkedTasks from '@/components/LinkedTasks'
 import ItemHistory from '@/components/ItemHistory'
@@ -158,6 +159,7 @@ export default function CertificationsPage() {
           <TagInput ref={tagRef} value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} page="Certifications" recordType="certification" recordId={editing?.id} className={inp+' resize-none'}/>
           {editing&&(<>
             <div className="border-t border-[#E4E6EE] pt-4"><LinkedTasks recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
+            <div className="border-t border-[#E4E6EE] pt-4"><LinkedDocuments sb={sb} kind="certification" recordId={editing.id} recordName={editing.cert_name||'Certification'} userEmail={userEmail}/></div>
             <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={sb} recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/></div>
             <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="certifications" recordId={editing.id} currentUserEmail={userEmail}/>
             <ItemHistory recordId={editing.id} recordType="certifications" /></div>
