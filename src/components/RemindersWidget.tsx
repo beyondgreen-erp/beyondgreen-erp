@@ -367,7 +367,7 @@ export default function RemindersWidget() {
                 <div className="p-6 text-center text-sm text-[#9CA3AF]">Nothing here right now. Tap All to see the rest.</div>
               )}
               {!open && pool.length > 0 && (
-                <div className="grid grid-cols-2 gap-2 p-3">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 p-3">
                   {cats.map((cat) => {
                     const rows = pool.filter((t) => t.category === cat)
                     const late = rows.filter((t) => t.overdue).length
@@ -394,7 +394,7 @@ export default function RemindersWidget() {
                     <span className="text-xs font-semibold text-[#1A1D2E]">{open}</span>
                     <span className="text-[11px] text-[#9CA3AF]">{items.length}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 p-3">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 p-3">
                     {items.map((t) => (
                       <button key={t.thread_key} onClick={() => openThreadDetail(t)} className="rounded-xl border border-[#E4E6EE] bg-white hover:bg-[#F5F6FA] hover:border-[#C9CEDB] p-2.5 text-left transition-colors">
                         <div className="flex items-start justify-between">
