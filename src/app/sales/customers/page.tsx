@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import FileUpload from '@/components/FileUpload'
+import LinkedDocuments from '@/components/LinkedDocuments'
 import Comments from '@/components/Comments'
 import RichTextEditor from '@/components/RichTextEditor'
 import LinkedTasks from '@/components/LinkedTasks'
@@ -1573,6 +1574,7 @@ export default function CustomersPage() {
           {activeTab==='files'&&editing&&(
             <div className="px-6 py-5 space-y-5">
               <LinkedTasks recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/>
+              <div className="border-t border-[#E4E6EE] pt-4"><LinkedDocuments sb={supabase} kind="customer" recordId={editing.id} recordName={editing.company_name} userEmail={userEmail}/></div>
               <div className="border-t border-[#E4E6EE] pt-4"><FileUpload supabase={supabase} recordType="customers" recordId={editing.id} currentUserEmail={userEmail}/></div>
               <div className="border-t border-[#E4E6EE] pt-4"><Comments recordType="customer" recordId={editing.id} currentUserEmail={userEmail}/>
               <ItemHistory recordId={editing.id} recordType="customer" /></div>
