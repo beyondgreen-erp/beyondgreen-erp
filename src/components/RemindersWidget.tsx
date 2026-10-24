@@ -58,6 +58,9 @@ export default function RemindersWidget() {
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState<Reminder | null>(null)
   const [threads, setThreads] = useState<Thread[]>([])
+  const [view, setView] = useState<'overdue' | 'today' | 'all' | null>(null)
+  const [openCats, setOpenCats] = useState<Record<string, boolean>>({})
+  const [showAll, setShowAll] = useState<Record<string, boolean>>({})
   const [form, setForm] = useState({
     title: '', notes: '', due_date: '', due_time: '',
     priority: 'medium', reminder_type: 'personal', color: '#1D9E75',
@@ -312,18 +315,61 @@ export default function RemindersWidget() {
           </div>
         )}
 
-            {CATEGORY_ORDER.filter((cat) => threads.some((t) => t.category === cat)).map((cat) => {
-              const rows = threads.filter((t) => t.category === cat)
-              return (
-                <div key={cat}>
-                  <div className="px-4 py-1.5 bg-[#F5F6FA] flex items-center justify-between sticky top-0">
-                    <p className="text-xs text-[#5A5A6A] font-semibold uppercase tracking-wide">{cat}</p>
-                    <span className="text-[10px] text-[#9CA3AF]">{rows.length}</span>
+        {!loading && threads.length > 0 && (() => {
+          const d0 = new Date()
+          const todayStr = new Date(d0.getTime() - d0.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+          const isToday = (t: Thread) => !!t.next_due && t.next_due.slice(0, 10) === todayStr
+          const lateCount = threads.filter((t) => t.overdue).length
+          const todayCount = threads.filter((t) => !t.overdue && isToday(t)).length
+          const effView = view || (lateCount > 0 ? 'overdue' : todayCount > 0 ? 'today' : 'all')
+          const pool = effView === 'overdue'
+            ? threads.filter((t) => t.overdue)
+            : effView === 'today'
+              ? threads.filter((t) => t.overdue || isToday(t))
+              : threads
+          const cats = CATEGORY_ORDER.filter((cat) => pool.some((t) => t.category === cat))
+          const chip = (k: 'overdue' | 'today' | 'all', label: string, n: number) => (
+            <button key={k} onClick={() => setView(k)} className={'px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ' + (effView === k ? 'bg-[#1A1D2E] text-white border-[#1A1D2E]' : 'bg-white text-[#5A5A6A] border-[#E4E6EE] hover:bg-[#F5F6FA]')}>
+              {label} {n}
+            </button>
+          )
+          return (
+            <div>
+              <div className="px-4 py-2 flex items-center gap-2 border-b border-[#E4E6EE] bg-white sticky top-0 z-10">
+                {chip('overdue', 'Late', lateCount)}
+                {chip('today', 'Today', lateCount + todayCount)}
+                {chip('all', 'All', threads.length)}
+              </div>
+              {pool.length === 0 && (
+                <div className="p-6 text-center text-sm text-[#9CA3AF]">Nothing here right now. Tap All to see the rest.</div>
+              )}
+              {cats.map((cat) => {
+                const rows = pool.filter((t) => t.category === cat)
+                const late = rows.filter((t) => t.overdue).length
+                const isOpen = cat in openCats ? openCats[cat] : pool.length <= 12
+                const shown = showAll[cat] ? rows : rows.slice(0, 6)
+                return (
+                  <div key={cat}>
+                    <button onClick={() => setOpenCats({ ...openCats, [cat]: !isOpen })} className="w-full px-4 py-2 bg-[#F5F6FA] flex items-center justify-between hover:bg-[#EEF0F6] border-b border-[#E4E6EE]">
+                      <span className="flex items-center gap-2">
+                        <span className="text-[#9CA3AF] text-[10px]">{isOpen ? '▾' : '▸'}</span>
+                        <span className="text-xs text-[#5A5A6A] font-semibold uppercase tracking-wide">{cat}</span>
+                        {late > 0 && <span className="text-[10px] font-semibold text-red-500">{late} late</span>}
+                      </span>
+                      <span className="text-[10px] text-[#5A5A6A] bg-white border border-[#E4E6EE] rounded-full px-1.5 py-0.5">{rows.length}</span>
+                    </button>
+                    {isOpen && shown.map((t) => <ThreadRow key={t.thread_key} t={t} onComplete={completeThread} />)}
+                    {isOpen && rows.length > shown.length && (
+                      <button onClick={() => setShowAll({ ...showAll, [cat]: true })} className="w-full px-4 py-1.5 text-xs text-[#8D8DE0] font-semibold hover:bg-[#FAFBFC] border-b border-[#F0F1F5] text-left">
+                        Show the other {rows.length - shown.length}
+                      </button>
+                    )}
                   </div>
-                  {rows.map((t) => <ThreadRow key={t.thread_key} t={t} onComplete={completeThread} />)}
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
+          )
+        })()}
       </div>
     </div>
     {detail && (
@@ -413,7 +459,7 @@ function ThreadRow({ t, onComplete }: { t: Thread; onComplete: (ids: string[]) =
   const people = (t.people || []).map((x) => (x.includes('@') ? x.split('@')[0] : x))
   const due = t.next_due ? new Date(t.next_due + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
   return (
-    <div className="px-4 py-2.5 border-b border-[#F0F1F5] hover:bg-[#FAFBFC] flex items-start gap-3">
+    <div className="px-4 py-2 border-b border-[#F0F1F5] hover:bg-[#FAFBFC] flex items-start gap-2.5">
       <button
         onClick={() => onComplete(t.reminder_ids)}
         title={t.reminder_count > 1 ? 'Mark this whole conversation done' : 'Mark done'}
