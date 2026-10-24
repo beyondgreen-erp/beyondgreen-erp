@@ -22,6 +22,7 @@ import KnowledgeCenter from '@/components/KnowledgeCenter'
 import DocAI from '@/components/DocAI'
 import ItemHistory from '@/components/ItemHistory'
 import DocUploadDialog from '@/components/DocUploadDialog'
+import DocThumb, { loadThumbs } from '@/components/DocThumb'
 import { Folder, autoFolderPath, ensureFolder, folderLabel, folderOptions, folderPath, linkKindFor } from '@/lib/docRepo'
 
 interface Opt { id: string; company_name?: string; cert_name?: string | null; order_number?: string | null }
@@ -56,6 +57,9 @@ export default function DocumentsPage() {
   const [linkFilter, setLinkFilter] = useState<{ kind: 'customer' | 'certification'; id: string } | null>(null)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [view, setView] = useState<'board' | 'history'>('board')
+  const [layout, setLayoutState] = useState<'grid' | 'list'>('grid')
+  const [thumbs, setThumbs] = useState<Record<string, { src: string; url: string }>>({})
+  function setLayout(l: 'grid' | 'list') { setLayoutState(l); try { localStorage.setItem('docs.layout', l) } catch { /* ignore */ } }
   // dialogs
   const [upload, setUpload] = useState<File[] | null>(null)
   const [folderDlg, setFolderDlg] = useState<{ mode: 'new' | 'rename'; parentId: string | null; id?: string; name: string } | null>(null)
@@ -95,8 +99,10 @@ export default function DocumentsPage() {
     const fm: Record<string, { path: string; name: string }> = {}
     for (const a of (atts as any[]) || []) if (!fm[a.record_id]) fm[a.record_id] = { path: a.storage_path, name: a.file_name }
     setFileMap(fm); setLoading(false)
+    loadThumbs(sb).then(setThumbs).catch(() => {})
   }
   useEffect(() => {
+    try { const l = localStorage.getItem('docs.layout'); if (l === 'list' || l === 'grid') setLayoutState(l) } catch { /* ignore */ }
     load()
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
     const q = new URLSearchParams(window.location.search)
@@ -360,6 +366,10 @@ export default function DocumentsPage() {
                   {!curFolder.system_key && <button onClick={() => deleteFolder(curFolder)} className="text-xs px-2 py-1 rounded-md border border-[#E4E6EE] text-gray-400 hover:text-red-600 hover:border-red-300"><i className="ti ti-trash" /></button>}
                 </div>}
                 <div className="relative w-full sm:w-64"><i className="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" /><input placeholder="Search every folder…" value={search} onChange={e => setSearch(e.target.value)} className={inp + ' pl-9 py-2'} /></div>
+                <div className="flex items-center rounded-lg border border-[#E4E6EE] p-0.5">
+                  <button onClick={() => setLayout('grid')} title="Thumbnails" className={`px-2 py-1 rounded-md text-sm ${layout === 'grid' ? 'bg-violet-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}><i className="ti ti-layout-grid" /></button>
+                  <button onClick={() => setLayout('list')} title="List" className={`px-2 py-1 rounded-md text-sm ${layout === 'list' ? 'bg-violet-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}><i className="ti ti-list" /></button>
+                </div>
                 <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />Archived</label>
               </div>
 
@@ -383,6 +393,39 @@ export default function DocumentsPage() {
                 {listRows.length === 0 ? (
                   <div className="py-14 text-center text-sm text-gray-400">
                     {q ? 'No documents match.' : linkFilter ? 'Nothing linked yet.' : cur === ALL ? `Open a folder, or search across all ${visible.length} documents.` : subFolders.length ? 'No documents directly in this folder — open a sub-folder above.' : 'This folder is empty. Drop files here or click Upload.'}
+                  </div>
+                ) : layout === 'grid' ? (
+                  <div className="p-4">
+                    <label className="inline-flex items-center gap-2 text-[11px] text-gray-400 mb-3 cursor-pointer"><input type="checkbox" checked={allSel} onChange={e => setSel(e.target.checked ? new Set(listRows.map(r => r.id)) : new Set())} />Select all {listRows.length}</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
+                      {listRows.map(r => {
+                        const f = resolveFile(r), due = isDueForReview(r.review_date, r.status), on = sel.has(r.id)
+                        return (
+                          <div key={r.id} id={'item-' + r.id} draggable onDragStart={e => { const ids = sel.has(r.id) ? Array.from(sel) : [r.id]; e.dataTransfer.setData('text/x-doc-ids', JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move' }}
+                            className={`group relative rounded-xl border bg-white overflow-hidden transition hover:shadow-md ${on ? 'border-violet-500 ring-2 ring-violet-200' : 'border-[#E4E6EE] hover:border-violet-300'}`}>
+                            <button onClick={() => openEdit(r)} className="block w-full aspect-[4/3] border-b border-[#F0F1F5]" title={r.title}>
+                              <DocThumb sb={sb} docId={r.id} file={f} saved={thumbs[r.id]} />
+                            </button>
+                            <input type="checkbox" checked={on} onChange={e => setSel(s => { const n = new Set(s); if (e.target.checked) n.add(r.id); else n.delete(r.id); return n })}
+                              className={`absolute top-2 left-2 w-4 h-4 cursor-pointer ${on ? '' : 'opacity-0 group-hover:opacity-100'}`} />
+                            {f && <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                              <button onClick={() => viewFile(r)} title="Open" className="w-7 h-7 rounded-lg bg-white/95 shadow text-gray-600 hover:text-violet-600"><i className="ti ti-eye" /></button>
+                              <button onClick={() => downloadDoc(r)} title="Download" className="w-7 h-7 rounded-lg bg-white/95 shadow text-gray-600 hover:text-violet-600"><i className="ti ti-download" /></button>
+                            </div>}
+                            <button onClick={() => openEdit(r)} className="block w-full text-left px-2.5 py-2">
+                              <span className="block text-[13px] font-semibold text-[#1A1D2E] leading-snug line-clamp-2 min-h-[2.4em]">{r.title}{r.version ? <span className="ml-1 text-[10px] text-gray-400 font-mono font-normal">v{r.version}</span> : null}</span>
+                              <span className="mt-1 flex items-center gap-1 flex-wrap">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-[#E4E6EE] text-gray-500 truncate max-w-full">{r.category}</span>
+                                {r.customer_id && cmap[r.customer_id] && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 truncate max-w-full"><i className="ti ti-user" />{cmap[r.customer_id]}</span>}
+                                {r.certification_id && cemap[r.certification_id] && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 truncate max-w-full"><i className="ti ti-rosette" />{cemap[r.certification_id]}</span>}
+                                {r.status !== 'Active' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{r.status}</span>}
+                                {due && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">Review due</span>}
+                              </span>
+                              {(q || linkFilter) && <span className="block mt-1 text-[10px] text-gray-400 truncate"><i className="ti ti-folder mr-0.5" />{folderLabel(folders, r.folder_id)}</span>}
+                            </button>
+                          </div>)
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <div>
@@ -449,6 +492,8 @@ export default function DocumentsPage() {
       <div onClick={e => e.stopPropagation()} className={`fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] md:w-full md:max-w-[600px] max-h-[90vh] bg-white rounded-2xl border border-[#E4E6EE] flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${open ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4E6EE] shrink-0"><div><h2 className="text-[#1A1D2E] font-semibold">{editing ? 'Document' : 'Add document record'}</h2>{editing && <p className="text-[11px] text-gray-400">{folderLabel(folders, editing.folder_id)}</p>}</div><div className="flex items-center gap-2">{editing && <ShareLink id={editing.id} />}<button onClick={close} className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-[#F5F6FA]"><i className="ti ti-x" /></button></div></div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {editing && resolveFile(editing) && <button onClick={() => viewFile(editing)} title="Open file" className="block w-full h-56 rounded-xl border border-[#E4E6EE] overflow-hidden hover:border-violet-400">
+            <DocThumb sb={sb} docId={editing.id} file={resolveFile(editing)} saved={thumbs[editing.id]} big /></button>}
           {editing && resolveFile(editing) && <div className="flex items-center gap-2 bg-[#F9FAFB] border border-[#E4E6EE] rounded-lg px-3 py-2.5">
             <i className="ti ti-file text-violet-500 text-lg" /><span className="flex-1 text-xs truncate">{resolveFile(editing)?.name}</span>
             <button onClick={() => viewFile(editing)} className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-600"><i className="ti ti-eye mr-1" />View</button>
