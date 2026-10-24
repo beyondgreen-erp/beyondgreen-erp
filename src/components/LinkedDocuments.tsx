@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getFileUrl, downloadFile } from '@/lib/fileHelpers'
 import { Folder, folderLabel } from '@/lib/docRepo'
 import DocUploadDialog from '@/components/DocUploadDialog'
+import DocThumb, { loadThumbs } from '@/components/DocThumb'
 
 interface Props { sb: any; kind: 'customer' | 'certification'; recordId: string; recordName: string; userEmail: string }
 interface D { id: string; title: string; category: string; status: string; folder_id: string | null; updated_at: string | null; created_at: string }
@@ -20,6 +21,7 @@ export default function LinkedDocuments({ sb, kind, recordId, recordName, userEm
   const [cats, setCats] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [upload, setUpload] = useState(false)
+  const [thumbs, setThumbs] = useState<Record<string, { src: string; url: string }>>({})
   const col = kind === 'customer' ? 'customer_id' : 'certification_id'
 
   const load = useCallback(async () => {
@@ -36,6 +38,7 @@ export default function LinkedDocuments({ sb, kind, recordId, recordName, userEm
       const m: Record<string, { path: string; name: string }> = {}
       for (const a of (data as any[]) || []) if (!m[a.record_id]) m[a.record_id] = { path: a.storage_path, name: a.file_name }
       setFiles(m)
+      loadThumbs(sb, list.map(d => d.id)).then(setThumbs).catch(() => {})
     } else setFiles({})
     setLoading(false)
   }, [sb, col, recordId])
@@ -59,7 +62,7 @@ export default function LinkedDocuments({ sb, kind, recordId, recordName, userEm
         <div className="rounded-lg border border-[#E4E6EE] divide-y divide-[#F0F1F5]">
           {docs.map(d => (
             <div key={d.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-              <i className="ti ti-file-description text-violet-400" />
+              <button onClick={() => view(d)} className="w-14 h-11 shrink-0 rounded-md border border-[#E4E6EE] overflow-hidden"><DocThumb sb={sb} docId={d.id} file={files[d.id] || null} saved={thumbs[d.id]} /></button>
               <div className="flex-1 min-w-0">
                 <a href={`/bizdev/documents?item=${d.id}`} className="block truncate font-medium text-[#1A1D2E] hover:text-violet-600">{d.title}</a>
                 <p className="text-[11px] text-gray-400 truncate">{d.category} · {folderLabel(folders, d.folder_id)}</p>
