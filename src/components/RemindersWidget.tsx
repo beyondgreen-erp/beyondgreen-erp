@@ -346,7 +346,7 @@ export default function RemindersWidget() {
               {cats.map((cat) => {
                 const rows = pool.filter((t) => t.category === cat)
                 const late = rows.filter((t) => t.overdue).length
-                const isOpen = cat in openCats ? openCats[cat] : pool.length <= 12
+                const isOpen = cat in openCats ? openCats[cat] : rows.length <= 5
                 const shown = showAll[cat] ? rows : rows.slice(0, 6)
                 return (
                   <div key={cat}>
