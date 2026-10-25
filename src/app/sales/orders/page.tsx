@@ -2620,6 +2620,24 @@ export default function OrdersPage() {
 
     if (!orderId) { setErr('Could not get order ID'); setSaving(false); return }
 
+    // Keep the customer record in step. If an email was typed for a customer that had none on file,
+    // save it against the customer so it fills in by itself on their next order.
+    try {
+      const custId = basePayload.customer_id as string | null
+      const typedEmail = String(basePayload.customer_email || '').trim()
+      if (custId && typedEmail) {
+        const { data: cust } = await sb.from('customers').select('id, email').eq('id', custId).maybeSingle()
+        if (cust && !String((cust as Record<string, unknown>).email || '').trim()) {
+          await sb.from('customers').update({ email: typedEmail }).eq('id', custId)
+        }
+        const { data: hit } = await sb.from('customer_contacts').select('id').eq('customer_id', custId).ilike('email', typedEmail).limit(1)
+        if (!hit || hit.length === 0) {
+          await sb.from('customer_contacts').insert({ customer_id: custId, email: typedEmail })
+        }
+      }
+    } catch { /* the order is saved either way, never block it on the customer record */ }
+
+
     // Update existing lines in place, insert new ones, delete only the ones removed here.
     // Saving used to delete every line and re-insert just the fields this form holds — which
     // silently wiped what other screens record on a line (units moved to stock, short-close,
