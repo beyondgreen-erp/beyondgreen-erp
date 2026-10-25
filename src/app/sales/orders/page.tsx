@@ -1798,13 +1798,13 @@ export default function OrdersPage() {
   useEffect(() => {
     // Include open Walmart + Chewy order value in the board's Total Value stat.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    sb.from('walmart_board_orders').select('total_value, group_name, archived').eq('archived', false).then(({ data }: any) => {
-      const t = ((data as any[]) || []).filter(r => (r.group_name || '') !== 'Cancelled').reduce((s: number, r: any) => s + (Number(r.total_value) || 0), 0)
+    sb.from('walmart_board_orders').select('total_value, group_name, status, archived').eq('archived', false).then(({ data }: any) => {
+      const t = ((data as any[]) || []).filter(r => { const d = ['Shipped','Closed','Cancelled','Completed','Invoiced']; return !d.includes(String(r.status || '')) && !d.includes(String(r.group_name || '')) }).reduce((s: number, r: any) => s + (Number(r.total_value) || 0), 0)
       setWalmartTotal(t)
     })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    sb.from('chewy_board_orders').select('total_value, group_name, archived').eq('archived', false).then(({ data }: any) => {
-      const t = ((data as any[]) || []).filter(r => (r.group_name || '') !== 'Cancelled').reduce((s: number, r: any) => s + (Number(r.total_value) || 0), 0)
+    sb.from('chewy_board_orders').select('total_value, group_name, status, archived').eq('archived', false).then(({ data }: any) => {
+      const t = ((data as any[]) || []).filter(r => { const d = ['Shipped','Closed','Cancelled','Completed','Invoiced']; return !d.includes(String(r.status || '')) && !d.includes(String(r.group_name || '')) }).reduce((s: number, r: any) => s + (Number(r.total_value) || 0), 0)
       setChewyTotal(t)
     })
   }, [sb])

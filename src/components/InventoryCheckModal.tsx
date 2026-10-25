@@ -56,8 +56,9 @@ export default function InventoryCheckModal({ orderId, orderNumber, onClose, onD
     const sb = createSupabaseBrowserClient()
     const { data: u } = await sb.auth.getUser()
     const r = await createPurchaseRequestForShortages(orderId, components, u?.user?.email ?? null)
-    setPrCreated(true)
     setActing(false)
+    if (!r.id) { alert('Could not raise the purchase request.\n\n' + (r.error || 'The board refused it and gave no reason.') + '\n\nNothing was added to the purchase request board.'); return }
+    setPrCreated(true)
     alert(`✓ Purchase request raised with ${r.count} component${r.count === 1 ? '' : 's'} into "Waiting on Finance Approval".`)
   }
 

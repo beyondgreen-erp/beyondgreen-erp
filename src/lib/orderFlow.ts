@@ -410,7 +410,8 @@ export async function createPurchaseRequestForShortages(
   orderId: string,
   components: ComponentShortage[],
   requestedBy?: string | null,
-): Promise<{ id: string | null; count: number }> {
+): Promise<{ id: string | null; count: number; error?: string }> {
+  if (!components || components.length === 0) return { id: null, count: 0, error: 'No short components were handed to the request, so there was nothing to raise.' }
   const sb = createSupabaseBrowserClient()
   if (!components.length) return { id: null, count: 0 }
 
@@ -442,9 +443,9 @@ export async function createPurchaseRequestForShortages(
     .select('id')
     .single()
 
-  if (hErr) { console.error('PR header insert error:', hErr.message); return { id: null, count: 0 } }
+  if (hErr) { console.error('PR header insert error:', hErr.message); return { id: null, count: 0, error: hErr.message } }
   const reqId = (header as any)?.id
-  if (!reqId) return { id: null, count: 0 }
+  if (!reqId) return { id: null, count: 0, error: 'The purchase request board accepted the request but returned no row, so nothing was saved.' }
 
   const lineRows = components.map((c, i) => ({
     parent_id: reqId,
