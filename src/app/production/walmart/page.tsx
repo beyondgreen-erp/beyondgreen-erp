@@ -36,6 +36,7 @@ const SKUS = [
 const SKU_SET = new Set<string>(SKUS.map(s => s.sku))
 const meta = (sku: string) => SKUS.find(s => s.sku === sku) || { sku, short: sku, color: '#9699a6' }
 const ACCENT = '#0071ce'   // Walmart blue
+const WO_DONE = ['Complete', 'Completed', 'Closed', 'Cancelled']
 const CLOSED = ['Shipped', 'Delivered', 'Cancelled', 'Canceled', 'Closed', 'Invoiced', 'Paid', 'Complete', 'Completed']
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -182,8 +183,11 @@ export default function WalmartProductionPage() {
     const seq = ++loadSeq.current
     setLoadErr('')
     const [woR, entR, prodR, allocR] = await Promise.all([
+      // this week's work orders + every earlier one that is still open (they roll over until closed out)
       sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed')
-        .eq('form_type', 'walmart_weekly').eq('start_date', week).neq('status', 'Cancelled').order('created_at', { ascending: true }),
+        .eq('form_type', 'walmart_weekly').lte('start_date', week).neq('status', 'Cancelled')
+        .or(`start_date.eq.${week},status.not.in.(${WO_DONE.join(',')})`)
+        .order('start_date', { ascending: true }).order('created_at', { ascending: true }),
       sb.from('walmart_production_entries').select('*').gte('production_date', week).lte('production_date', addDays(week, 6))
         .order('production_date', { ascending: false }).order('created_at', { ascending: false }),
       sb.from('products').select('sku,product_name,on_hand_qty,unit_of_measure').in('sku', SKUS.map(s => s.sku)),
@@ -327,6 +331,20 @@ export default function WalmartProductionPage() {
   }, [moves, prods, compNames, sb])
   const itemName = (sku: string) => prods[sku]?.product_name || compNames[sku] || sku
 
+  async function closeWo(status: 'Complete' | 'In Progress') {
+    if (!wo) return
+    if (status === 'Complete') {
+      const left = Math.max(totalTarget - totalMade, 0)
+      const openPos = woOrders.filter(o => !CLOSED.includes(o.status || '')).length
+      const warn = [left ? `${fmtN(left)} SRP still left to make` : '', openPos ? `${openPos} PO${openPos === 1 ? '' : 's'} on it not shipped yet` : ''].filter(Boolean).join(' and ')
+      if (!confirm(`Close out ${wo.wo_code}?${warn ? `\n\nHeads up: ${warn}.` : ''}\n\nA closed work order stops rolling over to the next week. Its open POs become free to add to another work order.`)) return
+    } else if (!confirm(`Reopen ${wo.wo_code}? It will roll over week to week again until closed out.`)) return
+    const { error } = await sb.rpc('walmart_wo_set_status', { p_wo: wo.id, p_status: status })
+    if (error) { setFlash('⚠ ' + error.message); return }
+    setFlash(status === 'Complete' ? `✓ ${wo.wo_code} closed out.` : `✓ ${wo.wo_code} reopened.`)
+    reload()
+  }
+
   const isThisWeek = week === mondayOf(today)
 
   return (
@@ -376,16 +394,19 @@ export default function WalmartProductionPage() {
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-wide text-gray-400">Work order · what to make this week</p>
             {wos.length > 1 && (
-              <select value={wo?.id || ''} onChange={e => setWoSel(e.target.value)} data-ro-ok className="mt-0.5 mb-0.5 h-8 rounded-lg border border-[#E4E6EE] px-2 text-sm font-semibold bg-white max-w-full" title="This week has more than one work order">
-                {wos.map(w => <option key={w.id} value={w.id}>{w.wo_code} · {w.status}{w.notes && w.notes !== 'Weekly Walmart packaging work order' ? ` — ${w.notes.slice(0, 40)}` : ''}</option>)}
+              <select value={wo?.id || ''} onChange={e => setWoSel(e.target.value)} data-ro-ok className="mt-0.5 mb-0.5 h-8 rounded-lg border border-[#E4E6EE] px-2 text-sm font-semibold bg-white max-w-full" title="Open work orders: this week's plus any carried over until closed out">
+                {wos.map(w => <option key={w.id} value={w.id}>{w.wo_code} · {w.status}{w.start_date < week ? ' · carried over' : ''}{w.notes && w.notes !== 'Weekly Walmart packaging work order' ? ` — ${w.notes.slice(0, 40)}` : ''}</option>)}
               </select>
             )}
             {wo ? (
-              <p className="font-bold text-[#1A1D2E] truncate">{wo.wo_code}{wos.length > 1 ? <span className="ml-1 text-[11px] font-normal text-gray-400">({wos.findIndex(w => w.id === wo.id) + 1} of {wos.length} this week)</span> : null} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: wo.status === 'Complete' ? '#00c875' : wo.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{wo.status}</span></p>
-            ) : <p className="font-semibold text-gray-500">No work order for this week yet</p>}
+              <p className="font-bold text-[#1A1D2E] truncate">{wo.wo_code}{wos.length > 1 ? <span className="ml-1 text-[11px] font-normal text-gray-400">({wos.findIndex(w => w.id === wo.id) + 1} of {wos.length} open)</span> : null} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: wo.status === 'Complete' ? '#00c875' : wo.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{wo.status}</span></p>
+            ) : <p className="font-semibold text-gray-500">No open work order — create one for this week</p>}
+            {wo && wo.start_date < week && !WO_DONE.includes(wo.status || '') && <p className="text-[11px] font-semibold text-amber-700 mt-0.5">↻ Carried over from the week of {fmtShort(wo.start_date)} — stays open until it is closed out</p>}
           </div>
           {canEdit && <div className="flex gap-1.5 shrink-0">
             <button onClick={() => setShowSafety(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">+ Safety stock</button>
+            {wo && !WO_DONE.includes(wo.status || '') && <button onClick={() => closeWo('Complete')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#00c875] text-[#00a85a]" title="Close out this work order so it stops rolling over">✓ Close out</button>}
+            {wo && wo.status === 'Complete' && <button onClick={() => closeWo('In Progress')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">↺ Reopen</button>}
             {wo && <button onClick={() => { setWoNew(false); setShowWo(true) }} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={{ borderColor: ACCENT, color: ACCENT }}>✎ Edit work order</button>}
             <button onClick={() => { setWoNew(true); setShowWo(true) }} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={wo ? { borderColor: '#E4E6EE', color: '#4b5563' } : { borderColor: ACCENT, color: ACCENT }}>+ Create WO</button>
           </div>}
@@ -581,7 +602,7 @@ export default function WalmartProductionPage() {
       {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); reload() }} />}
       {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} wos={wos} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); reload(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
-      {showWo && <WoModal sb={sb} wo={woNew ? null : wo} existing={wos.length} week={week} prods={prods} stock={stock} prog={woNew ? [] : prog} onClose={() => setShowWo(false)}
+      {showWo && <WoModal sb={sb} wo={woNew ? null : wo} existing={wos.filter(w => w.start_date === week).length} week={week} prods={prods} stock={stock} prog={woNew ? [] : prog} onClose={() => setShowWo(false)}
         onSaved={(msg, id) => { setFlash(msg); setShowWo(false); if (id) { woSelRef.current = id; setWoSel(id) } reload() }} />}
       {detail && <EntryDetail sb={sb} entry={detail} wo={wo} moves={moves.filter(m => m.ref_id === detail.id)} itemName={itemName} me={me}
         canEdit={canEdit} isAdmin={perms.is_admin} onClose={() => setDetail(null)} onChanged={(msg) => { setFlash(msg); setDetail(null); reload() }} />}
@@ -742,7 +763,7 @@ function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku
             <label className="block">
               <span className="text-xs font-semibold text-gray-500">Work order</span>
               <select value={woId} onChange={e => setWoId(e.target.value)} className="mt-1 w-full h-12 rounded-xl border border-[#E4E6EE] px-3 text-base bg-white">
-                {(wos.length ? wos : wo ? [wo] : []).map(w => <option key={w.id} value={w.id}>{w.wo_code} — this week&apos;s Walmart POs</option>)}
+                {(wos.length ? wos : wo ? [wo] : []).map(w => <option key={w.id} value={w.id}>{w.wo_code}{w.start_date < mondayOf(today) ? ' (carried over)' : ''} — open Walmart POs</option>)}
                 {safety.map(s => <option key={s.id} value={s.id}>{s.wo_code} — safety stock</option>)}
               </select>
             </label>
@@ -839,7 +860,7 @@ function WoModal({ sb, wo, existing = 0, week, prods, stock, prog, onClose, onSa
       const mine = new Set<string>()
       for (const a of (aR.data as any[]) || []) {
         if (wo && a.work_order_id === wo.id) mine.add(a.walmart_order_id)
-        else if (a.work_orders?.status !== 'Cancelled') tk[a.walmart_order_id] = a.work_orders?.wo_code || 'another WO'
+        else if (!WO_DONE.includes(a.work_orders?.status || '')) tk[a.walmart_order_id] = a.work_orders?.wo_code || 'another WO'
       }
       setOrders(open); setTaken(tk)
       setPicked(wo ? mine : new Set(open.filter(o => !tk[o.id]).map(o => o.id)))
