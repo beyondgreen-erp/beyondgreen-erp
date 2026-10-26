@@ -62,7 +62,7 @@ interface Mach { id: string; machine_code: string; status: string | null; oph: n
 interface Load { id: string; load_number: string; pickup_date: string | null; priority: number | null; status: string; notes: string | null }
 interface WoOrder { id: string; po_number: string | null; name: string | null; group_name: string | null; status: string | null; load_number: string | null; pallets: string | null; archived: boolean | null; walmart_board_lines: { part_number: string | null; qty: number | null; finished_manual?: number | null }[] }
 interface WoRel { walmart_order_id: string; sku: string; qty: number; status: string }
-interface SkuPlan { need: number; done: number; covered: number }
+interface SkuPlan { need: number; done: number; covered: number; short?: number }
 interface PlanGroup { key: string; load: Load | null; rank: number; orders: WoOrder[]; bySku: Record<string, SkuPlan>; orderSku: Record<string, Record<string, 'done' | 'covered' | 'partial' | 'open'>> }
 
 function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku: Record<string, Prog>): PlanGroup[] {
@@ -102,7 +102,9 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
         if (!q || !SKU_SET.has(sku)) continue
         const b = g.bySku[sku] || (g.bySku[sku] = { need: 0, done: 0, covered: 0 })
         b.need += q
-        const rq = built ? q : Math.min(q, Math.max(relBy[o.id + '|' + sku] || 0, num(l.finished_manual)))   // released / claimed so far, or finished typed in on the Order Pipeline
+        const got = Math.min(q, Math.max(relBy[o.id + '|' + sku] || 0, num(l.finished_manual)))
+        if (built && got < q) b.short = (b.short || 0) + (q - got)   // left the building with less than ordered
+        const rq = built ? q : got   // released / claimed so far, or finished typed in on the Order Pipeline
         b.done += rq
         if (rq >= q) { os[sku] = 'done'; continue }
         const c = Math.min(pool[sku] || 0, q - rq)
@@ -390,11 +392,11 @@ export default function WalmartProductionPage() {
 
       {/* Weekly work order */}
       <div className="bg-white rounded-2xl shadow-sm border border-[#ECEEF3] mb-4 overflow-hidden">
-        <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderLeft: '5px solid ' + ACCENT }}>
-          <div className="min-w-0">
+        <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2" style={{ borderLeft: '5px solid ' + ACCENT }}>
+          <div className="min-w-0 w-full sm:w-auto sm:flex-1">
             <p className="text-[11px] uppercase tracking-wide text-gray-400">Work order · what to make this week</p>
             {wos.length > 1 && (
-              <select value={wo?.id || ''} onChange={e => setWoSel(e.target.value)} data-ro-ok className="mt-0.5 mb-0.5 h-8 rounded-lg border border-[#E4E6EE] px-2 text-sm font-semibold bg-white max-w-full" title="Open work orders: this week's plus any carried over until closed out">
+              <select value={wo?.id || ''} onChange={e => setWoSel(e.target.value)} data-ro-ok className="mt-0.5 mb-0.5 h-9 w-full sm:w-auto rounded-lg border border-[#E4E6EE] px-2 text-sm font-semibold bg-white max-w-full" title="Open work orders: this week's plus any carried over until closed out">
                 {wos.map(w => <option key={w.id} value={w.id}>{w.wo_code} · {w.status}{w.start_date < week ? ' · carried over' : ''}{w.notes && w.notes !== 'Weekly Walmart packaging work order' ? ` — ${w.notes.slice(0, 40)}` : ''}</option>)}
               </select>
             )}
@@ -403,7 +405,7 @@ export default function WalmartProductionPage() {
             ) : <p className="font-semibold text-gray-500">No open work order — create one for this week</p>}
             {wo && wo.start_date < week && !WO_DONE.includes(wo.status || '') && <p className="text-[11px] font-semibold text-amber-700 mt-0.5">↻ Carried over from the week of {fmtShort(wo.start_date)} — stays open until it is closed out</p>}
           </div>
-          {canEdit && <div className="flex gap-1.5 shrink-0">
+          {canEdit && <div className="flex flex-wrap gap-1.5 sm:shrink-0 sm:justify-end">
             <button onClick={() => setShowSafety(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">+ Safety stock</button>
             {wo && !WO_DONE.includes(wo.status || '') && <button onClick={() => closeWo('Complete')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#00c875] text-[#00a85a]" title="Close out this work order so it stops rolling over">✓ Close out</button>}
             {wo && wo.status === 'Complete' && <button onClick={() => closeWo('In Progress')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">↺ Reopen</button>}
@@ -445,7 +447,7 @@ export default function WalmartProductionPage() {
                               </div>
                               <div className="flex justify-between gap-1 mt-0.5">
                                 <span className="text-gray-400">{fmtN(b.need)}</span>
-                                <span className={`font-semibold ${todo ? 'text-[#e2445c]' : 'text-[#00a85a]'}`}>{todo ? `${fmtN(todo)} to make` : b.done >= b.need ? '✓ released' : '✓ covered'}</span>
+                                <span className={`font-semibold ${todo ? 'text-[#e2445c]' : 'text-[#00a85a]'}`}>{todo ? `${fmtN(todo)} to make` : b.done >= b.need ? '✓ released' : '✓ covered'}</span>{b.short ? <span className="ml-1 font-semibold text-amber-700">· shipped {fmtN(b.short)} short</span> : null}
                               </div>
                             </div>)
                         })}
