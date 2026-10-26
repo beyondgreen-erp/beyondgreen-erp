@@ -690,7 +690,7 @@ export default function SamplesPage() {
                   {cost > 0 && <span className="ml-auto text-[11px] text-gray-400">Ship cost ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
                 </div>
                 {!isCol && (
-                  <div>
+                  <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[980px]">
                       <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                         <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
@@ -711,13 +711,13 @@ export default function SamplesPage() {
                           const nc = commentCounts[r.id] || 0
                           return (
                             <tr key={r.id} id={'item-' + r.id} draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openDetail(r)}>
-                              <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E]">{r.name || <span className="text-gray-300">Untitled</span>}</td>
-                              <td className="px-3 py-2.5"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</span></td>
+                              <td className="px-4 py-2.5 text-[13px] font-semibold text-[#1A1D2E] max-w-[280px] truncate">{r.name || <span className="text-gray-300">Untitled</span>}</td>
+                              <td className="px-3 py-2.5 whitespace-nowrap"><span className="text-white text-[11px] font-semibold rounded-full px-2.5 py-1 inline-block" style={{ background: r.status ? statusHex(r.status) : '#c4c4c4' }}>{r.status || '—'}</span></td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600 truncate max-w-[220px]">{r.customer_email || '—'}</td>
                               <td className="px-3 py-2.5 text-[13px] text-gray-600">{r.product || '—'}</td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.sample_date)}</td>
-                              <td className="px-3 py-2.5 text-[13px] text-gray-600">{fmtD(r.ship_due_date)}</td>
-                              <td className="px-3 py-2.5 text-[13px] font-mono text-gray-500">{r.tracking_number || '—'}</td>
+                              <td className="px-3 py-2.5 text-[13px] text-gray-600 whitespace-nowrap">{fmtD(r.sample_date)}</td>
+                              <td className="px-3 py-2.5 text-[13px] text-gray-600 whitespace-nowrap">{fmtD(r.ship_due_date)}</td>
+                              <td className="px-3 py-2.5 text-[13px] font-mono text-gray-500 whitespace-nowrap">{r.tracking_number || '—'}</td>
                               <td className="px-3 py-2.5">{nFiles ? <span className="text-[#3B6FE0] text-xs font-semibold">📎 {nFiles}</span> : <span className="text-gray-300">—</span>}</td>
                               <td className="px-3 py-2.5">{nc ? <span className="text-emerald-600 text-xs font-semibold">💬 {nc}</span> : <span className="text-gray-300">—</span>}</td>
                             </tr>
