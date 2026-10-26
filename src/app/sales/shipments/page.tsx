@@ -20,6 +20,7 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import ItemHistory from '@/components/ItemHistory'
+import ShipQtyEditModal from '@/components/ShipQtyEditModal'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -121,6 +122,9 @@ export default function ShipmentsPage() {
   // Ultron: line items pulled live from the Inventory board via the linked sales order.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [soLines, setSoLines] = useState<any[]>([])
+  const [qtyEdit, setQtyEdit] = useState<any | null>(null)
+  const [lineMsg, setLineMsg] = useState('')
+  const [histKey, setHistKey] = useState(0)
   const [docsPayload, setDocsPayload] = useState<DocPayload | null>(null)
   const [docsSynthetic, setDocsSynthetic] = useState(false)
   const [movingBack, setMovingBack] = useState(false)
@@ -879,6 +883,11 @@ export default function ShipmentsPage() {
                   {editing.sales_order_id && (
                     <div className="border-t border-[#E4E6EE] pt-4">
                       <p className="text-xs font-semibold uppercase tracking-wider mb-2">🔗 Line Items — Inventory-linked (Ultron)</p>
+                      {lineMsg && <p className="mb-2 text-xs rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-2">{lineMsg}</p>}
+                      {qtyEdit && <ShipQtyEditModal sb={sb} line={qtyEdit} shipmentId={editing.id} shipped={editing.status !== 'Cancelled'} orderLabel={(editing as any).order_number || (editing as any).po_number || ''}
+                        onClose={() => setQtyEdit(null)}
+                        onSaved={(m) => { setQtyEdit(null); setLineMsg(m); setHistKey(k => k + 1)
+                          sb.from('sales_order_lines').select('*').eq('sales_order_id', editing.sales_order_id!).order('line_number', { ascending: true }).then(({ data }: any) => setSoLines((data as any[]) || [])) }} />}
                       {soLines.length === 0 ? (
                         <p className="text-xs text-gray-500 italic">No line items on the linked order.</p>
                       ) : (
@@ -887,7 +896,8 @@ export default function ShipmentsPage() {
                             <div key={l.id} className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-3 py-2 text-xs gap-3">
                               <div className="min-w-0 truncate"><span className="font-mono text-[#1A1D2E]">{l.sku || '—'}</span> <span className="text-gray-500">{l.description || ''}</span></div>
                               <div className="flex items-center gap-3 shrink-0">
-                                <span className="text-gray-400">Qty {l.quantity ?? l.qty ?? '—'}{normalizeUom(l.unit_of_measure) ? ' ' + normalizeUom(l.unit_of_measure) : ''}</span>
+                                <span className="text-gray-500">Ship qty <b className="text-[#1A1D2E]">{l.quantity ?? l.qty ?? '—'}</b>{normalizeUom(l.unit_of_measure) ? ' ' + normalizeUom(l.unit_of_measure) : ''}</span>
+                                <button onClick={() => { setLineMsg(''); setQtyEdit(l) }} className="text-[11px] font-semibold text-blue-600 hover:underline" title="Edit the ship quantity (a reason is required; logged in History)">✎ Edit</button>
                                 <span className={linked ? 'text-emerald-600' : 'text-amber-600'} title={linked ? 'Linked to Inventory' : 'Not linked to an Inventory SKU'}>{linked ? '● Inventory' : '○ Unlinked'}</span>
                               </div>
                             </div>
@@ -902,7 +912,7 @@ export default function ShipmentsPage() {
                   </div>
                   <div className="border-t border-[#E4E6EE] pt-4">
                     <Comments recordType={editing.sales_order_id ? 'sales_order' : 'shipment'} recordId={editing.sales_order_id || editing.id} currentUserEmail={userEmail}/>
-                    <ItemHistory recordId={editing.sales_order_id || editing.id} recordType={editing.sales_order_id ? 'sales_order' : 'shipment'} />
+                    <ItemHistory key={histKey} recordId={editing.sales_order_id || editing.id} recordType={editing.sales_order_id ? 'sales_order' : 'shipment'} />
                   </div>
                 </>
               )}
