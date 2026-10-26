@@ -22,6 +22,7 @@ import { usePermissions } from '@/lib/permissions'
 import Comments from '@/components/Comments'
 import WalmartDayPlanner from '@/components/WalmartDayPlanner'
 import WalmartActivityLog from '@/components/WalmartActivityLog'
+import WalmartWoSummary from '@/components/WalmartWoSummary'
 
 const BOARD = '/production/walmart'
 const SKUS = [
@@ -162,6 +163,7 @@ export default function WalmartProductionPage() {
   const [logStock, setLogStock] = useState(false)
   const [showWo, setShowWo] = useState(false)
   const [woNew, setWoNew] = useState(false)
+  const [sumMode, setSumMode] = useState<null | 'view' | 'close'>(null)
   const [detail, setDetail] = useState<Entry | null>(null)
   const [showVoided, setShowVoided] = useState(false)
   const [ledgerOpen, setLedgerOpen] = useState(false)
@@ -407,7 +409,8 @@ export default function WalmartProductionPage() {
           </div>
           {canEdit && <div className="flex flex-wrap gap-1.5 sm:shrink-0 sm:justify-end">
             <button onClick={() => setShowSafety(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">+ Safety stock</button>
-            {wo && !WO_DONE.includes(wo.status || '') && <button onClick={() => closeWo('Complete')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#00c875] text-[#00a85a]" title="Close out this work order so it stops rolling over">✓ Close out</button>}
+            {wo && !WO_DONE.includes(wo.status || '') && <button onClick={() => setSumMode('close')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#00c875] text-[#00a85a]" title="Close out this work order so it stops rolling over">✓ Close out</button>}
+            {wo && <button onClick={() => setSumMode('view')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600" title="Targets vs made, where it went, loose ends, who did it, materials, dates">📄 Summary</button>}
             {wo && wo.status === 'Complete' && <button onClick={() => closeWo('In Progress')} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">↺ Reopen</button>}
             {wo && <button onClick={() => { setWoNew(false); setShowWo(true) }} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={{ borderColor: ACCENT, color: ACCENT }}>✎ Edit work order</button>}
             <button onClick={() => { setWoNew(true); setShowWo(true) }} className="text-sm font-semibold rounded-xl px-3 py-2 border" style={wo ? { borderColor: '#E4E6EE', color: '#4b5563' } : { borderColor: ACCENT, color: ACCENT }}>+ Create WO</button>
@@ -604,6 +607,7 @@ export default function WalmartProductionPage() {
       {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); reload() }} />}
       {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} wos={wos} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); reload(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
+      {sumMode && wo && <WalmartWoSummary sb={sb} woId={wo.id} mode={sumMode} canEdit={canEdit} userEmail={me} onClose={() => setSumMode(null)} onClosedOut={(m) => { setSumMode(null); setFlash(m); reload() }} />}
       {showWo && <WoModal sb={sb} wo={woNew ? null : wo} existing={wos.filter(w => w.start_date === week).length} week={week} prods={prods} stock={stock} prog={woNew ? [] : prog} onClose={() => setShowWo(false)}
         onSaved={(msg, id) => { setFlash(msg); setShowWo(false); if (id) { woSelRef.current = id; setWoSel(id) } reload() }} />}
       {detail && <EntryDetail sb={sb} entry={detail} wo={wo} moves={moves.filter(m => m.ref_id === detail.id)} itemName={itemName} me={me}
