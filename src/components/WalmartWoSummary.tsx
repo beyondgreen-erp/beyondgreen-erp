@@ -42,16 +42,15 @@ export function buildSummaryPdf(s: S): jsPDF {
   let y = 44
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text(`Work Order Close-out Summary — ${wo.code}`, 40, y)
   y += 16; doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110)
-  doc.text(`beyondGREEN biotech · Walmart Production · Status: ${wo.status}${wo.completed_at ? ' (closed ' + dt(wo.completed_at) + ')' : ''} · Generated ${new Date(wo.generated_at).toLocaleString('en-US')} by ${wo.generated_by || '—'}`, 40, y)
+  const sub = doc.splitTextToSize(`beyondGREEN biotech · Walmart Production · Status: ${wo.status}${wo.completed_at ? ' (closed ' + dt(wo.completed_at) + ')' : ''} · ${wo.weeks_open} week${wo.weeks_open === 1 ? '' : 's'} open · Generated ${new Date(wo.generated_at).toLocaleString('en-US')} by ${wo.generated_by || '—'}`, W - 80)
+  doc.text(sub, 40, y); y += (sub.length - 1) * 11
   doc.setTextColor(0); y += 14
   const head = { fillColor: [0, 113, 206] as [number, number, number], textColor: 255, fontStyle: 'bold' as const, fontSize: 8 }
   const sec = (t: string) => { y = ((doc as any).lastAutoTable?.finalY ?? y) + 20; if (y > 700) { doc.addPage(); y = 44 } doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(t, 40, y); y += 6 }
   const tbl = (headRow: string[], body: any[][], opts: any = {}) => autoTable(doc, { startY: y, head: [headRow], body: body.length ? body : [[{ content: 'None', colSpan: headRow.length, styles: { textColor: 120 } }]], styles: { fontSize: 8, cellPadding: 3 }, headStyles: head, margin: { left: 40, right: 40 }, ...opts })
 
-  sec('6. Dates')
-  tbl(['Week of', 'Due', 'First log', 'Last log', 'Closed', 'Weeks open'], [[dt(wo.start_date), dt(wo.due_date), dt(wo.first_log), dt(wo.last_log), wo.completed_at ? dt(wo.completed_at) : 'Open', String(wo.weeks_open)]])
   sec('1. Targets vs made')
-  tbl(['SKU', 'Product', 'Target', 'Made', 'Over / under'], (s.skus || []).map((k: any) => [k.sku, k.name || '', fmt(k.target), fmt(k.made), n(k.diff) === 0 ? '✓' : (n(k.diff) > 0 ? '+' : '') + fmt(k.diff)]),
+  tbl(['SKU', 'Product', 'Target', 'Made', 'Over / under'], (s.skus || []).map((k: any) => [k.sku, k.name || '', fmt(k.target), fmt(k.made), n(k.diff) === 0 ? 'On target' : (n(k.diff) > 0 ? '+' : '') + fmt(k.diff)]),
     { foot: [['Total', '', fmt((s.skus || []).reduce((a: number, k: any) => a + n(k.target), 0)), fmt((s.skus || []).reduce((a: number, k: any) => a + n(k.made), 0)), '']], footStyles: { fillColor: [240, 242, 246], textColor: 20, fontStyle: 'bold', fontSize: 8 } })
   sec('2. Where it went — by load and PO')
   const rows: any[][] = []
@@ -72,6 +71,8 @@ export function buildSummaryPdf(s: S): jsPDF {
   if ((s.voids || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Voided entry', 'SKU', 'SRP', 'Logged by', 'Voided by', 'Reason'], (s.voids || []).map((v: any) => [dt(v.date), v.sku, fmt(v.qty), short(v.by), short(v.voided_by), v.reason || ''])) }
   sec('5. Materials used (net of voids)')
   tbl(['Item', 'Description', 'UOM', 'Used'], (s.materials || []).map((m: any) => [m.sku, m.name || '', m.uom || '', fmt(m.used)]))
+  sec('6. Dates')
+  tbl(['Week of', 'Due', 'First log', 'Last log', 'Closed', 'Weeks open'], [[dt(wo.start_date), dt(wo.due_date), dt(wo.first_log), dt(wo.last_log), wo.completed_at ? dt(wo.completed_at) : 'Open', String(wo.weeks_open)]])
   const pages = doc.getNumberOfPages()
   for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(140); doc.text(`${wo.code} close-out summary · page ${i} of ${pages}`, W - 40, doc.internal.pageSize.getHeight() - 20, { align: 'right' }) }
   return doc
