@@ -23,6 +23,7 @@ import Comments from '@/components/Comments'
 import WalmartDayPlanner from '@/components/WalmartDayPlanner'
 import WalmartActivityLog from '@/components/WalmartActivityLog'
 import WalmartWoSummary from '@/components/WalmartWoSummary'
+import WalmartWeekCharts from '@/components/WalmartWeekCharts'
 
 const BOARD = '/production/walmart'
 const SKUS = [
@@ -495,6 +496,8 @@ export default function WalmartProductionPage() {
             </div>
           </div>)
       })}
+
+      <WalmartWeekCharts skus={SKUS} entries={entries} week={week} prog={prog} woCode={wo?.wo_code} />
 
       {/* Daily log — record board */}
       <div className="flex items-center justify-between mb-2">
