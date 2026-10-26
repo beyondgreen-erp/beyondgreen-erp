@@ -11,6 +11,7 @@ import ItemHistory from '@/components/ItemHistory'
 
 interface Line { id?: string; _new?: boolean; name: string | null; sku: string | null; quantity: number | null; uom: string | null; product_id?: string | null }
 interface Sample {
+  note?: string | null;
   id: string; name: string | null; requesting_facility: string | null; requestor: string | null; customer_email: string | null
   customer_type: string | null; product: string | null; status: string | null; ship_due_date: string | null; sample_date: string | null
   ship_cost: number | null; shipped_via: string | null; tracking_number: string | null; ship_to_address: string | null; group_name: string | null
@@ -65,6 +66,7 @@ const FIELDS: { key: keyof Sample; label: string; kind: 'text' | 'date' | 'num' 
   { key: 'estimated_delivery_date', label: 'Estimated Delivery', kind: 'date' },
   { key: 'recipient_email', label: 'Recipient Email', kind: 'text' },
   { key: 'ship_to_address', label: 'Ship-To Address', kind: 'text', wide: true },
+  { key: 'note', label: 'Note', kind: 'text', wide: true },
 ]
 
 // ─────────────────────────── Add Sample modal ───────────────────────────
