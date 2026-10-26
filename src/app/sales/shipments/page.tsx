@@ -525,7 +525,7 @@ export default function ShipmentsPage() {
                               <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Value</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[90px]">Cost</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[130px]">PO #</th>
-                              <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Carrier</th>
+                              <th className="text-left font-semibold px-3 py-2.5 w-[150px]">Carrier</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[150px]">Tracking</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[130px]">City / State</th>
                               <th className="text-left font-semibold px-3 py-2.5 w-[110px]">Invoice</th>
@@ -543,8 +543,8 @@ export default function ShipmentsPage() {
                                   <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtD(s.ship_date)}</td>
                                   <td className="px-3 py-2.5 text-[#1A1D2E] font-semibold whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{s.total_value != null ? fmtC(s.total_value) : '—'}</td>
                                   <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap cursor-pointer" onClick={() => openEdit(s)}>{fmtC(s.ship_cost)}</td>
-                                  <td className="px-3 py-2.5 text-gray-400 cursor-pointer" onClick={() => openEdit(s)}>{s.po_number || '—'}</td>
-                                  <td className="px-3 py-2.5 text-gray-400 cursor-pointer" onClick={() => openEdit(s)}>{s.carrier || '—'}</td>
+                                  <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap truncate cursor-pointer" onClick={() => openEdit(s)}>{s.po_number || '—'}</td>
+                                  <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap truncate cursor-pointer" onClick={() => openEdit(s)}>{s.carrier || '—'}</td>
                                   <td className="px-3 py-2.5" onClick={e => { if (tUrl) e.stopPropagation() }}>
                                     {s.tracking_number ? (tUrl ? <a href={tUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-400 font-mono text-xs max-w-[140px] truncate block">{s.tracking_number}</a> : <span className="text-gray-400 font-mono text-xs max-w-[140px] truncate block">{s.tracking_number}</span>) : '—'}
                                   </td>
