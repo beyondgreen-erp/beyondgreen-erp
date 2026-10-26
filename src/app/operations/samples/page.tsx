@@ -692,7 +692,7 @@ export default function SamplesPage() {
                 {!isCol && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[980px]">
-                      <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
+                      <thead className="[&_th]:bg-[#FBFCFE]">
                         <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                           <th className="text-left font-semibold px-4 py-2 min-w-[200px]">Name</th>
                           <th className="text-left font-semibold px-3 py-2 w-[170px]">Status</th>
