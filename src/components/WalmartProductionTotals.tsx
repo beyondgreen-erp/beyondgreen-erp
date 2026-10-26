@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import jsPDF from 'jspdf'
 import '@/lib/pdfSafeText'
 import autoTable from 'jspdf-autotable'
+import { ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, PieChart, Pie, Cell } from 'recharts'
 
 export type Period = 'daily' | 'monthly' | 'fy'
 const SKUS = [
@@ -28,7 +29,7 @@ const who = (e: string | null) => (e || 'unknown').split('@')[0]
 interface Entry { id: string; production_date: string; sku: string; qty: number; entered_by: string | null; created_at: string; lot_number: string | null; note: string | null; work_orders: { wo_code: string | null } | null }
 interface Row { key: string; label: string; bySku: Record<string, number>; total: number }
 
-export default function WalmartProductionTotals({ sb, period, onPeriod }: { sb: any; period: Period; onPeriod: (p: Period) => void }) {
+export default function WalmartProductionTotals({ sb, period }: { sb: any; period: Period; onPeriod?: (p: Period) => void }) {
   const today = ymd(new Date())
   const [day, setDay] = useState(today)
   const [month, setMonth] = useState(today.slice(0, 7))
@@ -112,7 +113,21 @@ export default function WalmartProductionTotals({ sb, period, onPeriod }: { sb: 
     const m: Record<string, number> = {}; for (const e of trend) m[e.production_date] = (m[e.production_date] || 0) + Number(e.qty)
     return Array.from({ length: 14 }, (_, i) => { const d = addDays(day, i - 13); return { d, q: m[d] || 0 } })
   }, [trend, day])
-  const trendMax = Math.max(1, ...trendDays.map(t => t.q))
+  // chart rows: daily → last 14 days by SKU; monthly → each day; FY → each month (+ running total)
+  const chartData = useMemo(() => {
+    if (period === 'daily') {
+      const m: Record<string, Record<string, number>> = {}
+      for (const e of trend) { (m[e.production_date] ||= {})[e.sku] = (m[e.production_date]?.[e.sku] || 0) + Number(e.qty) }
+      return trendDays.map(t => ({ key: t.d, label: parse(t.d).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }), ...Object.fromEntries(SKUS.map(s => [s.sku, m[t.d]?.[s.sku] || 0])), total: t.q }))
+    }
+    let run = 0
+    return rows.map(r => { run += r.total; return {
+      key: r.key,
+      label: period === 'monthly' ? String(parse(r.key).getDate()) : MONTHS[Number(r.key.slice(5)) - 1].slice(0, 3),
+      ...Object.fromEntries(SKUS.map(s => [s.sku, r.bySku[s.sku] || 0])), total: r.total, cumulative: run } })
+  }, [period, trend, trendDays, rows])
+  const mix = SKUS.map(s => ({ name: s.short, sku: s.sku, value: bySku[s.sku] || 0, color: s.color })).filter(x => x.value > 0)
+  const peopleChart = people.slice(0, 10).map(p => ({ name: who(p.who), qty: p.qty }))
 
   const title = period === 'daily' ? `Daily Production — ${nice(day)}` : period === 'monthly' ? `Monthly Production — ${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}` : `Fiscal Year ${fyEndYear} Production — ${nice(fyFrom)} to ${nice(fyTo)}`
   const firstCol = period === 'daily' ? 'Logged (time · by · WO)' : period === 'monthly' ? 'Day' : 'Month'
@@ -149,10 +164,7 @@ export default function WalmartProductionTotals({ sb, period, onPeriod }: { sb: 
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-[#E4E6EE] p-4 flex flex-col lg:flex-row lg:items-center gap-3 lg:justify-between">
-        <div className="flex items-center gap-1 rounded-lg bg-[#F3F4F8] p-1 w-fit">
-          {([['daily', 'Daily'], ['monthly', 'Monthly'], ['fy', 'Fiscal Year']] as const).map(([k, l]) =>
-            <button key={k} onClick={() => onPeriod(k)} className={`h-8 px-3 rounded-md text-sm font-semibold ${period === k ? 'bg-white shadow-sm text-[#1A1D2E]' : 'text-gray-500'}`}>{l}</button>)}
-        </div>
+        <p className="text-sm font-semibold text-[#1A1D2E]">{period === 'daily' ? 'Pick a day' : period === 'monthly' ? 'Pick a month' : 'Pick a fiscal year'}</p>
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => step(-1)} className={btn} aria-label="Previous">‹</button>
           {period === 'daily' && <input type="date" value={day} max={today} onChange={e => e.target.value && setDay(e.target.value)} className={btn} />}
@@ -181,16 +193,58 @@ export default function WalmartProductionTotals({ sb, period, onPeriod }: { sb: 
           <p className="text-[11px] text-gray-500">{s.short}</p><p className="text-xl font-bold text-[#1A1D2E]">{loading ? '…' : fmt(bySku[s.sku] || 0)}</p><p className="font-mono text-[10px] text-gray-400">{s.sku}</p></div>)}
       </div>
 
-      {period === 'daily' && <div className="bg-white rounded-xl border border-[#E4E6EE] p-4">
-        <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-2">Last 14 days · click a day</p>
-        <div className="flex items-end gap-1 h-28">
-          {trendDays.map(t => <button key={t.d} onClick={() => setDay(t.d)} title={`${nice(t.d)}: ${fmt(t.q)} SRP`} className="flex-1 flex flex-col items-center justify-end h-full group">
-            <span className="text-[9px] text-gray-500 mb-0.5">{t.q ? fmt(t.q) : ''}</span>
-            <span className="w-full rounded-t" style={{ height: `${Math.max(2, (t.q / trendMax) * 80)}px`, background: t.d === day ? '#0071ce' : '#9cc6ef' }} />
-            <span className={`text-[9px] mt-1 ${t.d === day ? 'font-bold text-[#0071ce]' : 'text-gray-400'}`}>{parse(t.d).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</span>
-          </button>)}
+      <div className="bg-white rounded-xl border border-[#E4E6EE] p-4">
+        <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
+          {period === 'daily' ? 'Last 14 days by SKU · click a bar to open that day' : period === 'monthly' ? 'SRP made each day by SKU · line = running total' : 'SRP made each month by SKU · line = running total'}</p>
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+              onClick={(st: any) => { const k = st?.activePayload?.[0]?.payload?.key; if (period === 'daily' && k) setDay(k) }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F0F2F6" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={{ stroke: '#E4E6EE' }} />
+              <YAxis yAxisId="l" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} width={48} tickFormatter={(v: number) => fmt(v)} />
+              {period !== 'daily' && <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={52} tickFormatter={(v: number) => fmt(v)} />}
+              <Tooltip formatter={(v: any, n: any) => [fmt(Number(v)), SKUS.find(s => s.sku === n)?.short || (n === 'cumulative' ? 'Running total' : n)]} labelFormatter={(l: any, pl: any) => { const k = pl?.[0]?.payload?.key; return k ? (period === 'fy' ? `${MONTHS[Number(String(k).slice(5)) - 1]} ${String(k).slice(0, 4)}` : nice(k)) : l }} />
+              <Legend formatter={(v: any) => SKUS.find(s => s.sku === v)?.short || (v === 'cumulative' ? 'Running total' : v)} wrapperStyle={{ fontSize: 11 }} />
+              {SKUS.map(sk => <Bar key={sk.sku} yAxisId="l" dataKey={sk.sku} stackId="a" fill={sk.color} cursor={period === 'daily' ? 'pointer' : undefined}>
+                {period === 'daily' && chartData.map((d: any) => <Cell key={d.key} fillOpacity={d.key === day ? 1 : 0.45} />)}
+              </Bar>)}
+              {period !== 'daily' && <Line yAxisId="r" type="monotone" dataKey="cumulative" stroke="#1A1D2E" strokeWidth={2} dot={false} />}
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
-      </div>}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl border border-[#E4E6EE] p-4">
+          <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-2">SKU mix {period === 'daily' ? 'for the day' : 'for the period'}</p>
+          {mix.length === 0 ? <p className="py-16 text-center text-sm text-gray-400">No production.</p> : <div className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={mix} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="85%" paddingAngle={1}
+                  label={(e: any) => `${e.name} ${total ? Math.round((e.value / total) * 100) : 0}%`} labelLine={false} style={{ fontSize: 10 }}>
+                  {mix.map(m => <Cell key={m.sku} fill={m.color} />)}
+                </Pie>
+                <Tooltip formatter={(v: any) => fmt(Number(v)) + ' SRP'} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>}
+        </div>
+        <div className="bg-white rounded-xl border border-[#E4E6EE] p-4">
+          <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-2">SRP logged by person</p>
+          {peopleChart.length === 0 ? <p className="py-16 text-center text-sm text-gray-400">No production.</p> : <div className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={peopleChart} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F0F2F6" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v: number) => fmt(v)} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#374151' }} width={90} />
+                <Tooltip formatter={(v: any) => fmt(Number(v)) + ' SRP'} />
+                <Bar dataKey="qty" fill="#0071ce" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>}
+        </div>
+      </div>
 
       <div className="bg-white rounded-xl border border-[#E4E6EE] overflow-x-auto">
         <table className="w-full">
