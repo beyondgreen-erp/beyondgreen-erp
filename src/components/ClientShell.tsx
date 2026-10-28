@@ -7,6 +7,7 @@ import { usePermissions, boardKeyForPath } from '@/lib/permissions'
 import { installErrorReporter } from '@/lib/errorReporter'
 import PresenceTracker from './PresenceTracker'
 import TeamChat, { ChatLauncher } from './TeamChat'
+import ChatAlerts from './ChatAlerts'
 import MobileNav from './MobileNav'
 import InstallPrompt from './InstallPrompt'
 import { ToastProvider } from './Toast'
@@ -187,6 +188,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
       </div>
 
       <ChatLauncher />
+      <ChatAlerts />
       <PresenceTracker />
       <div className="md:hidden">
         <MobileNav />

@@ -86,6 +86,11 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
   const activeRef = useRef<string | null>(null)
   const overviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => { activeRef.current = activeId }, [activeId])
+  // let ChatAlerts know which conversation is open on screen (no ping for the one you're reading)
+  useEffect(() => {
+    const w = window as any; w.__teamChatActive = activeId; w.__teamChatVisible = true
+    return () => { if (w.__teamChatActive === activeId) { w.__teamChatActive = null; w.__teamChatVisible = false } }
+  }, [activeId])
 
   const active = convs.find(c => c.id === activeId) || null
   const team = useMemo(() => Object.values(profiles).filter(p => p.is_active !== false && p.email.toLowerCase() !== me.toLowerCase()).sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email)), [profiles, me])
@@ -428,14 +433,20 @@ export default function TeamChat({ mode = 'embedded', height = 560, initialConve
 export function ChatLauncher() {
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
+  const [conv, setConv] = useState<string | null>(null)
   const isDashboard = usePathname() === '/'   // re-evaluated on every client-side navigation
   useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }; document.addEventListener('keydown', onKey); return () => document.removeEventListener('keydown', onKey) }, [])
-  if (isDashboard) return <HiddenUnreadProbe onUnread={setUnread} />
+  // a chat alert was clicked: open the floating chat on that conversation
+  useEffect(() => {
+    const onOpen = (e: Event) => { const id = (e as CustomEvent).detail?.conversationId || null; setConv(id); setOpen(true) }
+    window.addEventListener('open-team-chat', onOpen); return () => window.removeEventListener('open-team-chat', onOpen)
+  }, [])
+  if (isDashboard && !open) return <HiddenUnreadProbe onUnread={setUnread} />
   return (
     <>
       {open && (
         <div className="fixed z-[70] bottom-20 right-4 left-4 sm:left-auto sm:w-[760px] max-w-[calc(100vw-2rem)]">
-          <TeamChat mode="floating" height="min(640px, calc(100vh - 7rem))" onUnread={setUnread} onClose={() => setOpen(false)} />
+          <TeamChat key={conv || 'chat'} mode="floating" height="min(640px, calc(100vh - 7rem))" initialConversationId={conv} onUnread={setUnread} onClose={() => setOpen(false)} />
         </div>
       )}
       {!open && <HiddenUnreadProbe onUnread={setUnread} />}
