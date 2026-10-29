@@ -769,6 +769,8 @@ export interface ShipLineInput {
   qtyToShip: number
 }
 
+const isWalmartSku = (s: string | null | undefined) => /^22GV[A-Z]\d{2}$/i.test(String(s || '').trim())   // Walmart SKUs ship from Built Inventory (Walmart board), not on-hand
+
 export async function shipOrder(
   orderId: string,
   shipLines: ShipLineInput[],
@@ -784,10 +786,10 @@ export async function shipOrder(
   // Stock guard: nothing ships that is not in inventory. (The database enforces the same rule
   // on the ledger; checking first means no half-written shipment.)
   {
-    const skus = toShip.map(l => l.sku).filter(Boolean) as string[]
+    const skus = toShip.map(l => l.sku).filter(s => s && !isWalmartSku(s)) as string[]
     if (skus.length) {
       const { data: stock } = await sb.from('products').select('sku, on_hand_qty').in('sku', skus)
-      const short = toShip.filter(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return p && Number(p.on_hand_qty ?? 0) < l.qtyToShip })
+      const short = toShip.filter(l => !isWalmartSku(l.sku)).filter(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return p && Number(p.on_hand_qty ?? 0) < l.qtyToShip })
         .map(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return `${l.sku}: shipping ${l.qtyToShip}, on hand ${Number(p?.on_hand_qty ?? 0)}` })
       if (short.length) return { success: false, message: 'Not enough inventory to ship — ' + short.join('; ') + '. Record the production (Shipping Queue → closeout will prompt for it) or receive the stock first. Nothing leaves on paper that is not in inventory.' }
     }
