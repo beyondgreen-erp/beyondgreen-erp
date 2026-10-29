@@ -860,7 +860,7 @@ export default function InventoryPage() {
   }
 
   function exportInventory(list: Product[], scope: string) {
-    const header = ['SKU','Product','Category','UOM','On Hand','Qty Last Updated','Updated How','Updated By','Allocated','Consumed Awaiting Dispatch','Available','Unit Cost','Inventory Value','UPC']
+    const header = ['SKU','Product','Category','UOM','On Hand','Built','Qty Last Updated','Updated How','Updated By','Unit Cost','Inventory Value','UPC']
     const data = list.map(p => {
       const k = String(p.sku ?? '').trim().toUpperCase()
       const so = soAlloc[k]?.qty || 0
@@ -871,9 +871,9 @@ export default function InventoryPage() {
       const uc = p.unit_cost ?? 0
       const stampedAt = p.qty_updated_at ? new Date(p.qty_updated_at) : null
       const how = p.qty_updated_source === 'manual' ? 'Manual' : p.qty_updated_source === 'auto' ? 'Auto' : ''
-      return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh,
+      return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh, Number((p as any).built_qty || 0),
               stampedAt && !isNaN(+stampedAt) ? stampedAt.toLocaleString() : '', how, p.qty_updated_by ?? '',
-              alloc, wmDispatch[k]?.qty || 0, oh - alloc, uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
+              uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
     })
     const ws = XLSX.utils.aoa_to_sheet([header, ...data])
     ws['!cols'] = [{wch:20},{wch:50},{wch:18},{wch:8},{wch:11},{wch:20},{wch:12},{wch:26},{wch:11},{wch:11},{wch:12},{wch:15},{wch:16}]
@@ -1410,7 +1410,7 @@ export default function InventoryPage() {
                             <th className="text-left font-semibold px-3 py-2.5 w-[130px]">Type</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[64px]">UOM</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[84px]">On Hand</th><th className="text-left font-semibold px-3 py-2.5 w-[132px]">Last Updated</th>
-                            <th className="text-right font-semibold px-3 py-2.5 w-[104px]" title="Allocated = stock committed to open sales orders + consumed by BOMs on open orders + reserved by hand. Available = on hand minus that. Hover any cell for the breakdown; a red number means oversold.">Alloc / Avail</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[104px]" title="Built Inventory — Walmart units on POs that are Prepped &amp; Ready for Dispatch. Not part of On Hand; shipping takes it from here.">Built</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[92px]">Unit Cost</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[110px]">Inv. Value</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[150px]">UPC</th>
@@ -1453,21 +1453,7 @@ export default function InventoryPage() {
                                 })()}</td>
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{qtyStamp(p)}</td>
-                                <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{(() => {
-                                  const k = String(p.sku ?? '').trim().toUpperCase()
-                                  const so = soAlloc[k]?.qty || 0          // finished goods on open sales orders
-                                  const a = allocMap[k]?.qty || 0          // BOM components consumed by open orders
-                                  const ma = manualAlloc[k] || 0           // hand-reserved stock
-                                  const tot = so + a + ma
-                                  if (tot <= 0) return <span className="text-gray-300 text-xs">—</span>
-                                  const avail = (p.on_hand_qty ?? 0) - tot
-                                  const parts = [
-                                    so>0?`${so.toLocaleString()} on ${soAlloc[k]?.orders || 0} open order${(soAlloc[k]?.orders || 0) === 1 ? '' : 's'}`:null,
-                                    a>0?`${a.toLocaleString()} BOM`:null,
-                                    ma>0?`${ma.toLocaleString()} manual`:null,
-                                  ].filter(Boolean).join(' + ')
-                                  return <div className="leading-tight" title={`Reserved: ${parts} — click to see what it's for`}><button type="button" onClick={(e)=>{e.stopPropagation(); setAllocDetail(p)}} className="text-[11px] text-violet-600 font-semibold underline decoration-dotted underline-offset-2 hover:text-violet-800">{tot.toLocaleString()} alloc{ma>0?' *':''}</button>{wmDispatch[k]?.qty > 0 && <div className="text-[10px] font-semibold text-amber-700 whitespace-nowrap" title={`Consumed Inventory Waiting Dispatch — ${wmDispatch[k].qty.toLocaleString()} on ${wmDispatch[k].orders} Walmart PO(s) in Prepped & Ready for Dispatch. Included in alloc; comes off on-hand when shipped.`}>{wmDispatch[k].qty.toLocaleString()} consumed · awaiting dispatch</div>}<div className={`text-[11px] font-semibold ${avail < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{avail.toLocaleString()} avail</div></div>
-                                })()}</td>
+                                <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{Number((p as any).built_qty || 0) > 0 ? <span className="text-[12px] font-semibold text-amber-700" title="Built on Walmart POs in Prepped &amp; Ready for Dispatch — ships from here">{Number((p as any).built_qty).toLocaleString()}</span> : <span className="text-gray-300 text-xs">—</span>}</td>
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="text-gray-500 text-xs font-mono truncate block max-w-[140px]">{p.upc_gtin ?? '-'}</span></td>
@@ -1482,7 +1468,7 @@ export default function InventoryPage() {
                                     <button onClick={() => setZoneProduct(p)} className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${zonedSet.has(p.id)?'bg-[#E7F0FB] text-[#2563EB] hover:bg-[#D6E6F8]':'bg-blue-500 text-white animate-pulse'}`}>Zone</button>
                                     {isFG && <button onClick={() => setLabelProduct(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#FBF0DD] hover:bg-[#F6E4C1] text-[#8A5A0B] transition-colors">Label</button>}
                                     <button onClick={() => toggleActivity(p)} title="Receiving & movement history" className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${activityOpen[p.id] ? 'bg-[#DDF3E8] text-[#0F7A4E]' : 'bg-[#EAF7F0] text-[#0F7A4E] hover:bg-[#DDF3E8]'}`}>Activity {activityOpen[p.id] ? '▾' : '▸'}</button>
-                                    <button onClick={() => setAllocProduct(p)} title="Reserve stock to an order/job" className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#E7EAFB] hover:bg-[#D6DCF8] text-[#4338CA] transition-colors">Alloc</button>
+
                                     <button onClick={() => handleDelete(p.id, p.sku)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#FBE9E9] hover:bg-[#F6D5D5] text-[#B3261E] transition-colors">Del</button>
                                   </div>
                                 </td>
@@ -1561,8 +1547,7 @@ export default function InventoryPage() {
                                 <p className={`text-[13px] font-medium text-[#1A1D2E] mt-0.5 ${isDisc ? 'line-through text-gray-400' : ''}`}>{p.product_name}</p>
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-gray-500">
                                   <span>On hand <b className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}>{p.on_hand_qty ?? 0}</b> {p.unit_of_measure ?? ''}</span>
-                                  {tot > 0 && <button type="button" onClick={e=>{e.stopPropagation(); setAllocDetail(p)}} className="text-violet-600 font-semibold underline decoration-dotted underline-offset-2">{tot.toLocaleString()} alloc</button>}
-                                  {wmDispatch[k]?.qty > 0 && <span className="text-amber-700 font-semibold">{wmDispatch[k].qty.toLocaleString()} consumed · awaiting dispatch</span>}
+                                  {Number((p as any).built_qty || 0) > 0 && <span className="text-amber-700 font-semibold">Built {Number((p as any).built_qty).toLocaleString()}</span>}
                                   {tot > 0 && <span className={avail < 0 ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'}>{avail.toLocaleString()} avail</span>}
                                   <span>{fmt$(p.unit_cost)}</span>
                                   {invValue > 0 && <span className="text-emerald-600">{fmtV(invValue)}</span>}
