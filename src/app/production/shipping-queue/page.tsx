@@ -165,6 +165,8 @@ function shipTo(o?: OrderInfo): { name: string; addr: string } {
 }
 function fmtMoney(n?: number | null) { return n != null ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—' }
 
+const isWalmartSku = (s: string | null | undefined) => /^22GV[A-Z]\d{2}$/i.test(String(s || '').trim())   // Walmart SKUs ship from Built Inventory (Walmart board), not on-hand
+
 export default function ShippingQueuePage() {
   const [items, setItems] = useState<QueueItem[]>([])
   const [wItems, setWItems] = useState<WQueueItem[]>([])
@@ -1447,7 +1449,7 @@ export default function ShippingQueuePage() {
           if (pid) {
             const cur = Number(prod?.on_hand_qty || 0)
             const nu = cur - stockQty
-            if (nu < 0) negWarn.push(`${r.sku} (now ${nu})`)
+            if (nu < 0 && !isWalmartSku(r.sku)) negWarn.push(`${r.sku} (now ${nu})`)
             await sb.from('products').update({ on_hand_qty: nu }).eq('id', pid)
           }
         } catch { /* ledger posting is best-effort */ }
@@ -1465,7 +1467,7 @@ export default function ShippingQueuePage() {
       // Stock guard — before anything is written. The database refuses a ship movement that
       // would go negative; catching it here lets the operator fix the cause (unposted production).
       {
-        const skus = Object.keys(shipNow).filter(k => k && shipNow[k] > 0)
+        const skus = Object.keys(shipNow).filter(k => k && shipNow[k] > 0 && !isWalmartSku(k))
         if (skus.length) {
           const { data: stock } = await sb.from('products').select('id, sku, product_name, on_hand_qty').in('sku', skus)
           const short = skus.map(sku => {
