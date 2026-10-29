@@ -120,7 +120,7 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
   return groups
 }
 
-interface StockRow { lu: number; oh: number; res: number; erp: number }
+interface StockRow { lu: number; oh: number; res: number; erp: number; rel: number; bld: number; blt: number }
 interface WO { id: string; wo_code: string | null; wo_number: number; status: string | null; start_date: string; due_date: string | null; notes: string | null; qty_ordered: number | null; qty_completed: number | null }
 interface Prog { work_order_id?: string; sku: string; product_name: string | null; target_qty: number; made_qty: number; left_qty: number; on_hand_qty: number | null }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
@@ -208,7 +208,7 @@ export default function WalmartProductionPage() {
     const ents = (entR.data as Entry[]) || []
     setEntries(ents)
     setProds(Object.fromEntries(((prodR.data as Prod[]) || []).map(p => [p.sku, p])))
-    setStock(Object.fromEntries(((allocR.data as any[]) || []).map(a => [String(a.sku).toUpperCase(), { lu: num(a.logged_unreleased), oh: num(a.on_hand), res: num(a.reserved), erp: num(a.erp_on_hand) }])))
+    setStock(Object.fromEntries(((allocR.data as any[]) || []).map(a => [String(a.sku).toUpperCase(), { lu: num(a.logged_unreleased), oh: num(a.on_hand), res: num(a.reserved), erp: num(a.erp_on_hand), rel: num(a.released), bld: num(a.building), blt: num(a.built) }])))
     if (w) {
       const [pgR, woR2, relR2, ldR, runR] = await Promise.all([
         sb.from('v_walmart_wo_progress').select('*').eq('work_order_id', w.id),
@@ -571,37 +571,38 @@ export default function WalmartProductionPage() {
         )}
       </div>
 
-      {/* Finished-goods position (from the board's own log → release → claim → ship flow) */}
+      {/* Finished-goods position — straight from the board: released → building → built → shipped */}
       <div className="mt-4 bg-white rounded-xl shadow-sm border border-[#ECEEF3] overflow-x-auto">
         <p className="px-4 pt-3 font-bold text-[#1A1D2E] text-sm">Walmart finished goods</p>
-        <table className="w-full text-sm min-w-[640px] mt-2">
+        <table className="w-full text-sm min-w-[720px] mt-2">
           <thead><tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
             <th className="text-left px-4 py-2">SKU</th>
-            <th className="text-right px-3 py-2" title="Released by production, not yet claimed by the build team">On hand</th>
-            <th className="text-right px-3 py-2" title="Claimed by the build team, PO not shipped yet">Reserved</th>
-            <th className="text-right px-3 py-2" title="Logged by production but not released to a PO yet">Logged, not released</th>
-            <th className="text-right px-3 py-2" title="products.on_hand_qty — the inventory record, for comparison">Inventory record</th>
+            <th className="text-right px-3 py-2" title="Released by production to a PO, not yet claimed by the build team">Released</th>
+            <th className="text-right px-3 py-2" title="Claimed by the build team on POs still being built">Building</th>
+            <th className="text-right px-3 py-2" title="On hand = Released + Building. This is the inventory record's on-hand for this SKU.">On hand</th>
+            <th className="text-right px-3 py-2" title="Built Inventory — claimed on POs that are Prepped & Ready for Dispatch. Shipping takes it from here.">Built</th>
+            <th className="text-right px-3 py-2" title="Logged by production but not released to a PO yet (not counted in on hand)">Logged, not released</th>
             <th className="text-right px-4 py-2">Left this week</th>
           </tr></thead>
           <tbody>
             {SKUS.map(s => {
-              const st = stock[s.sku] || { lu: 0, oh: 0, res: 0, erp: 0 }
-              const gap = st.erp - (st.oh + st.res + st.lu)
+              const st = stock[s.sku] || { lu: 0, oh: 0, res: 0, erp: 0, rel: 0, bld: 0, blt: 0 }
               const p = progBySku[s.sku]
               return (
                 <tr key={s.sku} className="border-b border-[#F4F5F8]">
                   <td className="px-4 py-2"><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: s.color }} />{s.short} <span className="font-mono text-[10px] text-gray-400">{s.sku}</span></td>
+                  <td className="px-3 py-2 text-right text-gray-700">{fmtN(st.rel)}</td>
+                  <td className="px-3 py-2 text-right text-gray-700">{fmtN(st.bld)}</td>
                   <td className="px-3 py-2 text-right font-bold text-[#1A1D2E]">{fmtN(st.oh)}</td>
-                  <td className="px-3 py-2 text-right text-[#7e3af2] font-semibold">{fmtN(st.res)}</td>
-                  <td className="px-3 py-2 text-right text-gray-600">{fmtN(st.lu)}</td>
-                  <td className="px-3 py-2 text-right text-gray-400">{fmtN(st.erp)}{Math.abs(gap) >= 1 ? <span className={`ml-1 text-[10px] font-semibold ${gap > 0 ? 'text-amber-600' : 'text-red-600'}`}>({gap > 0 ? '+' : ''}{fmtN(gap)})</span> : null}</td>
+                  <td className="px-3 py-2 text-right text-[#b45309] font-semibold">{fmtN(st.blt)}</td>
+                  <td className="px-3 py-2 text-right text-gray-500">{fmtN(st.lu)}</td>
                   <td className="px-4 py-2 text-right">{p ? fmtN(p.left_qty) : '—'}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-        <p className="px-4 py-2 text-[11px] text-gray-400">SRP = 1 case of 6 packs. <b>On hand</b> = released by production and not yet claimed. <b>Reserved</b> = claimed by the build team, waiting to ship (comes off when the PO ships). <b>Inventory record</b> is the ERP on-hand for comparison — the bracket shows how far it is from what the board can account for.</p>
+        <p className="px-4 py-2 text-[11px] text-gray-400">SRP = 1 case of 6 packs. <b>On hand</b> = released by production + being built by the build team — this is exactly what the Inventory board shows. When a PO moves to <b>Prepped &amp; Ready for Dispatch</b> its units move to <b>Built</b>, and shipping takes them from Built (never blocked by on-hand). Logged-but-not-released units are not counted until they are released.</p>
       </div>
 
       </>}
@@ -945,7 +946,7 @@ function WoModal({ sb, wo, existing = 0, week, prods, stock, prog, onClose, onSa
             <div className="overflow-x-auto rounded-xl border border-[#ECEEF3]">
               <table className="w-full text-sm min-w-[560px]">
                 <thead><tr className="text-[11px] uppercase text-gray-400 bg-[#FBFCFE]">
-                  <th className="text-left px-3 py-2">SKU</th><th className="text-right px-2 py-2">From orders</th><th className="text-right px-2 py-2" title="Released, not claimed">On hand</th><th className="text-right px-2 py-2" title="Claimed by the build team, not shipped">Reserved</th><th className="text-right px-3 py-2 w-28">Target</th>
+                  <th className="text-left px-3 py-2">SKU</th><th className="text-right px-2 py-2">From orders</th><th className="text-right px-2 py-2" title="Released + being built">On hand</th><th className="text-right px-2 py-2" title="Built on POs in Prepped &amp; Ready for Dispatch, waiting to ship">Built</th><th className="text-right px-3 py-2 w-28">Target</th>
                 </tr></thead>
                 <tbody>
                   {SKUS.map(s => (
