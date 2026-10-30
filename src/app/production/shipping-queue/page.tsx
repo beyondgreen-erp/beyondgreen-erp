@@ -1469,12 +1469,12 @@ export default function ShippingQueuePage() {
       {
         const skus = Object.keys(shipNow).filter(k => k && shipNow[k] > 0 && !isWalmartSku(k))
         if (skus.length) {
-          const { data: stock } = await sb.from('products').select('id, sku, product_name, on_hand_qty').in('sku', skus)
+          const { data: stock } = await sb.from('products').select('id, sku, product_name, on_hand_qty, production_line').in('sku', skus)
           const short = skus.map(sku => {
             const p = ((stock as any[]) || []).find(x => String(x.sku).toUpperCase() === sku.toUpperCase())
             const onHand = Number(p?.on_hand_qty ?? 0); const need = shipNow[sku]
             const row = plan.find(r => r.sku === sku)
-            return p && onHand < need ? { sku, productId: String(p.id), description: p.product_name || row?.description || '', need, onHand, qty: String(need - onHand), lot: `${sku}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}` } : null
+            return p && p.production_line !== 'straw' && onHand < need ? { sku, productId: String(p.id), description: p.product_name || row?.description || '', need, onHand, qty: String(need - onHand), lot: `${sku}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}` } : null
           }).filter(Boolean) as NonNullable<typeof stockBlock>
           if (short.length) { pendingMove.current = { keepOpen, closeShort, shortReason }; setStockBlock(short); setCoBusy(''); return }
         }
