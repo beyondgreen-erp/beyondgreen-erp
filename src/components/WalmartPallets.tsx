@@ -408,11 +408,16 @@ export function WalmartPalletQueue({ sb, canEdit }: { sb: any; canEdit: boolean 
 }
 
 // ── process timeline (top of the Walmart Sales Order board) ───────────────────
+// One race track. Each open PO is a runner placed at its stage; it moves along the
+// segment as more of its pallets clear that stage. Colors = work order.
 const TL = ['PO in', 'Planned', 'Staged', 'Released', 'Claimed', 'Wrap & label', 'Built', 'Ready to ship'] as const
+const WO_COLORS = ['#0071ce', '#e2445c', '#00a85a', '#a25ddc', '#fdab3d', '#0ea5e9', '#f97316', '#64748b']
 export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orderId: string) => void }) {
   const [orders, setOrders] = useState<any[]>([])
   const [links, setLinks] = useState<{ walmart_order_id: string; work_order_id: string; work_orders: { wo_code: string | null } | null }[]>([])
   const [collapsed, setCollapsed] = useState(false)
+  const [woFilter, setWoFilter] = useState<string | null>(null)
+  const [hover, setHover] = useState<string | null>(null)
   const load = useCallback(async () => {
     const [{ data: o }, { data: l }] = await Promise.all([
       sb.from('walmart_board_orders').select('id,po_number,name,ship_due_date,group_name').not('group_name', 'in', '("Shipped","Cancelled")').eq('archived', false),
@@ -429,61 +434,101 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
   }, [sb, load])
   const ids = useMemo(() => orders.map(o => o.id), [orders])
   const { pallets } = usePalletData(sb, ids)
-  const stageOf = (o: any) => {
-    const ps = pallets.filter(p => p.order_id === o.id)
-    if (['Ready for Shipment', 'Prepped & Ready for Dispatch'].includes(o.group_name)) return 7
-    if (!ps.length) return 0
-    return 1 + Math.min(...ps.map(p => stepIdx(p.status)))
-  }
-  const groups = useMemo(() => {
-    const m = new Map<string, { code: string; list: any[] }>()
-    for (const o of orders) {
-      const l = links.find(x => x.walmart_order_id === o.id)
-      const k = l?.work_order_id || 'none'
-      if (!m.has(k)) m.set(k, { code: l?.work_orders?.wo_code || 'No work order', list: [] })
-      m.get(k)!.list.push(o)
-    }
-    return Array.from(m.values()).map(g => ({ ...g, list: g.list.sort((a, b) => String(a.ship_due_date || '9999').localeCompare(String(b.ship_due_date || '9999'))) }))
-      .sort((a, b) => (a.code === 'No work order' ? 1 : 0) - (b.code === 'No work order' ? 1 : 0) || a.code.localeCompare(b.code))
+
+  const wos = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const o of orders) { const l = links.find(x => x.walmart_order_id === o.id); m.set(l?.work_order_id || 'none', l?.work_orders?.wo_code || 'No work order') }
+    return Array.from(m.entries()).sort((a, b) => (a[0] === 'none' ? 1 : 0) - (b[0] === 'none' ? 1 : 0) || a[1].localeCompare(b[1])).map(([id, code], i) => ({ id, code, color: id === 'none' ? '#9699a6' : WO_COLORS[i % WO_COLORS.length] }))
   }, [orders, links])
-  const colors = ['#c4c4c4', '#9699a6', '#579bfc', '#a25ddc', '#fdab3d', '#ff7575', '#00c875', '#037f4c']
+
+  // runner position: stage = slowest pallet; progress inside the segment = share of pallets already past it
+  const runners = useMemo(() => {
+    const out = orders.map(o => {
+      const ps = pallets.filter(p => p.order_id === o.id)
+      const built = ps.filter(p => p.status === 'built').length
+      let st = 0, frac = 0
+      if (['Ready for Shipment', 'Prepped & Ready for Dispatch'].includes(o.group_name)) st = 7
+      else if (ps.length) {
+        const idx = ps.map(p => 1 + stepIdx(p.status))
+        st = Math.min(...idx)
+        frac = idx.filter(x => x > st).length / ps.length
+      }
+      const l = links.find(x => x.walmart_order_id === o.id)
+      const wo = wos.find(w => w.id === (l?.work_order_id || 'none'))
+      const counts = STEPS.map(s => ps.filter(p => p.status === s.key).length)
+      return { o, st, frac, built, total: ps.length, wo, counts, x: st >= 7 ? 100 : ((st + frac * 0.85) / 7) * 100 }
+    }).filter(r => !woFilter || r.wo?.id === woFilter)
+    // lanes so runners at the same spot don't sit on top of each other
+    out.sort((a, b) => a.x - b.x || String(a.o.ship_due_date || '').localeCompare(String(b.o.ship_due_date || '')))
+    const lastX: number[] = []
+    return out.map(r => {
+      let lane = 0
+      while (lastX[lane] !== undefined && r.x - lastX[lane] < 5.5) lane++
+      lastX[lane] = r.x
+      return { ...r, lane }
+    })
+  }, [orders, pallets, links, wos, woFilter])
+  const lanes = Math.max(1, ...runners.map(r => r.lane + 1))
+  const above = Math.ceil(lanes / 2)
+  const ROW = 30, TRACK = 14
+  const topOf = (lane: number) => lane % 2 === 0 ? (above - 1 - lane / 2) * ROW : above * ROW + TRACK + 8 + ((lane - 1) / 2) * ROW
+  const height = above * ROW + TRACK + 8 + Math.floor(lanes / 2) * ROW + 26
+  const atStage = TL.map((_, i) => runners.filter(r => r.st === i).length)
+  const hov = runners.find(r => r.o.id === hover)
+
   return (
     <div className="bg-white rounded-xl border border-[#ECEEF3] shadow-sm mb-4 overflow-hidden">
-      <button onClick={() => setCollapsed(c => !c)} className="w-full flex items-center justify-between px-4 py-2.5 border-b border-[#F0F2F6]" data-ro-ok>
-        <span className="font-bold text-sm text-[#1A1D2E]">Process timeline <span className="text-gray-400 font-normal text-xs">— where every open PO is, by work order</span></span>
-        <span className="text-xs text-gray-400">{collapsed ? 'Show ▾' : 'Hide ▴'}</span>
-      </button>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-[#F0F2F6]">
+        <span className="font-bold text-sm text-[#1A1D2E] mr-auto">Process timeline <span className="text-gray-400 font-normal text-xs">— every open PO on one track</span></span>
+        {!collapsed && <>
+          <button onClick={() => setWoFilter(null)} data-ro-ok className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${!woFilter ? 'bg-[#1A1D2E] text-white border-[#1A1D2E]' : 'border-[#E4E6EE] text-gray-600'}`}>All ({orders.length})</button>
+          {wos.map(w => <button key={w.id} onClick={() => setWoFilter(f => f === w.id ? null : w.id)} data-ro-ok className="text-[11px] font-semibold px-2.5 py-1 rounded-full border flex items-center gap-1.5"
+            style={{ borderColor: woFilter === w.id ? w.color : '#E4E6EE', background: woFilter === w.id ? w.color + '18' : '#fff', color: '#3A4A6B' }}>
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: w.color }} />{w.code}</button>)}
+        </>}
+        <button onClick={() => setCollapsed(c => !c)} className="text-xs text-gray-400 ml-2" data-ro-ok>{collapsed ? 'Show ▾' : 'Hide ▴'}</button>
+      </div>
       {!collapsed && <div className="overflow-x-auto">
-        <div className="min-w-[860px]">
-          <div className="grid items-end px-4 pt-3 pb-1" style={{ gridTemplateColumns: `200px repeat(${TL.length}, 1fr)` }}>
-            <span />
-            {TL.map((t, i) => <span key={t} className="text-[10px] font-bold uppercase tracking-wide text-center" style={{ color: colors[i] }}>{t}</span>)}
-          </div>
-          {groups.map(g => (
-            <div key={g.code} className="pb-2">
-              <p className="px-4 pt-2 text-[11px] font-bold text-[#3A4A6B]">{g.code} <span className="text-gray-400 font-normal">· {g.list.length} PO{g.list.length === 1 ? '' : 's'}</span></p>
-              {g.list.map(o => {
-                const st = stageOf(o)
-                const ps = pallets.filter(p => p.order_id === o.id)
-                const built = ps.filter(p => p.status === 'built').length
-                return (
-                  <div key={o.id} className="grid items-center px-4 py-1 hover:bg-[#F7F9FC] cursor-pointer" style={{ gridTemplateColumns: `200px repeat(${TL.length}, 1fr)` }} onClick={() => onOpen?.(o.id)}>
-                    <div className="min-w-0 pr-2">
-                      <p className="text-[12px] font-semibold text-[#1A1D2E] truncate">PO {o.po_number || '—'}</p>
-                      <p className="text-[10px] text-gray-400 truncate">{o.ship_due_date ? 'ship ' + o.ship_due_date + ' · ' : ''}{ps.length ? `${built}/${ps.length} pallets built` : 'no pallets'}</p>
-                    </div>
-                    {TL.map((_, i) => (
-                      <div key={i} className="relative h-6 flex items-center justify-center">
-                        <div className="absolute left-0 right-0 h-1" style={{ background: i <= st ? colors[Math.min(st, 7)] + '55' : '#EEF0F4', borderRadius: i === 0 ? '4px 0 0 4px' : i === TL.length - 1 ? '0 4px 4px 0' : 0 }} />
-                        {i === st
-                          ? <span className="relative w-4 h-4 rounded-full border-2 border-white shadow" style={{ background: colors[st] }} title={TL[st]} />
-                          : <span className="relative w-1.5 h-1.5 rounded-full" style={{ background: i < st ? colors[Math.min(st, 7)] : '#d0d4de' }} />}
-                      </div>))}
-                  </div>)
-              })}
-            </div>))}
-          {groups.length === 0 && <p className="px-4 py-4 text-sm text-gray-400">No open Walmart POs.</p>}
+        <div className="relative min-w-[900px] mx-6 my-4" style={{ height }}>
+          {/* track */}
+          <div className="absolute left-0 right-0 rounded-full" style={{ top: above * ROW + 4, height: TRACK, background: 'linear-gradient(90deg,#e5e7eb,#d1fae5)' }} />
+          {TL.map((t, i) => {
+            const x = (i / 7) * 100
+            return (
+              <div key={t} className="absolute" style={{ left: `${x}%`, top: 0, bottom: 0 }}>
+                <div className="absolute w-px bg-[#E4E6EE]" style={{ top: 0, bottom: 22, left: 0 }} />
+                <div className="absolute w-3 h-3 rounded-full bg-white border-2 border-[#9aa3b5]" style={{ top: above * ROW + 4 + TRACK / 2 - 6, left: -6 }} />
+                <div className="absolute whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-gray-500" style={{ bottom: 0, left: 0, transform: i === 0 ? 'none' : i === 7 ? 'translateX(-100%)' : 'translateX(-50%)' }}>
+                  {t}{atStage[i] ? <span className="ml-1 text-[#1A1D2E]">{atStage[i]}</span> : null}</div>
+              </div>)
+          })}
+          {/* runners */}
+          {runners.map(r => {
+            const top = topOf(r.lane)
+            const left = `${r.x}%`
+            const isH = hover === r.o.id
+            return (
+              <div key={r.o.id}>
+                <div className="absolute w-px" style={{ left, top: r.lane % 2 === 0 ? top + 22 : above * ROW + 4 + TRACK, height: r.lane % 2 === 0 ? above * ROW + 4 - top - 22 : top - (above * ROW + 4 + TRACK), background: (r.wo?.color || '#999') + '88' }} />
+                <button onMouseEnter={() => setHover(r.o.id)} onMouseLeave={() => setHover(h => h === r.o.id ? null : h)} onClick={() => onOpen?.(r.o.id)} data-ro-ok
+                  className={`absolute h-[22px] px-2 rounded-full text-[10px] font-bold text-white shadow-sm whitespace-nowrap transition-transform ${isH ? 'scale-110 z-20' : 'z-10'}`}
+                  style={{ left, top, transform: `translateX(${r.x > 92 ? '-100%' : r.x < 4 ? '0' : '-50%'})`, background: r.wo?.color || '#999', outline: isH ? '2px solid #1A1D2E' : 'none' }}
+                  title={`PO ${r.o.po_number}`}>
+                  {String(r.o.po_number || '—').slice(-4)}{r.total ? <span className="font-normal opacity-80"> {r.built}/{r.total}</span> : null}
+                </button>
+              </div>)
+          })}
+          {hov && (
+            <div className="absolute z-30 bg-[#1A1D2E] text-white rounded-lg shadow-xl px-3 py-2 text-[11px] pointer-events-none" style={{ left: `min(calc(${hov.x}% + 8px), calc(100% - 230px))`, top: topOf(hov.lane) + 26, width: 220 }}>
+              <p className="font-bold text-[12px]">PO {hov.o.po_number}</p>
+              <p className="opacity-80">{hov.wo?.code}{hov.o.ship_due_date ? ' · ship ' + hov.o.ship_due_date : ''}</p>
+              <p className="mt-1">Stage: <b>{TL[hov.st]}</b> · {hov.built}/{hov.total} pallets built</p>
+              {hov.total > 0 && <p className="opacity-80">{STEPS.map((s, i) => hov.counts[i] ? `${hov.counts[i]} ${s.label.toLowerCase()}` : '').filter(Boolean).join(' · ')}</p>}
+              <p className="opacity-60 mt-1">Click to open</p>
+            </div>)}
         </div>
+        {runners.length === 0 && <p className="px-4 pb-4 text-sm text-gray-400">No open Walmart POs.</p>}
+        <p className="px-4 pb-3 text-[10px] text-gray-400">Each tag is a PO (last 4 digits · pallets built). It sits at the stage of its slowest pallet and moves along as more pallets clear that stage. Hover for detail, click to open, tap a work order to show only its POs.</p>
       </div>}
     </div>
   )
