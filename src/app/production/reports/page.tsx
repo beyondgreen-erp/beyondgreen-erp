@@ -38,11 +38,14 @@ export default function ProductionReportsPage() {
   const [showNewReportDialog, setShowNewReportDialog] = useState(false)
   // Daily / Monthly / Fiscal Year production totals from the Walmart Production board logs
   const [period, setPeriodState] = useState<Period | null>(null)
+  // Straws only have the Daily / Monthly / FY totals (no weekly channel reports)
+  const [strawTab, setStrawTab] = useState(false)
   const setPeriod = (p: Period | null) => {
     setPeriodState(p)
     try { const u = new URL(window.location.href); if (p) u.searchParams.set('view', p); else u.searchParams.delete('view'); window.history.replaceState(null, '', u.toString()) } catch { /* ignore */ }
   }
-  useEffect(() => { const v = new URLSearchParams(window.location.search).get('view'); if (v === 'daily' || v === 'monthly' || v === 'fy') { setPeriodState(v); setActiveTab('walmart') } }, [])
+  useEffect(() => { const v = new URLSearchParams(window.location.search).get('view'); if (v === 'daily' || v === 'monthly' || v === 'fy') { setPeriodState(v); setActiveTab('walmart') }
+    if (new URLSearchParams(window.location.search).get('board') === 'straw') { setStrawTab(true); setPeriodState(p => p || 'daily') } }, [])
 
   // Get user email
   useEffect(() => {
@@ -208,7 +211,7 @@ export default function ProductionReportsPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-2xl font-bold text-[#1A1D2E]">Production Reports</h1>
-              <p className="text-sm text-gray-500 mt-1">{period ? 'Walmart production totals — Daily, Monthly and Fiscal Year' : 'Weekly channel reports for Walmart & Chewy'}</p>
+              <p className="text-sm text-gray-500 mt-1">{strawTab ? 'Straw production totals — Daily, Monthly and Fiscal Year' : period ? 'Walmart production totals — Daily, Monthly and Fiscal Year' : 'Weekly channel reports for Walmart & Chewy'}</p>
             </div>
             <div className="flex gap-2">
               {viewMode === 'detail' && selectedReport && (
@@ -220,7 +223,7 @@ export default function ProductionReportsPage() {
                   Export CSV
                 </button>
               )}
-              {!period && <button
+              {!period && !strawTab && <button
                 onClick={() => setShowNewReportDialog(true)}
                 className="px-4 py-2 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
               >
@@ -236,13 +239,14 @@ export default function ProductionReportsPage() {
               <button
                 key={tab.id}
                 onClick={() => {
+                  setStrawTab(false)
                   setActiveTab(tab.id)
                   setPeriod(null)
                   setViewMode('list')
                   setSelectedReport(null)
                 }}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  activeTab === tab.id
+                  !strawTab && activeTab === tab.id
                     ? 'border-b-2 border-blue-500 text-blue-600'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
@@ -250,8 +254,18 @@ export default function ProductionReportsPage() {
                 {tab.label}
               </button>
             ))}
+            <button onClick={() => { setStrawTab(true); setPeriod(period || 'daily'); setViewMode('list'); setSelectedReport(null) }}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${strawTab ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Straws</button>
           </div>
-          {activeTab === 'walmart' && (
+          {strawTab && (
+            <div className="flex gap-1.5 pt-3 overflow-x-auto">
+              {([['daily', 'Daily Production'], ['monthly', 'Monthly Production'], ['fy', 'Fiscal Year (FY)']] as const).map(([k, l]) => (
+                <button key={l} onClick={() => setPeriod(k)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border transition-colors ${period === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-[#E4E6EE] hover:border-blue-300'}`}>{l}</button>
+              ))}
+            </div>
+          )}
+          {!strawTab && activeTab === 'walmart' && (
             <div className="flex gap-1.5 pt-3 overflow-x-auto">
               {([[null, 'Weekly Reports'], ['daily', 'Daily Production'], ['monthly', 'Monthly Production'], ['fy', 'Fiscal Year (FY)']] as const).map(([k, l]) => (
                 <button key={l} onClick={() => { setPeriod(k); setViewMode('list'); setSelectedReport(null) }}
@@ -264,7 +278,7 @@ export default function ProductionReportsPage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {period && activeTab === 'walmart' ? <WalmartProductionTotals sb={sb} period={period} onPeriod={setPeriod} /> : <>
+        {strawTab ? <WalmartProductionTotals kind="straw" sb={sb} period={period || 'daily'} onPeriod={setPeriod} /> : period && activeTab === 'walmart' ? <WalmartProductionTotals sb={sb} period={period} onPeriod={setPeriod} /> : <>
         {/* Error State */}
         {(reportsError || itemsError) && (
           <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200">
