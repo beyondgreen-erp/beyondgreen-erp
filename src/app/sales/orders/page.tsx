@@ -2437,9 +2437,25 @@ export default function OrdersPage() {
     } finally { setRequestingPart(false) }
   }
 
-  async function openEdit(order: SalesOrder) {
-    // Load lines for this order
-    const { data: lines } = await sb.from('sales_order_lines').select('*').eq('sales_order_id', order.id).order('line_number')
+  // What the order looked like in the database when this window opened. Saving checks it
+  // again, so a window left open for hours can't quietly put old values back over a
+  // teammate's newer edits (PO#, ship-to, quantities, price…).
+  const openSnap = useRef<{ id: string; head: string; lines: string } | null>(null)
+  const HEAD_KEYS = ['notes', 'order_section', 'order_number', 'po_number', 'status', 'facility', 'carrier', 'order_date', 'production_start', 'estimated_completion', 'required_ship_date', 'ship_date', 'customer_id', 'customer_email', 'customer_phone', 'shipping_address', 'billing_address', 'purchase_order_url', 'packing_slip_url', 'bol', 'additional_comments', 'terms', 'fob', 'sales_rep', 'client_portal_visible', 'client_portal_name', 'broker_cost', 'broker_commission_basis', 'broker_commission_status']
+  const LINE_KEYS = ['id', 'sku', 'description', 'quantity', 'unit_of_measure', 'unit_price', 'uom_factor', 'qty_base', 'added_details', 'product_id', 'packaging', 'our_part_number']
+  const fpHead = (o: any) => JSON.stringify(HEAD_KEYS.map(k => o?.[k] ?? null))
+  const fpLines = (ls: any[] | null | undefined) => JSON.stringify((ls ?? []).slice().sort((a: any, b: any) => String(a.id).localeCompare(String(b.id))).map((l: any) => LINE_KEYS.map(k => l?.[k] == null ? null : String(l[k]))))
+
+  async function openEdit(listOrder: SalesOrder) {
+    // Always edit what is in the database right now, not the copy on the board (which
+    // can be hours old if this tab was left open).
+    const [{ data: fresh }, { data: lines }] = await Promise.all([
+      sb.from('sales_orders').select('*, customer:customers(id,company_name,email,phone,city,state)').eq('id', listOrder.id).maybeSingle(),
+      sb.from('sales_order_lines').select('*').eq('sales_order_id', listOrder.id).order('line_number'),
+    ])
+    const order = (fresh ? { ...listOrder, ...fresh } : listOrder) as SalesOrder
+    if (fresh) setOrders(os => os.map(o => o.id === order.id ? order : o))
+    openSnap.current = { id: order.id, head: fpHead(fresh ?? order), lines: fpLines(lines as any[]) }
     setEditLines((lines ?? []).map((l: any) => ({
       _key: l.id,
       id: l.id,
@@ -2518,6 +2534,21 @@ export default function OrdersPage() {
     { const badPrice = editLines.filter(l => (l.sku || l.description) && String(l.unit_price ?? '').trim() && !Number.isFinite(parseMoney(l.unit_price)))
       if (badPrice.length) { setErr(`The unit price on ${badPrice.map(l => l.sku || l.description).join(', ')} isn't a number — type just the amount, e.g. 23.33.`); return } }
     setErr(''); setSaving(true)
+    if (editingOrder && openSnap.current?.id === editingOrder.id) {
+      const [{ data: nowHead }, { data: nowLines }, { data: lastVer }] = await Promise.all([
+        sb.from('sales_orders').select('*').eq('id', editingOrder.id).maybeSingle(),
+        sb.from('sales_order_lines').select('*').eq('sales_order_id', editingOrder.id),
+        sb.from('sales_order_versions').select('changed_by,created_at').eq('sales_order_id', editingOrder.id).order('version_no', { ascending: false }).limit(1),
+      ])
+      if (nowHead && (fpHead(nowHead) !== openSnap.current.head || fpLines(nowLines as any[]) !== openSnap.current.lines)) {
+        const lv: any = (lastVer as any[])?.[0]
+        const by = lv?.changed_by ? String(lv.changed_by).split('@')[0] : 'someone'
+        const at = lv?.created_at ? new Date(lv.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
+        setSaving(false)
+        setErr(`Not saved — ${by} changed this order${at ? ' at ' + at : ''} after you opened it. Saving now would put their changes back to the old values. Close this window, open the order again to get the latest, then make your change.`)
+        return
+      }
+    }
 
     let soNum = form.order_number.trim()
     // Prevent duplicate SO# from concurrent entry: if the number is the one we auto-suggested
