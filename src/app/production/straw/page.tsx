@@ -150,6 +150,7 @@ export default function StrawProductionPage() {
     setFlash(ok(data)); reload(); return true
   }
   const setTarget = (wo: string, sku: string, qty: number) => run(() => sb.rpc('straw_wo_set_target', { p_wo: wo, p_sku: sku, p_qty: qty }) as any, () => `✓ Target for ${sku} set to ${fmtN(qty)} cases.`)
+  const delWo = (wo: WO) => { if (!window.confirm(`Delete work order ${wo.wo_code}? Nothing has been logged on it. Its POs go back to "no work order".`)) return; run(() => sb.rpc('straw_wo_delete', { p_wo: wo.id }) as any, () => `🗑 ${wo.wo_code} deleted.`) }
   const reopen = (wo: WO) => run(() => sb.rpc('straw_wo_set_status', { p_wo: wo.id, p_status: 'In Progress' }) as any, () => `✓ ${wo.wo_code} reopened.`)
   async function undoEntries(ids: string[], label: string, ask = true) {
     const reason = ask ? window.prompt(`Undo ${label}?\n\nWhy? (e.g. "Logged by mistake", "Wrong SKU")`, 'Logged by mistake') : 'Logged by mistake (undo right after logging)'
@@ -252,6 +253,7 @@ export default function StrawProductionPage() {
                   {canEdit && !done && <button onClick={() => setEditTargets(editTargets === wo.id ? null : wo.id)} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">{editTargets === wo.id ? 'Done editing' : '✎ Targets'}</button>}
                   <button onClick={() => setSum({ id: wo.id, mode: 'view' })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>📄 Summary</button>
                   {canEdit && !done && <button onClick={() => setSum({ id: wo.id, mode: 'close' })} className="h-9 px-3 rounded-lg text-xs font-bold text-white bg-[#00a85a]">Close out</button>}
+                  {canEdit && !done && made === 0 && <button onClick={() => delWo(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-red-200 text-xs font-semibold text-red-600">Delete</button>}
                   {canEdit && done && <button onClick={() => reopen(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">Reopen</button>}
                 </div>
               </div>
@@ -265,7 +267,7 @@ export default function StrawProductionPage() {
                       <div className="flex-1 h-2.5 bg-[#F0F2F6] rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: pct + '%', background: num(r.made_qty) >= num(r.target_qty) && num(r.target_qty) > 0 ? '#00c875' : ACCENT }} /></div>
                       {editTargets === wo.id
                         ? <input type="number" min={0} defaultValue={num(r.target_qty)} onBlur={e => { const v = Number(e.target.value); if (v !== num(r.target_qty)) setTarget(wo.id, r.sku, v) }} className="w-24 h-8 border border-[#E4E6EE] rounded px-2 text-sm text-right" />
-                        : <p className="w-28 text-right text-sm"><b>{fmtN(r.made_qty)}</b><span className="text-gray-400"> / {fmtN(r.target_qty)}</span></p>}
+                        : <p className="w-40 text-right text-sm"><b>{fmtN(r.made_qty)}</b><span className="text-gray-400"> / {fmtN(r.target_qty)}</span>{(() => { const st = stock.find(x => x.sku === r.sku); return st?.per_case && num(st.per_case) !== 1 ? <span className="block text-[10px] text-gray-400">{fmtN(num(r.target_qty) * num(st.per_case))} {st.uom} · {fmtN(st.per_case)}/case</span> : null })()}</p>}
                     </div>)
                 })}
                 {editTargets === wo.id && <AddTarget skus={stock.map(s => s.sku).filter(s => !rows.some(r => r.sku === s))} onAdd={(sku, q) => setTarget(wo.id, sku, q)} />}
@@ -368,7 +370,7 @@ export default function StrawProductionPage() {
                   return (
                     <tr key={l.line_id}>
                       <td className={td}><p className="font-mono text-[12px] font-semibold">{l.sku}</p><p className="text-[10px] text-gray-400 truncate max-w-[280px]">{l.product_name}</p></td>
-                      <td className={td + ' text-right'}>{fmtN(l.ordered)}</td>
+                      <td className={td + ' text-right'}>{fmtN(l.ordered)}{(() => { const st = stock.find(x => x.sku === l.sku); return st?.per_case && num(st.per_case) !== 1 ? <span className="block text-[10px] text-gray-400">{fmtN(num(l.ordered) * num(st.per_case))} {st.uom}</span> : null })()}</td>
                       <td className={td + ' text-right'}>{fmtN(l.released)}</td>
                       <td className={td + ' text-right text-amber-700'}>{num(l.built) ? fmtN(l.built) : '—'}</td>
                       <td className={td + ' text-right'}>{num(l.shipped) ? fmtN(l.shipped) : '—'}</td>
@@ -411,7 +413,7 @@ export default function StrawProductionPage() {
 const ACTION: Record<string, string> = {
   logged: 'Logged production', voided: 'Removed a log', released: 'Released to order', release_undone: 'Undid a release',
   auto_release_on_ship: 'Shipped from free stock', wo_created: 'Created work order', wo_closed: 'Closed out work order',
-  wo_reopened: 'Reopened work order', target_set: 'Set target', case_size_set: 'Set case size',
+  wo_reopened: 'Reopened work order', wo_deleted: 'Deleted work order', wo_order_added: 'Added PO to work order', target_set: 'Set target', case_size_set: 'Set case size',
 }
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
