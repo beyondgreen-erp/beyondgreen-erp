@@ -411,6 +411,7 @@ export function WalmartPalletQueue({ sb, canEdit }: { sb: any; canEdit: boolean 
 // One race track. Each open PO is a runner placed at its stage; it moves along the
 // segment as more of its pallets clear that stage. Colors = work order.
 const TL = ['PO in', 'Planned', 'Staged', 'Released', 'Claimed', 'Wrap & label', 'Built', 'Ready to ship'] as const
+const PER_ROW = 5, DOT = 19
 const WO_COLORS = ['#0071ce', '#e2445c', '#00a85a', '#a25ddc', '#fdab3d', '#0ea5e9', '#f97316', '#64748b']
 export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orderId: string) => void }) {
   const [orders, setOrders] = useState<any[]>([])
@@ -458,22 +459,21 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
       const counts = STEPS.map(s => ps.filter(p => p.status === s.key).length)
       return { o, st, frac, built, total: ps.length, wo, counts, x: st >= 7 ? 100 : ((st + frac * 0.85) / 7) * 100 }
     }).filter(r => !woFilter || r.wo?.id === woFilter)
-    // lanes so runners at the same spot don't sit on top of each other
-    out.sort((a, b) => a.x - b.x || String(a.o.ship_due_date || '').localeCompare(String(b.o.ship_due_date || '')))
-    const lastX: number[] = []
-    return out.map(r => {
-      let lane = 0
-      while (lastX[lane] !== undefined && r.x - lastX[lane] < 5.5) lane++
-      lastX[lane] = r.x
-      return { ...r, lane }
-    })
+    // runners waiting at the same stage line up behind each other in a small pack (furthest along in front)
+    const out2: any[] = []
+    for (let st = 0; st < TL.length; st++) {
+      const here = out.filter(r => r.st === st).sort((a, b) => b.frac - a.frac || String(a.o.ship_due_date || '9999').localeCompare(String(b.o.ship_due_date || '9999')))
+      here.forEach((r, k) => out2.push({ ...r, col: k % PER_ROW, lane: Math.floor(k / PER_ROW) }))
+    }
+    return out2
   }, [orders, pallets, links, wos, woFilter])
-  const lanes = Math.max(1, ...runners.map(r => r.lane + 1))
+  const lanes = Math.max(1, ...runners.map((r: any) => r.lane + 1))
   const above = Math.ceil(lanes / 2)
-  const ROW = 30, TRACK = 14
+  const ROW = 24, TRACK = 10
   const topOf = (lane: number) => lane % 2 === 0 ? (above - 1 - lane / 2) * ROW : above * ROW + TRACK + 8 + ((lane - 1) / 2) * ROW
+  const leftOf = (r: any) => r.st >= TL.length - 1 ? `calc(100% - ${r.col * DOT + DOT + 2}px)` : `calc(${(r.st / 7) * 100}% + ${r.col * DOT + 8}px)`
   const height = above * ROW + TRACK + 8 + Math.floor(lanes / 2) * ROW + 26
-  const atStage = TL.map((_, i) => runners.filter(r => r.st === i).length)
+  const atStage = TL.map((_, i) => runners.filter((r: any) => r.st === i).length)
   const hov = runners.find(r => r.o.id === hover)
 
   return (
@@ -503,23 +503,19 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
               </div>)
           })}
           {/* runners */}
-          {runners.map(r => {
+          {runners.map((r: any) => {
             const top = topOf(r.lane)
-            const left = `${r.x}%`
             const isH = hover === r.o.id
             return (
-              <div key={r.o.id}>
-                <div className="absolute w-px" style={{ left, top: r.lane % 2 === 0 ? top + 22 : above * ROW + 4 + TRACK, height: r.lane % 2 === 0 ? above * ROW + 4 - top - 22 : top - (above * ROW + 4 + TRACK), background: (r.wo?.color || '#999') + '88' }} />
-                <button onMouseEnter={() => setHover(r.o.id)} onMouseLeave={() => setHover(h => h === r.o.id ? null : h)} onClick={() => onOpen?.(r.o.id)} data-ro-ok
-                  className={`absolute h-[22px] px-2 rounded-full text-[10px] font-bold text-white shadow-sm whitespace-nowrap transition-transform ${isH ? 'scale-110 z-20' : 'z-10'}`}
-                  style={{ left, top, transform: `translateX(${r.x > 92 ? '-100%' : r.x < 4 ? '0' : '-50%'})`, background: r.wo?.color || '#999', outline: isH ? '2px solid #1A1D2E' : 'none' }}
-                  title={`PO ${r.o.po_number}`}>
-                  {String(r.o.po_number || '—').slice(-4)}{r.total ? <span className="font-normal opacity-80"> {r.built}/{r.total}</span> : null}
-                </button>
-              </div>)
+              <button key={r.o.id} onMouseEnter={() => setHover(r.o.id)} onMouseLeave={() => setHover(h => h === r.o.id ? null : h)} onClick={() => onOpen?.(r.o.id)} data-ro-ok
+                className={`absolute rounded-full text-[8px] font-bold text-white shadow-sm flex items-center justify-center transition-transform ${isH ? 'scale-125 z-20' : 'z-10'}`}
+                style={{ left: leftOf(r), top, width: DOT - 3, height: DOT - 3, background: r.wo?.color || '#999', outline: isH ? '2px solid #1A1D2E' : '1.5px solid #fff' }}
+                title={`PO ${r.o.po_number}`} aria-label={`PO ${r.o.po_number}`}>
+                {String(r.o.po_number || '').slice(-2)}
+              </button>)
           })}
           {hov && (
-            <div className="absolute z-30 bg-[#1A1D2E] text-white rounded-lg shadow-xl px-3 py-2 text-[11px] pointer-events-none" style={{ left: `min(calc(${hov.x}% + 8px), calc(100% - 230px))`, top: topOf(hov.lane) + 26, width: 220 }}>
+            <div className="absolute z-30 bg-[#1A1D2E] text-white rounded-lg shadow-xl px-3 py-2 text-[11px] pointer-events-none" style={{ left: `min(${leftOf(hov)}, calc(100% - 230px))`, top: topOf(hov.lane) + 24, width: 220 }}>
               <p className="font-bold text-[12px]">PO {hov.o.po_number}</p>
               <p className="opacity-80">{hov.wo?.code}{hov.o.ship_due_date ? ' · ship ' + hov.o.ship_due_date : ''}</p>
               <p className="mt-1">Stage: <b>{TL[hov.st]}</b> · {hov.built}/{hov.total} pallets built</p>
@@ -528,7 +524,7 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
             </div>)}
         </div>
         {runners.length === 0 && <p className="px-4 pb-4 text-sm text-gray-400">No open Walmart POs.</p>}
-        <p className="px-4 pb-3 text-[10px] text-gray-400">Each tag is a PO (last 4 digits · pallets built). It sits at the stage of its slowest pallet and moves along as more pallets clear that stage. Hover for detail, click to open, tap a work order to show only its POs.</p>
+        <p className="px-4 pb-3 text-[10px] text-gray-400">Each dot is a PO (last 2 digits), colored by work order. It sits at the stage of its slowest pallet; POs further along stand at the front of the pack. Hover for detail, click to open, tap a work order to show only its POs.</p>
       </div>}
     </div>
   )
