@@ -106,8 +106,9 @@ export default function HealthPage() {
     setErrs(es => es.map(x => x.id === e.id ? { ...x, resolved_at: new Date().toISOString() } : x))
   }
 
-  if (perms.loaded && !perms.is_admin) {
-    return <div className="p-10 text-center text-gray-500">System Health is for admins.</div>
+  // Admins, or anyone granted the System Health board (Settings → Users → board access)
+  if (perms.loaded && !perms.is_admin && !perms.boards?.['/settings/health']?.can_view) {
+    return <div className="p-10 text-center text-gray-500">You don&apos;t have access to System Health — ask an admin.</div>
   }
 
   const byCheck = (k: string) => checks.find(c => c.key === k)
