@@ -24,6 +24,7 @@ import WalmartDayPlanner from '@/components/WalmartDayPlanner'
 import WalmartActivityLog from '@/components/WalmartActivityLog'
 import WalmartWoSummary from '@/components/WalmartWoSummary'
 import WalmartWeekCharts from '@/components/WalmartWeekCharts'
+import WalmartCommitments from '@/components/WalmartCommitments'
 
 const BOARD = '/production/walmart'
 const SKUS = [
@@ -634,6 +635,9 @@ export default function WalmartProductionPage() {
         </table>
         <p className="px-4 py-2 text-[11px] text-gray-400">SRP = 1 case of 6 packs. <b>On hand</b> = released by production + being built by the build team — this is exactly what the Inventory board shows. When a PO moves to <b>Prepped &amp; Ready for Dispatch</b> its units move to <b>Built</b>, and shipping takes them from Built (never blocked by on-hand). Logged-but-not-released units are not counted until they are released.</p>
       </div>
+
+      {/* Stock vs. pending POs — planning view only, never blocks shipping */}
+      <div className="mt-4"><WalmartCommitments sb={sb} /></div>
 
       </>}
 
