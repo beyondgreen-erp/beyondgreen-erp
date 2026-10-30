@@ -2708,6 +2708,8 @@ export default function OrdersPage() {
         added_details: line.added_details || null,
         sku_flagged: !!skuT && !pid,
       }
+      // A line nobody touched this session keeps the case size already on file (a re-save used to wipe it).
+      if (line.id && !trusted) { delete extLine.uom_factor; delete extLine.qty_base; delete extLine.uom_factor_override }
       if (line.id) {
         // Existing line: never touch quantity_shipped here — it is set by shipments, not by this form.
         const { quantity_shipped: _qs, sales_order_id: _so, ...upd } = baseLine  // eslint-disable-line @typescript-eslint/no-unused-vars
