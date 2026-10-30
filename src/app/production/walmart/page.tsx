@@ -169,6 +169,8 @@ export default function WalmartProductionPage() {
   const [showVoided, setShowVoided] = useState(false)
   const [ledgerOpen, setLedgerOpen] = useState(false)
   const [flash, setFlash] = useState('')
+  const [justLogged, setJustLogged] = useState<{ ids: string[]; label: string; at: number } | null>(null)
+  const [undoing, setUndoing] = useState(false)
   const [tab, setTab] = useState<'production' | 'build' | 'activity'>('production')
   const [safety, setSafety] = useState<WO[]>([])
   const [safetyProg, setSafetyProg] = useState<Prog[]>([])
@@ -282,6 +284,24 @@ export default function WalmartProductionPage() {
       .subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb, load])
+  useEffect(() => { if (!justLogged) return; const t = setTimeout(() => setJustLogged(null), 10 * 60_000); return () => clearTimeout(t) }, [justLogged])
+  // Undo logged production: removes the entry, takes the SRPs back out and puts the packing parts back (walmart_void_production)
+  async function undoEntries(ids: string[], label: string, askReason = true) {
+    if (!ids.length) return
+    const reason = askReason ? window.prompt(`Undo ${label}?\n\nWhy? (e.g. "Logged by mistake", "Wrong SKU", "Typed wrong number")`, 'Logged by mistake') : 'Logged by mistake (undo right after logging)'
+    if (reason == null) return
+    if (!reason.trim()) { setFlash('⚠ Give a reason to undo.'); return }
+    if (!askReason && !window.confirm(`Undo ${label}? It comes off the log and the packing parts go back to inventory.`)) return
+    setUndoing(true)
+    const done: string[] = []; const bad: string[] = []
+    for (const id of ids) {
+      const { data, error } = await sb.rpc('walmart_void_production', { p_id: id, p_reason: reason.trim() })
+      if (error) bad.push(error.message); else done.push(`${fmtN(num((data as any)?.qty))} ${meta(String((data as any)?.sku || '')).short}`)
+    }
+    setUndoing(false); setJustLogged(null)
+    setFlash(bad.length ? `⚠ ${done.length ? 'Undone: ' + done.join(', ') + '. ' : ''}Not undone: ${bad.join(' · ')}` : `↩ Undone: ${done.join(', ')} — removed from the log, packing parts put back.`)
+    reload()
+  }
   useEffect(() => { if (!flash) return; const t = setTimeout(() => setFlash(''), flash.startsWith('⚠') ? 20000 : 6000); return () => clearTimeout(t) }, [flash])
 
   const live = entries.filter(e => !e.voided_at)
@@ -391,6 +411,11 @@ export default function WalmartProductionPage() {
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — each entry adds the finished SRPs to inventory, takes out every packaging part and cutlery piece used, posts to the Inventory Ledger, and updates this week&apos;s Walmart work order.</div>
 
       {flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
+      {justLogged && canEdit && <div className="mb-3 rounded-xl border border-[#DCE6FA] bg-[#F5F8FF] px-4 py-3 flex items-center gap-3">
+        <p className="text-sm text-[#1A1D2E] flex-1">Just logged <b>{justLogged.label}</b>. Made a mistake?</p>
+        <button onClick={() => undoEntries(justLogged.ids, justLogged.label, false)} disabled={undoing} className="h-10 px-4 rounded-lg bg-red-600 text-white text-sm font-bold disabled:opacity-50">{undoing ? 'Undoing…' : '↩ Undo'}</button>
+        <button onClick={() => setJustLogged(null)} className="text-gray-400 text-xl leading-none px-1" aria-label="Dismiss">&times;</button>
+      </div>}
       {loadErr && <div className="mb-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">Could not load: {loadErr}</div>}
 
       {/* Weekly work order */}
@@ -521,7 +546,8 @@ export default function WalmartProductionPage() {
                   {rows.map(r => {
                     const m = meta(r.sku)
                     return (
-                      <button key={r.id} onClick={() => setDetail(r)} className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[#F2F6FF] ${r.voided_at ? 'opacity-50' : ''}`} data-ro-ok>
+                      <div key={r.id} className={`flex items-center hover:bg-[#F2F6FF] ${r.voided_at ? 'opacity-50' : ''}`}>
+                      <button onClick={() => setDetail(r)} className="flex-1 min-w-0 text-left pl-4 pr-2 py-3 flex items-center gap-3" data-ro-ok>
                         <span className="w-2.5 h-9 rounded-full shrink-0" style={{ background: m.color }} />
                         <div className="min-w-0 flex-1">
                           <p className={`font-semibold text-[#1A1D2E] text-sm ${r.voided_at ? 'line-through' : ''}`}>{m.short} <span className="font-mono text-[10px] text-gray-400 ml-1">{r.sku}</span></p>
@@ -532,6 +558,10 @@ export default function WalmartProductionPage() {
                           <p className="text-[10px] text-gray-400">SRP · {fmtN(num(r.qty) * 6)} packs</p>
                         </div>
                       </button>
+                      {canEdit && !r.voided_at && (perms.is_admin || ((r.entered_by || '').toLowerCase() === me.toLowerCase() && Date.now() - new Date(r.created_at).getTime() < 48 * 3600_000))
+                        ? <button onClick={() => undoEntries([r.id], `${fmtN(r.qty)} ${m.short} (${fmtTime(r.created_at)})`)} disabled={undoing} title="Undo this entry" className="mr-3 shrink-0 h-9 px-3 rounded-lg border border-[#ECEEF3] text-xs font-semibold text-gray-500 hover:text-red-600 hover:border-red-200 bg-white disabled:opacity-50">↩ Undo</button>
+                        : <span className="w-3 shrink-0" />}
+                      </div>
                     )
                   })}
                 </div>
@@ -610,7 +640,7 @@ export default function WalmartProductionPage() {
       {showLoads && wo && <LoadsModal sb={sb} loads={loads} orders={woOrders} rankByOrder={rankByOrder} onClose={() => setShowLoads(false)} onChanged={reload} />}
       {showSafety && <SafetyModal sb={sb} onClose={() => setShowSafety(false)} onSaved={(m) => { setFlash(m); setShowSafety(false); reload() }} />}
       {showLog && <LogSheet key={logStock ? 'stock' : 'log'} startStock={logStock} sb={sb} wo={wo} wos={wos} rankByOrder={rankByOrder} safety={safety} safetyProg={safetyProg} progBySku={progBySku} today={today} onClose={() => setShowLog(false)}
-        onSaved={(msg) => { setFlash(msg); setShowLog(false); setTab('production'); reload(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
+        onSaved={(msg, ids) => { setFlash(msg); setJustLogged(ids && ids.length ? { ids, label: msg.replace(/^✓ Saved /, '').split(' for ')[0], at: Date.now() } : null); setShowLog(false); setTab('production'); reload(); requestAnimationFrame(() => { document.querySelector('main')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }) }} />}
       {sumMode && wo && <WalmartWoSummary sb={sb} woId={wo.id} mode={sumMode} canEdit={canEdit} userEmail={me} onClose={() => setSumMode(null)} onClosedOut={(m) => { setSumMode(null); setFlash(m); reload() }} />}
       {showWo && <WoModal sb={sb} wo={woNew ? null : wo} existing={wos.filter(w => w.start_date === week).length} week={week} prods={prods} stock={stock} prog={woNew ? [] : prog} onClose={() => setShowWo(false)}
         onSaved={(msg, id) => { setFlash(msg); setShowWo(false); if (id) { woSelRef.current = id; setWoSel(id) } reload() }} />}
@@ -652,7 +682,7 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose?: (
 function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku, today, onClose, onSaved, startStock = false }: {
   startStock?: boolean
   sb: ReturnType<typeof createSupabaseBrowserClient>; wo: WO | null; wos?: WO[]; rankByOrder: Record<string, { rank: number; label: string }>; safety: WO[]; safetyProg: Prog[]; progBySku: Record<string, Prog>; today: string
-  onClose: () => void; onSaved: (msg: string) => void
+  onClose: () => void; onSaved: (msg: string, ids?: string[]) => void
 }) {
   const [woId, setWoId] = useState<string>(wo?.id || safety[0]?.id || '')
   const [releaseMode, setReleaseMode] = useState(false)
@@ -724,10 +754,11 @@ function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku
     const okRows: string[] = []
     const okSkus: string[] = []
     let firstEntry: string | null = null
+    const okIds: string[] = []
     for (const [sku, v] of rows) {
       const { data, error } = await sb.rpc('walmart_record_production', { p_sku: sku, p_qty: Number(v), p_date: date, p_wo: woId || null, p_note: note.trim() || null })
       if (error) failed[sku] = error.message
-      else { okRows.push(`${v} ${meta(sku).short}`); okSkus.push(sku); firstEntry = firstEntry || (data as any)?.id || null }
+      else { okRows.push(`${v} ${meta(sku).short}`); okSkus.push(sku); firstEntry = firstEntry || (data as any)?.id || null; if ((data as any)?.id) okIds.push((data as any).id) }
     }
     let relMsg = ''
     if (releaseMode && po && okSkus.length) {
@@ -745,7 +776,7 @@ function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku
       setErr(okRows.length ? `Saved: ${okRows.join(', ')}. The rows in red did NOT save.` : 'Nothing was saved — see the rows in red.')
       return
     }
-    onSaved(`✓ Saved ${okRows.join(', ')} for ${fmtDay(date)} — inventory updated.${relMsg}`)
+    onSaved(`✓ Saved ${okRows.join(', ')} for ${fmtDay(date)} — inventory updated.${relMsg}`, okIds)
   }
 
   return (
