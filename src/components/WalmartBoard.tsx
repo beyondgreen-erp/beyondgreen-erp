@@ -10,6 +10,8 @@ import { statusColor } from '@/lib/statusColors'
 import { buildBOL, buildPackingList, type BolLine, type PackListCase } from '@/lib/shipping/bol'
 import ExportButton from '@/components/ExportButton'
 import ItemHistory from '@/components/ItemHistory'
+import { WalmartPalletPlan, WalmartProcessTimeline } from '@/components/WalmartPallets'
+import { usePermissions } from '@/lib/permissions'
 
 interface WLine {
   id?: string; _new?: boolean; part_number: string | null; qty: number | null; qty_per_case: number | null
@@ -25,6 +27,7 @@ interface WOrder {
   qty: number | null; pkg_type: string | null; qty2: number | null; pkg_type2: string | null; weight: number | null
   commodity_description: string | null; total_value: number | null; do_not_delete: string | null; board_position: number | null; shipment_id: string | null
   updated_at: string | null; created_at: string | null; sales_order_id: string | null; chep_submitted?: boolean | null; chep_submitted_at?: string | null
+  cbm?: number | null; plan_pallets?: number | null; plan_weight?: number | null; plan_stale?: boolean | null
 }
 interface Product { id: string; sku: string; product_name: string | null; on_hand_qty: number | null; case_qty: number | null; weight_per_unit_grams: number | null; unit_cost: number | null; unit_price: number | null; case_price: number | null; distribution_price: number | null; wholesale_price: number | null }
 interface BomRow { finished_good_sku: string; component_sku: string; uom_type: string | null; qty_value: number | null; percentage: number | null; is_case_level: boolean | null }
@@ -114,6 +117,8 @@ const FIELDS: { key: keyof WOrder; label: string; kind: FKind; wide?: boolean }[
 
 export default function WalmartBoard() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const perms = usePermissions()
+  const canBuild = perms.is_admin || !!perms.boards?.['/production/walmart']?.can_edit || !!perms.boards?.['/sales/orders']?.can_edit
   const [rows, setRows] = useState<WOrder[]>([])
   const [lines, setLines] = useState<Record<string, WLine[]>>({})
   const [products, setProducts] = useState<Product[]>([])
@@ -907,6 +912,8 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
       )}
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — every Walmart order mirrors into the Order Pipeline and flows across Production, Shipping &amp; Invoices; status, comments, files, BOL &amp; packing list stay in sync.</div>
 
+      <WalmartProcessTimeline sb={sb} onOpen={id => { const r = rows.find(x => x.id === id); if (r) openDetail(r) }} />
+
       {/* Production Requirements now live on Business Reports → Walmart PO Requirements tab */}
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -1177,46 +1184,8 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvet
                   : <button onClick={() => markShipped(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-[#037F4C] text-white font-semibold hover:bg-[#026a40] ml-auto">🚚 Mark as Shipped</button>}
               </div>
 
-              {/* Pallet build — only in Building Order */}
-              {detailIsBuilding && (
-                <div className="border border-[#FDE9CC] bg-[#FFFBF3] rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[#9A5B00]">🏗 Pallet Build &amp; QR Codes</p>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => generatePallets(detail)} disabled={genBusy} className="text-xs px-2.5 py-1 rounded-lg bg-[#FDAB3D] text-white font-semibold hover:bg-[#E89B2E] disabled:opacity-50">{genBusy ? 'Working…' : '＋ Generate pallet QR codes'}</button>
-                      {detailPallets.length > 0 && <button onClick={() => printPalletQRs(detail)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#E4C48A] text-[#9A5B00] font-semibold hover:bg-[#FFF3E0]">🖨 Print QR labels (4×6)</button>}
-                    </div>
-                  </div>
-                  {detailPallets.length === 0 ? (
-                    <p className="text-sm text-gray-500">No pallets yet. Enter the pallet count in the “Pallets” field, then generate QR codes for the production team to scan.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {detailPallets.map(p => {
-                        const its = palletItems[p.id] || []
-                        const tot = its.reduce((a, it) => a + Number(it.qty || 0), 0)
-                        return (
-                          <div key={p.id} className="bg-white border border-[#EFE3CC] rounded-lg px-3 py-2 text-sm">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-[#1A1D2E]">Pallet #{p.pallet_number} <span className="text-gray-400 font-normal">of {p.total_pallets}</span></span>
-                              {p.status === 'complete'
-                                ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">COMPLETE{p.completed_by ? ' · ' + p.completed_by : ''}</span>
-                                : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">PENDING</span>}
-                              <a href={`/p/${p.token}`} target="_blank" rel="noreferrer" className="text-[11px] text-[#3B6FE0] hover:underline ml-1">open scan page ↗</a>
-                              <button onClick={() => deletePallet(p)} className="ml-auto text-gray-300 hover:text-red-500 text-base leading-none" title="Remove pallet">×</button>
-                            </div>
-                            {its.length > 0 && (
-                              <div className="mt-1 text-[12px] text-gray-600">
-                                {its.map(it => <span key={it.id} className="inline-block mr-3"><span className="font-mono text-[#0F7A4E]">{it.sku}</span> ×{fmtN(it.qty)}</span>)}
-                                <span className="text-gray-400">· {fmtN(tot)} SRPs</span>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Pallet plan, CBM and the build steps */}
+              <WalmartPalletPlan sb={sb} order={detail} canEdit={canBuild} onChanged={load} />
 
               {editing && (
                 <div className="flex items-center justify-between gap-3 border-t border-[#EEF0F4] pt-4">
