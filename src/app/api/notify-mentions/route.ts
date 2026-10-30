@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { orderDisplayName } from '@/lib/orderName'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const FROM_EMAIL = process.env.FROM_EMAIL || 'erp@beyondgreenbiotech.com'
@@ -61,34 +62,48 @@ async function lookupRecordName(sb: any, recordType?: string, recordId?: string)
   return null
 }
 
-// Pull extra context fields (customer, PO#, status, ship date) for order-type records
-// so the notification tells you WHICH order without opening the ERP.
-async function lookupRecordContext(sb: any, recordType?: string, recordId?: string): Promise<[string, string][]> {
-  if (!recordType || !recordId) return []
-  const fields: [string, string][] = []
+// For order-type records, build the same Order Name the board shows ("Customer · PO 123 · City",
+// customer taken from the linked customer OR the typed name in notes) plus Customer / PO / Status /
+// Ship date rows, so the email says WHICH order without opening the ERP.
+async function lookupOrderContext(sb: any, recordType?: string, recordId?: string): Promise<{ name: string | null; customer: string | null; fields: [string, string][] }> {
+  const out = { name: null as string | null, customer: null as string | null, fields: [] as [string, string][] }
+  if (!recordType || !recordId) return out
   try {
-    const isSalesOrder = recordType === 'sales_order' || recordType === 'sales_orders'
-    const isWalmart = recordType === 'walmart_order' || recordType === 'walmart_board_order'
-    if (isSalesOrder || isWalmart) {
-      const table = isWalmart ? 'walmart_board_orders' : 'sales_orders'
-      const { data } = await sb
-        .from(table)
-        .select('po_number, status, required_ship_date, ship_date, customer:customers(company_name)')
-        .eq('id', recordId)
-        .maybeSingle()
-      if (data) {
-        const cust = data.customer?.company_name
-        if (cust) fields.push(['Customer', String(cust)])
-        if (data.po_number && String(data.po_number).trim()) fields.push(['PO #', String(data.po_number)])
-        if (data.status && String(data.status).trim()) fields.push(['Status', String(data.status)])
-        const ship = data.required_ship_date || data.ship_date
-        if (ship) fields.push(['Ship date', String(ship)])
-      }
+    if (recordType === 'sales_order' || recordType === 'sales_orders') {
+      const { data: o } = await sb.from('sales_orders')
+        .select('order_number, po_number, notes, shipping_address, status, required_ship_date, ship_date, customer:customers(company_name, city, state)')
+        .eq('id', recordId).maybeSingle()
+      if (!o) return out
+      const customer = (o.customer?.company_name && String(o.customer.company_name).trim()) || (String(o.notes ?? '').split('|')[0].trim() || null)
+      const display = orderDisplayName(o)
+      const so = o.order_number ? `SO #${o.order_number}` : ''
+      out.name = display && display !== (o.order_number ?? '').trim() ? `${display}${so ? ` (${so})` : ''}` : (so || display)
+      out.customer = customer
+      if (customer) out.fields.push(['Customer', customer])
+      if (o.order_number) out.fields.push(['Sales order', `#${o.order_number}`])
+      if (o.po_number && String(o.po_number).trim()) out.fields.push(['PO #', String(o.po_number)])
+      if (o.status) out.fields.push(['Status', String(o.status)])
+      const ship = o.required_ship_date || o.ship_date
+      if (ship) out.fields.push(['Ship date', String(ship)])
+    } else if (recordType === 'walmart_order' || recordType === 'walmart_board_order' || recordType === 'walmart_board_orders') {
+      const { data: w } = await sb.from('walmart_board_orders')
+        .select('name, po_number, group_name, status, ship_due_date, load_number, facility, srp')
+        .eq('id', recordId).maybeSingle()
+      if (!w) return out
+      out.customer = 'Walmart'
+      out.name = `Walmart · PO ${w.po_number || w.name || ''}`.trim()
+      out.fields.push(['Customer', 'Walmart'])
+      if (w.po_number) out.fields.push(['PO #', String(w.po_number)])
+      if (w.facility) out.fields.push(['DC', String(w.facility)])
+      if (w.group_name) out.fields.push(['Board stage', String(w.group_name)])
+      if (w.srp) out.fields.push(['Cases', String(w.srp)])
+      if (w.ship_due_date) out.fields.push(['Ship date', String(w.ship_due_date)])
+      if (w.load_number) out.fields.push(['Load', String(w.load_number)])
     }
   } catch (e) {
-    console.error('[notify-mentions] context lookup failed', e)
+    console.error('[notify-mentions] order context lookup failed', e)
   }
-  return fields
+  return out
 }
 
 export async function POST(req: Request) {
@@ -175,15 +190,17 @@ export async function POST(req: Request) {
       ? `${SITE_URL}${boardPath}${boardPath.includes('?') ? '&' : '?'}item=${recordId}${commentId ? `&comment=${commentId}` : ''}`
       : (recordUrl || `${SITE_URL}/${recordType || ''}`)
     const snippet = body ? body.replace(/<[^>]+>/g, '').substring(0, 200) : ''
-    const recordName = await lookupRecordName(sb, recordType, recordId)
-    const contextFields = await lookupRecordContext(sb, recordType, recordId)
+    const orderCtx = await lookupOrderContext(sb, recordType, recordId)
+    const recordName = orderCtx.name || await lookupRecordName(sb, recordType, recordId)
+    const contextFields = orderCtx.fields
     const contextHtml = contextFields.length
       ? `<table style="width:100%;border-collapse:collapse;margin:0 0 20px">${contextFields.map(([label, value]) =>
           `<tr><td style="padding:4px 12px 4px 0;font-size:13px;color:#5A6E8A;white-space:nowrap;vertical-align:top">${esc(label)}</td><td style="padding:4px 0;font-size:13px;color:#0F1C2E;font-weight:600">${esc(value)}</td></tr>`
         ).join('')}</table>`
       : ''
-    const customerName = (contextFields.find(([l]) => l === 'Customer') || [])[1]
-    const titleBase = recordName ? `${pageLabel}: ${recordName}${customerName ? ` — ${customerName}` : ''}` : pageLabel
+    const customerName = orderCtx.customer || (contextFields.find(([l]) => l === 'Customer') || [])[1]
+    // Order names already lead with the customer, so don't repeat it.
+    const titleBase = recordName ? `${pageLabel}: ${recordName}${customerName && !recordName.includes(customerName) ? ` — ${customerName}` : ''}` : pageLabel
     const author = authorName || authorEmail.split('@')[0]
 
     async function notifyOne(recipEmail: string, variant: 'mention' | 'follow') {
@@ -195,7 +212,7 @@ export async function POST(req: Request) {
           recipient_email: recipEmail,
           sender_email: authorEmail,
           title: titleBase,
-          message: (customerName ? `${customerName} · ` : '') + (variant === 'follow' ? 'New comment: ' : '') + snippet,
+          message: (customerName && !orderCtx.name ? `${customerName} · ` : '') + (variant === 'follow' ? 'New comment: ' : '') + snippet,
           page: pageLabel,
           record_type: recordType || null,
           record_id: recordId || null,
