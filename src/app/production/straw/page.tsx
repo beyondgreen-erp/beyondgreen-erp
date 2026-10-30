@@ -10,7 +10,7 @@
  *
  * On hand (Inventory board) = free + released-not-ready. Built = released on Ready orders.
  * Everything here counts in CASES; each straw's "1 case = X" converts to its stocking unit.
- * Weekly work orders (STR-YYYY-Www) roll over until closed out, like Walmart.
+ * Work orders are per PO (STR-<SO#>); a work order can also cover other POs that need the same straws.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -39,7 +39,8 @@ interface WO { id: string; wo_code: string | null; status: string | null; start_
 interface Prog { work_order_id: string; sku: string; product_name: string | null; target_qty: number; made_qty: number }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; kind: string; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
 interface Stock { sku: string; product_name: string; uom: string | null; per_case: number | null; free: number; released: number; built: number; on_hand_cases: number; total_cases: number; committed: number; short: number; erp_on_hand: number; erp_built: number }
-interface OLine { line_id: string; sales_order_id: string; order_number: string; order_name: string; customer: string | null; po_number: string | null; status: string; ship_date: string | null; sku: string; product_name: string | null; ordered: number; released: number; shipped: number; built: number; open_cases: number }
+interface WoOrder { work_order_id: string; sales_order_id: string; sales_orders: { order_number: string | null; po_number: string | null; notes: string | null; customers: { company_name: string | null } | null } | null }
+interface OLine { work_order_id: string | null; wo_code: string | null; line_id: string; sales_order_id: string; order_number: string; order_name: string; customer: string | null; po_number: string | null; status: string; ship_date: string | null; sku: string; product_name: string | null; ordered: number; released: number; shipped: number; built: number; open_cases: number }
 interface Rel { id: string; sales_order_id: string; line_id: string; sku: string; qty: number; status: string; source: string; note: string | null; released_by: string | null; released_at: string }
 interface Act { id: number; at: string; actor: string | null; action: string; sku: string | null; qty: number | null; detail: string | null }
 
@@ -69,15 +70,19 @@ export default function StrawProductionPage() {
   const [releaseFor, setReleaseFor] = useState<OLine | null>(null)
   const [justLogged, setJustLogged] = useState<{ ids: string[]; label: string } | null>(null)
   const [editTargets, setEditTargets] = useState<string | null>(null)
+  const [woOrders, setWoOrders] = useState<WoOrder[]>([])
+  const [showClosed, setShowClosed] = useState(false)
+  const [newWo, setNewWo] = useState<{ order?: string; addTo?: string } | null>(null)
   const seq = useRef(0)
 
   const load = useCallback(async () => {
     const my = ++seq.current
     setLoadErr('')
     const [w, e, s, o, r, a] = await Promise.all([
-      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed')
-        .eq('form_type', 'straw_weekly').lte('start_date', week).neq('status', 'Cancelled')
-        .or(`start_date.eq.${week},status.not.in.(${WO_DONE.join(',')})`).order('start_date'),
+      // Per-PO work orders: all open ones, plus ones closed in the last 30 days
+      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed,completed_at')
+        .eq('form_type', 'straw_po').neq('status', 'Cancelled')
+        .or(`status.not.in.(${WO_DONE.join(',')}),completed_at.gte.${addDays(today, -30)}`).order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
       sb.from('straw_production_entries').select('*').eq('kind', 'production').gte('production_date', week).lte('production_date', weekEnd)
         .order('production_date', { ascending: false }).order('created_at', { ascending: false }),
       sb.rpc('straw_stock_status'),
@@ -92,18 +97,21 @@ export default function StrawProductionPage() {
     setWos(wl); setEntries((e.data as Entry[]) || []); setStock(((s.data as Stock[]) || []).sort((a, b) => a.sku.localeCompare(b.sku)))
     setOrders((o.data as OLine[]) || []); setRels((r.data as Rel[]) || []); setActs((a.data as Act[]) || [])
     if (wl.length) {
-      const { data: p } = await sb.from('v_straw_wo_progress').select('*').in('work_order_id', wl.map(x => x.id))
-      if (my === seq.current) setProg((p as Prog[]) || [])
-    } else setProg([])
+      const [{ data: p }, { data: wo2 }] = await Promise.all([
+        sb.from('v_straw_wo_progress').select('*').in('work_order_id', wl.map(x => x.id)),
+        sb.from('straw_wo_orders').select('work_order_id,sales_order_id,sales_orders(order_number,po_number,notes,customers(company_name))').in('work_order_id', wl.map(x => x.id)),
+      ])
+      if (my === seq.current) { setProg((p as Prog[]) || []); setWoOrders((wo2 as any[]) || []) }
+    } else { setProg([]); setWoOrders([]) }
     setLoading(false)
-  }, [sb, week, weekEnd])
+  }, [sb, week, weekEnd, today])
   const reload = useCallback(() => { load(); setTimeout(load, 900) }, [load])
   useEffect(() => { load() }, [load])
   useEffect(() => {
     const ch = sb.channel('straw-board-' + Math.random().toString(36).slice(2))
     let t: any
     const bump = () => { clearTimeout(t); t = setTimeout(load, 600) }
-    for (const tb of ['straw_production_entries', 'straw_releases', 'straw_wo_targets', 'sales_orders', 'sales_order_lines']) ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, bump)
+    for (const tb of ['straw_production_entries', 'straw_releases', 'straw_wo_targets', 'straw_wo_orders', 'sales_orders', 'sales_order_lines']) ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, bump)
     ch.subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb, load])
@@ -111,12 +119,16 @@ export default function StrawProductionPage() {
   useEffect(() => { if (!justLogged) return; const t = setTimeout(() => setJustLogged(null), 10 * 60_000); return () => clearTimeout(t) }, [justLogged])
 
   const name = useCallback((sku: string) => stock.find(s => s.sku === sku)?.product_name || sku, [stock])
-  const thisWo = wos.find(w => w.start_date === week) || null
+  const openWos = wos.filter(w => !WO_DONE.includes(w.status || ''))
+  const shownWos = showClosed ? wos : openWos
+  const orderLabel = (o: WoOrder) => { const so = o.sales_orders; const nm = so?.customers?.company_name || (so?.notes || '').split('|')[0].trim(); return `${nm ? nm + ' · ' : ''}SO ${so?.order_number || ''}${so?.po_number ? ' · PO ' + so.po_number : ''}` }
+  // progress across all open work orders, for the chart
+  const openProg = useMemo(() => { const m = new Map<string, Prog>(); for (const p of prog) if (openWos.some(w => w.id === p.work_order_id)) { const x = m.get(p.sku); m.set(p.sku, x ? { ...x, target_qty: num(x.target_qty) + num(p.target_qty), made_qty: num(x.made_qty) + num(p.made_qty) } : { ...p }) } return Array.from(m.values()) }, [prog, openWos])
   const live = entries.filter(e => !e.voided_at)
   const weekSkus = useMemo(() => {
-    const set = new Set<string>([...live.map(e => e.sku), ...prog.filter(p => wos.some(w => w.id === p.work_order_id)).map(p => p.sku)])
+    const set = new Set<string>([...live.map(e => e.sku), ...openProg.map(p => p.sku)])
     return Array.from(set).sort().map((sku, i) => ({ sku, short: sku, color: PALETTE[i % PALETTE.length] }))
-  }, [live, prog, wos])
+  }, [live, openProg])
   const days = useMemo(() => {
     const shown = showVoided ? entries : live
     const m = new Map<string, Entry[]>()
@@ -137,7 +149,6 @@ export default function StrawProductionPage() {
     if (error) { setFlash('⚠ ' + error.message); return false }
     setFlash(ok(data)); reload(); return true
   }
-  const createWo = () => run(() => sb.rpc('straw_wo_ensure', { p_week: week }) as any, () => `✓ Straw work order for the week of ${fmtDay(week)} created — targets filled from the open straw orders.`)
   const setTarget = (wo: string, sku: string, qty: number) => run(() => sb.rpc('straw_wo_set_target', { p_wo: wo, p_sku: sku, p_qty: qty }) as any, () => `✓ Target for ${sku} set to ${fmtN(qty)} cases.`)
   const reopen = (wo: WO) => run(() => sb.rpc('straw_wo_set_status', { p_wo: wo.id, p_status: 'In Progress' }) as any, () => `✓ ${wo.wo_code} reopened.`)
   async function undoEntries(ids: string[], label: string, ask = true) {
@@ -184,6 +195,7 @@ export default function StrawProductionPage() {
             <button onClick={() => setWeek(mondayOf(today))} className="px-3 h-10 text-sm font-semibold text-gray-600 hover:bg-gray-50 border-x border-[#E4E6EE]" data-ro-ok>This week</button>
             <button onClick={() => setWeek(addDays(week, 7))} className="px-3 h-10 text-gray-500 hover:bg-gray-50" aria-label="Next week" data-ro-ok>›</button>
           </div>
+          {canEdit && <button onClick={() => setNewWo({})} className="h-10 px-4 rounded-lg border text-sm font-bold bg-white" style={{ borderColor: ACCENT, color: ACCENT }}>+ New work order</button>}
           {canEdit && <button onClick={() => setShowLog(true)} className="h-10 px-4 rounded-lg text-white text-sm font-bold" style={{ background: ACCENT }}>+ Log production</button>}
         </div>
       </div>
@@ -213,31 +225,37 @@ export default function StrawProductionPage() {
 
       {tab === 'production' && <>
         {/* Work orders */}
-        {!loading && !thisWo && <div className={card + ' p-4 mb-3 flex flex-wrap items-center gap-3'}>
-          <p className="text-sm text-gray-600 flex-1">No straw work order for the week of {fmtDay(week)} yet. {canEdit ? 'Create one — targets fill in from the open straw orders. (Logging production also creates it.)' : ''}</p>
-          {canEdit && <button onClick={createWo} disabled={busy} className="h-10 px-4 rounded-lg text-white text-sm font-bold disabled:opacity-50" style={{ background: ACCENT }}>Create this week&apos;s work order</button>}
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="font-bold text-[#1A1D2E]">Work orders <span className="text-xs font-normal text-gray-400">— one per PO</span></h2>
+          <label className="text-xs text-gray-500 flex items-center gap-1.5"><input type="checkbox" checked={showClosed} onChange={e => setShowClosed(e.target.checked)} data-ro-ok /> Show closed (30 days)</label>
+        </div>
+        {!loading && openWos.length === 0 && <div className={card + ' p-4 mb-3 flex flex-wrap items-center gap-3'}>
+          <p className="text-sm text-gray-600 flex-1">No open straw work orders. {canEdit ? 'Create one for a PO — you can add other POs that need the same straws.' : ''}</p>
+          {canEdit && <button onClick={() => setNewWo({})} className="h-10 px-4 rounded-lg text-white text-sm font-bold" style={{ background: ACCENT }}>+ New work order</button>}
         </div>}
-        {wos.map(wo => {
+        {shownWos.map(wo => {
           const rows = prog.filter(p => p.work_order_id === wo.id).sort((a, b) => a.sku.localeCompare(b.sku))
           const tgt = rows.reduce((t, r) => t + num(r.target_qty), 0), made = rows.reduce((t, r) => t + num(r.made_qty), 0)
           const done = WO_DONE.includes(wo.status || '')
-          const carried = wo.start_date < week
+          const pos = woOrders.filter(o => o.work_order_id === wo.id)
           return (
             <div key={wo.id} className={card + ' p-4 mb-3'} style={{ borderLeft: `5px solid ${done ? '#9699a6' : ACCENT}` }}>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
                 <div className="flex-1">
                   <p className="font-bold text-[#1A1D2E]">{wo.wo_code} <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1" style={{ background: done ? '#ECEEF3' : '#E6F6EE', color: done ? '#676879' : ACCENT }}>{wo.status}</span>
-                    {carried && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 bg-amber-50 text-amber-700">rolled over from week of {fmtDay(wo.start_date)}</span>}</p>
-                  <p className="text-xs text-gray-500">{fmtN(made)} of {fmtN(tgt)} cases made{tgt ? ` · ${Math.round((made / tgt) * 100)}%` : ''}</p>
+                    {wo.due_date && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 bg-[#F2F4F8] text-gray-600">ship {fmtDay(wo.due_date)}</span>}</p>
+                  <div className="flex flex-wrap gap-1 mt-1">{pos.map(o => <a key={o.sales_order_id} href={`/sales/orders?item=${o.sales_order_id}`} className="text-[11px] px-2 py-0.5 rounded-full bg-[#EEF2FB] text-[#3A4A6B] hover:underline">{orderLabel(o)}</a>)}</div>
+                  <p className="text-xs text-gray-500 mt-1">{fmtN(made)} of {fmtN(tgt)} cases made{tgt ? ` · ${Math.round((made / tgt) * 100)}%` : ''}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {canEdit && !done && <button onClick={() => setNewWo({ addTo: wo.id })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">+ Add PO</button>}
                   {canEdit && !done && <button onClick={() => setEditTargets(editTargets === wo.id ? null : wo.id)} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">{editTargets === wo.id ? 'Done editing' : '✎ Targets'}</button>}
                   <button onClick={() => setSum({ id: wo.id, mode: 'view' })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>📄 Summary</button>
                   {canEdit && !done && <button onClick={() => setSum({ id: wo.id, mode: 'close' })} className="h-9 px-3 rounded-lg text-xs font-bold text-white bg-[#00a85a]">Close out</button>}
                   {canEdit && done && <button onClick={() => reopen(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">Reopen</button>}
                 </div>
               </div>
-              {rows.length === 0 && <p className="text-sm text-gray-400">No targets yet{canEdit && !done ? ' — click ✎ Targets to add, or just log production.' : '.'}</p>}
+              {rows.length === 0 && <p className="text-sm text-gray-400">No targets{canEdit && !done ? ' — click ✎ Targets to add.' : '.'}</p>}
               <div className="space-y-2">
                 {rows.map(r => {
                   const pct = num(r.target_qty) ? Math.min(100, (num(r.made_qty) / num(r.target_qty)) * 100) : 100
@@ -255,7 +273,7 @@ export default function StrawProductionPage() {
             </div>)
         })}
 
-        <WalmartWeekCharts skus={weekSkus} entries={live} week={week} prog={prog.filter(p => p.work_order_id === (thisWo?.id || wos[wos.length - 1]?.id))} woCode={thisWo?.wo_code || wos[wos.length - 1]?.wo_code} unit="cases" reportsHref="/production/reports?board=straw" />
+        <WalmartWeekCharts skus={weekSkus} entries={live} week={week} prog={openProg} woCode={openWos.length === 1 ? openWos[0].wo_code : `${openWos.length} open work orders`} unit="cases" reportsHref="/production/reports?board=straw" />
 
         {/* Daily log */}
         <div className="flex items-center justify-between mb-2">
@@ -340,6 +358,8 @@ export default function StrawProductionPage() {
                   <p className="text-xs text-gray-500">SO #{o.order_number}{o.po_number ? ` · PO ${o.po_number}` : ''}{o.ship_date ? ` · ship ${fmtDay(o.ship_date)}` : ''}</p>
                 </div>
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#F2F4F8] text-gray-600">{o.status}</span>
+                {o.wo_code ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#E6F6EE', color: ACCENT }}>{o.wo_code}</span>
+                  : canEdit && <button onClick={() => setNewWo({ order: o.sales_order_id })} className="h-8 px-3 rounded-lg text-xs font-bold text-white" style={{ background: ACCENT }}>Create work order</button>}
               </div>
               <div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
                 <thead><tr><th className={th + ' text-left'}>Straw</th><th className={th + ' text-right'}>Ordered</th><th className={th + ' text-right'}>Released</th><th className={th + ' text-right'}>Built</th><th className={th + ' text-right'}>Shipped</th><th className={th + ' text-right'}>Still to release</th><th className={th}></th></tr></thead>
@@ -377,10 +397,12 @@ export default function StrawProductionPage() {
         </table>
       </div>}
 
-      {showLog && <LogSheet sb={sb} stock={stock} wos={wos.filter(w => !WO_DONE.includes(w.status || ''))} today={today} onClose={() => setShowLog(false)}
+      {showLog && <LogSheet sb={sb} stock={stock} wos={openWos} today={today} onClose={() => setShowLog(false)}
         onSaved={(msg, ids, label) => { setFlash(msg); setShowLog(false); setTab('production'); if (ids.length) setJustLogged({ ids, label }); reload() }} />}
       {releaseFor && <ReleaseModal sb={sb} line={releaseFor} free={num(stock.find(s => s.sku === releaseFor.sku)?.free)} onClose={() => setReleaseFor(null)}
         onDone={m => { setReleaseFor(null); setFlash(m); reload() }} />}
+      {newWo && <NewWoModal sb={sb} orders={orders} wos={openWos} start={newWo.order} addTo={newWo.addTo} prog={prog} onClose={() => setNewWo(null)}
+        onDone={m => { setNewWo(null); setFlash(m); setTab('production'); reload() }} />}
       {sum && <WalmartWoSummary kind="straw" sb={sb} woId={sum.id} mode={sum.mode} canEdit={canEdit} userEmail={me} onClose={() => setSum(null)} onClosedOut={m => { setSum(null); setFlash(m); reload() }} />}
     </div>
   )
@@ -414,7 +436,7 @@ function LogSheet({ sb, stock, wos, today, onClose, onSaved }: {
   sb: any; stock: Stock[]; wos: WO[]; today: string; onClose: () => void; onSaved: (msg: string, ids: string[], label: string) => void
 }) {
   const [date, setDate] = useState(today)
-  const [woId, setWoId] = useState(wos[wos.length - 1]?.id || '')
+  const [woId, setWoId] = useState('')
   const [rows, setRows] = useState<{ sku: string; qty: string }[]>([{ sku: '', qty: '' }])
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -444,7 +466,7 @@ function LogSheet({ sb, stock, wos, today, onClose, onSaved }: {
       <div className="px-5 py-4 space-y-3 overflow-y-auto">
         <div className="grid grid-cols-2 gap-3">
           <div><label className="text-xs text-gray-500">Date made</label><input type="date" value={date} max={today} onChange={e => setDate(e.target.value)} className={inp} /></div>
-          <div><label className="text-xs text-gray-500">Work order</label><select value={woId} onChange={e => setWoId(e.target.value)} className={inp}><option value="">Auto (this week)</option>{wos.map(w => <option key={w.id} value={w.id}>{w.wo_code}</option>)}</select></div>
+          <div><label className="text-xs text-gray-500">Work order</label><select value={woId} onChange={e => setWoId(e.target.value)} className={inp}><option value="">Auto — the PO work order for that straw</option>{wos.map(w => <option key={w.id} value={w.id}>{w.wo_code}</option>)}</select></div>
         </div>
         {rows.map((r, i) => {
           const st = stock.find(s => s.sku === r.sku)
@@ -504,6 +526,82 @@ function ReleaseModal({ sb, line, free, onClose, onDone }: { sb: any; line: OLin
       <div className="px-5 py-3 border-t border-[#EEF0F4] flex gap-2">
         <button onClick={onClose} disabled={busy} className="flex-1 h-11 rounded-lg border border-[#E4E6EE] text-sm">Cancel</button>
         <button onClick={go} disabled={busy || max <= 0} className="flex-1 h-11 rounded-lg text-white text-sm font-bold disabled:opacity-50" style={{ background: ACCENT }}>{busy ? 'Releasing…' : 'Release'}</button>
+      </div>
+    </Overlay>)
+}
+
+function NewWoModal({ sb, orders, wos, start, addTo, prog, onClose, onDone }: {
+  sb: any; orders: OLine[]; wos: WO[]; start?: string; addTo?: string; prog: Prog[]; onClose: () => void; onDone: (m: string) => void
+}) {
+  // open orders not already on an open work order, one entry per order
+  const free = useMemo(() => {
+    const m = new Map<string, OLine[]>()
+    for (const l of orders) if (!l.work_order_id) { if (!m.has(l.sales_order_id)) m.set(l.sales_order_id, []); m.get(l.sales_order_id)!.push(l) }
+    return m
+  }, [orders])
+  const [primary, setPrimary] = useState<string>(start && free.has(start) ? start : '')
+  const [extra, setExtra] = useState<Set<string>>(new Set())
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const addWo = addTo ? wos.find(w => w.id === addTo) : null
+  // the straws this work order makes
+  const skus = useMemo(() => new Set(addWo ? prog.filter(p => p.work_order_id === addWo.id).map(p => p.sku) : (free.get(primary) || []).map(l => l.sku)), [addWo, prog, free, primary])
+  const candidates = Array.from(free.entries()).filter(([id, ls]) => id !== primary && ls.some(l => skus.has(l.sku)))
+  const label = (ls: OLine[]) => `${ls[0].order_name} · SO ${ls[0].order_number}${ls[0].po_number ? ' · PO ' + ls[0].po_number : ''}`
+  const toggle = (id: string) => setExtra(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  async function go() {
+    setErr('')
+    if (addWo) {
+      if (!extra.size) { setErr('Pick at least one PO to add.'); return }
+      setBusy(true)
+      for (const id of Array.from(extra)) { const { error } = await sb.rpc('straw_wo_add_order', { p_wo: addWo.id, p_order: id }); if (error) { setBusy(false); setErr(error.message); return } }
+      setBusy(false); onDone(`✓ Added ${extra.size} PO${extra.size === 1 ? '' : 's'} to ${addWo.wo_code} — targets updated.`); return
+    }
+    if (!primary) { setErr('Pick the PO for this work order.'); return }
+    setBusy(true)
+    const { error } = await sb.rpc('straw_wo_create', { p_orders: [primary, ...Array.from(extra)], p_note: note.trim() || null })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    onDone(`✓ Work order created for SO ${free.get(primary)?.[0].order_number}${extra.size ? ` + ${extra.size} more PO${extra.size === 1 ? '' : 's'}` : ''} — targets set from the open straws.`)
+  }
+  const inp = 'h-11 border border-[#E4E6EE] rounded-lg px-3 text-sm w-full'
+  return (
+    <Overlay onClose={() => !busy && onClose()}>
+      <div className="px-5 pt-4 pb-3 border-b border-[#EEF0F4]">
+        <p className="text-[11px] uppercase tracking-wide text-gray-400">Straw work order</p>
+        <h2 className="text-lg font-bold text-[#1A1D2E]">{addWo ? `Add POs to ${addWo.wo_code}` : 'New work order for a PO'}</h2>
+      </div>
+      <div className="px-5 py-4 space-y-4 overflow-y-auto">
+        {!addWo && <div>
+          <label className="text-xs text-gray-500">PO</label>
+          <select value={primary} onChange={e => { setPrimary(e.target.value); setExtra(new Set()) }} className={inp}>
+            <option value="">Pick an open order…</option>
+            {Array.from(free.entries()).map(([id, ls]) => <option key={id} value={id}>{label(ls)}</option>)}
+          </select>
+          {free.size === 0 && <p className="text-xs text-gray-400 mt-1">Every open straw order is already on a work order.</p>}
+          {primary && <div className="mt-2 rounded-lg bg-[#FAFBFD] border border-[#ECEEF3] p-2 text-[12px] space-y-0.5">
+            {(free.get(primary) || []).map(l => <div key={l.line_id} className="flex justify-between gap-2"><span className="font-mono">{l.sku}</span><span className="text-gray-500">{fmtN(l.open_cases)} case(s) to make</span></div>)}
+          </div>}
+        </div>}
+        {(addWo || primary) && <div>
+          <p className="text-xs text-gray-500 mb-1">{addWo ? 'POs that need the same straws' : 'Also include other POs with the same straws (optional)'}</p>
+          {candidates.length === 0 && <p className="text-xs text-gray-400">No other open POs need these straws.</p>}
+          <div className="space-y-1.5">
+            {candidates.map(([id, ls]) => (
+              <label key={id} className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ${extra.has(id) ? 'border-emerald-400 bg-emerald-50' : 'border-[#ECEEF3]'}`}>
+                <input type="checkbox" checked={extra.has(id)} onChange={() => toggle(id)} className="mt-1" />
+                <span className="text-[13px]"><b>{label(ls)}</b>{ls[0].ship_date ? <span className="text-gray-400"> · ship {fmtDay(ls[0].ship_date)}</span> : null}
+                  <span className="block text-[11px] text-gray-500">{ls.filter(l => skus.has(l.sku)).map(l => `${l.sku}: ${fmtN(l.open_cases)}`).join(' · ')}</span></span>
+              </label>))}
+          </div>
+        </div>}
+        {!addWo && <div><label className="text-xs text-gray-500">Note (optional)</label><input value={note} onChange={e => setNote(e.target.value)} className={inp} /></div>}
+        {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
+      </div>
+      <div className="px-5 py-3 border-t border-[#EEF0F4] flex gap-2">
+        <button onClick={onClose} disabled={busy} className="flex-1 h-11 rounded-lg border border-[#E4E6EE] text-sm">Cancel</button>
+        <button onClick={go} disabled={busy} className="flex-1 h-11 rounded-lg text-white text-sm font-bold disabled:opacity-50" style={{ background: ACCENT }}>{busy ? 'Saving…' : addWo ? 'Add to work order' : 'Create work order'}</button>
       </div>
     </Overlay>)
 }
