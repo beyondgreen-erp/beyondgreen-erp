@@ -793,8 +793,9 @@ export async function shipOrder(
   {
     const skus = toShip.map(l => l.sku).filter(s => s && !isWalmartSku(s)) as string[]
     if (skus.length) {
-      const { data: stock } = await sb.from('products').select('sku, on_hand_qty').in('sku', skus)
-      const short = toShip.filter(l => !isWalmartSku(l.sku)).filter(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return p && Number(p.on_hand_qty ?? 0) < l.qtyToShip })
+      const { data: stock } = await sb.from('products').select('sku, on_hand_qty, production_line').in('sku', skus)
+      // Straws (production_line = 'straw') ship from Built / free stock on the Straw board, not on-hand — like Walmart
+      const short = toShip.filter(l => !isWalmartSku(l.sku)).filter(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return p && p.production_line !== 'straw' && Number(p.on_hand_qty ?? 0) < l.qtyToShip })
         .map(l => { const p = ((stock as any[]) || []).find(x => x.sku === l.sku); return `${l.sku}: shipping ${l.qtyToShip}, on hand ${Number(p?.on_hand_qty ?? 0)}` })
       if (short.length) return { success: false, message: 'Not enough inventory to ship — ' + short.join('; ') + '. Record the production (Shipping Queue → closeout will prompt for it) or receive the stock first. Nothing leaves on paper that is not in inventory.' }
     }
