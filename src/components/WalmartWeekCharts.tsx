@@ -5,11 +5,11 @@ import { useMemo } from 'react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts'
 
 interface Sku { sku: string; short: string; color: string }
-interface Props { skus: readonly Sku[]; entries: { production_date: string; sku: string; qty: number; voided_at: string | null }[]; week: string; prog: { sku: string; target_qty: number; made_qty: number }[]; woCode?: string | null }
+interface Props { skus: readonly Sku[]; entries: { production_date: string; sku: string; qty: number; voided_at: string | null }[]; week: string; prog: { sku: string; target_qty: number; made_qty: number }[]; woCode?: string | null; unit?: string; reportsHref?: string }
 const pad = (n: number) => String(n).padStart(2, '0')
 const fmt = (n: number) => (Number(n) || 0).toLocaleString('en-US')
 
-export default function WalmartWeekCharts({ skus, entries, week, prog, woCode }: Props) {
+export default function WalmartWeekCharts({ skus, entries, week, prog, woCode, unit = 'SRP', reportsHref = '/production/reports?view=daily' }: Props) {
   const days = useMemo(() => {
     const [y, m, d] = week.split('-').map(Number)
     return Array.from({ length: 7 }, (_, i) => { const dt = new Date(y, m - 1, d + i); return { key: `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`, label: dt.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }) } })
@@ -29,7 +29,7 @@ export default function WalmartWeekCharts({ skus, entries, week, prog, woCode }:
       <div className="bg-white rounded-2xl shadow-sm border border-[#ECEEF3] p-4">
         <div className="flex items-baseline justify-between mb-1">
           <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold">This week by day</p>
-          <a href="/production/reports?view=daily" className="text-[11px] font-semibold text-[#0071ce] hover:underline">{fmt(weekTotal)} SRP · reports →</a>
+          <a href={reportsHref} className="text-[11px] font-semibold text-[#0071ce] hover:underline">{fmt(weekTotal)} {unit} · reports →</a>
         </div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
@@ -52,7 +52,7 @@ export default function WalmartWeekCharts({ skus, entries, week, prog, woCode }:
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F2F6" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6b7280' }} tickLine={false} axisLine={{ stroke: '#E4E6EE' }} />
               <YAxis tick={{ fontSize: 10, fill: '#6b7280' }} tickLine={false} axisLine={false} width={44} tickFormatter={(v: number) => fmt(v)} />
-              <Tooltip formatter={(v: any, n: any) => [fmt(Number(v)) + ' SRP', n]} />
+              <Tooltip formatter={(v: any, n: any) => [fmt(Number(v)) + ' ' + unit, n]} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Bar dataKey="Target" fill="#D7DCE6" radius={[3, 3, 0, 0]} />
               <Bar dataKey="Made" fill="#0071ce" radius={[3, 3, 0, 0]} />
