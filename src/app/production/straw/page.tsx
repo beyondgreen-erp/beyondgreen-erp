@@ -255,7 +255,7 @@ export default function StrawProductionPage() {
             </div>)
         })}
 
-        <WalmartWeekCharts skus={weekSkus} entries={live} week={week} prog={prog.filter(p => p.work_order_id === (thisWo?.id || wos[wos.length - 1]?.id))} woCode={thisWo?.wo_code || wos[wos.length - 1]?.wo_code} />
+        <WalmartWeekCharts skus={weekSkus} entries={live} week={week} prog={prog.filter(p => p.work_order_id === (thisWo?.id || wos[wos.length - 1]?.id))} woCode={thisWo?.wo_code || wos[wos.length - 1]?.wo_code} unit="cases" reportsHref="/production/reports?board=straw" />
 
         {/* Daily log */}
         <div className="flex items-center justify-between mb-2">
