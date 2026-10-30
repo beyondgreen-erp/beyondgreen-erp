@@ -1192,7 +1192,7 @@ function EditPanel({
   function removeLine(key: string) { setEditLines(ls => ls.filter(l => l._key !== key)) }
   function updateLine(key: string, patch: Partial<EditLineState>) { setEditLines(ls => ls.map(l => l._key === key ? { ...l, ...patch, touched: true } : l)) }
   // Auto-calculate the order total from the line items (qty × unit price).
-  const linesTotal = editLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0)
+  const linesTotal = editLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0) * (parseMoney(l.unit_price) || 0), 0)
   useEffect(() => {
     const v = linesTotal > 0 ? String(Number(linesTotal.toFixed(2))) : ''
     setForm(p => {
@@ -1690,7 +1690,7 @@ function EditPanel({
                         placeholder="Unit price" className="w-full bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded pl-5 pr-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     </div>
                     <div className="text-right text-xs text-gray-500 pr-1">
-                      Line total: <span className="font-semibold text-[#1A1D2E]">{(() => { const q = parseFloat(line.quantity) || 0; const u = parseFloat(line.unit_price) || 0; return u ? '$' + (q * u).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'; })()}</span>
+                      Line total: <span className="font-semibold text-[#1A1D2E]">{(() => { const q = parseFloat(line.quantity) || 0; const u = parseMoney(line.unit_price) || 0; return u ? '$' + (q * u).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'; })()}</span>
                     </div>
                   </div>
                   {line.sku && <PriceHint sku={line.sku} />}
@@ -1790,6 +1790,9 @@ function EditPanel({
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────
+// Money typed by people: "$23.33", "1,250.00", " 0.5 " all mean a number. NaN only when it really isn't one.
+const parseMoney = (v: unknown) => { const t = String(v ?? '').replace(/[$,\s]/g, ''); return t === '' ? 0 : parseFloat(t) }
+
 export default function OrdersPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
@@ -2260,7 +2263,7 @@ export default function OrdersPage() {
           description: l.description || prod?.product_name || '',
           quantity: parseFloat(l.quantity) || 0,
           unit_of_measure: l.unit_of_measure || prod?.unit_of_measure || null,
-          unit_price: (parseFloat(l.unit_price) > 0 ? parseFloat(l.unit_price) : (prod?.unit_cost ?? 0)),
+          unit_price: (parseMoney(l.unit_price) > 0 ? parseMoney(l.unit_price) : (prod?.unit_cost ?? 0)),
           discount_pct: 0,
         }
       })
@@ -2512,6 +2515,8 @@ export default function OrdersPage() {
       return
     }
 
+    { const badPrice = editLines.filter(l => (l.sku || l.description) && String(l.unit_price ?? '').trim() && !Number.isFinite(parseMoney(l.unit_price)))
+      if (badPrice.length) { setErr(`The unit price on ${badPrice.map(l => l.sku || l.description).join(', ')} isn't a number — type just the amount, e.g. 23.33.`); return } }
     setErr(''); setSaving(true)
 
     let soNum = form.order_number.trim()
@@ -2663,7 +2668,7 @@ export default function OrdersPage() {
         const { data: found } = await sb.from('products').select('id').ilike('sku', skuT).limit(1)
         if (found && found.length) pid = (found[0] as any).id
         else {
-          const upx = parseFloat(line.unit_price)
+          const upx = parseMoney(line.unit_price)
           const { data: created, error: cErr } = await sb.from('products').insert({ sku: skuT, product_name: line.description || skuT, wholesale_price: upx > 0 ? upx : null, unit_of_measure: line.unit_of_measure || 'EA', is_active: true, inventory_status: 'Active' }).select('id').single()
           if (!cErr && created) pid = (created as any).id
           else { const { data: again } = await sb.from('products').select('id').ilike('sku', skuT).limit(1); pid = (again?.[0] as any)?.id ?? null }
@@ -2677,7 +2682,7 @@ export default function OrdersPage() {
         quantity: parseFloat(line.quantity) || 1,
         quantity_shipped: parseFloat(line.completed_qty) || 0,
         unit_of_measure: line.unit_of_measure || null,
-        unit_price: (parseFloat(line.unit_price) > 0 ? parseFloat(line.unit_price) : ((prod?.wholesale_price ?? prod?.msrp ?? prod?.unit_cost) ?? 0)),
+        unit_price: (parseMoney(line.unit_price) > 0 ? parseMoney(line.unit_price) : ((prod?.wholesale_price ?? prod?.msrp ?? prod?.unit_cost) ?? 0)),
         line_number: i + 1,
         discount_pct: 0,
       }
