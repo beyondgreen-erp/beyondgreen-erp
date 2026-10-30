@@ -14,7 +14,12 @@ import '@/lib/pdfSafeText'
 import autoTable from 'jspdf-autotable'
 import { uploadFile } from '@/lib/fileHelpers'
 
-interface Props { sb: any; woId: string; mode: 'view' | 'close'; canEdit: boolean; userEmail: string; onClose: () => void; onClosedOut?: (msg: string) => void }
+export type SummaryKind = 'walmart' | 'straw'
+const KINDS = {
+  walmart: { rpc: 'walmart_wo_summary', status: 'walmart_wo_set_status', board: 'Walmart Production', unit: 'SRP', po: 'PO', load: 'Load ', where: 'Where it went — by load and PO', claimed: 'Claimed' },
+  straw: { rpc: 'straw_wo_summary', status: 'straw_wo_set_status', board: 'Straw Production', unit: 'cases', po: 'PO', load: '', where: 'Where it went — by sales order', claimed: 'Built' },
+} as const
+interface Props { kind?: SummaryKind; sb: any; woId: string; mode: 'view' | 'close'; canEdit: boolean; userEmail: string; onClose: () => void; onClosedOut?: (msg: string) => void }
 type S = any
 
 const n = (v: any) => Number(v) || 0
@@ -35,14 +40,15 @@ function derive(s: S) {
   return { pos, openPos, shortShipped, under, over, unreleased, looseCount, byLoad }
 }
 
-export function buildSummaryPdf(s: S): jsPDF {
+export function buildSummaryPdf(s: S, kind: SummaryKind = 'walmart'): jsPDF {
+  const K = KINDS[kind]
   const d = derive(s), wo = s.wo
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const W = doc.internal.pageSize.getWidth()
   let y = 44
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text(`Work Order Close-out Summary — ${wo.code}`, 40, y)
   y += 16; doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110)
-  const sub = doc.splitTextToSize(`beyondGREEN biotech · Walmart Production · Status: ${wo.status}${wo.completed_at ? ' (closed ' + dt(wo.completed_at) + ')' : ''} · ${wo.weeks_open} week${wo.weeks_open === 1 ? '' : 's'} open · Generated ${new Date(wo.generated_at).toLocaleString('en-US')} by ${wo.generated_by || '—'}`, W - 80)
+  const sub = doc.splitTextToSize(`beyondGREEN biotech · ${K.board} · Status: ${wo.status}${wo.completed_at ? ' (closed ' + dt(wo.completed_at) + ')' : ''} · ${wo.weeks_open} week${wo.weeks_open === 1 ? '' : 's'} open · Generated ${new Date(wo.generated_at).toLocaleString('en-US')} by ${wo.generated_by || '—'}`, W - 80)
   doc.text(sub, 40, y); y += (sub.length - 1) * 11
   doc.setTextColor(0); y += 14
   const head = { fillColor: [0, 113, 206] as [number, number, number], textColor: 255, fontStyle: 'bold' as const, fontSize: 8 }
@@ -52,23 +58,23 @@ export function buildSummaryPdf(s: S): jsPDF {
   sec('1. Targets vs made')
   tbl(['SKU', 'Product', 'Target', 'Made', 'Over / under'], (s.skus || []).map((k: any) => [k.sku, k.name || '', fmt(k.target), fmt(k.made), n(k.diff) === 0 ? 'On target' : (n(k.diff) > 0 ? '+' : '') + fmt(k.diff)]),
     { foot: [['Total', '', fmt((s.skus || []).reduce((a: number, k: any) => a + n(k.target), 0)), fmt((s.skus || []).reduce((a: number, k: any) => a + n(k.made), 0)), '']], footStyles: { fillColor: [240, 242, 246], textColor: 20, fontStyle: 'bold', fontSize: 8 } })
-  sec('2. Where it went — by load and PO')
+  sec('2. ' + K.where)
   const rows: any[][] = []
   for (const [load, list] of Array.from(d.byLoad.entries())) for (const p of list)
     rows.push([load, p.po || '', p.sku, fmt(p.ordered), fmt(p.released), fmt(p.claimed), p.shipped ? 'Shipped' : (p.status || p.group || ''), p.shipped && n(p.released) < n(p.ordered) ? `Short ${fmt(n(p.ordered) - n(p.released))}` : !p.shipped && n(p.released) < n(p.ordered) ? `${fmt(n(p.ordered) - n(p.released))} open` : ''])
-  tbl(['Load', 'PO', 'SKU', 'Ordered', 'Released', 'Claimed', 'Status', 'Flag'], rows)
+  tbl([kind === 'straw' ? 'Order' : 'Load', K.po, 'SKU', 'Ordered', 'Released', K.claimed, 'Status', 'Flag'], rows)
   sec('3. Loose ends')
   const loose: any[][] = []
-  for (const k of d.under) loose.push(['Under target', k.sku, `${fmt(-n(k.diff))} SRP short of ${fmt(k.target)}`])
-  for (const u of d.unreleased) loose.push(['Made, not released', u.sku, `${fmt(u.available)} SRP sitting unreleased`])
+  for (const k of d.under) loose.push(['Under target', k.sku, `${fmt(-n(k.diff))} ${K.unit} short of ${fmt(k.target)}`])
+  for (const u of d.unreleased) loose.push(['Made, not released', u.sku, `${fmt(u.available)} ${K.unit} sitting unreleased`])
   for (const p of d.openPos) loose.push(['PO still open', `${p.po} · ${p.sku}`, `${fmt(n(p.ordered) - n(p.released))} of ${fmt(p.ordered)} not released (load ${p.load || '—'})`])
   for (const p of d.shortShipped) loose.push(['Shipped short', `${p.po} · ${p.sku}`, `${fmt(n(p.ordered) - n(p.released))} short on load ${p.load || '—'}`])
   for (const w of s.writeoffs || []) loose.push(['Written off', `${w.po} · ${w.sku}`, w.note || ''])
   tbl(['Type', 'Item', 'Detail'], loose, { columnStyles: { 2: { cellWidth: 300 } } })
   sec('4. Who did the work')
-  tbl(['Person', 'Logs', 'SRP logged', 'Days'], (s.people || []).map((p: any) => [p.who, fmt(p.logs), fmt(p.qty), fmt(p.days)]))
-  if ((s.daily || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Date', 'Person', 'SKU', 'SRP'], (s.daily || []).map((r: any) => [dt(r.date), short(r.who), r.sku, fmt(r.qty)])) }
-  if ((s.voids || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Voided entry', 'SKU', 'SRP', 'Logged by', 'Voided by', 'Reason'], (s.voids || []).map((v: any) => [dt(v.date), v.sku, fmt(v.qty), short(v.by), short(v.voided_by), v.reason || ''])) }
+  tbl(['Person', 'Logs', K.unit + ' logged', 'Days'], (s.people || []).map((p: any) => [p.who, fmt(p.logs), fmt(p.qty), fmt(p.days)]))
+  if ((s.daily || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Date', 'Person', 'SKU', K.unit], (s.daily || []).map((r: any) => [dt(r.date), short(r.who), r.sku, fmt(r.qty)])) }
+  if ((s.voids || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Voided entry', 'SKU', K.unit, 'Logged by', 'Voided by', 'Reason'], (s.voids || []).map((v: any) => [dt(v.date), v.sku, fmt(v.qty), short(v.by), short(v.voided_by), v.reason || ''])) }
   sec('5. Materials used (net of voids)')
   tbl(['Item', 'Description', 'UOM', 'Used'], (s.materials || []).map((m: any) => [m.sku, m.name || '', m.uom || '', fmt(m.used)]))
   sec('6. Dates')
@@ -78,21 +84,22 @@ export function buildSummaryPdf(s: S): jsPDF {
   return doc
 }
 
-export default function WalmartWoSummary({ sb, woId, mode, canEdit, userEmail, onClose, onClosedOut }: Props) {
+export default function WalmartWoSummary({ kind = 'walmart', sb, woId, mode, canEdit, userEmail, onClose, onClosedOut }: Props) {
+  const K = KINDS[kind]
   const [s, setS] = useState<S | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState('')
   const [showDaily, setShowDaily] = useState(false)
   const load = useCallback(async () => {
-    const { data, error } = await sb.rpc('walmart_wo_summary', { p_wo: woId })
+    const { data, error } = await sb.rpc(K.rpc, { p_wo: woId })
     if (error) setErr(error.message); else setS(data)
     return data as S
-  }, [sb, woId])
+  }, [sb, woId, K.rpc])
   useEffect(() => { load() }, [load])
   const d = useMemo(() => (s ? derive(s) : null), [s])
 
   async function savePdf(sum: S) {
-    const doc = buildSummaryPdf(sum)
+    const doc = buildSummaryPdf(sum, kind)
     const name = `${sum.wo.code}_Closeout_Summary_${new Date().toISOString().slice(0, 10)}.pdf`
     const file = new File([doc.output('blob')], name, { type: 'application/pdf' })
     const up = await uploadFile(sb, file, 'work_order', woId, userEmail)
@@ -102,7 +109,7 @@ export default function WalmartWoSummary({ sb, woId, mode, canEdit, userEmail, o
   async function closeOut() {
     if (!s) return
     setErr(''); setBusy('Closing out…')
-    const { error } = await sb.rpc('walmart_wo_set_status', { p_wo: woId, p_status: 'Complete' })
+    const { error } = await sb.rpc(K.status, { p_wo: woId, p_status: 'Complete' })
     if (error) { setErr(error.message); setBusy(''); return }
     try {
       setBusy('Saving the summary PDF…')
@@ -117,7 +124,7 @@ export default function WalmartWoSummary({ sb, woId, mode, canEdit, userEmail, o
     setErr(''); setBusy('Saving PDF…')
     try { const name = await savePdf(s); setBusy(''); setErr(''); alert(`Saved to the work order's files: ${name}`) } catch (e) { setBusy(''); setErr((e as Error).message) }
   }
-  function download() { if (s) buildSummaryPdf(s).save(`${s.wo.code}_Closeout_Summary.pdf`) }
+  function download() { if (s) buildSummaryPdf(s, kind).save(`${s.wo.code}_Closeout_Summary.pdf`) }
 
   const th = 'text-left text-[10px] uppercase tracking-wide text-gray-400 font-semibold px-2 py-1.5'
   const td = 'px-2 py-1.5 text-[12px] border-t border-[#F0F2F6]'
@@ -145,34 +152,34 @@ export default function WalmartWoSummary({ sb, woId, mode, canEdit, userEmail, o
               {(s.skus || []).map((k: any) => <tr key={k.sku}><td className={td + ' font-mono'}>{k.sku}</td><td className={td + ' text-right'}>{fmt(k.target)}</td><td className={td + ' text-right'}>{fmt(k.made)}</td><td className={td + ' text-right font-semibold ' + (n(k.diff) < 0 ? 'text-red-600' : n(k.diff) > 0 ? 'text-amber-600' : 'text-emerald-600')}>{n(k.diff) === 0 ? '✓' : (n(k.diff) > 0 ? '+' : '') + fmt(k.diff)}</td></tr>)}
             </tbody></table></div>
 
-            <H n={2} t="Where it went — by load and PO" />
+            <H n={2} t={K.where} />
             {Array.from(d.byLoad.entries()).map(([load, list]) => (
               <div key={load} className="mb-2 rounded-lg border border-[#ECEEF3] overflow-x-auto">
-                <p className="px-2 py-1.5 bg-[#FAFBFD] text-[12px] font-semibold">Load {load}{list.every(p => p.shipped) ? <span className="ml-2 text-emerald-600">shipped</span> : null}</p>
-                <table className="w-full"><thead><tr><th className={th}>PO</th><th className={th}>SKU</th><th className={th + ' text-right'}>Ordered</th><th className={th + ' text-right'}>Released</th><th className={th + ' text-right'}>Claimed</th><th className={th}></th></tr></thead><tbody>
+                <p className="px-2 py-1.5 bg-[#FAFBFD] text-[12px] font-semibold">{K.load}{load}{list.every(p => p.shipped) ? <span className="ml-2 text-emerald-600">shipped</span> : null}</p>
+                <table className="w-full"><thead><tr><th className={th}>{K.po}</th><th className={th}>SKU</th><th className={th + ' text-right'}>Ordered</th><th className={th + ' text-right'}>Released</th><th className={th + ' text-right'}>{K.claimed}</th><th className={th}></th></tr></thead><tbody>
                   {list.map((p, i) => { const gap = n(p.ordered) - n(p.released); return <tr key={i}><td className={td + ' font-mono'}>{p.po}</td><td className={td + ' font-mono'}>{p.sku}</td><td className={td + ' text-right'}>{fmt(p.ordered)}</td><td className={td + ' text-right'}>{fmt(p.released)}</td><td className={td + ' text-right'}>{fmt(p.claimed)}</td><td className={td + ' text-[11px] font-semibold ' + (gap > 0 ? (p.shipped ? 'text-amber-700' : 'text-red-600') : 'text-emerald-600')}>{gap > 0 ? (p.shipped ? `shipped ${fmt(gap)} short` : `${fmt(gap)} open`) : '✓'}</td></tr> })}
                 </tbody></table>
               </div>))}
 
             <H n={3} t="Loose ends" />
             {d.looseCount === 0 && !(s.writeoffs || []).length ? <p className="text-sm text-gray-400">None.</p> : <ul className="space-y-1 text-[13px]">
-              {d.under.map((k: any) => <li key={'u' + k.sku}>• <b>{k.sku}</b> under target by {fmt(-n(k.diff))} SRP</li>)}
-              {d.unreleased.map((u: any) => <li key={'r' + u.sku}>• <b>{u.sku}</b>: {fmt(u.available)} SRP made but never released</li>)}
+              {d.under.map((k: any) => <li key={'u' + k.sku}>• <b>{k.sku}</b> under target by {fmt(-n(k.diff))} {K.unit}</li>)}
+              {d.unreleased.map((u: any) => <li key={'r' + u.sku}>• <b>{u.sku}</b>: {fmt(u.available)} {K.unit} made but never released</li>)}
               {d.openPos.map((p: any, i: number) => <li key={'o' + i}>• PO <b>{p.po}</b> {p.sku}: {fmt(n(p.ordered) - n(p.released))} of {fmt(p.ordered)} not released (load {p.load || '—'})</li>)}
               {d.shortShipped.map((p: any, i: number) => <li key={'s' + i}>• PO <b>{p.po}</b> {p.sku}: shipped {fmt(n(p.ordered) - n(p.released))} short</li>)}
               {(s.writeoffs || []).map((w: any, i: number) => <li key={'w' + i} className="text-gray-600">• Written off — PO <b>{w.po}</b> {w.sku}: {w.note}</li>)}
             </ul>}
 
             <H n={4} t="Who did the work" />
-            <div className="overflow-x-auto rounded-lg border border-[#ECEEF3]"><table className="w-full"><thead><tr><th className={th}>Person</th><th className={th + ' text-right'}>Logs</th><th className={th + ' text-right'}>SRP</th><th className={th + ' text-right'}>Days</th></tr></thead><tbody>
+            <div className="overflow-x-auto rounded-lg border border-[#ECEEF3]"><table className="w-full"><thead><tr><th className={th}>Person</th><th className={th + ' text-right'}>Logs</th><th className={th + ' text-right'}>{K.unit}</th><th className={th + ' text-right'}>Days</th></tr></thead><tbody>
               {(s.people || []).map((p: any) => <tr key={p.who}><td className={td}>{p.who}</td><td className={td + ' text-right'}>{fmt(p.logs)}</td><td className={td + ' text-right font-semibold'}>{fmt(p.qty)}</td><td className={td + ' text-right'}>{fmt(p.days)}</td></tr>)}
             </tbody></table></div>
             <button onClick={() => setShowDaily(v => !v)} className="mt-1.5 text-xs text-[#0071ce] font-semibold">{showDaily ? 'Hide' : 'Show'} day-by-day ({(s.daily || []).length}) · voided entries ({(s.voids || []).length})</button>
             {showDaily && <div className="mt-2 space-y-2">
-              <div className="overflow-x-auto rounded-lg border border-[#ECEEF3]"><table className="w-full"><thead><tr><th className={th}>Date</th><th className={th}>Person</th><th className={th}>SKU</th><th className={th + ' text-right'}>SRP</th></tr></thead><tbody>
+              <div className="overflow-x-auto rounded-lg border border-[#ECEEF3]"><table className="w-full"><thead><tr><th className={th}>Date</th><th className={th}>Person</th><th className={th}>SKU</th><th className={th + ' text-right'}>{K.unit}</th></tr></thead><tbody>
                 {(s.daily || []).map((r: any, i: number) => <tr key={i}><td className={td}>{dt(r.date)}</td><td className={td}>{short(r.who)}</td><td className={td + ' font-mono'}>{r.sku}</td><td className={td + ' text-right'}>{fmt(r.qty)}</td></tr>)}
               </tbody></table></div>
-              {(s.voids || []).length > 0 && <div className="overflow-x-auto rounded-lg border border-[#ECEEF3]"><table className="w-full"><thead><tr><th className={th}>Voided</th><th className={th}>SKU</th><th className={th + ' text-right'}>SRP</th><th className={th}>By</th><th className={th}>Reason</th></tr></thead><tbody>
+              {(s.voids || []).length > 0 && <div className="overflow-x-auto rounded-lg border border-[#ECEEF3]"><table className="w-full"><thead><tr><th className={th}>Voided</th><th className={th}>SKU</th><th className={th + ' text-right'}>{K.unit}</th><th className={th}>By</th><th className={th}>Reason</th></tr></thead><tbody>
                 {(s.voids || []).map((v: any, i: number) => <tr key={i}><td className={td}>{dt(v.date)}</td><td className={td + ' font-mono'}>{v.sku}</td><td className={td + ' text-right'}>{fmt(v.qty)}</td><td className={td}>{short(v.voided_by)}</td><td className={td + ' text-gray-500'}>{v.reason || '—'}</td></tr>)}
               </tbody></table></div>}
             </div>}

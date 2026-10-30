@@ -11,7 +11,7 @@ import autoTable from 'jspdf-autotable'
 import { ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, PieChart, Pie, Cell } from 'recharts'
 
 export type Period = 'daily' | 'monthly' | 'fy'
-const SKUS = [
+const WM_SKUS = [
   { sku: '22GVA24', short: 'Assorted 24', color: '#a25ddc' }, { sku: '22GVA48', short: 'Assorted 48', color: '#784bd1' },
   { sku: '22GVF24', short: 'Fork 24', color: '#579bfc' }, { sku: '22GVF48', short: 'Fork 48', color: '#0071ce' },
   { sku: '22GVK48', short: 'Knife 48', color: '#e2445c' }, { sku: '22GVS24', short: 'Spoon 24', color: '#00c875' },
@@ -29,7 +29,14 @@ const who = (e: string | null) => (e || 'unknown').split('@')[0]
 interface Entry { id: string; production_date: string; sku: string; qty: number; entered_by: string | null; created_at: string; lot_number: string | null; note: string | null; work_orders: { wo_code: string | null } | null }
 interface Row { key: string; label: string; bySku: Record<string, number>; total: number }
 
-export default function WalmartProductionTotals({ sb, period }: { sb: any; period: Period; onPeriod?: (p: Period) => void }) {
+const PALETTE = ['#0071ce', '#00c875', '#e2445c', '#a25ddc', '#fdab3d', '#579bfc', '#037f4c', '#784bd1', '#ff642e', '#66ccff', '#9cd326', '#bb3354']
+const KIND = {
+  walmart: { table: 'walmart_production_entries', board: 'Walmart Production', unit: 'SRP', file: 'Walmart' },
+  straw: { table: 'straw_production_entries', board: 'Straw Production', unit: 'cases', file: 'Straw' },
+} as const
+
+export default function WalmartProductionTotals({ sb, period, kind = 'walmart' }: { sb: any; period: Period; kind?: 'walmart' | 'straw'; onPeriod?: (p: Period) => void }) {
+  const K = KIND[kind]
   const today = ymd(new Date())
   const [day, setDay] = useState(today)
   const [month, setMonth] = useState(today.slice(0, 7))
@@ -39,6 +46,10 @@ export default function WalmartProductionTotals({ sb, period }: { sb: any; perio
   const [trend, setTrend] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
+  // Walmart has a fixed 7-SKU list; straws show whichever SKUs were actually made in the range
+  const SKUS = useMemo(() => kind === 'walmart' ? WM_SKUS
+    : Array.from(new Set([...entries, ...trend].map(e => String(e.sku).toUpperCase()))).sort().map((sku, i) => ({ sku, short: sku, color: PALETTE[i % PALETTE.length] })),
+    [kind, entries, trend])
 
   useEffect(() => {
     try {
@@ -63,16 +74,18 @@ export default function WalmartProductionTotals({ sb, period }: { sb: any; perio
   const fetchRange = useCallback(async (a: string, b: string) => {
     const out: Entry[] = []
     for (let i = 0; i < 50000; i += 1000) {
-      const { data, error } = await sb.from('walmart_production_entries')
+      let q = sb.from(K.table)
         .select('id,production_date,sku,qty,entered_by,created_at,lot_number,note,work_orders(wo_code)')
-        .is('voided_at', null).gte('production_date', a).lte('production_date', b)
+        .is('voided_at', null)
+      if (kind === 'straw') q = q.eq('kind', 'production')
+      const { data, error } = await q.gte('production_date', a).lte('production_date', b)
         .order('production_date').order('created_at').range(i, i + 999)
       if (error) throw new Error(error.message)
       out.push(...((data as Entry[]) || []))
       if (!data || data.length < 1000) break
     }
     return out
-  }, [sb])
+  }, [sb, K.table, kind])
 
   useEffect(() => {
     let alive = true
@@ -138,18 +151,18 @@ export default function WalmartProductionTotals({ sb, period }: { sb: any; perio
     const lines = [head, ...shownRows.map(r => [r.label, ...SKUS.map(s => String(r.bySku[s.sku] || 0)), String(r.total)]), ['Total', ...SKUS.map(s => String(bySku[s.sku] || 0)), String(total)]]
     const csv = lines.map(l => l.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    a.download = `Walmart_${period === 'daily' ? 'Daily_' + day : period === 'monthly' ? 'Monthly_' + month : 'FY' + fyEndYear}_Production.csv`; a.click()
+    a.download = `${K.file}_${period === 'daily' ? 'Daily_' + day : period === 'monthly' ? 'Monthly_' + month : 'FY' + fyEndYear}_Production.csv`; a.click()
   }
   function exportPdf() {
     const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' })
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text(title, 36, 40)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110)
-    doc.text(`beyondGREEN biotech · Walmart Production · ${fmt(total)} SRP from ${entries.length} logs · voided entries excluded · generated ${new Date().toLocaleString('en-US')}`, 36, 56); doc.setTextColor(0)
+    doc.text(`beyondGREEN biotech · ${K.board} · ${fmt(total)} ${K.unit} from ${entries.length} logs · voided entries excluded · generated ${new Date().toLocaleString('en-US')}`, 36, 56); doc.setTextColor(0)
     const head = { fillColor: [0, 113, 206] as [number, number, number], textColor: 255, fontStyle: 'bold' as const, fontSize: 8 }
     autoTable(doc, { startY: 68, head: [[firstCol, ...SKUS.map(s => s.short), 'Total']], body: shownRows.map(r => [r.label, ...SKUS.map(s => r.bySku[s.sku] ? fmt(r.bySku[s.sku]) : ''), r.total ? fmt(r.total) : '']),
       foot: [['Total', ...SKUS.map(s => fmt(bySku[s.sku] || 0)), fmt(total)]], styles: { fontSize: 8, cellPadding: 3 }, headStyles: head, footStyles: { fillColor: [240, 242, 246], textColor: 20, fontStyle: 'bold', fontSize: 8 }, margin: { left: 36, right: 36 } })
-    autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 16, head: [['Person', 'Logs', 'SRP', 'Days']], body: people.map(p => [p.who, fmt(p.logs), fmt(p.qty), fmt(p.days)]), styles: { fontSize: 8, cellPadding: 3 }, headStyles: head, margin: { left: 36, right: 36 }, tableWidth: 360 })
-    doc.save(`Walmart_${period === 'daily' ? 'Daily_' + day : period === 'monthly' ? 'Monthly_' + month : 'FY' + fyEndYear}_Production.pdf`)
+    autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 16, head: [['Person', 'Logs', K.unit, 'Days']], body: people.map(p => [p.who, fmt(p.logs), fmt(p.qty), fmt(p.days)]), styles: { fontSize: 8, cellPadding: 3 }, headStyles: head, margin: { left: 36, right: 36 }, tableWidth: 360 })
+    doc.save(`${K.file}_${period === 'daily' ? 'Daily_' + day : period === 'monthly' ? 'Monthly_' + month : 'FY' + fyEndYear}_Production.pdf`)
   }
 
   const step = (dir: number) => {
@@ -183,19 +196,19 @@ export default function WalmartProductionTotals({ sb, period }: { sb: any; perio
 
       <div>
         <h2 className="text-lg font-bold text-[#1A1D2E]">{title}</h2>
-        <p className="text-xs text-gray-500">From the Walmart Production board logs · voided entries excluded{period === 'fy' ? ` · FY ${fyEndYear} runs ${nice(fyFrom)} – ${nice(fyTo)}` : ''}</p>
+        <p className="text-xs text-gray-500">From the {K.board} board logs · voided entries excluded{period === 'fy' ? ` · FY ${fyEndYear} runs ${nice(fyFrom)} – ${nice(fyTo)}` : ''}</p>
       </div>
       {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-        <div className="rounded-xl bg-[#0071ce] text-white p-3"><p className="text-[11px] uppercase opacity-80">Total SRP</p><p className="text-2xl font-extrabold">{loading ? '…' : fmt(total)}</p><p className="text-[11px] opacity-80">{entries.length} logs</p></div>
+        <div className="rounded-xl bg-[#0071ce] text-white p-3"><p className="text-[11px] uppercase opacity-80">Total {K.unit}</p><p className="text-2xl font-extrabold">{loading ? '…' : fmt(total)}</p><p className="text-[11px] opacity-80">{entries.length} logs</p></div>
         {SKUS.map(s => <div key={s.sku} className="rounded-xl bg-white border border-[#ECEEF3] p-3" style={{ borderTop: '4px solid ' + s.color }}>
           <p className="text-[11px] text-gray-500">{s.short}</p><p className="text-xl font-bold text-[#1A1D2E]">{loading ? '…' : fmt(bySku[s.sku] || 0)}</p><p className="font-mono text-[10px] text-gray-400">{s.sku}</p></div>)}
       </div>
 
       <div className="bg-white rounded-xl border border-[#E4E6EE] p-4">
         <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
-          {period === 'daily' ? 'Last 14 days by SKU · click a bar to open that day' : period === 'monthly' ? 'SRP made each day by SKU · line = running total' : 'SRP made each month by SKU · line = running total'}</p>
+          {period === 'daily' ? 'Last 14 days by SKU · click a bar to open that day' : period === 'monthly' ? `${K.unit} made each day by SKU · line = running total` : `${K.unit} made each month by SKU · line = running total`}</p>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
@@ -225,20 +238,20 @@ export default function WalmartProductionTotals({ sb, period }: { sb: any; perio
                   label={(e: any) => `${e.name} ${total ? Math.round((e.value / total) * 100) : 0}%`} labelLine={false} style={{ fontSize: 10 }}>
                   {mix.map(m => <Cell key={m.sku} fill={m.color} />)}
                 </Pie>
-                <Tooltip formatter={(v: any) => fmt(Number(v)) + ' SRP'} />
+                <Tooltip formatter={(v: any) => fmt(Number(v)) + ' ' + K.unit} />
               </PieChart>
             </ResponsiveContainer>
           </div>}
         </div>
         <div className="bg-white rounded-xl border border-[#E4E6EE] p-4">
-          <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-2">SRP logged by person</p>
+          <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-2">{K.unit} logged by person</p>
           {peopleChart.length === 0 ? <p className="py-16 text-center text-sm text-gray-400">No production.</p> : <div className="h-60">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={peopleChart} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F0F2F6" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v: number) => fmt(v)} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#374151' }} width={90} />
-                <Tooltip formatter={(v: any) => fmt(Number(v)) + ' SRP'} />
+                <Tooltip formatter={(v: any) => fmt(Number(v)) + ' ' + K.unit} />
                 <Bar dataKey="qty" fill="#0071ce" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -262,7 +275,7 @@ export default function WalmartProductionTotals({ sb, period }: { sb: any; perio
       </div>
 
       <div className="bg-white rounded-xl border border-[#E4E6EE] overflow-x-auto max-w-xl">
-        <table className="w-full"><thead className="bg-[#FAFBFD]"><tr><th className={th + ' text-left'}>Person</th><th className={th}>Logs</th><th className={th}>SRP</th><th className={th}>Days</th></tr></thead>
+        <table className="w-full"><thead className="bg-[#FAFBFD]"><tr><th className={th + ' text-left'}>Person</th><th className={th}>Logs</th><th className={th}>{K.unit}</th><th className={th}>Days</th></tr></thead>
           <tbody>{people.length === 0 ? <tr><td colSpan={4} className="py-6 text-center text-sm text-gray-400">—</td></tr> : people.map(p => <tr key={p.who}><td className={td + ' text-left'}>{p.who}</td><td className={td}>{fmt(p.logs)}</td><td className={td + ' font-semibold'}>{fmt(p.qty)}</td><td className={td}>{fmt(p.days)}</td></tr>)}</tbody></table>
       </div>
     </div>
