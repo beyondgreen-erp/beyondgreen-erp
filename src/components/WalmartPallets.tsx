@@ -6,7 +6,7 @@
  * Every Walmart PO is planned into pallets automatically (DB: walmart_pallet_replan) from the
  * pallet arrangement on each SKU (products.pallet_ti_hi / cases_per_pallet / case_size):
  * a full pallet per SKU when the quantity reaches the arrangement total, and the leftovers
- * ("floor") of the PO on mixed pallets. CBM is a 48x40 CHEP pallet (6" base) to load height.
+ * ("floor") of the PO on mixed pallets. Cube (cubic feet, what Walmart asks for) is a 48x40 CHEP pallet (6" base) to load height.
  *
  * Each pallet moves: Planned → Confirm build (staged) → Released → Claimed → Wrapped & labeled
  * → Built (photo). Built pallets add their SRPs to the PO lines; when every pallet of a PO is
@@ -17,7 +17,7 @@ import { jsPDF } from 'jspdf'
 
 export interface BPallet {
   id: string; order_id: string; pallet_no: number; kind: string; status: string; srps: number
-  height_in: number | null; cbm: number | null; weight_lb: number | null
+  height_in: number | null; cbm: number | null; cube_ft?: number | null; weight_lb: number | null
   staged_by: string | null; staged_at: string | null; released_by: string | null; released_at: string | null
   claimed_by: string | null; claimed_at: string | null; wrapped_by: string | null; wrapped_at: string | null
   built_by: string | null; built_at: string | null; photo_url: string | null; note: string | null
@@ -193,7 +193,7 @@ export function PalletSchematic({ pallet, items, dims }: { pallet: BPallet; item
           <text x={PW + 1} y={H - 6 - y} fontSize={3} fill="#475569">{fmtN(y + 6, 1)}&quot;</text>
           <line x1={0} x2={PW} y1={H - 6 - 44} y2={H - 6 - 44} stroke="#ef4444" strokeWidth={0.25} strokeDasharray="1 1" />
         </svg>
-        <p className="text-[10px] text-gray-400">48&quot; × 40&quot; CHEP · {fmtN(num(pallet.height_in) + 6, 1)}&quot; tall · {fmtN(pallet.cbm, 3)} CBM · {fmtN(pallet.weight_lb)} lb</p>
+        <p className="text-[10px] text-gray-400">48&quot; × 40&quot; CHEP · {fmtN(num(pallet.height_in) + 6, 1)}&quot; tall · {fmtN(pallet.cube_ft, 1)} cu ft cube · {fmtN(pallet.weight_lb)} lb</p>
       </div>
       <div className="flex-1 min-w-0 space-y-3">
         <p className="text-[10px] uppercase tracking-wide text-gray-400">Build order — bottom to top</p>
@@ -235,7 +235,7 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
         <button onClick={() => setOpen(o => !o)} className="text-left flex-1 min-w-[180px]" data-ro-ok>
           <p className="text-sm font-bold text-[#1A1D2E]">{showPo ? `PO ${po} · ` : ''}Pallet #{p.pallet_no} <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1 ${p.kind === 'full' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{p.kind === 'full' ? 'FULL' : 'FLOOR · mixed'}</span>
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1 text-white" style={{ background: s.color }}>{s.label}</span></p>
-          <p className="text-[11px] text-gray-500">{items.map(it => `${fmtN(it.srps)} ${skuShort(it.sku)}`).join(' + ')} · {fmtN(p.srps)} SRPs · {fmtN(p.cbm, 3)} CBM{last ? ' · ' + last : ''} · <span className="text-[#0071ce] underline">{open ? 'hide' : 'show'} build drawing</span></p>
+          <p className="text-[11px] text-gray-500">{items.map(it => `${fmtN(it.srps)} ${skuShort(it.sku)}`).join(' + ')} · {fmtN(p.srps)} SRPs · {fmtN(p.cube_ft, 1)} cu ft{last ? ' · ' + last : ''} · <span className="text-[#0071ce] underline">{open ? 'hide' : 'show'} build drawing</span></p>
         </button>
         {p.photo_url && <a href={p.photo_url} target="_blank" rel="noreferrer" data-ro-ok><img src={p.photo_url} alt="Built pallet" className="w-10 h-10 rounded-lg object-cover border border-[#E4E6EE]" /></a>}
         {canEdit && s.step === 'built' && (
@@ -263,7 +263,7 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
     doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
     doc.text(`PALLET BUILD SHEET  ·  PO ${po.po_number || ''}  ·  Pallet ${p.pallet_no} of ${pallets.length}`, 0.6, 0.73)
     doc.setTextColor(0, 0, 0); doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-    doc.text(`${p.kind === 'full' ? 'FULL pallet' : 'FLOOR pallet (mixed)'}  ·  ${fmtN(p.srps)} SRPs  ·  ${fmtN(num(p.height_in) + 6, 1)}" tall  ·  ${fmtN(p.cbm, 3)} CBM  ·  ${fmtN(p.weight_lb)} lb${po.ship_due_date ? '  ·  Ship ' + po.ship_due_date : ''}`, 0.5, 1.15)
+    doc.text(`${p.kind === 'full' ? 'FULL pallet' : 'FLOOR pallet (mixed)'}  ·  ${fmtN(p.srps)} SRPs  ·  ${fmtN(num(p.height_in) + 6, 1)}" tall  ·  ${fmtN(p.cube_ft, 1)} cu ft cube  ·  ${fmtN(p.weight_lb)} lb${po.ship_due_date ? '  ·  Ship ' + po.ship_due_date : ''}`, 0.5, 1.15)
     // side view
     const sx = 0.6, base = 6.2, s = 0.085
     doc.setFillColor(139, 106, 62); doc.rect(sx, base, PW * s, 6 * s, 'F')
@@ -329,7 +329,7 @@ export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
   const { busy, step, undo } = usePalletActions(sb, done)
   const po = order.po_number || ''
   const built = pallets.filter(p => p.status === 'built').length
-  const cbm = pallets.reduce((t, p) => t + num(p.cbm), 0), wt = pallets.reduce((t, p) => t + num(p.weight_lb), 0)
+  const cube = pallets.reduce((t, p) => t + num(p.cube_ft), 0), wt = pallets.reduce((t, p) => t + num(p.weight_lb), 0)
   const full = pallets.filter(p => p.kind === 'full').length
   async function replan() {
     if (!window.confirm('Rebuild the pallet plan from the current lines? Only allowed while no pallet has been started.')) return
@@ -340,7 +340,7 @@ export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
     <div className="border border-[#D6E9DD] bg-[#F6FBF8] rounded-lg p-3">
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[#0f7a4a] mr-auto">🏗 Pallet plan &amp; build</p>
-        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{fmtN(cbm, 3)} CBM</span>
+        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{fmtN(cube, 1)} cu ft cube</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{pallets.length} pallets ({full} full · {pallets.length - full} floor)</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{fmtN(wt)} lb</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: built === pallets.length && pallets.length ? '#00c875' : '#579bfc' }}>{built}/{pallets.length} built</span>
@@ -354,7 +354,7 @@ export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
           {pallets.map(p => <PalletRow key={p.id} p={p} items={items.filter(i => i.pallet_id === p.id)} dims={dims} po={po} canEdit={canEdit} busy={busy === p.id}
             onStep={(pp, s, ph) => step(pp, s, po, ph)} onUndo={pp => undo(pp, po)} />)}
         </div>)}
-      <p className="text-[10px] text-gray-500 mt-2">Full pallet = the SKU&apos;s pallet arrangement (S24 312 · F24 260 · A24 234 · A48 165 · K48 260 · S48 120 · F48 120). Anything less is floor and goes on a mixed pallet for this PO. CBM uses a 48×40 CHEP pallet (6&quot; base, 65 lb).</p>
+      <p className="text-[10px] text-gray-500 mt-2">Full pallet = the SKU&apos;s pallet arrangement (S24 312 · F24 260 · A24 234 · A48 165 · K48 260 · S48 120 · F48 120). Anything less is floor and goes on a mixed pallet for this PO. Cube is in cubic feet (the figure Walmart asks for): 48×40 CHEP pallet, 6&quot; base, 65 lb, to the top of the load.</p>
     </div>
   )
 }
