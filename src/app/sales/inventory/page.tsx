@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx'
 import Comments from '@/components/Comments'
 import { uomOptions, normalizeUom, describeLadder } from '@/lib/uom'
 import ItemHistory from '@/components/ItemHistory'
+import WalmartCommitments, { loadCommitments, type CommitRow } from '@/components/WalmartCommitments'
 
 interface Product {
   id: string
@@ -725,6 +726,9 @@ export default function InventoryPage() {
   // Finished goods committed to open sales orders. Without this the Alloc/Avail column
   // was blank for every finished product, because component allocations only cover BOM parts.
   const [soAlloc, setSoAlloc] = useState<Record<string, { qty: number; orders: number }>>({})
+  // Display-only: cases committed to open orders (Walmart from its board, others from open sales orders). Never blocks shipping.
+  const [commitMap, setCommitMap] = useState<Record<string, CommitRow>>({})
+  const [wmCommit, setWmCommit] = useState<string | null>(null)
   // Walmart finished goods sitting in “Prepped & Ready for Dispatch” — consumed, but still on hand until the shipment posts.
   const [wmDispatch, setWmDispatch] = useState<Record<string, { qty: number; orders: number }>>({})
   const [allocProduct, setAllocProduct] = useState<Product | null>(null)
@@ -763,6 +767,7 @@ export default function InventoryPage() {
     { const sm: Record<string, { qty: number; orders: number }> = {}; for (const r of (soa as any[]) || []) { if (r.sku_key) sm[String(r.sku_key).trim().toUpperCase()] = { qty: Number(r.allocated_qty) || 0, orders: Number(r.open_orders) || 0 } } setSoAlloc(sm) }
     { const mm: Record<string, number> = {}; for (const r of (mal as any[]) || []) { if (r.sku) mm[String(r.sku).toUpperCase()] = Number(r.allocated_qty) || 0 } setManualAlloc(mm) }
     setZonedSet(new Set(((pz as any[]) || []).map(r => r.product_id)))
+    loadCommitments(sb).then(setCommitMap).catch(() => {})
     setLoading(false)
   }, [sb])
 
@@ -860,7 +865,7 @@ export default function InventoryPage() {
   }
 
   function exportInventory(list: Product[], scope: string) {
-    const header = ['SKU','Product','Category','UOM','On Hand','Built','Qty Last Updated','Updated How','Updated By','Unit Cost','Inventory Value','UPC']
+    const header = ['SKU','Product','Category','UOM','On Hand','Built','Committed (open orders)','Uncommitted (− = short)','Qty Last Updated','Updated How','Updated By','Unit Cost','Inventory Value','UPC']
     const data = list.map(p => {
       const k = String(p.sku ?? '').trim().toUpperCase()
       const so = soAlloc[k]?.qty || 0
@@ -871,7 +876,7 @@ export default function InventoryPage() {
       const uc = p.unit_cost ?? 0
       const stampedAt = p.qty_updated_at ? new Date(p.qty_updated_at) : null
       const how = p.qty_updated_source === 'manual' ? 'Manual' : p.qty_updated_source === 'auto' ? 'Auto' : ''
-      return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh, Number((p as any).built_qty || 0),
+      return [p.sku, p.product_name ?? '', (p as any).product_category ?? '', p.unit_of_measure ?? '', oh, Number((p as any).built_qty || 0), commitMap[k] ? Number(commitMap[k].committed) : '', commitMap[k] ? Number(commitMap[k].uncommitted) : '',
               stampedAt && !isNaN(+stampedAt) ? stampedAt.toLocaleString() : '', how, p.qty_updated_by ?? '',
               uc, Number((oh * uc).toFixed(2)), (p as any).upc_gtin ?? '']
     })
@@ -1166,6 +1171,7 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {wmCommit !== null && <WalmartCommitments sb={sb} sku={wmCommit} asModal onClose={() => setWmCommit(null)} />}
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
@@ -1179,6 +1185,10 @@ export default function InventoryPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
             Monthly Report &amp; Low-Stock
           </a>
+          <button onClick={() => setWmCommit('')} title="Walmart cases committed to pending POs, what's still short, and each PO's fulfillment status"
+            className="flex items-center gap-2 border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white text-[#0F7A4E] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+            <span>📦</span> Walmart vs. pending POs
+          </button>
           <button onClick={printBlankLabels}
             className="flex items-center gap-2 border border-[#E4E6EE] hover:border-[#D0D3E0] bg-white text-[#8A5A0B] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
             <span>🏷️</span> Blank Labels
@@ -1411,6 +1421,8 @@ export default function InventoryPage() {
                             <th className="text-left font-semibold px-3 py-2.5 w-[64px]">UOM</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[84px]">On Hand</th><th className="text-left font-semibold px-3 py-2.5 w-[132px]">Last Updated</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[104px]" title="Built Inventory — Walmart units on POs that are Prepped &amp; Ready for Dispatch. Not part of On Hand; shipping takes it from here.">Built</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[96px]" title="Cases on open orders (Walmart: open POs on the Walmart board · others: open sales orders). For planning only — it does not block shipping.">Committed</th>
+                            <th className="text-right font-semibold px-3 py-2.5 w-[104px]" title="Total stock minus Committed. Red = short against open orders — plan production.">Uncommitted</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[92px]">Unit Cost</th>
                             <th className="text-right font-semibold px-3 py-2.5 w-[110px]">Inv. Value</th>
                             <th className="text-left font-semibold px-3 py-2.5 w-[150px]">UPC</th>
@@ -1454,13 +1466,21 @@ export default function InventoryPage() {
                                 <td className={`px-3 py-3 text-right font-semibold cursor-pointer ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}`} onClick={()=>openEdit(p)}>{p.on_hand_qty ?? 0}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}>{qtyStamp(p)}</td>
                                 <td className="px-3 py-3 text-right cursor-pointer" onClick={()=>openEdit(p)}>{Number((p as any).built_qty || 0) > 0 ? <span className="text-[12px] font-semibold text-amber-700" title="Built on Walmart POs in Prepped &amp; Ready for Dispatch — ships from here">{Number((p as any).built_qty).toLocaleString()}</span> : <span className="text-gray-300 text-xs">—</span>}</td>
+                                {(() => { const c = commitMap[String(p.sku ?? '').trim().toUpperCase()]; const isWm = c?.source === 'walmart_board'
+                                  if (!c || (!Number(c.committed) && !isWm)) return <><td className="px-3 py-3 text-right"><span className="text-gray-300 text-xs">—</span></td><td className="px-3 py-3 text-right"><span className="text-gray-300 text-xs">—</span></td></>
+                                  const u = Number(c.uncommitted)
+                                  return <>
+                                    <td className="px-3 py-3 text-right cursor-pointer" onClick={() => isWm ? setWmCommit(c.sku) : openEdit(p)} title={`${Number(c.committed).toLocaleString()} on ${c.open_orders} open ${isWm ? 'Walmart PO' : 'order'}${c.open_orders === 1 ? '' : 's'}${isWm ? ' — click for the PO list' : ''}`}><span className={`text-[12px] font-semibold ${isWm ? 'text-[#3B6FE0] underline decoration-dotted' : 'text-violet-700'}`}>{Number(c.committed).toLocaleString()}</span></td>
+                                    <td className="px-3 py-3 text-right cursor-pointer" onClick={() => isWm ? setWmCommit(c.sku) : openEdit(p)} title={isWm ? `Total stock ${Number(c.total_stock).toLocaleString()} (free + on hand + built) − committed` : 'On hand − committed'}>{u < 0 ? <span className="text-[12px] font-bold text-red-600">Short {(-u).toLocaleString()}</span> : <span className="text-[12px] font-semibold text-emerald-700">{u.toLocaleString()}</span>}</td>
+                                  </>
+                                })()}
                                 <td className="px-3 py-3 text-right text-gray-600 text-xs cursor-pointer" onClick={()=>openEdit(p)}>{fmt$(p.unit_cost)}</td>
                                 <td className="px-3 py-3 text-right text-xs font-medium cursor-pointer" onClick={()=>openEdit(p)}>{invValue > 0 ? <span className="text-emerald-600">{fmtV(invValue)}</span> : <span className="text-gray-300">-</span>}</td>
                                 <td className="px-3 py-3 cursor-pointer" onClick={()=>openEdit(p)}><span className="text-gray-500 text-xs font-mono truncate block max-w-[140px]">{p.upc_gtin ?? '-'}</span></td>
                                 <td className="px-2 py-3 text-center">{bomCount > 0 ? <svg className="w-4 h-4 text-emerald-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg> : (isFG && isImport) ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FBF0DD] text-[#8A5A0B] whitespace-nowrap" title="Import Product — No BOM required">Import</span> : needsBom ? <span title="Finished product — BOM required"><svg className="w-4 h-4 text-amber-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></span> : <span className="text-gray-300 text-xs">-</span>}</td>
                               </tr>
                               <tr style={isOut ? { borderLeft:'3px solid #E2445C' } : isLow ? { borderLeft:'3px solid #FDAB3D' } : { borderLeft:'3px solid transparent' }} className={`${rowBg} ${activityOpen[p.id] ? '' : 'border-b-2 border-[#E4E6EE]'}`} onClick={e=>e.stopPropagation()}>
-                                <td colSpan={12} className="px-3 pb-3 pt-0">
+                                <td colSpan={14} className="px-3 pb-3 pt-0">
                                   <div className="flex items-center gap-1 flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                     <button onClick={() => openEdit(p)} className="shrink-0 text-[11px] px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 transition-colors">Edit</button>
                                     <button onClick={() => setCountProduct(p)} title="Physical count — fixes on-hand the right way (reason + signed adjustment)" className={`shrink-0 text-[11px] px-2 py-1 rounded transition-colors ${(p.on_hand_qty ?? 0) < 0 ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600'}`}>Count</button>
@@ -1475,7 +1495,7 @@ export default function InventoryPage() {
                               </tr>
                               {activityOpen[p.id] && (
                                 <tr className="bg-[#F7FBF9] border-b-2 border-[#E4E6EE]">
-                                  <td colSpan={12} className="px-6 py-3">
+                                  <td colSpan={14} className="px-6 py-3">
                                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-2">Activity · {p.sku}</p>
                                     {acts === undefined ? <p className="text-xs text-gray-400 italic">Loading movements…</p> : acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
                                       <table className="w-full text-xs">
@@ -1548,7 +1568,8 @@ export default function InventoryPage() {
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-gray-500">
                                   <span>On hand <b className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-[#1A1D2E]'}>{p.on_hand_qty ?? 0}</b> {p.unit_of_measure ?? ''}</span>
                                   {Number((p as any).built_qty || 0) > 0 && <span className="text-amber-700 font-semibold">Built {Number((p as any).built_qty).toLocaleString()}</span>}
-                                  {tot > 0 && <span className={avail < 0 ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'}>{avail.toLocaleString()} avail</span>}
+                                  {(() => { const c = commitMap[k]; if (!c || (!Number(c.committed) && c.source !== 'walmart_board')) return null; const u = Number(c.uncommitted)
+                                    return <span onClick={e => { if (c.source === 'walmart_board') { e.stopPropagation(); setWmCommit(c.sku) } }}>Committed <b>{Number(c.committed).toLocaleString()}</b> · {u < 0 ? <b className="text-red-600">Short {(-u).toLocaleString()}</b> : <b className="text-emerald-600">{u.toLocaleString()} free</b>}</span> })()}
                                   <span>{fmt$(p.unit_cost)}</span>
                                   {invValue > 0 && <span className="text-emerald-600">{fmtV(invValue)}</span>}
                                   {needsBom && <span className="text-amber-600 font-semibold">BOM needed</span>}
