@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { orderDisplayName } from '@/lib/orderName'
 import { WORK_ORDER_APPROVERS, PURCHASE_REQUEST_APPROVERS, FLOW_CONFIRMED_NOTIFY } from '@/lib/partNumber'
 
 export type OrderStatus =
@@ -138,13 +139,14 @@ export async function createWorkOrdersForShortages(
 
   const { data: order } = await sb
     .from('sales_orders')
-    .select('order_number, customer_id, required_ship_date, customers(company_name)')
+    .select('order_number, customer_id, required_ship_date, notes, customers(company_name)')
     .eq('id', orderId)
     .maybeSingle()
 
   const o: any = order
   const orderRef = o?.order_number ?? orderId.slice(0, 8)
-  const customer = o?.customers?.company_name ?? ''
+  // Customer = linked customer, else the name typed on the order (notes), same as the board's Order Name
+  const customer = o?.customers?.company_name || String(o?.notes ?? '').split('|')[0].trim() || ''
 
   // Do not raise a second work order for something already being made. An open work order
   // against the same order and part is the same job.
@@ -417,12 +419,13 @@ export async function createPurchaseRequestForShortages(
 
   const { data: order } = await sb
     .from('sales_orders')
-    .select('order_number, customers(company_name)')
+    .select('order_number, notes, customers(company_name)')
     .eq('id', orderId)
     .maybeSingle()
   const o: any = order
   const orderRef = o?.order_number ?? orderId.slice(0, 8)
-  const customer = o?.customers?.company_name ?? ''
+  // Customer = linked customer, else the name typed on the order (notes), same as the board's Order Name
+  const customer = o?.customers?.company_name || String(o?.notes ?? '').split('|')[0].trim() || ''
 
   const names = components.map(c => c.component_sku)
   const headerName = names.length === 1 ? names[0] : `${names[0]} + ${names.length - 1} more`
@@ -657,8 +660,10 @@ export async function onStatusChange(
   // ── Notify + log every real status transition so nothing slips silently ──
   if (newStatus !== prevStatus) {
     try {
-      const { data: o } = await sb.from('sales_orders').select('order_number').eq('id', orderId).maybeSingle()
-      const ref = (o as any)?.order_number || orderId.slice(0, 8)
+      const { data: o } = await sb.from('sales_orders').select('order_number, po_number, notes, shipping_address, customer:customers(company_name, city, state)').eq('id', orderId).maybeSingle()
+      const num = (o as any)?.order_number || orderId.slice(0, 8)
+      const nm = o ? orderDisplayName(o as any) : ''
+      const ref = nm && nm !== String(num) ? `${num} (${nm})` : String(num)
       await sb.from('comments').insert({ record_type: 'sales_order', record_id: orderId, author_email: 'system', content: `Status: ${prevStatus} → ${newStatus}` })
       for (const r of ['rudyp@beyondgreenbiotech.com', 'accounting@byndgrn.com']) {
         await sb.from('notifications').insert({ recipient_email: r, sender_email: 'system', message: `Order ${ref}: ${prevStatus} → ${newStatus}`, page: 'Sales Orders', is_read: false, context_url: `/sales/orders?item=${orderId}` })
@@ -919,7 +924,7 @@ export async function shipOrder(
   try {
     await sb.from('comments').insert({ record_type: 'sales_order', record_id: orderId, author_email: 'system', content: `${fullyShipped ? 'Shipped' : 'Partially shipped'}: ${shippedSummary} · Invoice ${invNum}` })
     for (const r of ['rudyp@beyondgreenbiotech.com', 'accounting@byndgrn.com']) {
-      await sb.from('notifications').insert({ recipient_email: r, sender_email: 'system', message: `Order ${orderRef} ${fullyShipped ? 'shipped' : 'partially shipped'}: ${shippedSummary}`, page: 'Shipping Queue', is_read: false, context_url: `/sales/orders?item=${orderId}` })
+      await sb.from('notifications').insert({ recipient_email: r, sender_email: 'system', message: `Order ${orderRef}${customerName ? ` (${customerName})` : ''} ${fullyShipped ? 'shipped' : 'partially shipped'}: ${shippedSummary}`, page: 'Shipping Queue', is_read: false, context_url: `/sales/orders?item=${orderId}` })
     }
   } catch { /* best-effort */ }
 
