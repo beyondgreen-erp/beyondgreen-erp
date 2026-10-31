@@ -1,9 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import Link from 'next/link'
 import { useState } from 'react'
-
-const GREEN = '#037f4c'
+import AuthShell, { AuthLink } from '@/components/portal/AuthShell'
 
 export default function ForgotPage() {
   const [email, setEmail] = useState('')
@@ -20,22 +18,18 @@ export default function ForgotPage() {
     } finally { setBusy(false) }
   }
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(160deg, #0b6b45 0%, #037f4c 45%, #1f5e3f 100%)' }}>
-      <div className="w-full max-w-sm">
-        <h1 className="text-white text-xl font-bold text-center mb-4">Reset your password</h1>
-        <div className="bg-white rounded-2xl shadow-2xl p-6">
-          {done ? (
-            <p className="text-sm text-gray-600 leading-relaxed">If <strong>{email}</strong> has a portal account, we just sent a reset link. It expires in 2 hours.</p>
-          ) : (
-            <form onSubmit={submit} className="space-y-3">
-              {err && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">{err}</div>}
-              <label className="block"><span className="block text-xs font-semibold text-gray-600 mb-1">Email</span><input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-[#E4E6EE] rounded-xl px-3.5 py-2.5 text-sm" /></label>
-              <button disabled={busy} className="w-full rounded-xl py-2.5 text-white font-bold text-sm disabled:opacity-50" style={{ background: GREEN }}>{busy ? 'Sending…' : 'Send reset link'}</button>
-            </form>
-          )}
-          <Link href="/portal" className="block text-center mt-4 text-xs font-semibold" style={{ color: GREEN }}>Back to sign in</Link>
-        </div>
-      </div>
-    </div>
+    <AuthShell eyebrow="Reset password" title={done ? <>Link <span className="pa-grad">on its way.</span></> : <>Forgot your <span className="pa-grad">password?</span></>}
+      subtitle={done ? <>If <strong>{email}</strong> has a portal account, a reset link is in your inbox. It expires in 2 hours.</> : 'Enter your email and we will send you a link to choose a new one.'}
+      below={<>Remembered it? <AuthLink href="/portal">Back to sign in</AuthLink></>}>
+      {done ? (
+        <a href="/portal" className="pa-btn" style={{ textDecoration: 'none' }}>Back to sign in</a>
+      ) : (
+        <form onSubmit={submit} style={{ display: 'grid', gap: 14 }}>
+          {err && <div className="pa-err">{err}</div>}
+          <label><span className="pa-lbl">Email</span><input type="email" required className="pa-in" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" /></label>
+          <button className="pa-btn" disabled={busy}>{busy ? 'Sending…' : 'Send reset link  →'}</button>
+        </form>
+      )}
+    </AuthShell>
   )
 }

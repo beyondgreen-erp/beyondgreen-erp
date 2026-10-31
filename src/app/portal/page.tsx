@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TONES } from '@/lib/portalStages'
 import Link from 'next/link'
 import { PortalNav } from '@/components/portal/PortalShell'
+import AuthShell, { AuthLink } from '@/components/portal/AuthShell'
 
 const GREEN = '#037f4c'
 const GREEN2 = '#05a866'
@@ -266,28 +267,19 @@ export default function ClientPortalPage() {
 
   if (phase === 'login') {
     return (
-      <div className="min-h-screen grid place-items-center p-4" style={{ background: `linear-gradient(160deg, ${GREEN} 0%, #024a2d 100%)` }}>
-        <div className="w-full max-w-sm">
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 rounded-2xl mx-auto grid place-items-center bg-white/15 backdrop-blur text-white font-black text-xl">bG</div>
-            <h1 className="text-xl font-bold text-white mt-3">beyondGREEN Client Portal</h1>
-            <p className="text-sm text-white/70 mt-1">Sign in to track your projects.</p>
-          </div>
-          <form onSubmit={login} className="bg-white rounded-2xl p-6 space-y-4 shadow-2xl">
-            {err && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{err}</div>}
-            <label className="block"><span className="text-xs font-semibold text-gray-600">Email</span>
-              <input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required className="w-full mt-1 bg-white border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40" /></label>
-            <label className="block"><span className="text-xs font-semibold text-gray-600">Password</span>
-              <input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full mt-1 bg-white border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40" /></label>
-            <button type="submit" disabled={busy} className="w-full text-white font-semibold py-2.5 rounded-lg disabled:opacity-50 shadow-sm" style={{ background: GREEN }}>{busy ? 'Signing in…' : 'Sign in'}</button>
-          </form>
-          <div className="flex items-center justify-between text-xs mt-4 px-1">
-            <Link href="/portal/forgot" className="text-white/80 hover:text-white font-semibold">Forgot password?</Link>
-            <Link href="/portal/signup" className="text-white font-bold bg-white/15 hover:bg-white/25 rounded-lg px-3 py-1.5">New here? Create an account</Link>
-          </div>
-          <p className="text-center text-xs text-white/60 mt-4">Trouble signing in? Email info@byndgrn.com</p>
-        </div>
-      </div>
+      <AuthShell eyebrow="Client portal" title={<>Welcome <span className="pa-grad">back.</span></>}
+        subtitle="Track orders, upload POs, review quotes and talk to our team."
+        below={<>New to beyondGREEN? <AuthLink href="/portal/signup">Create an account</AuthLink></>}>
+        <form onSubmit={login} style={{ display: 'grid', gap: 14 }}>
+          {err && <div className="pa-err">{err}</div>}
+          <label><span className="pa-lbl">Email</span><input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required className="pa-in" /></label>
+          <label>
+            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span className="pa-lbl">Password</span><AuthLink href="/portal/forgot"><span style={{ fontSize: 12 }}>Forgot password?</span></AuthLink></span>
+            <input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required className="pa-in" />
+          </label>
+          <button type="submit" disabled={busy} className="pa-btn" style={{ marginTop: 4 }}>{busy ? 'Signing in…' : 'Sign in  →'}</button>
+        </form>
+      </AuthShell>
     )
   }
 

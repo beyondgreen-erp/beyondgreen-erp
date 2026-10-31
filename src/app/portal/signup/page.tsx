@@ -1,10 +1,9 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = 'force-dynamic'
-import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import AuthShell, { AuthLink } from '@/components/portal/AuthShell'
 
-const GREEN = '#037f4c'
 const TYPES = ['Restaurant or foodservice', 'Distributor', 'Retailer or grocery', 'Brand / CPG (private label)', 'Hospitality, venue or events', 'School, hospital or government', 'Pet brand or pet retail', 'Other']
 const INTERESTS = ['Cutlery and kits', 'Straws', 'Cups and lids', 'Bags and liners', 'Pet waste bags', 'Custom printing', 'Contract manufacturing', 'Private label']
 
@@ -30,51 +29,47 @@ export default function SignupPage() {
     } finally { setBusy(false) }
   }
 
-  const inp = 'w-full bg-white border border-[#E4E6EE] rounded-xl px-3.5 py-2.5 text-sm text-[#1A1D2E] placeholder-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#037f4c]/30'
-  const lbl = 'block text-xs font-semibold text-gray-600 mb-1'
+  if (done) {
+    return (
+      <AuthShell eyebrow="Almost there" title={<>Check your <span className="pa-grad">inbox.</span></>} subtitle={<>We sent a link to <strong>{f.email}</strong>. Click it to confirm your email and set your password, and you&apos;ll land right in your portal.</>}
+        below={<>Already have an account? <AuthLink href="/portal/forgot">Reset your password</AuthLink></>}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span style={{ width: 52, height: 52, borderRadius: 16, background: '#E4F7EE', color: '#0E9C45', display: 'grid', placeItems: 'center', fontSize: 24, fontWeight: 800 }}>✓</span>
+          <div style={{ fontSize: 14, color: '#3D5446', lineHeight: 1.55 }}>The link expires in 48 hours. Don&apos;t see it? Check spam, or email <a className="pa-link" href="mailto:info@byndgrn.com">info@byndgrn.com</a>.</div>
+        </div>
+        <a href="/portal" className="pa-ghost" style={{ marginTop: 20 }}>Back to sign in</a>
+      </AuthShell>
+    )
+  }
+
   return (
-    <div className="min-h-screen py-8 px-4" style={{ background: 'linear-gradient(160deg, #0b6b45 0%, #037f4c 45%, #1f5e3f 100%)' }}>
-      <div className="mx-auto w-full max-w-xl">
-        <div className="text-center mb-5">
-          <div className="inline-grid place-items-center w-12 h-12 rounded-2xl bg-white/15 text-white font-bold">bG</div>
-          <h1 className="text-white text-2xl font-bold mt-3">Open your beyondGREEN account</h1>
-          <p className="text-white/80 text-sm mt-1">One place to start projects, book calls, get quotes, place orders and upload POs.</p>
+    <AuthShell eyebrow="Open an account" title={<>Work with us, <span className="pa-grad">without the back and forth.</span></>}
+      subtitle="Start projects, book calls with our team, get quotes, place orders and upload POs, all in one place."
+      below={<>Already have an account? <AuthLink href="/portal">Sign in</AuthLink></>}>
+      <form onSubmit={submit} style={{ display: 'grid', gap: 14 }}>
+        {err && <div className="pa-err">{err}</div>}
+        <label><span className="pa-lbl">Company *</span><input className="pa-in" value={f.company} onChange={e => set('company', e.target.value)} autoComplete="organization" /></label>
+        <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+          <label><span className="pa-lbl">Your name *</span><input className="pa-in" value={f.name} onChange={e => set('name', e.target.value)} autoComplete="name" /></label>
+          <label><span className="pa-lbl">Title</span><input className="pa-in" value={f.title} onChange={e => set('title', e.target.value)} autoComplete="organization-title" /></label>
+          <label><span className="pa-lbl">Work email *</span><input type="email" className="pa-in" value={f.email} onChange={e => set('email', e.target.value)} autoComplete="email" /></label>
+          <label><span className="pa-lbl">Phone</span><input type="tel" className="pa-in" value={f.phone} onChange={e => set('phone', e.target.value)} autoComplete="tel" /></label>
         </div>
-        <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-8">
-          {done ? (
-            <div className="text-center py-4">
-              <div className="mx-auto w-12 h-12 rounded-full grid place-items-center text-xl font-bold" style={{ background: '#E4F7EE', color: GREEN }}>✓</div>
-              <h2 className="text-lg font-bold text-[#1A1D2E] mt-3">Check your email</h2>
-              <p className="text-sm text-gray-600 mt-2 leading-relaxed">We sent a link to <strong>{f.email}</strong>. Click it to confirm your email and set your password. If you already have an account, use <Link href="/portal/forgot" className="font-semibold" style={{ color: GREEN }}>reset password</Link> instead.</p>
-              <Link href="/portal" className="inline-block mt-5 text-sm font-semibold" style={{ color: GREEN }}>Back to sign in</Link>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="space-y-4">
-              {err && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-3.5 py-2 text-sm">{err}</div>}
-              <div className="grid sm:grid-cols-2 gap-3">
-                <label className="block sm:col-span-2"><span className={lbl}>Company *</span><input className={inp} value={f.company} onChange={e => set('company', e.target.value)} autoComplete="organization" /></label>
-                <label className="block"><span className={lbl}>Your name *</span><input className={inp} value={f.name} onChange={e => set('name', e.target.value)} autoComplete="name" /></label>
-                <label className="block"><span className={lbl}>Title</span><input className={inp} value={f.title} onChange={e => set('title', e.target.value)} autoComplete="organization-title" /></label>
-                <label className="block"><span className={lbl}>Work email *</span><input type="email" className={inp} value={f.email} onChange={e => set('email', e.target.value)} autoComplete="email" /></label>
-                <label className="block"><span className={lbl}>Phone</span><input type="tel" className={inp} value={f.phone} onChange={e => set('phone', e.target.value)} autoComplete="tel" /></label>
-                <label className="block sm:col-span-2"><span className={lbl}>Website</span><input className={inp} value={f.website} onChange={e => set('website', e.target.value)} placeholder="yourcompany.com" /></label>
-              </div>
-              <label className="block"><span className={lbl}>What best describes your business?</span>
-                <select className={inp} value={f.business_type} onChange={e => set('business_type', e.target.value)}><option value="">Choose one</option>{TYPES.map(t => <option key={t}>{t}</option>)}</select>
-              </label>
-              <div>
-                <span className={lbl}>What are you interested in?</span>
-                <div className="flex flex-wrap gap-2">{INTERESTS.map(i => { const on = f.interest.includes(i); return <button type="button" key={i} onClick={() => toggle(i)} className={`rounded-full px-3 py-1.5 text-xs font-semibold border ${on ? 'text-white border-transparent' : 'text-gray-600 border-[#E4E6EE] bg-white'}`} style={on ? { background: GREEN } : {}}>{i}</button> })}</div>
-              </div>
-              <label className="block"><span className={lbl}>How did you hear about us?</span><input className={inp} value={f.how_heard} onChange={e => set('how_heard', e.target.value)} /></label>
-              {/* honeypot */}
-              <input tabIndex={-1} autoComplete="off" value={f.website_url} onChange={e => set('website_url', e.target.value)} className="hidden" aria-hidden="true" />
-              <button disabled={busy} className="w-full rounded-xl py-3 text-white font-bold text-sm disabled:opacity-50" style={{ background: GREEN }}>{busy ? 'Creating account…' : 'Create account'}</button>
-              <p className="text-center text-xs text-gray-500">Already have an account? <Link href="/portal" className="font-semibold" style={{ color: GREEN }}>Sign in</Link></p>
-            </form>
-          )}
+        <label><span className="pa-lbl">What best describes your business?</span>
+          <select className="pa-in" value={f.business_type} onChange={e => set('business_type', e.target.value)}><option value="">Choose one</option>{TYPES.map(t => <option key={t}>{t}</option>)}</select>
+        </label>
+        <div>
+          <span className="pa-lbl">What are you interested in?</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{INTERESTS.map(i => <button type="button" key={i} className="pa-chip" data-on={f.interest.includes(i) ? '1' : '0'} onClick={() => toggle(i)}>{i}</button>)}</div>
         </div>
-      </div>
-    </div>
+        <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+          <label><span className="pa-lbl">Website</span><input className="pa-in" value={f.website} onChange={e => set('website', e.target.value)} placeholder="yourcompany.com" /></label>
+          <label><span className="pa-lbl">How did you hear about us?</span><input className="pa-in" value={f.how_heard} onChange={e => set('how_heard', e.target.value)} /></label>
+        </div>
+        <input tabIndex={-1} autoComplete="off" value={f.website_url} onChange={e => set('website_url', e.target.value)} style={{ display: 'none' }} aria-hidden="true" />
+        <button className="pa-btn" disabled={busy} style={{ marginTop: 4 }}>{busy ? 'Creating your account…' : 'Create account  →'}</button>
+        <p style={{ margin: 0, fontSize: 12, color: '#6B7F71', textAlign: 'center' }}>Free for customers. We confirm your email before anything is shared.</p>
+      </form>
+    </AuthShell>
   )
 }
