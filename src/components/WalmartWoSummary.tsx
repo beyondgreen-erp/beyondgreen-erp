@@ -14,10 +14,11 @@ import '@/lib/pdfSafeText'
 import autoTable from 'jspdf-autotable'
 import { uploadFile } from '@/lib/fileHelpers'
 
-export type SummaryKind = 'walmart' | 'straw'
+export type SummaryKind = 'walmart' | 'straw' | 'pb'
 const KINDS = {
   walmart: { rpc: 'walmart_wo_summary', status: 'walmart_wo_set_status', board: 'Walmart Production', unit: 'SRP', po: 'PO', load: 'Load ', where: 'Where it went — by load and PO', claimed: 'Claimed' },
   straw: { rpc: 'straw_wo_summary', status: 'straw_wo_set_status', board: 'Straw Production', unit: 'cases', po: 'PO', load: '', where: 'Where it went — by sales order', claimed: 'Built' },
+  pb: { rpc: 'pb_wo_summary', status: 'pb_wo_set_status', board: 'Production', unit: 'units', po: 'PO', load: '', where: 'Where it went — by sales order', claimed: 'Built' },
 } as const
 interface Props { kind?: SummaryKind; sb: any; woId: string; mode: 'view' | 'close'; canEdit: boolean; userEmail: string; onClose: () => void; onClosedOut?: (msg: string) => void }
 type S = any
@@ -62,7 +63,7 @@ export function buildSummaryPdf(s: S, kind: SummaryKind = 'walmart'): jsPDF {
   const rows: any[][] = []
   for (const [load, list] of Array.from(d.byLoad.entries())) for (const p of list)
     rows.push([load, p.po || '', p.sku, fmt(p.ordered), fmt(p.released), fmt(p.claimed), p.shipped ? 'Shipped' : (p.status || p.group || ''), p.shipped && n(p.released) < n(p.ordered) ? `Short ${fmt(n(p.ordered) - n(p.released))}` : !p.shipped && n(p.released) < n(p.ordered) ? `${fmt(n(p.ordered) - n(p.released))} open` : ''])
-  tbl([kind === 'straw' ? 'Order' : 'Load', K.po, 'SKU', 'Ordered', 'Released', K.claimed, 'Status', 'Flag'], rows)
+  tbl([kind !== 'walmart' ? 'Order' : 'Load', K.po, 'SKU', 'Ordered', 'Released', K.claimed, 'Status', 'Flag'], rows)
   sec('3. Loose ends')
   const loose: any[][] = []
   for (const k of d.under) loose.push(['Under target', k.sku, `${fmt(-n(k.diff))} ${K.unit} short of ${fmt(k.target)}`])
