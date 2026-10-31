@@ -234,7 +234,7 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
       <div className="flex flex-wrap items-center gap-2 px-3 py-2" style={{ borderLeft: `4px solid ${s.color}` }}>
         <button onClick={() => setOpen(o => !o)} className="text-left flex-1 min-w-[180px]" data-ro-ok>
           <p className="text-sm font-bold text-[#1A1D2E]">{showPo ? `PO ${po} · ` : ''}Pallet #{p.pallet_no} <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1 ${p.kind === 'full' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{p.kind === 'full' ? 'FULL' : 'FLOOR · mixed'}</span>
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1 text-white" style={{ background: s.color }}>{s.label}</span></p>
+            {(canEdit || p.status !== 'planned') && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1 text-white" style={{ background: s.color }}>{s.label}</span>}</p>
           <p className="text-[11px] text-gray-500">{items.map(it => `${fmtN(it.srps)} ${skuShort(it.sku)}`).join(' + ')} · {fmtN(p.srps)} SRPs · {fmtN(p.cube_ft, 1)} cu ft{last ? ' · ' + last : ''} · <span className="text-[#0071ce] underline">{open ? 'hide' : 'show'} build drawing</span></p>
         </button>
         {p.photo_url && <a href={p.photo_url} target="_blank" rel="noreferrer" data-ro-ok><img src={p.photo_url} alt="Built pallet" className="w-10 h-10 rounded-lg object-cover border border-[#E4E6EE]" /></a>}
@@ -339,11 +339,10 @@ export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
   return (
     <div className="border border-[#D6E9DD] bg-[#F6FBF8] rounded-lg p-3">
       <div className="flex flex-wrap items-center gap-2 mb-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#0f7a4a] mr-auto">🏗 Pallet plan &amp; build</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#0f7a4a] mr-auto">🏗 Pallet plan &amp; cube</p>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{fmtN(cube, 1)} cu ft cube</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{pallets.length} pallets ({full} full · {pallets.length - full} floor)</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{fmtN(wt)} lb</span>
-        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: built === pallets.length && pallets.length ? '#00c875' : '#579bfc' }}>{built}/{pallets.length} built</span>
         {pallets.length > 0 && <button onClick={() => buildSheetPdf(order, pallets, items, dims).save(`Pallet-Build-${po || 'PO'}.pdf`)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#CFE6D8] text-[#0f7a4a] font-semibold" data-ro-ok>🖨 Build sheets</button>}
         {canEdit && <button onClick={replan} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#E4E6EE] text-gray-600" title="Re-plan from the order lines">↻ Re-plan</button>}
       </div>
@@ -351,7 +350,7 @@ export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
       {msg && <p className={`text-[12px] rounded-lg px-3 py-2 mb-2 ${msg.startsWith('⚠') ? 'bg-amber-50 border border-amber-300 text-amber-900' : 'bg-emerald-50 border border-emerald-200 text-emerald-800'}`}>{msg}</p>}
       {pallets.length === 0 ? <p className="text-sm text-gray-500">No pallets yet — add the SKU lines and the plan builds itself.</p> : (
         <div className="space-y-1.5">
-          {pallets.map(p => <PalletRow key={p.id} p={p} items={items.filter(i => i.pallet_id === p.id)} dims={dims} po={po} canEdit={canEdit} busy={busy === p.id}
+          {pallets.map(p => <PalletRow key={p.id} p={p} items={items.filter(i => i.pallet_id === p.id)} dims={dims} po={po} canEdit={false} busy={busy === p.id}
             onStep={(pp, s, ph) => step(pp, s, po, ph)} onUndo={pp => undo(pp, po)} />)}
         </div>)}
       <p className="text-[10px] text-gray-500 mt-2">Full pallet = the SKU&apos;s pallet arrangement (S24 312 · F24 260 · A24 234 · A48 165 · K48 260 · S48 120 · F48 120). Anything less is floor and goes on a mixed pallet for this PO. Cube is in cubic feet (the figure Walmart asks for): 48×40 CHEP pallet, 6&quot; base, 65 lb, to the top of the load.</p>
@@ -408,9 +407,10 @@ export function WalmartPalletQueue({ sb, canEdit }: { sb: any; canEdit: boolean 
 }
 
 // ── process timeline (top of the Walmart Sales Order board) ───────────────────
-// One race track. Each open PO is a runner placed at its stage; it moves along the
-// segment as more of its pallets clear that stage. Colors = work order.
-const TL = ['PO in', 'Planned', 'Staged', 'Released', 'Claimed', 'Wrap & label', 'Built', 'Ready to ship'] as const
+// One race track. Each open PO is a runner placed at its stage (production release → build team
+// claim → ready), moving along the segment as more of its SRPs clear that stage. Colors = work order.
+const TL = ['PO in', 'SRPs released', 'Claimed · building', 'Ready to ship'] as const
+const LAST = TL.length - 1
 const PER_ROW = 5, DOT = 19
 const WO_COLORS = ['#0071ce', '#e2445c', '#00a85a', '#a25ddc', '#fdab3d', '#0ea5e9', '#f97316', '#64748b']
 export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orderId: string) => void }) {
@@ -434,7 +434,28 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
     ch.subscribe(); return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb, load])
   const ids = useMemo(() => orders.map(o => o.id), [orders])
-  const { pallets } = usePalletData(sb, ids)
+  const [rels, setRels] = useState<{ walmart_order_id: string; qty: number; status: string }[]>([])
+  const [lines, setLines] = useState<{ order_id: string; qty: number | null; completed_qty: number | null }[]>([])
+  const loadQty = useCallback(async () => {
+    if (!ids.length) { setRels([]); setLines([]); return }
+    const r: any[] = [], l: any[] = []
+    for (let i = 0; i < ids.length; i += 80) {
+      const part = ids.slice(i, i + 80)
+      const [{ data: a }, { data: b }] = await Promise.all([
+        sb.from('walmart_releases').select('walmart_order_id,qty,status').in('walmart_order_id', part).in('status', ['Released', 'Claimed']),
+        sb.from('walmart_board_lines').select('order_id,qty,completed_qty').in('order_id', part),
+      ])
+      r.push(...((a as any[]) || [])); l.push(...((b as any[]) || []))
+    }
+    setRels(r); setLines(l)
+  }, [sb, ids])
+  useEffect(() => { loadQty() }, [loadQty])
+  useEffect(() => {
+    const ch = sb.channel('wm-tlq-' + Math.random().toString(36).slice(2)); let t: any
+    const bump = () => { clearTimeout(t); t = setTimeout(loadQty, 600) }
+    for (const tb of ['walmart_releases', 'walmart_board_lines']) ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, bump)
+    ch.subscribe(); return () => { clearTimeout(t); sb.removeChannel(ch) }
+  }, [sb, loadQty])
 
   const wos = useMemo(() => {
     const m = new Map<string, string>()
@@ -442,22 +463,20 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
     return Array.from(m.entries()).sort((a, b) => (a[0] === 'none' ? 1 : 0) - (b[0] === 'none' ? 1 : 0) || a[1].localeCompare(b[1])).map(([id, code], i) => ({ id, code, color: id === 'none' ? '#9699a6' : WO_COLORS[i % WO_COLORS.length] }))
   }, [orders, links])
 
-  // runner position: stage = slowest pallet; progress inside the segment = share of pallets already past it
+  // runner position from the order's SRPs: released by production → claimed by the build team → ready
   const runners = useMemo(() => {
     const out = orders.map(o => {
-      const ps = pallets.filter(p => p.order_id === o.id)
-      const built = ps.filter(p => p.status === 'built').length
+      const ordered = lines.filter(x => x.order_id === o.id).reduce((t, x) => t + num(x.qty), 0)
+      const rr = rels.filter(x => x.walmart_order_id === o.id)
+      const released = rr.reduce((t, x) => t + num(x.qty), 0)
+      const claimed = rr.filter(x => x.status === 'Claimed').reduce((t, x) => t + num(x.qty), 0)
       let st = 0, frac = 0
-      if (['Ready for Shipment', 'Prepped & Ready for Dispatch'].includes(o.group_name)) st = 7
-      else if (ps.length) {
-        const idx = ps.map(p => 1 + stepIdx(p.status))
-        st = Math.min(...idx)
-        frac = idx.filter(x => x > st).length / ps.length
-      }
+      if (['Ready for Shipment', 'Prepped & Ready for Dispatch'].includes(o.group_name)) st = LAST
+      else if (claimed > 0 || o.group_name === 'Building Order') { st = 2; frac = ordered ? Math.min(1, claimed / ordered) : 0 }
+      else if (released > 0) { st = 1; frac = ordered ? Math.min(1, released / ordered) : 0 }
       const l = links.find(x => x.walmart_order_id === o.id)
       const wo = wos.find(w => w.id === (l?.work_order_id || 'none'))
-      const counts = STEPS.map(s => ps.filter(p => p.status === s.key).length)
-      return { o, st, frac, built, total: ps.length, wo, counts, x: st >= 7 ? 100 : ((st + frac * 0.85) / 7) * 100 }
+      return { o, st, frac, ordered, released, claimed, wo }
     }).filter(r => !woFilter || r.wo?.id === woFilter)
     // runners waiting at the same stage line up behind each other in a small pack (furthest along in front)
     const out2: any[] = []
@@ -466,12 +485,12 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
       here.forEach((r, k) => out2.push({ ...r, col: k % PER_ROW, lane: Math.floor(k / PER_ROW) }))
     }
     return out2
-  }, [orders, pallets, links, wos, woFilter])
+  }, [orders, rels, lines, links, wos, woFilter])
   const lanes = Math.max(1, ...runners.map((r: any) => r.lane + 1))
   const above = Math.ceil(lanes / 2)
   const ROW = 24, TRACK = 10
   const topOf = (lane: number) => lane % 2 === 0 ? (above - 1 - lane / 2) * ROW : above * ROW + TRACK + 8 + ((lane - 1) / 2) * ROW
-  const leftOf = (r: any) => r.st >= TL.length - 1 ? `calc(100% - ${r.col * DOT + DOT + 2}px)` : `calc(${(r.st / 7) * 100}% + ${r.col * DOT + 8}px)`
+  const leftOf = (r: any) => r.st >= LAST ? `calc(100% - ${r.col * DOT + DOT + 2}px)` : `calc(${(r.st / LAST) * 100}% + ${r.col * DOT + 8}px)`
   const height = above * ROW + TRACK + 8 + Math.floor(lanes / 2) * ROW + 26
   const atStage = TL.map((_, i) => runners.filter((r: any) => r.st === i).length)
   const hov = runners.find(r => r.o.id === hover)
@@ -493,12 +512,12 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
           {/* track */}
           <div className="absolute left-0 right-0 rounded-full" style={{ top: above * ROW + 4, height: TRACK, background: 'linear-gradient(90deg,#e5e7eb,#d1fae5)' }} />
           {TL.map((t, i) => {
-            const x = (i / 7) * 100
+            const x = (i / LAST) * 100
             return (
               <div key={t} className="absolute" style={{ left: `${x}%`, top: 0, bottom: 0 }}>
                 <div className="absolute w-px bg-[#E4E6EE]" style={{ top: 0, bottom: 22, left: 0 }} />
                 <div className="absolute w-3 h-3 rounded-full bg-white border-2 border-[#9aa3b5]" style={{ top: above * ROW + 4 + TRACK / 2 - 6, left: -6 }} />
-                <div className="absolute whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-gray-500" style={{ bottom: 0, left: 0, transform: i === 0 ? 'none' : i === 7 ? 'translateX(-100%)' : 'translateX(-50%)' }}>
+                <div className="absolute whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-gray-500" style={{ bottom: 0, left: 0, transform: i === 0 ? 'none' : i === LAST ? 'translateX(-100%)' : 'translateX(-50%)' }}>
                   {t}{atStage[i] ? <span className="ml-1 text-[#1A1D2E]">{atStage[i]}</span> : null}</div>
               </div>)
           })}
@@ -518,13 +537,13 @@ export function WalmartProcessTimeline({ sb, onOpen }: { sb: any; onOpen?: (orde
             <div className="absolute z-30 bg-[#1A1D2E] text-white rounded-lg shadow-xl px-3 py-2 text-[11px] pointer-events-none" style={{ left: `min(${leftOf(hov)}, calc(100% - 230px))`, top: topOf(hov.lane) + 24, width: 220 }}>
               <p className="font-bold text-[12px]">PO {hov.o.po_number}</p>
               <p className="opacity-80">{hov.wo?.code}{hov.o.ship_due_date ? ' · ship ' + hov.o.ship_due_date : ''}</p>
-              <p className="mt-1">Stage: <b>{TL[hov.st]}</b> · {hov.built}/{hov.total} pallets built</p>
-              {hov.total > 0 && <p className="opacity-80">{STEPS.map((s, i) => hov.counts[i] ? `${hov.counts[i]} ${s.label.toLowerCase()}` : '').filter(Boolean).join(' · ')}</p>}
+              <p className="mt-1">Stage: <b>{TL[hov.st]}</b></p>
+              <p className="opacity-80">{fmtN(hov.released)} of {fmtN(hov.ordered)} SRPs released · {fmtN(hov.claimed)} claimed</p>
               <p className="opacity-60 mt-1">Click to open</p>
             </div>)}
         </div>
         {runners.length === 0 && <p className="px-4 pb-4 text-sm text-gray-400">No open Walmart POs.</p>}
-        <p className="px-4 pb-3 text-[10px] text-gray-400">Each dot is a PO (last 2 digits), colored by work order. It sits at the stage of its slowest pallet; POs further along stand at the front of the pack. Hover for detail, click to open, tap a work order to show only its POs.</p>
+        <p className="px-4 pb-3 text-[10px] text-gray-400">Each dot is a PO (last 2 digits), colored by work order. It moves from released (production) to claimed (build team) to ready; POs with more SRPs through a stage stand at the front of the pack. Hover for detail, click to open, tap a work order to show only its POs.</p>
       </div>}
     </div>
   )
