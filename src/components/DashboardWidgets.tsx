@@ -1006,7 +1006,7 @@ export default function DashboardShell() {
           ) : (
             <div className="space-y-3">
               {/* single numbers: one even row of equal tiles */}
-              {shown.some(w => isKpi(w.type)) && <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {shown.some(w => isKpi(w.type)) && <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(4, shown.filter(w => isKpi(w.type)).length)}, minmax(0, 1fr))` }}>
                 {shown.filter(w => isKpi(w.type)).map(w => tileFor(w, 'h-[104px]'))}
               </div>}
               {/* strips (news ticker) */}
