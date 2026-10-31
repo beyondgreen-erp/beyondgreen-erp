@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { clientStage } from '@/lib/portalStages'
 import {
-  admin, accountFromRequest, staffEmail, token, emailClient, notifyTeam, companyOf, esc, button,
+  admin, accountFromRequest, staffEmail, token, emailClient, notifyTeam, companyOf, esc, button, sendEmail,
   NOTIFY, NOTIFY_ORDERS, NOTIFY_PROJECTS, NOTIFY_SIGNUPS, PORTAL_URL, safeFileName, signedUpload,
   signedDownload, objectExists, BUCKET, likeExact, type PortalAccount,
 } from '@/lib/portalServer'
@@ -231,9 +231,61 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
 }
 
 // ═══════════════════════════════ POST ══════════════════════════════
+// Public website forms (byndgrn.com / beyondgreenbiotech.com / the new site) post here cross-origin.
+const FORM_ORIGINS = ['https://byndgrn.com', 'https://www.byndgrn.com', 'https://beyondgreenbiotech.com', 'https://www.beyondgreenbiotech.com', 'https://beyondgreen-site.vercel.app', 'http://localhost:3123']
+function corsHeaders(req: NextRequest): Record<string, string> {
+  const o = req.headers.get('origin') || ''
+  const ok = FORM_ORIGINS.includes(o) || /^https:\/\/beyondgreen-site-[a-z0-9-]+\.vercel\.app$/.test(o)
+  return ok ? { 'Access-Control-Allow-Origin': o, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : {}
+}
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(req) })
+}
+
+const TOPIC_ROUTE: Record<string, string[]> = {}
+const SALES_TOPICS = ['Buy for my business', 'Contract manufacturing', 'Private label', 'Custom printing', 'Order support', 'Samples', 'Distributor or reseller']
+
+async function websiteForm(req: NextRequest, body: any): Promise<NextResponse> {
+  const h = corsHeaders(req)
+  const out = (b: any, status = 200) => NextResponse.json(b, { status, headers: { ...h, 'Cache-Control': 'no-store' } })
+  if (str(body.website_url)) return out({ ok: true })
+  if (num(body.t) && Date.now() - num(body.t) < 2500) return out({ ok: true })
+  const name = str(body.name, 120), email = str(body.email, 200).toLowerCase(), company = str(body.company, 200)
+  const message = str(body.message, 5000), topic = str(body.topic, 80) || str(body.kind, 40) || 'General'
+  if (!name) return out({ error: 'Please enter your name.' }, 400)
+  if (!EMAIL_RE.test(email)) return out({ error: 'Please enter a valid email.' }, 400)
+  if (!message && body.kind !== 'careers') return out({ error: 'Please add a short message.' }, 400)
+  const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim()
+  if (ip) {
+    const { count } = await admin.from('website_inquiries').select('id', { count: 'exact', head: true }).eq('ip', ip).gte('created_at', new Date(Date.now() - 3600000).toISOString())
+    if ((count || 0) >= 8) return out({ error: 'Too many messages from this network. Please email info@byndgrn.com.' }, 429)
+  }
+  const extra: Record<string, string> = {}
+  for (const k of ['phone', 'role', 'volume', 'products', 'location', 'zip', 'linkedin', 'interest', 'timeline']) if (str(body[k])) extra[k] = str(body[k], 300)
+  // Sales-type inquiries become (or attach to) a Lead on Customer/Leads.
+  let customerId: string | null = null
+  if (SALES_TOPICS.includes(topic) || body.kind === 'contact') {
+    const { data: hit } = await admin.from('customers').select('id').ilike('email', likeExact(email)).not('is_merged', 'is', true).limit(1)
+    if (hit && hit.length) customerId = (hit[0] as any).id
+    else if (SALES_TOPICS.includes(topic)) {
+      const { data: created } = await admin.from('customers').insert({ company_name: company || name, contact_name: name, email, phone: extra.phone || null, board: 'customer', customer_status: 'Lead', lead_source: `Website: ${topic}`, is_active: true, is_scraped_lead: false, notes: `Website inquiry (${topic}): ${message.slice(0, 900)}` }).select('id').single()
+      customerId = (created as any)?.id || null
+    }
+  }
+  await admin.from('website_inquiries').insert({ kind: str(body.kind, 40) || 'contact', topic, name, company: company || null, email, phone: extra.phone || null, message: message || null, details: extra, page: str(body.page, 200) || null, ip: ip || null, customer_id: customerId })
+  const to = topic === 'Order support' ? NOTIFY_ORDERS : NOTIFY_SIGNUPS
+  const rows = Object.entries(extra).map(([k, v]) => `<br><strong>${esc(k)}:</strong> ${esc(v)}`).join('')
+  await notifyTeam({ to, from: email, subject: `Website: ${topic} · ${company || name}`, message: `Website inquiry (${topic}) from ${name}${company ? ' at ' + company : ''}: ${message.slice(0, 200)}`, html: `<p style="margin:0 0 6px;font-size:16px;font-weight:700">New website inquiry: ${esc(topic)}</p><p style="margin:0 0 8px;font-size:14px;line-height:1.6"><strong>${esc(name)}</strong>${company ? ' · ' + esc(company) : ''}<br>${esc(email)}${rows}</p>${message ? `<div style="background:#f5f6fa;border-left:3px solid #037f4c;padding:12px 16px;font-size:14px;white-space:pre-wrap;line-height:1.5">${esc(message)}</div>` : ''}<p style="font-size:12px;color:#6b7280">Sent from ${esc(str(body.page, 200) || 'the website')}.${customerId ? ' Linked to Customer/Leads.' : ''}</p>`, contextPath: customerId ? `/sales/customers?item=${customerId}` : '/bizdev/client-portals', replyTo: email })
+  await sendEmail({ to: [email], subject: 'We received your message', html: `<p style="margin:0 0 10px;font-size:17px;font-weight:700">Thank you, ${esc(name.split(' ')[0])}</p><p style="margin:0 0 8px;font-size:14px;line-height:1.6">We received your message about <strong>${esc(topic)}</strong>. Someone from our team in Santa Ana will reply within one business day.</p><p style="margin:0;font-size:14px;line-height:1.6">If you buy from us regularly, the client portal lets you track orders, upload POs and book a call any time.</p>${button(`${PORTAL_URL}/portal/signup`, 'Open a portal account')}` })
+  void TOPIC_ROUTE
+  return out({ ok: true })
+}
+
 export async function POST(req: NextRequest, { params }: { params: { action: string } }) {
   const action = params.action
   const body = await req.json().catch(() => ({})) as any
+
+  if (action === 'contact') return websiteForm(req, body)
 
   // ── Public: create an account (verified by the emailed link) ──
   if (action === 'signup') {
