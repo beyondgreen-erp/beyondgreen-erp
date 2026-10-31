@@ -233,7 +233,7 @@ export function planLabels(d: StrawPrint): LabelPlan[] {
   return out
 }
 
-export async function buildStrawCaseLabels(d: StrawPrint, onlySku?: string): Promise<jsPDF> {
+export async function buildStrawCaseLabels(d: StrawPrint, onlySku?: string, unitLabel = 'PCS'): Promise<jsPDF> {
   const W = 4, H = 6, cx = W / 2, M = 0.18
   const doc = new jsPDF({ unit: 'in', format: [W, H], orientation: 'portrait' })
   const imgs: Record<string, string | null> = {}
@@ -279,7 +279,7 @@ export async function buildStrawCaseLabels(d: StrawPrint, onlySku?: string): Pro
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
       doc.text('QTY PER CASE', M + bw / 2, y + 0.15, { align: 'center' }); doc.text('CASE', M + bw * 1.5 + 0.1, y + 0.15, { align: 'center' })
       doc.setFont('helvetica', 'bold'); doc.setFontSize(19)
-      doc.text(`${fmt(pcs, 0)} PCS`, M + bw / 2, y + 0.47, { align: 'center' })
+      doc.text(`${fmt(pcs, 0)} ${unitLabel}`, M + bw / 2, y + 0.47, { align: 'center' })
       doc.text(`${i} of ${p.cases}`, M + bw * 1.5 + 0.1, y + 0.47, { align: 'center' })
       y += 0.74
       // barcode
