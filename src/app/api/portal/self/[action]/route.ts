@@ -249,6 +249,22 @@ async function websiteForm(req: NextRequest, body: any): Promise<NextResponse> {
   const h = corsHeaders(req)
   const out = (b: any, status = 200) => NextResponse.json(b, { status, headers: { ...h, 'Cache-Control': 'no-store' } })
   if (str(body.website_url)) return out({ ok: true })
+  // Internal page-by-page site review notes (review mode on the website). Stored only: no emails, no leads.
+  if (body.kind === 'site-review') {
+    const key = str(body.review_key, 100)
+    const { data: cfg } = await admin.from('portal_config').select('value').eq('key', 'site_review_key').maybeSingle()
+    if (!key || !cfg || key !== String((cfg as any).value)) return out({ error: 'Review link expired. Ask Claude for a new one.' }, 403)
+    if (body.list) {
+      const { data } = await admin.from('website_inquiries').select('page, message, details, created_at').eq('kind', 'site-review').order('created_at', { ascending: true }).limit(500)
+      return out({ ok: true, notes: data || [] })
+    }
+    const message = str(body.message, 5000)
+    if (!message) return out({ error: 'Add a note first.' }, 400)
+    const details: Record<string, string> = {}
+    for (const k of ['element', 'status', 'viewport']) if (str(body[k])) details[k] = str(body[k], 600)
+    await admin.from('website_inquiries').insert({ kind: 'site-review', topic: 'Site review', name: str(body.name, 120) || 'Rudy Patel', email: 'rudyp@beyondgreenbiotech.com', message, details, page: str(body.page, 200) || null, status: 'New' })
+    return out({ ok: true })
+  }
   if (num(body.t) && Date.now() - num(body.t) < 2500) return out({ ok: true })
   const name = str(body.name, 120), email = str(body.email, 200).toLowerCase(), company = str(body.company, 200)
   const message = str(body.message, 5000), topic = str(body.topic, 80) || str(body.kind, 40) || 'General'
