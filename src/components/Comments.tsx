@@ -302,6 +302,26 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
     return () => { clearTimeout(timer); clearTimeout(clear) }
   }, [loading, comments])
 
+  // After a post, take the author to their own comment. A reply nests under its
+  // parent, which may sit anywhere in the thread, so "my comment did not show up"
+  // is usually "it showed up somewhere I was not looking."
+  function revealComment(cid: string) {
+    setFlashId(cid)
+    let tries = 0
+    const settle = () => {
+      const el = document.getElementById('comment-' + cid)
+      if (el) {
+        const r = el.getBoundingClientRect()
+        const onScreen = r.top >= 0 && r.bottom <= window.innerHeight
+        if (!onScreen) el.scrollIntoView({ behavior: tries === 0 ? 'auto' : 'smooth', block: 'center' })
+        else if (tries > 1) return
+      }
+      if (++tries < 12) setTimeout(settle, 250)
+    }
+    settle()
+    setTimeout(() => setFlashId(null), 4500)
+  }
+
   async function uploadToStorage(file: File): Promise<{ name: string; url: string } | null> {
     const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const path = `comments/${recordType}/${recordId}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`
@@ -368,6 +388,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
       setPendingFiles([])
       setReplyTo(null)
       fetchComments()
+      if (inserted?.id) revealComment(String(inserted.id))
     } finally {
       setPosting(false)
     }
