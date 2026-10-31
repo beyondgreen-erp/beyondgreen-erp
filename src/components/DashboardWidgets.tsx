@@ -995,7 +995,7 @@ export default function DashboardShell() {
               <button onClick={resetDefaults} className="mt-3 px-3 py-1.5 bg-white border border-[#E2E8F0] text-sm font-semibold rounded-lg">Reset to default</button>
             </div>
           ) : (
-            <div className="grid grid-cols-6 gap-3 grid-flow-row-dense">
+            <div className="grid grid-cols-6 gap-3 grid-flow-row-dense items-start">
               {shown.map(w => (
                 <Tile key={w.id} w={w} editing={editing}
                   onRemove={() => removeWidget(w.id)}
