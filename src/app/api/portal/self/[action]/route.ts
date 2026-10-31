@@ -255,14 +255,17 @@ async function websiteForm(req: NextRequest, body: any): Promise<NextResponse> {
     const { data: cfg } = await admin.from('portal_config').select('value').eq('key', 'site_review_key').maybeSingle()
     if (!key || !cfg || key !== String((cfg as any).value)) return out({ error: 'Review link expired. Ask Claude for a new one.' }, 403)
     if (body.list) {
-      const { data } = await admin.from('website_inquiries').select('page, message, details, created_at').eq('kind', 'site-review').order('created_at', { ascending: true }).limit(500)
+      const { data } = await admin.from('website_inquiries').select('id, page, message, details, status, created_at').eq('kind', 'site-review').order('created_at', { ascending: true }).limit(500)
       return out({ ok: true, notes: data || [] })
     }
     const message = str(body.message, 5000)
-    if (!message) return out({ error: 'Add a note first.' }, 400)
+    if (!message && !(Array.isArray(body.changes) && body.changes.length)) return out({ error: 'Add a change first.' }, 400)
     const details: Record<string, string> = {}
-    for (const k of ['element', 'status', 'viewport']) if (str(body[k])) details[k] = str(body[k], 600)
-    await admin.from('website_inquiries').insert({ kind: 'site-review', topic: 'Site review', name: str(body.name, 120) || 'Rudy Patel', email: 'rudyp@beyondgreenbiotech.com', message, details, page: str(body.page, 200) || null, status: 'New' })
+    for (const k of ['element', 'status', 'viewport', 'batch', 'tag']) if (str(body[k])) details[k] = str(body[k], 600)
+    // A page submission sends several changes at once; each change is its own row (status Submitted) so it can be tracked to Done.
+    const items: any[] = Array.isArray(body.changes) ? body.changes.slice(0, 40) : [{ message, element: body.element, tag: body.tag }]
+    const rows = items.map((c: any) => ({ kind: 'site-review', topic: 'Site review', name: str(body.name, 120) || 'Rudy Patel', email: 'rudyp@beyondgreenbiotech.com', message: str(c.message, 5000) || message, details: { ...details, element: str(c.element, 600), tag: str(c.tag, 80) }, page: str(body.page, 200) || null, status: str(body.status, 20) === 'approved' ? 'Approved' : 'Submitted' }))
+    await admin.from('website_inquiries').insert(rows)
     return out({ ok: true })
   }
   if (num(body.t) && Date.now() - num(body.t) < 2500) return out({ ok: true })
