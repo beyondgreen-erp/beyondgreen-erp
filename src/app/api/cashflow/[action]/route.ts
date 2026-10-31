@@ -3,11 +3,11 @@
  * Private Cash Flow & Liability board — the only door into the cf_* tables.
  *
  * Every call must be (1) a signed-in ERP user, (2) on cf_members, and (3) holding a
- * 2-step session made by entering a 6-digit code emailed to them (12 hours). The tables
+ * 2-step session made by entering a 6-digit code emailed to them plus the board password (12 hours). The tables
  * have RLS on with no policies, so the browser can never read them directly.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto'
+import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseServerClient } from '@/lib/supabase'
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin'
@@ -159,6 +159,8 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     const g = await gate(req, false); if (!g.ok) return g.res
     const code = String(body.code || '').replace(/\D/g, '')
     if (code.length !== 6) return json({ error: 'Enter the 6-digit code.' }, 400)
+    const pw = String(body.password || '')
+    if (!pw) return json({ error: 'Enter the board password.' }, 400)
     const { data: o } = await g.admin.from('cf_otp').select('*').eq('email', g.email).is('used_at', null)
       .gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (!o) return json({ error: 'That code expired. Ask for a new one.' }, 400)
@@ -168,6 +170,13 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
       await g.admin.from('cf_otp').update({ attempts: o.attempts + 1 }).eq('id', o.id)
       await audit(g.admin, g.email, 'code_wrong', { ip: ipOf(req) })
       return json({ error: `Wrong code. ${4 - o.attempts} tries left.` }, 400)
+    }
+    const { data: sec } = await g.admin.from('cf_secret').select('salt,hash').eq('key', 'board_password').maybeSingle()
+    const pwOk = !!sec && (() => { const x = scryptSync(pw, sec.salt, 64), y = Buffer.from(sec.hash, 'hex'); return x.length === y.length && timingSafeEqual(x, y) })()
+    if (!pwOk) {
+      await g.admin.from('cf_otp').update({ attempts: o.attempts + 1 }).eq('id', o.id)
+      await audit(g.admin, g.email, 'password_wrong', { ip: ipOf(req) })
+      return json({ error: `Wrong board password. ${4 - o.attempts} tries left on this code.` }, 400)
     }
     await g.admin.from('cf_otp').update({ used_at: new Date().toISOString() }).eq('id', o.id)
     const tok = randomBytes(32).toString('hex')
