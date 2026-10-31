@@ -8,7 +8,6 @@ import ImportExportBar from '@/components/ImportExportBar'
 
 interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean;
   make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null }
-interface OpenWo { wo_number: number; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_produced: number | null; item_part_number: string | null; group_name: string | null; customer: string | null }
 
 // Machine states. Running pulses green, Paused blinks amber, everything else (Idle, Down, Maintenance) is red.
 const STATE = {
@@ -35,8 +34,6 @@ const BOARDS = [
   { key: 'walmart', label: 'Walmart Production' },
   { key: 'straw', label: 'Straw Production' },
 ]
-const CAPACITY_HOURS = 22
-const CLOSED = ['Complete', 'QC Passed', 'Cancelled']
 
 // Icon artwork for each machine type (64 x 48 viewBox).
 const ICONS: Record<string, string> = {
@@ -80,7 +77,6 @@ function dbErr(e: { code?: string; message: string; hint?: string }) { console.e
 export default function MachineStatusPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [rows, setRows] = useState<Machine[]>([])
-  const [wos, setWos] = useState<OpenWo[]>([])
   const [loading, setLoading] = useState(true)
   const [board, setBoard] = useState('all')
   const [selected, setSelected] = useState<Machine | null>(null)
@@ -94,15 +90,6 @@ export default function MachineStatusPage() {
     setLoading(true)
     const { data } = await sb.from('machines').select('*').order('name')
     if (data) setRows(data as Machine[])
-    const { data: w } = await sb.from('work_orders')
-      .select('wo_number,status,machine_id,scheduled_hours,qty_required,qty_produced,item_part_number,group_name,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))')
-      .not('machine_id', 'is', null)
-      .order('created_at', { ascending: false })
-    setWos(((w ?? []) as any[]).filter(x => !CLOSED.includes(x.status)).map(x => ({
-      wo_number: x.wo_number, status: x.status, machine_id: x.machine_id, scheduled_hours: x.scheduled_hours,
-      qty_required: x.qty_required, qty_produced: x.qty_produced, item_part_number: x.item_part_number, group_name: x.group_name,
-      customer: x.sales_orders?.customers?.company_name ?? null,
-    })))
     setLoading(false)
   }
   useEffect(() => { load() }, []) // eslint-disable-line
@@ -111,24 +98,14 @@ export default function MachineStatusPage() {
     const bump = () => { clearTimeout(t); t = setTimeout(load, 600) }
     const ch = sb.channel('machine-status-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'machines' }, bump)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'work_orders' }, bump)
       .subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb]) // eslint-disable-line
 
   const active = rows.filter(r => r.is_active)
-  const woByMachine = useMemo(() => {
-    const map: Record<string, OpenWo[]> = {}
-    for (const w of wos) (map[w.machine_id] ||= []).push(w)
-    return map
-  }, [wos])
-  const hoursOf = (id: string) => (woByMachine[id] || []).reduce((s, w) => s + (Number(w.scheduled_hours) || 0), 0)
-
   const shownSections = SECTIONS.filter(s => board === 'all' || s.board === board)
   const counts = { Running: 0, Paused: 0, Off: 0 }
   active.forEach(m => { counts[stateOf(m.status)]++ })
-  const totalOpen = wos.length
-  const totalBooked = active.reduce((s, m) => s + hoursOf(m.id), 0)
 
   function openAdd() { setEditing(null); setForm(empty); setErr(''); setOpen(true) }
   function openEdit(r: Machine) {
@@ -187,7 +164,7 @@ export default function MachineStatusPage() {
         <div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">PRODUCTION</span>
           <h1 className="text-2xl font-semibold text-[#1A1D2E] mt-1">Machine Status</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Each machine shows how much of its 22 hour day is booked. Work orders come from the production boards.</p>
+          <p className="text-gray-500 text-sm mt-0.5">Live status for every machine. Machines are connected to live work orders from the production boards.</p>
         </div>
         <div className="flex items-center gap-2">
           <ImportExportBar table="machines" filename="machines" columns={[
@@ -207,15 +184,14 @@ export default function MachineStatusPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Running</span><p className="text-2xl font-bold text-emerald-600">{counts.Running} / {active.length}</p></div>
         <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Paused</span><p className="text-2xl font-bold text-amber-600">{counts.Paused}</p></div>
         <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Off or down</span><p className="text-2xl font-bold text-red-600">{counts.Off}</p></div>
-        <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Open work orders</span><p className="text-2xl font-bold text-[#1A1D2E]">{totalOpen} <span className="text-sm font-medium text-gray-500">· {totalBooked.toFixed(1)} h booked</span></p></div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
-        <span className="text-xs font-semibold text-gray-500 mr-1">Show work orders from</span>
+        <span className="text-xs font-semibold text-gray-500 mr-1">Show production board</span>
         {BOARDS.map(b => (
           <button key={b.key} onClick={() => setBoard(b.key)} aria-pressed={board === b.key}
             className={`text-sm font-medium px-3.5 py-2 rounded-full border transition-colors ${board === b.key ? 'bg-[#13201A] text-white border-[#13201A]' : 'bg-white text-[#1A1D2E] border-[#D5DED7] hover:border-gray-400'}`}>{b.label}</button>
@@ -224,8 +200,6 @@ export default function MachineStatusPage() {
 
       {loading ? <div className="py-20 text-center text-sm text-gray-500">Loading…</div> : shownSections.map(section => {
         const machines = active.filter(section.match)
-        const booked = machines.reduce((s, m) => s + hoursOf(m.id), 0)
-        const total = machines.length * CAPACITY_HOURS
         return (
           <section key={section.key} className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden mb-6">
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-[#E4E6EE]">
@@ -233,16 +207,11 @@ export default function MachineStatusPage() {
                 <h2 className="text-lg font-semibold text-[#1A1D2E]">{section.name}</h2>
                 <p className="text-xs text-gray-500">{section.flow}</p>
               </div>
-              <p className="text-xs text-gray-600">Open <span className="font-mono font-semibold">{Math.max(0, total - booked).toFixed(1)} h</span> of {total} h</p>
             </div>
             {machines.length === 0 ? <p className="px-5 py-8 text-sm text-gray-500">No machines in this section yet.</p> : (
               <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
                 {machines.map(m => {
                   const st = STATE[stateOf(m.status)]
-                  const h = hoursOf(m.id)
-                  const pct = Math.min(100, Math.round(h / CAPACITY_HOURS * 100))
-                  const jobs = woByMachine[m.id] || []
-                  const barColor = pct >= 90 ? '#E5541B' : pct >= 70 ? '#E0A21B' : '#1E9E6A'
                   return (
                     <button key={m.id} onClick={() => setSelected(m)} aria-label={`Open operator panel for ${m.machine_code}`}
                       className={`text-left rounded-xl border ${st.border} ${st.bg} p-3 flex flex-col gap-2 hover:shadow-md transition-shadow`}>
@@ -251,12 +220,7 @@ export default function MachineStatusPage() {
                         <span className={`flex items-center gap-1 text-[11px] font-semibold ${st.text}`}><span className={`w-2 h-2 rounded-full ${st.dot}`} />{st.label}</span>
                       </div>
                       <div className="flex items-center justify-center py-1 relative">
-                        <div className={st.glow}><MachineIcon kind={kindOf(m)} pct={pct} color={barColor} size={64} /></div>
-                        {jobs.length > 0 && <span className="absolute -top-1 right-2 min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#13201A] text-white text-[11px] font-bold flex items-center justify-center font-mono">{jobs.length}</span>}
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-[11px] text-gray-600"><span>{pct}% booked</span><span className="font-mono">{Math.max(0, CAPACITY_HOURS - h).toFixed(1)} h open</span></div>
-                        <div className="h-2 rounded-full bg-[#E6ECE7] overflow-hidden mt-1"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} /></div>
+                        <div className={st.glow}><MachineIcon kind={kindOf(m)} pct={0} color={st.color} size={64} /></div>
                       </div>
                     </button>
                   )
@@ -271,8 +235,6 @@ export default function MachineStatusPage() {
       {selected && (() => {
         const m = rows.find(r => r.id === selected.id) || selected
         const st = STATE[stateOf(m.status)]
-        const jobs = woByMachine[m.id] || []
-        const h = hoursOf(m.id)
         return (
           <div className="fixed inset-0 z-40 flex justify-end bg-black/40" onClick={() => setSelected(null)}>
             <aside role="dialog" aria-label="Operator panel" onClick={e => e.stopPropagation()}
@@ -287,10 +249,9 @@ export default function MachineStatusPage() {
               </div>
 
               <div className={`rounded-2xl border ${st.border} ${st.bg} p-4 flex items-center gap-4`}>
-                <div className={st.glow}><MachineIcon kind={kindOf(m)} pct={Math.min(100, Math.round(h / CAPACITY_HOURS * 100))} color={st.color} size={72} /></div>
+                <div className={st.glow}><MachineIcon kind={kindOf(m)} pct={0} color={st.color} size={72} /></div>
                 <div>
                   <p className={`text-sm font-bold ${st.text} flex items-center gap-2`}><span className={`w-2.5 h-2.5 rounded-full ${st.dot}`} />{st.label}</p>
-                  <p className="text-xs text-gray-600 mt-1">{h.toFixed(1)} h booked of {CAPACITY_HOURS} h today</p>
                 </div>
               </div>
 
@@ -298,20 +259,6 @@ export default function MachineStatusPage() {
                 <button onClick={() => setStatus(m, 'Running')} disabled={m.status === 'Running'} className="min-h-[56px] rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-40">Start</button>
                 <button onClick={() => setStatus(m, 'Paused')} disabled={m.status !== 'Running'} className="min-h-[56px] rounded-xl bg-amber-500 text-[#13201A] font-bold disabled:opacity-40">Pause</button>
                 <button onClick={() => setStatus(m, 'Idle')} disabled={stateOf(m.status) === 'Off'} className="min-h-[56px] rounded-xl bg-red-600 text-white font-bold disabled:opacity-40">Stop</button>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-semibold text-[#1A1D2E] mb-2">Work orders on this machine ({jobs.length})</h3>
-                {jobs.length === 0 ? <p className="text-sm text-gray-500">None assigned.</p> : (
-                  <ul className="flex flex-col gap-2">
-                    {jobs.map(w => (
-                      <li key={w.wo_number} className="rounded-lg border border-[#E4E6EE] p-3 text-sm">
-                        <div className="flex justify-between gap-2"><span className="font-semibold">WO-{w.wo_number}{w.customer ? ` · ${w.customer}` : ''}</span><span className="text-xs text-gray-500">{w.status}</span></div>
-                        <div className="text-xs text-gray-600 mt-1">{w.item_part_number || '—'} · {w.qty_produced ?? 0} of {w.qty_required ?? 0} · {Number(w.scheduled_hours || 0).toFixed(1)} h</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
 
               <button onClick={() => { setSelected(null); openEdit(m) }} className="mt-auto text-sm font-semibold border border-[#E4E6EE] rounded-lg py-2.5 text-gray-600 hover:text-gray-900">Edit machine details</button>
