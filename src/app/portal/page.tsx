@@ -4,6 +4,8 @@
 export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TONES } from '@/lib/portalStages'
+import Link from 'next/link'
+import { PortalNav } from '@/components/portal/PortalShell'
 
 const GREEN = '#037f4c'
 const GREEN2 = '#05a866'
@@ -99,7 +101,10 @@ export default function ClientPortalPage() {
       const r = await fetch('/api/portal/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) { setErr(j.error || 'Login failed.'); return }
-      setPassword(''); await loadMe()
+      setPassword('')
+      const next = new URLSearchParams(window.location.search).get('next')
+      if (next && next.startsWith('/portal/')) { window.location.href = next; return }
+      await loadMe()
     } finally { setBusy(false) }
   }
   async function logout() { await fetch('/api/portal/logout', { method: 'POST' }).catch(() => {}); setData(null); setEmail(''); setPassword(''); setPhase('login') }
@@ -276,6 +281,10 @@ export default function ClientPortalPage() {
               <input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full mt-1 bg-white border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#037f4c]/40" /></label>
             <button type="submit" disabled={busy} className="w-full text-white font-semibold py-2.5 rounded-lg disabled:opacity-50 shadow-sm" style={{ background: GREEN }}>{busy ? 'Signing in…' : 'Sign in'}</button>
           </form>
+          <div className="flex items-center justify-between text-xs mt-4 px-1">
+            <Link href="/portal/forgot" className="text-white/80 hover:text-white font-semibold">Forgot password?</Link>
+            <Link href="/portal/signup" className="text-white font-bold bg-white/15 hover:bg-white/25 rounded-lg px-3 py-1.5">New here? Create an account</Link>
+          </div>
           <p className="text-center text-xs text-white/60 mt-4">Trouble signing in? Email info@byndgrn.com</p>
         </div>
       </div>
@@ -294,7 +303,8 @@ export default function ClientPortalPage() {
             </div>
             <button onClick={logout} className="text-xs font-semibold text-white bg-white/15 hover:bg-white/25 rounded-lg px-3 py-1.5">Sign out</button>
           </div>
-          <p className="text-white/70 text-xs uppercase tracking-wider mt-6">Client Portal</p>
+          <div className="mt-3"><PortalNav active="/portal" /></div>
+          <p className="text-white/70 text-xs uppercase tracking-wider mt-5">Client Portal</p>
           <h1 className="text-white text-2xl sm:text-3xl font-bold leading-tight">{company}</h1>
           {lastUpdate && <p className="text-white/70 text-sm mt-1">Last update {timeAgo(lastUpdate)}</p>}
         </div>
@@ -320,8 +330,22 @@ export default function ClientPortalPage() {
 
       {/* Projects */}
       <div className="mx-auto max-w-4xl px-4 mt-5 space-y-4">
+        {/* Quick actions */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { href: '/portal/orders?new=1', title: 'Place an order', sub: 'Reorder or upload a PO' },
+            { href: '/portal/projects?new=1', title: 'Start a project', sub: 'Send details and files' },
+            { href: '/portal/book', title: 'Book a call', sub: 'Zoom with our team' },
+            { href: '/portal/quotes', title: 'Quotes', sub: 'Review and accept' },
+          ].map(a => (
+            <Link key={a.href} href={a.href} className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm px-4 py-3 hover:border-[#037f4c]">
+              <p className="text-sm font-bold" style={{ color: GREEN }}>{a.title}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">{a.sub}</p>
+            </Link>
+          ))}
+        </div>
         {team.length > 0 && (
-          <details className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4" open>
+          <details id="team" className="bg-white rounded-2xl border border-[#EAECF2] shadow-sm p-4" open>
             <summary className="cursor-pointer flex items-center justify-between gap-2">
               <h2 className="font-extrabold text-[#1A1D2E] text-base">Our team is your team!</h2>
               <span className="chev text-[10px] text-gray-300">&#9654;</span>

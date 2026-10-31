@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import crypto from 'crypto'
 import { clientStage, type StageTone } from '@/lib/portalStages'
+import { finalizeVerification, likeExact } from '@/lib/portalServer'
 
 const STAFF_DOMAINS = ['beyondgreenbiotech.com', 'byndgrn.com']
 
@@ -328,7 +329,22 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
     const { data, error } = await admin.rpc('portal_set_password_by_token', { p_token: token, p_password: password })
     if (error) return NextResponse.json({ error: error.message || 'This link is invalid or has expired.' }, { status: 400 })
     const row = (Array.isArray(data) ? data[0] : data) as any
-    return NextResponse.json({ ok: true, email: row?.email || null })
+    // Self sign-ups: confirming via the emailed link verifies the email and links/creates the ERP customer.
+    if (row?.email) { try { await finalizeVerification(row.email) } catch { /* never block password set */ } }
+    // Sign them straight in so a new client lands in the portal instead of a login screen.
+    const res = NextResponse.json({ ok: true, email: row?.email || null, signed_in: false })
+    if (row?.email) {
+      const { data: pc } = await admin.from('portal_clients').select('id, is_active').ilike('email', likeExact(row.email)).maybeSingle()
+      if (pc && (pc as any).is_active) {
+        const st = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '')
+        await admin.from('portal_sessions').insert({ token: st, portal_client_id: (pc as any).id, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString() })
+        await admin.from('portal_clients').update({ last_login_at: new Date().toISOString() }).eq('id', (pc as any).id)
+        const out = NextResponse.json({ ok: true, email: row.email, signed_in: true })
+        out.cookies.set(COOKIE, st, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30 })
+        return out
+      }
+    }
+    return res
   }
 
   // Staff-only: email a client their portal access (secure set-password link). CCs Rudyp.

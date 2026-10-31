@@ -12,10 +12,13 @@ export default function SetPasswordPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [signedIn, setSignedIn] = useState(false)
+  const [welcome, setWelcome] = useState(false)
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('token') || ''
     setToken(t)
+    setWelcome(new URLSearchParams(window.location.search).get('welcome') === '1')
     if (!t) setError('This link is missing its token. Please use the link from your email.')
   }, [])
 
@@ -28,6 +31,7 @@ export default function SetPasswordPage() {
       const res = await fetch('/api/portal/set-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password: pw }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.error || 'This link is invalid or has expired.'); return }
+      setSignedIn(!!data.signed_in)
       setDone(true)
     } catch { setError('Something went wrong. Please try again.') } finally { setBusy(false) }
   }
@@ -49,8 +53,8 @@ export default function SetPasswordPage() {
             <div style={{ textAlign: 'center' }}>
               <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#E4F7EE', color: GREEN, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 700 }}>&#10003;</div>
               <p style={{ fontSize: 16, fontWeight: 600, color: '#1A1D2E', margin: '12px 0 4px' }}>Password set</p>
-              <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 16px' }}>You can now sign in to your portal.</p>
-              <a href="/portal" style={{ display: 'inline-block', background: GREEN, color: '#fff', textDecoration: 'none', fontWeight: 600, fontSize: 14, padding: '11px 22px', borderRadius: 10 }}>Go to sign in</a>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 16px' }}>{signedIn ? (welcome ? 'Your email is confirmed. Next, a few details so we can set up your account.' : 'You are signed in.') : 'You can now sign in to your portal.'}</p>
+              <a href={signedIn ? (welcome ? '/portal/account' : '/portal') : '/portal'} style={{ display: 'inline-block', background: GREEN, color: '#fff', textDecoration: 'none', fontWeight: 600, fontSize: 14, padding: '11px 22px', borderRadius: 10 }}>{signedIn ? (welcome ? 'Continue to onboarding' : 'Open my portal') : 'Go to sign in'}</a>
             </div>
           ) : (
             <form onSubmit={submit}>

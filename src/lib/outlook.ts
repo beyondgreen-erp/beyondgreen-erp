@@ -17,6 +17,10 @@ const AUTHORITY = process.env.AZURE_AUTHORITY || 'organizations'
 export const OUTLOOK_REDIRECT_URI =
   process.env.AZURE_REDIRECT_URI || 'https://beyondgreen-erp.vercel.app/api/outlook/callback'
 export const OUTLOOK_SCOPES = 'openid profile offline_access User.Read Mail.Send Mail.Read'
+// Scopes requested when a mailbox is (re)connected. Adds calendar access for client-portal call
+// booking. Token refreshes keep using OUTLOOK_SCOPES, so mailboxes connected before this change
+// keep sending mail exactly as before; reconnecting grants the calendar permission.
+export const OUTLOOK_CONNECT_SCOPES = OUTLOOK_SCOPES + ' Calendars.ReadWrite'
 
 export function outlookConfigured(): boolean {
   return Boolean(TENANT && CLIENT_ID && CLIENT_SECRET)
@@ -32,7 +36,7 @@ export function authorizeUrl(state: string, loginHint?: string): string {
     response_type: 'code',
     redirect_uri: OUTLOOK_REDIRECT_URI,
     response_mode: 'query',
-    scope: OUTLOOK_SCOPES,
+    scope: OUTLOOK_CONNECT_SCOPES,
     state,
     // Always show the account chooser so the user connects the exact mailbox they intend.
     prompt: 'select_account',
@@ -55,7 +59,7 @@ export async function exchangeCodeForTokens(code: string): Promise<any> {
     code,
     redirect_uri: OUTLOOK_REDIRECT_URI,
     grant_type: 'authorization_code',
-    scope: OUTLOOK_SCOPES,
+    scope: OUTLOOK_CONNECT_SCOPES,
   })
   const r = await fetch(tokenEndpoint(), {
     method: 'POST',

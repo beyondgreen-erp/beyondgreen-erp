@@ -3,9 +3,10 @@
 export const dynamic = 'force-dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import ClientPortalOps, { usePortalOpsCounts } from '@/components/portal/ClientPortalOps'
 
 const GREEN = '#037f4c'
-const PORTAL_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://beyondgreen-erp.vercel.app') + '/portal'
+const PORTAL_URL = (process.env.NEXT_PUBLIC_PORTAL_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://beyondgreen-erp.vercel.app') + '/portal'
 const fmtWhen = (d: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
 
 interface Client { id: string; customer_id: string | null; name: string | null; company_name: string | null; email: string; is_active: boolean; last_login_at: string | null; created_at: string }
@@ -42,7 +43,7 @@ function ClientModal({ open, onClose, onSaved, sb, me, editing }: { open: boolea
       let id = editing?.id
       const row = { name: form.name.trim() || null, company_name: form.company_name.trim() || null, email: form.email.trim(), customer_id: form.customer_id || null }
       if (editing) { const { error } = await sb.from('portal_clients').update({ ...row, updated_at: new Date().toISOString() }).eq('id', editing.id); if (error) { setError(error.message); return } }
-      else { const { data, error } = await sb.from('portal_clients').insert({ ...row, created_by: me }).select('id').single(); if (error) { setError(error.message.includes('duplicate') ? 'An account with that email already exists.' : error.message); return } id = (data as any).id }
+      else { const { data, error } = await sb.from('portal_clients').insert({ ...row, created_by: me, signup_source: 'staff', approved_at: new Date().toISOString(), approved_by: me || 'staff' }).select('id').single(); if (error) { setError(error.message.includes('duplicate') ? 'An account with that email already exists.' : error.message); return } id = (data as any).id }
       if (form.password.trim() && id) { const { error: pe } = await sb.rpc('portal_set_password', { p_id: id, p_password: form.password }); if (pe) { setError('Saved, but password could not be set: ' + pe.message); return } }
       onClose(); onSaved()
     } finally { setSaving(false) }
@@ -96,7 +97,9 @@ export default function ClientPortalsAdmin() {
   const [sharedByCust, setSharedByCust] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [me, setMe] = useState('')
-  const [tab, setTab] = useState<'clients' | 'messages'>('clients')
+  const [tab, setTab] = useState<'clients' | 'messages' | 'signups' | 'orders' | 'calls' | 'docs'>('clients')
+  const opsCounts = usePortalOpsCounts()
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get('tab'); if (t && ['clients', 'messages', 'signups', 'orders', 'calls', 'docs'].includes(t)) setTab(t as any) }, [])
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Client | null>(null)
   const [copied, setCopied] = useState(false)
@@ -160,12 +163,17 @@ export default function ClientPortalsAdmin() {
         To share a project, open a <strong>Sales Order</strong> or <strong>Quote</strong>, turn on <strong>&ldquo;Show in client portal,&rdquo;</strong> and click <strong>Save changes</strong>. It mirrors to that customer&rsquo;s portal automatically — clients see the status and a progress timeline, never pricing or internal notes. Click <strong>Send access</strong> to email a client a secure sign-in link, and <strong>View portal</strong> to see it exactly as they do. Clients are auto-emailed on key milestones (In Production, Shipped, Delivered). Every client email CC&rsquo;s Rudyp@beyondgreenbiotech.com.
       </div>
 
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <button onClick={() => setTab('clients')} className={`text-sm font-semibold rounded-lg px-3 py-1.5 ${tab === 'clients' ? 'text-white' : 'text-gray-500 bg-white border border-[#E4E6EE]'}`} style={tab === 'clients' ? { background: GREEN } : {}}>Accounts</button>
         <button onClick={() => setTab('messages')} className={`text-sm font-semibold rounded-lg px-3 py-1.5 flex items-center gap-1.5 ${tab === 'messages' ? 'text-white' : 'text-gray-500 bg-white border border-[#E4E6EE]'}`} style={tab === 'messages' ? { background: GREEN } : {}}>Messages {unread > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unread}</span>}</button>
+        {([['signups', 'Sign-ups', opsCounts.signups], ['orders', 'Portal orders', opsCounts.orders], ['calls', 'Calls', opsCounts.calls], ['docs', 'Shared docs', 0]] as const).map(([k, label, n]) => (
+          <button key={k} onClick={() => setTab(k)} className={`text-sm font-semibold rounded-lg px-3 py-1.5 flex items-center gap-1.5 ${tab === k ? 'text-white' : 'text-gray-500 bg-white border border-[#E4E6EE]'}`} style={tab === k ? { background: GREEN } : {}}>{label} {n > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{n}</span>}</button>
+        ))}
       </div>
 
-      {tab === 'clients' ? (
+      {(tab === 'signups' || tab === 'orders' || tab === 'calls' || tab === 'docs') ? (
+        <ClientPortalOps view={tab} me={me} />
+      ) : tab === 'clients' ? (
         <div className="bg-white rounded-xl border border-[#ECEEF3] overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[860px]">
