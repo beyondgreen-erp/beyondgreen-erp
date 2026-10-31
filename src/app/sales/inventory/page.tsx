@@ -634,7 +634,15 @@ const EditPanel = memo(function EditPanel({
 
           {/* Pricing */}
           <div className="border-t border-[#E4E6EE] pt-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Pricing</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Pricing</p>
+              {editing && (
+                <a data-ro-ok href={`/sales/pricing-calculator?sku=${encodeURIComponent(editing.sku)}`}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[#1F9A3A] border border-[#1F9A3A]/40 hover:border-[#1F9A3A] bg-white px-2.5 py-1 rounded-lg transition-colors">
+                  <i className="ti ti-calculator" /> Pricing calculator
+                </a>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               {([
                 ['Distribution Price', 'distribution_price'],
