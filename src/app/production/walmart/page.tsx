@@ -21,7 +21,6 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
 import Comments from '@/components/Comments'
 import WalmartDayPlanner from '@/components/WalmartDayPlanner'
-import { WalmartPalletQueue } from '@/components/WalmartPallets'
 import WalmartActivityLog from '@/components/WalmartActivityLog'
 import WalmartWoSummary from '@/components/WalmartWoSummary'
 import WalmartWeekCharts from '@/components/WalmartWeekCharts'
@@ -127,7 +126,7 @@ interface WO { id: string; wo_code: string | null; wo_number: number; status: st
 interface Prog { work_order_id?: string; sku: string; product_name: string | null; target_qty: number; made_qty: number; left_qty: number; on_hand_qty: number | null }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
 interface Move { id: string; ref_id: string; ref_table: string; sku: string; movement_type: string; qty: number; created_at: string }
-interface Release { id: string; pallet_id?: string | null; walmart_order_id: string; work_order_id: string | null; sku: string; qty: number; status: string; released_by: string | null; released_at: string; claimed_by: string | null; claimed_at: string | null; note: string | null; walmart_board_orders: { po_number: string | null; name: string | null; group_name: string | null; ship_due_date: string | null } | null }
+interface Release { id: string; walmart_order_id: string; work_order_id: string | null; sku: string; qty: number; status: string; released_by: string | null; released_at: string; claimed_by: string | null; claimed_at: string | null; note: string | null; walmart_board_orders: { po_number: string | null; name: string | null; group_name: string | null; ship_due_date: string | null } | null }
 interface Prod { sku: string; product_name: string | null; on_hand_qty: number | null; unit_of_measure: string | null }
 
 function Bar({ value, total, color }: { value: number; total: number; color: string }) {
@@ -397,19 +396,19 @@ export default function WalmartProductionPage() {
       {canEdit && (
         <div className="flex flex-col sm:flex-row gap-2 mb-4">
           <button onClick={() => { setLogStock(false); setShowLog(true) }} className="w-full sm:w-auto sm:px-8 h-14 rounded-2xl text-white text-base font-bold shadow-md active:scale-[.99]" style={{ background: ACCENT }}>+ Log production</button>
-          <button onClick={() => setTab('build')} className="w-full sm:w-auto sm:px-6 h-14 rounded-2xl text-base font-bold border-2 active:scale-[.99]" style={{ borderColor: '#00a85a', color: '#00a85a' }}>🏗 Pallet build</button>
+          <button onClick={() => { setLogStock(true); setShowLog(true) }} className="w-full sm:w-auto sm:px-6 h-14 rounded-2xl text-base font-bold border-2 active:scale-[.99]" style={{ borderColor: '#00a85a', color: '#00a85a' }}>↗ Release logged SRPs</button>
         </div>
       )}
 
       <div className="flex gap-1 p-1 mb-4 rounded-xl bg-[#EEF0F4] w-full sm:w-auto sm:inline-flex">
-        {([['production', 'Production'], ['build', 'Pallet build'], ['activity', 'Activity log']] as const).map(([k, l]) => {
-          const n = k === 'build' ? releases.filter(r => r.status === 'Released' && !r.pallet_id).length : 0
+        {([['production', 'Production'], ['build', 'Build team'], ['activity', 'Activity log']] as const).map(([k, l]) => {
+          const n = k === 'build' ? releases.filter(r => r.status === 'Released').length : 0
           return <button key={k} onClick={() => setTab(k)} data-ro-ok className={`flex-1 sm:flex-none h-10 px-5 rounded-lg text-sm font-semibold ${tab === k ? 'bg-white shadow-sm text-[#1A1D2E]' : 'text-gray-500'}`}>{l}{n ? <span className="ml-1.5 text-[11px] text-white rounded-full px-1.5 py-0.5" style={{ background: '#e2445c' }}>{n}</span> : null}</button>
         })}
       </div>
 
       {tab === 'build' && flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
-      {tab === 'activity' ? <WalmartActivityLog sb={sb} woId={wo?.id || null} weekLabel={wo ? `${wo.wo_code || 'this week'} (${week} – ${weekEnd})` : undefined} /> : tab === 'build' ? <div className="space-y-6"><WalmartPalletQueue sb={sb} canEdit={canEdit} />{releases.some(r => !r.pallet_id && r.status === 'Released') && <div><h2 className="font-bold text-[#1A1D2E] mb-2">Older SRP releases <span className="text-xs font-normal text-gray-400">— released before pallet tracking; claim them here</span></h2><BuildTeam sb={sb} releases={releases.filter(r => !r.pallet_id)} canEdit={canEdit} onDone={(m) => { setFlash(m); reload() }} /></div>}</div> : <>
+      {tab === 'activity' ? <WalmartActivityLog sb={sb} woId={wo?.id || null} weekLabel={wo ? `${wo.wo_code || 'this week'} (${week} – ${weekEnd})` : undefined} /> : tab === 'build' ? <BuildTeam sb={sb} releases={releases} canEdit={canEdit} onDone={(m) => { setFlash(m); reload() }} /> : <>
       <div className="mb-4 rounded-lg bg-[#10B981]/10 border border-[#10B981]/25 text-[12px] text-[#0f7a5a] px-3 py-2">🔗 Ultron — each entry adds the finished SRPs to inventory, takes out every packaging part and cutlery piece used, posts to the Inventory Ledger, and updates this week&apos;s Walmart work order.</div>
 
       {flash && <div className={`mb-3 rounded-xl border text-sm px-4 py-3 font-medium ${flash.startsWith('⚠') ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>{flash}</div>}
@@ -796,8 +795,7 @@ function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku
           <button onClick={onClose} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close"><span className="sm:hidden text-sm font-semibold align-middle mr-1">Back</span>&times;</button>
         </div>
         <div className="sm:flex-1 sm:min-h-0 sm:overflow-y-auto px-5 py-3 space-y-3">
-          {!stockMode && <p className="text-[11px] rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-2">Releasing to a PO is now done per pallet on the <b>Pallet build</b> tab (Confirm build → Release → Claim → Wrap &amp; label → Built + photo).</p>}
-          <div className="hidden grid-cols-2 gap-1 p-1 rounded-xl bg-[#F2F4F8]">
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[#F2F4F8]">
             <button type="button" onClick={() => { setStockMode(false); setErr('') }} className={`h-10 rounded-lg text-sm font-bold ${!stockMode ? 'bg-white shadow text-[#1A1D2E]' : 'text-gray-500'}`}>Log what was made</button>
             <button type="button" onClick={() => { setStockMode(true); setReleaseMode(false); setErr('') }} className={`h-10 rounded-lg text-sm font-bold ${stockMode ? 'bg-white shadow text-[#00a85a]' : 'text-gray-500'}`}>Release logged SRPs</button>
           </div>
@@ -866,6 +864,7 @@ function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku
             <button onClick={save} disabled={busy || total <= 0} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: ACCENT }}>
               {busy ? 'Saving…' : total > 0 ? `Log ${fmtN(total)} SRP` : 'Enter quantities'}
             </button>
+            <button onClick={() => { setReleaseMode(true); setErr('') }} disabled={busy || total <= 0 || isSafety} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>Log &amp; release</button>
           </> : <>
             <button onClick={() => { setReleaseMode(false); setPoId('') }} disabled={busy} className="h-14 px-4 rounded-2xl border border-[#E4E6EE] text-sm font-semibold text-gray-600">Log only</button>
             <button onClick={save} disabled={busy || total <= 0 || !poId} className="flex-1 h-14 rounded-2xl text-white text-base font-bold disabled:opacity-40" style={{ background: '#00a85a' }}>
