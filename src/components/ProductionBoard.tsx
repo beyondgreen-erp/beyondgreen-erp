@@ -36,7 +36,8 @@ const who = (e?: string | null) => (e || 'unknown').split('@')[0]
 const u = (s?: string | null) => (s || 'units')
 
 export interface BoardCfg { key: string; title: string; route: string; sections: string[]; category: string; wo_prefix: string; accent: string }
-interface WO { id: string; wo_code: string | null; status: string | null; start_date: string; due_date: string | null; qty_ordered: number | null; qty_completed: number | null; sales_order_id: string | null }
+interface WO { id: string; wo_code: string | null; status: string | null; start_date: string; due_date: string | null; qty_ordered: number | null; qty_completed: number | null; sales_order_id: string | null; machine_id: string | null; connected_from: string | null }
+interface MachineOpt { id: string; machine_code: string; name: string; equipment_group: string | null }
 interface Prog { work_order_id: string; sku: string; product_name: string | null; uom: string | null; case_qty: number | null; target_qty: number; made_qty: number }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; kind: string; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
 interface Stock { sku: string; product_name: string; uom: string | null; case_qty: number | null; on_hand: number; held: number; free: number; built: number; committed: number; short: number; made_7d: number }
@@ -58,6 +59,19 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
   const weekEnd = addDays(week, 6)
   const [tab, setTab] = useState<'production' | 'orders' | 'activity'>('production')
   const [wos, setWos] = useState<WO[]>([])
+  const [machineOpts, setMachineOpts] = useState<MachineOpt[]>([])
+  useEffect(() => {
+    sb.from('machines').select('id,machine_code,name,equipment_group').eq('is_active', true).order('machine_code')
+      .then(({ data }: any) => setMachineOpts((data as MachineOpt[]) || []))
+  }, [sb])
+  // Connect a work order to a machine from this board. Machine Status reads only what is stamped here.
+  async function setWoMachine(wo: WO, machineId: string) {
+    const mid = machineId || null
+    const { error } = await sb.from('work_orders').update({ machine_id: mid, connected_from: mid ? boardKey : null, updated_at: new Date().toISOString() }).eq('id', wo.id)
+    if (error) { setFlash(`Could not connect ${wo.wo_code}: ${error.message}`); return }
+    setWos(prev => prev.map(w => (w.id === wo.id ? { ...w, machine_id: mid, connected_from: mid ? boardKey : null } : w)))
+    setFlash(mid ? `✓ ${wo.wo_code} connected to a machine.` : `${wo.wo_code} disconnected from its machine.`)
+  }
   const [prog, setProg] = useState<Prog[]>([])
   const [entries, setEntries] = useState<Entry[]>([])
   const [stock, setStock] = useState<Stock[]>([])
@@ -95,7 +109,7 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
     const my = ++seq.current
     setLoadErr('')
     const [w, e, s, o, r, a] = await Promise.all([
-      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed,completed_at,sales_order_id')
+      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed,completed_at,sales_order_id,machine_id,connected_from')
         .eq('form_type', 'pb_' + cfg.key).neq('status', 'Cancelled')
         .or(`status.not.in.(${WO_DONE.join(',')}),completed_at.gte.${addDays(today, -30)}`).order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
       sb.from('pb_production_entries').select('*').eq('board', cfg.key).eq('kind', 'production').gte('production_date', week).lte('production_date', weekEnd)
@@ -296,6 +310,14 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
                     {!pos.length && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 bg-[#FFF4E5] text-[#B26A00]">stock build</span>}
                     {allMade && !done && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 bg-emerald-50 text-emerald-700">all made</span>}</p>
                   <div className="flex flex-wrap gap-1 mt-1">{pos.map(o => <a key={o.sales_order_id} href={`/sales/orders?item=${o.sales_order_id}`} className="text-[11px] px-2 py-0.5 rounded-full bg-[#EEF2FB] text-[#3A4A6B] hover:underline">{orderLabel(o)}</a>)}</div>
+                  {canEdit && !done && (
+                    <label className="flex items-center gap-2 mt-2 text-[11px] font-semibold text-gray-600">Machine
+                      <select value={wo.machine_id || ''} onChange={e => setWoMachine(wo, e.target.value)} className="h-8 rounded-lg border border-[#E4E6EE] bg-white px-2 text-xs text-[#1A1D2E]">
+                        <option value="">Not connected</option>
+                        {machineOpts.map(m => <option key={m.id} value={m.id}>{m.machine_code} · {m.name}</option>)}
+                      </select>
+                    </label>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {canEdit && !done && pos.length > 0 && <button onClick={() => setNewWo({ addTo: wo.id })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">+ Add PO</button>}
