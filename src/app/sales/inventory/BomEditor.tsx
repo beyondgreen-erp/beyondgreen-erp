@@ -345,6 +345,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const [dismissed, setDismissed] = useState<Record<string, number>>({})
   const [weightGrams, setWeightGrams] = useState(String(product.weight_per_unit_grams ?? ''))
   const [productionCost, setProductionCost] = useState('0')
+  // Total cost per stocking unit from Veejay's costing sheet (products.unit_cost). The BOM builds
+  // material bottom-up; the gap between the two is what production (labor, overhead) costs.
+  const [sheetCost, setSheetCost] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const [addQuery, setAddQuery] = useState('')
@@ -385,8 +388,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     if (!e1) bomRows = d1 ?? []
     else { const { data: d2 } = await sb.from('product_bom').select('*').eq('sku', product.sku); bomRows = d2 ?? [] }
 
-    const { data: pd } = await sb.from('products').select('production_cost').eq('sku', product.sku).maybeSingle()
+    const { data: pd } = await sb.from('products').select('production_cost,unit_cost').eq('sku', product.sku).maybeSingle()
     if (pd?.production_cost != null) setProductionCost(String(pd.production_cost))
+    setSheetCost(Number(pd?.unit_cost) || 0)
 
     if (!bomRows.length) { setComponents([]); setLoading(false); return }
 
@@ -533,8 +537,13 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
   const prodCostNum = parseFloat(productionCost) || 0
   const totalCost = totals.totalMat + prodCostNum
   const caseCostTotal = totalCost * caseQty
+  // Production cost implied by the costing sheet: sheet total minus what the BOM's materials cost.
+  const impliedProd = sheetCost > 0 ? sheetCost - totals.totalMat : 0
+  const lbsPerStock = (wG * pcsPerStock) / GRAMS_PER_LB
+  // Prices follow the costing sheet when there is one, so they match what finance signed off on.
+  const priceBase = sheetCost > 0 ? sheetCost : totalCost
   const suggested: Record<string, number> = {}
-  for (const t of TIERS) suggested[t.key] = totalCost * t.mult
+  for (const t of TIERS) suggested[t.key] = priceBase * t.mult
 
   // ── Search (Ultron: live inventory products) ───────────────────────────────
   useEffect(() => {
@@ -961,10 +970,32 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
               {pcsPerStock > 1 && <div className="flex items-center justify-between text-xs text-gray-500"><span>Material per piece</span><span className="font-mono">{fmt4(totals.perPiece)}</span></div>}
             </div>
 
+            {/* Costing sheet vs BOM */}
+            {sheetCost > 0 && (
+              <div className="bg-white border border-[#ECEEF3] rounded-xl p-4">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Costing sheet vs BOM{pcsPerStock > 1 ? ` · per ${stockUom}` : ''}</p>
+                <div className="flex items-center justify-between py-1 text-sm"><span className="text-gray-500">Costing sheet cost</span><span className="text-[#1A1D2E] font-semibold font-mono">{fmt4(sheetCost)}</span></div>
+                <div className="flex items-center justify-between py-1 text-sm"><span className="text-gray-500">BOM material</span><span className="text-[#1A1D2E] font-medium font-mono">{fmt4(totals.totalMat)}</span></div>
+                <div className="flex items-center justify-between py-1.5 text-sm border-t border-[#EEF0F4] mt-1">
+                  <span className="text-gray-700 font-semibold">Production (labor/overhead)</span>
+                  <span className={'font-bold font-mono ' + (impliedProd < 0 ? 'text-red-600' : 'text-[#7A3FB0]')}>{fmt4(impliedProd)}</span>
+                </div>
+                <div className="text-[11px] text-gray-500 space-y-0.5 mt-1">
+                  <p>{(impliedProd / sheetCost * 100).toFixed(0)}% of the sheet cost{totals.totalMat > 0 ? ` · ${(impliedProd / totals.totalMat).toFixed(2)}× material` : ''}</p>
+                  {pcsPerStock > 1 && <p>{fmt4(impliedProd / pcsPerStock)} per piece</p>}
+                  {lbsPerStock > 0 && <p>{fmt2(impliedProd / lbsPerStock)} per lb of resin ({lbsPerStock.toFixed(2)} lb per {pcsPerStock > 1 ? stockUom : 'unit'})</p>}
+                  {impliedProd < 0 && <p className="text-red-600">Materials cost more than the sheet total. Check the BOM quantities or the sheet.</p>}
+                </div>
+                {impliedProd > 0 && Math.abs(impliedProd - prodCostNum) > 0.00005 && (
+                  <button onClick={() => setProductionCost(impliedProd.toFixed(4))} className="mt-2 w-full text-xs px-3 py-1.5 rounded-lg bg-[#EFE7FB] hover:bg-[#E3D5F8] text-[#7A3FB0] font-semibold">Use {fmt4(impliedProd)} as production cost (then Save)</button>
+                )}
+              </div>
+            )}
+
             {/* Pricing */}
             <div className="bg-white border border-[#ECEEF3] rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pricing</p>
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pricing{sheetCost > 0 ? <span className="normal-case font-normal tracking-normal"> · from sheet cost {fmt4(sheetCost)}</span> : null}</p>
                 <button onClick={saveAll} disabled={savingAll} className="text-xs px-3 py-1 rounded-lg bg-[#7A3FB0] hover:bg-[#6a35a0] text-white font-semibold disabled:opacity-50">{savingAll ? '…' : 'Save Prices'}</button>
               </div>
               <table className="w-full text-xs">
