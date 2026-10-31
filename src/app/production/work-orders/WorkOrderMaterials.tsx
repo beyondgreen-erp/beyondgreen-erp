@@ -115,6 +115,13 @@ export default function WorkOrderMaterials({
 
   const qty = num(qtyRequired)
   const counts = runCounts(qty, uom, fg)
+  // The run size in the SKU's own stocking unit, which is what "pcs / unit" BOM lines are per.
+  const stockUom = String(fg?.unit_of_measure ?? '').trim().toUpperCase()
+  const orderUom = String(uom ?? stockUom).trim().toUpperCase()
+  const stockUnits = !orderUom || orderUom === stockUom ? qty
+    : /^(CASE|CASES|CS|CTN|CARTON)$/.test(stockUom) ? counts.cases
+    : /^(PK|PKS|PACK|PACKS|BAG|BAGS)$/.test(stockUom) ? counts.packs
+    : counts.pieces || qty
   const unitG = num(fg?.weight_per_unit_grams)
   const runKg = counts.pieces && unitG ? (counts.pieces * unitG) / 1000 : 0
 
@@ -137,7 +144,8 @@ export default function WorkOrderMaterials({
     } else if (basis === 'pcs_pack') {
       need = v * counts.packs; unit = 'pcs'; why = `${fmt(v)} per pack`
     } else if (basis === 'pcs_unit' || basis === 'pcs') {
-      need = v * counts.pieces; unit = 'pcs'; why = `${fmt(v)} per piece`
+      // "pcs / unit" is per stocking unit (the pack, case, roll or piece the SKU is sold in)
+      need = v * stockUnits; unit = 'pcs'; why = `${fmt(v)} per ${stockUom || 'unit'}`
     } else {
       need = v; unit = ''; why = basis || 'no basis set'
     }
