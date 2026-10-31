@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx'
 import Comments from '@/components/Comments'
 import { uomOptions, normalizeUom, describeLadder } from '@/lib/uom'
 import ItemHistory from '@/components/ItemHistory'
+import { bomPreview, bomLinesText, fmtQty, type BomLine } from '@/lib/bomConsumption'
 import WalmartCommitments, { loadCommitments, type CommitRow } from '@/components/WalmartCommitments'
 
 interface Product {
@@ -1055,6 +1056,30 @@ export default function InventoryPage() {
     }
     const cur = Number(editing.on_hand_qty ?? 0)
     const next = cur + add
+    // Finished goods made here use up their BOM. Show exactly what will come off first, then post
+    // through the same production entry the shipping queue uses (credits stock, lot, deducts BOM).
+    if (add > 0) {
+      let lines: BomLine[] = []
+      try { lines = await bomPreview(sb, editing.id, add) } catch { lines = [] }
+      if (lines.length) {
+        const asProduction = confirm(`Production entry: +${add} ${editing.sku}\n\n`
+          + bomLinesText(lines, { header: 'This will deduct from inventory:' })
+          + `\n\nOK = record as production and deduct these materials\nCancel = other options (receipt without deduction)`)
+        if (asProduction) {
+          setSaving(true)
+          const { data, error } = await sb.rpc('inventory_record_production', { p_product_id: editing.id, p_qty: add, p_lot: null, p_note: `Finished-goods completion (+${add}) from the Inventory board` })
+          setSaving(false)
+          if (error) { setErr(error.message); return }
+          const used = (((data as any)?.consumed as any[]) || [])
+          alert(`✓ +${add} ${editing.sku} added to stock.\n\nDeducted from inventory:\n`
+            + (used.map(c => `  - ${c.sku}: ${c.deducted ? fmtQty(Number(c.qty)) : 0} ${c.uom || ''}${c.warning ? '  [' + c.warning + ']' : ''}`).join('\n') || '  (nothing)'))
+          closeEdit(); load(); return
+        }
+        if (!confirm(`Add +${add} ${editing.sku} as a receipt / found stock WITHOUT deducting any materials?\n\nOnly do this if it was not made here (bought in, returned, or a count correction).`)) return
+      } else if (/finished/i.test(String((editing as any).category || '')) && !(editing as any).is_import) {
+        if (!confirm(`No BOM on file for ${editing.sku}.\n\nIf this is production, no raw material will be deducted. Build its BOM on the Inventory board so production entries use up the right materials.\n\nAdd +${add} to stock anyway?`)) return
+      }
+    }
     setSaving(true)
     const { error } = await sb.from('products').update({ on_hand_qty: next }).eq('id', editing.id)
     if (error) { setErr(error.message); setSaving(false); return }

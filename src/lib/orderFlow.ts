@@ -585,7 +585,10 @@ export async function completeWorkOrder(
   // Update inventory. Closing a lot was the one stock-writing path that moved the
   // quantity without recording a movement, so the item's Activity showed nothing and
   // the on-hand figure appeared to change by itself.
-  if (sku) {
+  // A work order linked to a product is booked by the database when it turns Complete
+  // (wo_book_fg_on_complete: finished goods in + BOM deducted), so posting stock here as
+  // well would count the run twice and skip the materials.
+  if (sku && !(wo as any).product_id) {
     const { data: prod } = await sb.from('products').select('id, on_hand_qty, unit_of_measure').eq('sku', sku).maybeSingle()
     if (prod) {
       await sb.from('products')

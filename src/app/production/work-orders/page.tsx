@@ -15,6 +15,8 @@ import { GROUPS, FORMS, formFor, groupByName, nextWoCode, computeAll, type Group
 import { buildMachineQueue, runHours, hoursAreCalculated, toMinutes, fmtClock, woLabel, tomorrowISO, type SchedulableWO } from '@/lib/productionSchedule'
 import { isPlaceholderPart, needsPartNumber, PART_NUMBER_APPROVERS } from '@/lib/partNumber'
 import ItemHistory from '@/components/ItemHistory'
+import WorkOrderScrap from './WorkOrderScrap'
+import { bomPreview, bomLinesText, consumedFor, fmtQty } from '@/lib/bomConsumption'
 
 const sb = createSupabaseBrowserClient()
 
@@ -201,6 +203,7 @@ export default function WorkOrdersPage() {
   const [bom, setBom] = useState<{ component_sku: string; product_name: string | null; on_hand_qty: number | null; uom: string | null; lot: string | null }[]>([])
   const [fgMoves, setFgMoves] = useState<{ created_at: string; qty: number; uom: string | null; created_by: string | null }[]>([])
   const [booking, setBooking] = useState(false)
+  const [matKey, setMatKey] = useState(0)
   const [negStock, setNegStock] = useState<{ sku: string; product_name: string | null; on_hand_qty: number | null }[]>([])
 
   const fmtN = (v: any) => (v === null || v === undefined || v === '') ? '—' : Number(v).toLocaleString()
@@ -459,6 +462,15 @@ export default function WorkOrdersPage() {
         alert(`You entered ${fmtN(total)} but ${fmtN(alreadyBooked)} has already been reported into inventory for this work order.\n\nReduce it first with "Undo booking", then complete.`)
         return
       }
+      // Show every material this booking will take out BEFORE it is posted.
+      const toBook = total - alreadyBooked
+      const startedAt = new Date().toISOString()
+      if (wo.product_id && toBook > 0) {
+        let preview = ''
+        try { preview = bomLinesText(await bomPreview(sb, wo.product_id, toBook), { header: `Booking ${fmtN(toBook)} ${sku} will deduct from inventory:` }) }
+        catch (e) { preview = 'Could not load the BOM preview: ' + (e as Error).message }
+        if (!window.confirm(`${label}: production entry\n\n${preview}\n\nOK = book it · Cancel = go back`)) return
+      }
       const patch: Record<string, any> = { status, qty_completed: total, updated_at: new Date().toISOString() }
       const { error } = await sb.from('work_orders').update(patch).eq('id', wo.id)
       if (error) { alert('Could not complete: ' + error.message); return }
@@ -479,8 +491,10 @@ export default function WorkOrdersPage() {
         + `Planned: ${fmtN(planned)}${uom ? ' ' + uom : ''}\n`
         + `${variance === 0 ? 'Right on plan.' : variance > 0 ? 'Over plan by ' + fmtN(variance) + '.' : 'Under plan by ' + fmtN(-variance) + '.'}\n\n`
         + (!wo.product_id ? 'No product is linked, so nothing was added to inventory.'
-          : bookedNow > 0 ? fmtN(bookedNow) + ' added to inventory now (' + fmtN(alreadyBooked) + ' already reported during the run), raw materials consumed per the BOM.'
+          : bookedNow > 0 ? fmtN(bookedNow) + ' added to inventory now (' + fmtN(alreadyBooked) + ' already reported during the run).'
+            + '\n\nDeducted from inventory:\n' + ((await consumedFor(sb, 'work_orders', wo.id, startedAt)).map(c => '  - ' + c.sku + ': ' + fmtQty(c.qty) + ' ' + (c.uom || '')).join('\n') || '  (nothing: no BOM on file)')
           : 'Nothing new added — it was all reported during the run.'))
+      setMatKey(k => k + 1)
       return
     }
     const { error: stErr } = await sb.from('work_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', wo.id)
@@ -647,13 +661,23 @@ export default function WorkOrdersPage() {
         + `Book ${fmtN(qty)} of ${sku} into inventory anyway?`)
       if (!ok) return
     }
+    {
+      let preview = ''
+      try { preview = bomLinesText(await bomPreview(sb, detail.product_id, qty), { header: `Booking ${fmtN(qty)} ${sku} will deduct from inventory:` }) }
+      catch (e) { preview = 'Could not load the BOM preview: ' + (e as Error).message }
+      if (!window.confirm(`${detail.wo_code || 'WO-' + detail.wo_number}: production entry\n\n${preview}\n\nOK = book it · Cancel = go back`)) return
+    }
     setBooking(true)
+    const startedAt = new Date().toISOString()
     try {
       const { data, error } = await sb.rpc('post_wo_fg', { p_wo_id: detail.id, p_qty: qty, p_user: userEmail || null })
       if (error) { alert('Could not book finished goods: ' + error.message); return }
       const r: any = data
-      alert('✓ Booked ' + qty + ' into inventory for ' + (r?.sku || 'item') + '. On-hand is now ' + (r?.on_hand ?? '—') + '.')
+      const used = await consumedFor(sb, 'work_orders', detail.id, startedAt)
+      alert('✓ Booked ' + qty + ' into inventory for ' + (r?.sku || 'item') + '. On-hand is now ' + (r?.on_hand ?? '—') + '.'
+        + '\n\nDeducted from inventory:\n' + (used.map(c => '  - ' + c.sku + ': ' + fmtQty(c.qty) + ' ' + (c.uom || '')).join('\n') || '  (nothing: no BOM on file)'))
       await refreshFG()
+      setMatKey(k => k + 1)
       load()
     } finally { setBooking(false) }
   }
@@ -742,6 +766,7 @@ export default function WorkOrdersPage() {
       if (r?.ok === false) { alert(r.message); return }
       alert('✓ Reversed ' + r?.reversed + '. On-hand is now ' + (r?.on_hand ?? '—') + '.')
       await refreshFG()
+      setMatKey(k => k + 1)
       load()
     } finally { setBooking(false) }
   }
@@ -1377,8 +1402,12 @@ export default function WorkOrdersPage() {
                     </table>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400">No BOM components on file for this item.</p>
+                  <p className="text-xs text-red-600 font-medium">No BOM components on file for this item: booking it will not deduct any material.</p>
                 )}
+              </div>
+
+              <div className="border-t border-gray-100 pt-4">
+                <WorkOrderScrap woId={detail.id} fgSku={woProduct?.sku || detail.item_part_number || null} refreshKey={matKey} />
               </div>
 
               <div className="border-t border-gray-100 pt-4">
