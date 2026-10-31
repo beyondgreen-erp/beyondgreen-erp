@@ -11,6 +11,7 @@ import {
   costPerPiece, piecesPerStockUnit, stockToPiece, pieceToStock, packRow, privateLabelTiers,
   mapPerPiece, defaultPackSizes, priceLogLine, type PackRow,
 } from '@/lib/pricingCalc'
+import AddToQuote from './AddToQuote'
 
 const BOARD = '/sales/pricing-calculator'
 const ACCENT = '#1F9A3A'
@@ -91,6 +92,8 @@ export default function PricingCalculatorPage() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const perms = usePermissions()
   const canEdit = (perms.canEdit(BOARD) || perms.canEdit('/sales/inventory')) && perms.access?.can_write !== false
+  const canQuote = perms.canEdit('/sales/quotations') && perms.access?.can_write !== false
+  const [quoteOpen, setQuoteOpen] = useState(false)
   const [me, setMe] = useState('')
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -315,10 +318,17 @@ export default function PricingCalculatorPage() {
                   <button onClick={save} disabled={saving} className="w-full h-11 rounded-xl text-white text-sm font-bold shadow-sm disabled:opacity-50" style={{ background: ACCENT }}>{saving ? 'Saving…' : 'Save prices to product'}</button>
                 ) : <p className="text-xs text-gray-400">You have view-only access, so prices cannot be saved from here.</p>}
                 <p className="text-[11px] text-gray-400 mt-1.5">Saves Distribution, Wholesale, MAP and MSRP on {P.sku} per {uom} (the stock unit, same as unit cost){ladder?.known && ladder.pieces !== 1 ? `: per-piece x ${ladder.pieces.toLocaleString('en-US')}` : ''}. Cost and on-hand are never changed.</p>
+                {canQuote && <button data-ro-ok onClick={() => setQuoteOpen(true)} className="w-full h-10 mt-2 rounded-xl border text-sm font-bold bg-white" style={{ borderColor: ACCENT, color: ACCENT }}>+ Add to quote / estimate</button>}
                 {msg && <p className={`mt-2 text-sm rounded-lg px-3 py-2 border ${msg.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-700'}`}>{msg.text}</p>}
               </div>
             </div>
           )}
+          {P && quoteOpen && <AddToQuote sb={sb} product={P} packs={packs} onClose={() => setQuoteOpen(false)} prices={[
+            { key: 'dist', label: 'Distribution', perPiece: distPc },
+            { key: 'whole', label: 'Wholesale', perPiece: wholePc },
+            { key: 'map', label: 'MAP', perPiece: mapPc },
+            ...tiers.map((t, i) => ({ key: 'pl' + i, label: `Private Label ${['1M+', '500K-999,999', '50K-499,999'][i]}`, perPiece: t.pricePerPiece })),
+          ]} />}
           {!P && msg && <p className="text-sm rounded-lg px-3 py-2 border bg-red-50 border-red-200 text-red-700">{msg.text}</p>}
         </div>
 

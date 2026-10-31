@@ -10,6 +10,7 @@ import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
 import { generateQuotePDF, generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
 import { RfqSendModal, RfqResponses } from '@/components/RfqSupplierPanel'
+import { insertQuotationWithNumber } from '@/lib/quoteCreate'
 
 interface Quote {
   id: string
@@ -678,25 +679,10 @@ export default function QuotationsPage() {
         if (updateErr) { alert('Save failed: ' + updateErr.message); setSaving(false); return }
         await supabase.from('quotation_lines').delete().eq('quotation_id', editing.id)
       } else {
-        const year = new Date().getFullYear()
-        // Next number = highest existing Q-<year>-#### + 1 (robust to deleted/renumbered quotes),
-        // with a retry loop so concurrent creates cannot collide on the unique quote_number.
-        const { data: existingNums } = await supabase.from('quotations').select('quote_number').ilike('quote_number', `Q-${year}-%`)
-        let maxN = 0
-        const numRe = new RegExp(`^Q-${year}-(\\d+)$`)
-        for (const r of (existingNums as any[] | null) || []) {
-          const m = numRe.exec(String(r?.quote_number || ''))
-          if (m) maxN = Math.max(maxN, parseInt(m[1], 10))
-        }
-        let newQ: any = null
-        for (let attempt = 0; attempt < 25 && !newQ; attempt++) {
-          const qNum = `Q-${year}-${String(maxN + 1 + attempt).padStart(4, '0')}`
-          const { data, error: insertErr } = await supabase.from('quotations').insert({ ...quoteData, quote_number: qNum }).select('id').single()
-          if (!insertErr) { newQ = data; break }
-          if ((insertErr as any).code !== '23505') { alert('Save failed: ' + insertErr.message); setSaving(false); return }
-        }
-        if (!newQ) { alert('Save failed: could not assign a unique quote number, please try again.'); setSaving(false); return }
-        quoteId = (newQ as any)?.id
+        // Shared with the Pricing Calculator: next Q-<year>-#### with a unique-key retry loop.
+        const created = await insertQuotationWithNumber(supabase, quoteData)
+        if ('error' in created) { alert('Save failed: ' + created.error); setSaving(false); return }
+        quoteId = created.id
       }
 
       if (quoteId && lines.length > 0) {
