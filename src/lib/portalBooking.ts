@@ -12,6 +12,7 @@
 // the team confirms) so booking never breaks.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getOutlookAccessToken } from '@/lib/outlook'
+import { admin } from '@/lib/portalServer'
 
 export const BOOKING_HOST = (process.env.PORTAL_BOOKING_HOST || 'rudyp@beyondgreenbiotech.com').toLowerCase()
 export const BOOKING_TZ = process.env.PORTAL_BOOKING_TZ || 'America/Los_Angeles'
@@ -116,8 +117,13 @@ export async function createZoomMeeting(topic: string, start: Date, minutes: num
     })
     if (r.ok) { const j: any = await r.json(); if (j.join_url) return { join_url: j.join_url, id: j.id ? String(j.id) : null } }
   }
-  const personal = process.env.ZOOM_PERSONAL_MEETING_URL
-  return personal ? { join_url: personal, id: null } : null
+  // Personal room link: Vercel env var, or the portal_config table (key zoom_personal_meeting_url).
+  let personal = process.env.ZOOM_PERSONAL_MEETING_URL || ''
+  if (!personal) {
+    const { data } = await admin.from('portal_config').select('value').eq('key', 'zoom_personal_meeting_url').maybeSingle()
+    personal = String((data as any)?.value || '')
+  }
+  return /^https:\/\/[\w.-]*zoom\.us\//i.test(personal) ? { join_url: personal, id: null } : null
 }
 
 // ── Outlook event (sends the invite to the client) ──────────
