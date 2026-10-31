@@ -95,7 +95,7 @@ function uomSummary(p: ProductProp, packQty: number, caseQty: number): string {
   if (pcsPack > 0) bits.push(`${pcsPack.toLocaleString()} pcs/pack`)
   else if (packQty > 1) bits.push(`${packQty.toLocaleString()} per pack`)
   if (packsCase > 0) bits.push(`${packsCase.toLocaleString()} packs/case`)
-  bits.push(`Case = ${caseQty.toLocaleString()} unit${caseQty === 1 ? '' : 's'}`)
+  bits.push(`Case = ${caseQty.toLocaleString()} ${uom || 'unit'}${!uom && caseQty !== 1 ? 's' : ''}`)
   return bits.join('  \u00b7  ')
 }
 
@@ -206,7 +206,7 @@ function SlotRow({ slotKey, role, label, excludeSku, badge, onAdd, onDismiss, pa
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [q, setQ] = useState('')
   const [picked, setPicked] = useState<SearchResult | null>(null)
-  const [basis, setBasis] = useState<Basis>(role === 'rm' || role === 'color' ? 'percentage' : 'pcs_unit')
+  const [basis, setBasis] = useState<Basis>(role === 'rm' || role === 'color' || role === 'ink' ? 'percentage' : role === 'case' ? 'pcs_case' : (role === 'pack' || role === 'paper_core') && packQty > 1 ? 'pcs_pack' : 'pcs_unit')
   const [qty, setQty] = useState('')
   const [notes, setNotes] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -440,19 +440,29 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const wG = parseFloat(weightGrams) || 0
-  const caseQty = product.case_qty || 1
-
-  // Base units in one pack, from the product's ladder. 1 when undefined, which
-  // makes pcs_pack behave exactly like pcs_unit rather than silently mis-costing.
-  const packConv = useMemo(() => conversionFactor(product, 'PKS'), [product])
-  const packQty = packConv.factor || 1
+  // Every line is costed per PIECE (one bag, straw, fork…), the same unit the weight is entered in
+  // and the same one work orders count in, then multiplied up to the stocking unit (pack / case)
+  // that prices and case cost are quoted in. Mixing the two is what made a 200-bag box cost $0.67
+  // "per unit" next to resin costed per bag.
+  const stockUom = String(product.unit_of_measure ?? '').trim().toUpperCase()
+  const stockIsCase = /^(CASE|CASES|CS|CTN|CARTON)$/.test(stockUom)
+  // Stocking units in one shipping case (case_qty is kept in stocking units).
+  const caseQty = stockIsCase ? 1 : (product.case_qty || 1)
+  // Pieces in one stocking unit: 200 for a PKS of 200 bags, 1 for PCS/EA/ROLLS.
+  const pcsPerStock = useMemo(() => {
+    const f = conversionFactor(product, 'PCS')
+    return f.known && f.factor > 0 && f.factor < 1 ? Math.round(1 / f.factor) : 1
+  }, [product])
+  const packQty = Math.max(1, Number(product.pieces_per_pack) || (stockIsCase ? 1 : pcsPerStock))
+  const pcsPerCase = Math.max(1, pcsPerStock * caseQty)
+  const pieceWord = pcsPerStock > 1 || packQty > 1 ? 'pc' : 'unit'
 
   const extOf = useCallback((c: { basis: Basis; qty_value: number; unit_cost: number }) => {
     if (c.basis === 'percentage') return (c.qty_value / 100) * wG * (c.unit_cost / GRAMS_PER_LB)
     if (c.basis === 'pcs_unit') return c.qty_value * c.unit_cost
-    if (c.basis === 'pcs_pack') return (c.qty_value * c.unit_cost) / packQty // pcs_pack → per unit
-    return (c.qty_value * c.unit_cost) / caseQty // pcs_case → per unit
-  }, [wG, caseQty, packQty])
+    if (c.basis === 'pcs_pack') return (c.qty_value * c.unit_cost) / packQty // one per pack → per piece
+    return (c.qty_value * c.unit_cost) / pcsPerCase // one per case → per piece
+  }, [wG, packQty, pcsPerCase])
 
   const computedRows = useMemo(() => components.map(c => ({ ...c, extended_cost: extOf(c) })), [components, extOf])
 
@@ -512,8 +522,10 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
       else if (c.basis === 'pcs_unit' || c.basis === 'pcs_pack') unitPkg += c.extended_cost
       else casePkg += c.extended_cost
     }
-    return { rawMat, unitPkg, casePkg, totalMat: rawMat + unitPkg + casePkg }
-  }, [computedRows])
+    // per piece → per stocking unit (pack / case), which is what prices and case cost use
+    const k = pcsPerStock
+    return { rawMat: rawMat * k, unitPkg: unitPkg * k, casePkg: casePkg * k, totalMat: (rawMat + unitPkg + casePkg) * k, perPiece: rawMat + unitPkg + casePkg }
+  }, [computedRows, pcsPerStock])
 
   const totalPct = computedRows.filter(c => countsTowardWeight(c.role, c.basis)).reduce((s, c) => s + c.qty_value, 0)
   const anyPct = computedRows.some(c => countsTowardWeight(c.role, c.basis))
@@ -765,6 +777,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 <label className="text-xs text-gray-500 whitespace-nowrap font-medium">Unit weight (g)</label>
                 <input type="number" min="0" step="0.001" value={weightGrams} onChange={e => setWeightGrams(e.target.value)} className={inp + ' w-28'} />
                 <button onClick={saveWeight} disabled={savingWeight} className="text-xs px-2.5 py-1.5 bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 rounded-lg disabled:opacity-50">{savingWeight ? '…' : 'Save'}</button>
+                <span className="text-xs text-gray-400">per {pieceWord === 'pc' ? 'piece' : 'unit'}</span>
                 <span className="text-xs text-gray-500 ml-auto font-medium" title={describeLadder(product) || 'No pack/case conversions set on this product.'}>
                     {uomSummary(product, packQty, caseQty)}
                 </span>
@@ -793,7 +806,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                         <th className="text-left font-semibold px-2 py-2 w-[128px]">Basis</th>
                         <th className="text-right font-semibold px-2 py-2 w-[70px]">Qty</th>
                         <th className="text-right font-semibold px-2 py-2 w-[92px]">Unit cost</th>
-                        <th className="text-right font-semibold px-2.5 py-2 w-[96px]">Ext / unit</th>
+                        <th className="text-right font-semibold px-2.5 py-2 w-[96px]">{pieceWord === 'pc' ? 'Ext / pc' : 'Ext / unit'}</th>
                         <th className="text-left font-semibold px-2 py-2 w-[130px]">Notes</th>
                         <th className="w-8 px-1 py-2" />
                       </tr>
@@ -827,9 +840,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                           <td className="px-2 py-2">
                             <select value={c.basis} onChange={e => updateBasis(c.id, e.target.value as Basis)} className={inp + ' w-full !min-w-[100px] !py-1 !px-1.5 text-[11px] cursor-pointer'}>
                               <option value="percentage">% by weight</option>
-                              <option value="pcs_unit">pcs / unit</option>
-                              <option value="pcs_pack">pcs / pack</option>
-                              <option value="pcs_case">pcs / case</option>
+                              <option value="pcs_unit">{pieceWord === 'pc' ? 'pcs / piece' : 'pcs / unit'}</option>
+                              <option value="pcs_pack">{packQty > 1 ? `pcs / pack (${packQty})` : 'pcs / pack'}</option>
+                              <option value="pcs_case">{pcsPerCase > 1 ? `pcs / case (${pcsPerCase.toLocaleString()})` : 'pcs / case'}</option>
                             </select>
                           </td>
                           <td className="px-2 py-2">
@@ -838,7 +851,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                           <td className="px-2 py-2 text-right text-gray-500 whitespace-nowrap">
                             {c.basis === 'percentage' ? <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/lb</span></span> : <span>{fmt2(c.unit_cost)}<span className="text-gray-300">/ea</span>{c.rolled ? <span className="text-gray-300" title="Worked out from this component's own BOM, not the unit cost stored on it"> BOM</span> : null}</span>}
                           </td>
-                          <td className="px-2.5 py-2 text-right font-semibold text-[#1A1D2E] whitespace-nowrap">{fmt4(c.extended_cost)}</td>
+                          <td className="px-2.5 py-2 text-right font-semibold text-[#1A1D2E] whitespace-nowrap" title={pcsPerStock > 1 ? `${fmt4(c.extended_cost * pcsPerStock)} per ${stockUom || 'stocking unit'}` : undefined}>{fmt4(c.extended_cost)}{pieceWord === 'pc' && <span className="text-gray-300 font-normal">/pc</span>}</td>
                           <td className="px-2 py-2">
                             <input defaultValue={c.notes} key={c.id + '-n'} onBlur={e => updateNotes(c.id, e.target.value)}
                               placeholder="—" title={c.notes || 'Note for this component'}
@@ -851,7 +864,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                       ))}
                       {!loading && emptySlots.map(sl => (
                         <SlotRow key={sl.key} slotKey={sl.key} role={sl.role} label={sl.label} excludeSku={product.sku} badge={c => <CatBadge c={c} />}
-                          packQty={packQty} caseQty={caseQty} register={registerSlot}
+                          packQty={packQty} caseQty={pcsPerCase} register={registerSlot}
                           onDismiss={() => setDismissed(d => ({ ...d, [sl.role]: (d[sl.role] ?? 0) + 1 }))}
                           onAdd={(sku, basis, qty, notes) => addFromSlot(sl.role, sku, basis, qty, notes)} />
                       ))}
@@ -902,9 +915,9 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 </select>
                 <select value={addBasis} onChange={e => setAddBasis(e.target.value as Basis)} className={inp + ' cursor-pointer'}>
                   <option value="percentage">% by weight</option>
-                  <option value="pcs_unit">pcs / unit</option>
-                  <option value="pcs_pack">pcs / pack</option>
-                  <option value="pcs_case">pcs / case</option>
+                  <option value="pcs_unit">{pieceWord === 'pc' ? 'pcs / piece' : 'pcs / unit'}</option>
+                  <option value="pcs_pack">{packQty > 1 ? `pcs / pack (${packQty})` : 'pcs / pack'}</option>
+                  <option value="pcs_case">{pcsPerCase > 1 ? `pcs / case (${pcsPerCase.toLocaleString()})` : 'pcs / case'}</option>
                 </select>
                 <input ref={addQtyRef} type="number" min="0" step="0.01" value={addQty} onChange={e => setAddQty(e.target.value)} onKeyDown={e => e.key === 'Enter' && addComponent()} placeholder={addBasis === 'percentage' ? '%' : 'pcs'} className={inp + ' w-20 text-right'} />
                 <input value={addNotes} onChange={e => setAddNotes(e.target.value)} onKeyDown={e => e.key === 'Enter' && addComponent()} placeholder="Notes (optional)" className={inp + ' w-36'} />
@@ -927,7 +940,7 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {/* Cost summary */}
             <div className="bg-white border border-[#ECEEF3] rounded-xl p-4">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Cost Summary</p>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Cost Summary{pcsPerStock > 1 ? ` · per ${stockUom} (${pcsPerStock.toLocaleString()} pcs)` : ''}</p>
               {[
                 ['Raw material', totals.rawMat],
                 ['Unit packaging', totals.unitPkg],
@@ -944,7 +957,8 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                   <button onClick={saveProdCost} disabled={savingProdCost} className="text-xs px-2 py-1 bg-[#EEF0F4] hover:bg-[#E2E6EE] text-gray-600 rounded disabled:opacity-50">{savingProdCost ? '…' : 'Save'}</button>
                 </div>
               </div>
-              <div className="flex items-center justify-between py-2 border-t border-[#EEF0F4] mt-1"><span className="text-[#1A1D2E] font-bold text-sm">Total cost / unit</span><span className="text-[#00863F] font-extrabold text-lg">{fmt4(totalCost)}</span></div>
+              <div className="flex items-center justify-between py-2 border-t border-[#EEF0F4] mt-1"><span className="text-[#1A1D2E] font-bold text-sm">Total cost / {pcsPerStock > 1 ? stockUom : 'unit'}</span><span className="text-[#00863F] font-extrabold text-lg">{fmt4(totalCost)}</span></div>
+              {pcsPerStock > 1 && <div className="flex items-center justify-between text-xs text-gray-500"><span>Material per piece</span><span className="font-mono">{fmt4(totals.perPiece)}</span></div>}
             </div>
 
             {/* Pricing */}
