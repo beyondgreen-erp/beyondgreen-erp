@@ -195,6 +195,16 @@ export default function TicketsPage() {
   const [detail, setDetail] = useState<Ticket | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+
+  // The daily team digest links straight here: ?mine=1 opens the reader's own list,
+  // ?new=1 opens the create form. Per-viewer, so one link in a shared email still
+  // lands each person on their own tasks.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const sp = new URLSearchParams(window.location.search)
+    if (sp.get('mine') === '1') setMine(true)
+    if (sp.get('new') === '1') setShowAdd(true)
+  }, [])
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async (quiet = false) => {
