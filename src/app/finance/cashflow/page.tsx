@@ -33,6 +33,7 @@ function Gate({ onIn }: { onIn: () => void }) {
   const [me, setMe] = useState<any>(null)
   const [sent, setSent] = useState('')
   const [code, setCode] = useState('')
+  const [pw, setPw] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   useEffect(() => { api('me').then(setMe) }, [])
@@ -51,7 +52,7 @@ function Gate({ onIn }: { onIn: () => void }) {
   }
   async function verify() {
     setErr(''); setBusy(true)
-    const r = await api('verify', { code }); setBusy(false)
+    const r = await api('verify', { code, password: pw }); setBusy(false)
     if (!r.ok) { setErr(r.error || 'Wrong code.'); return }
     onIn()
   }
@@ -59,15 +60,17 @@ function Gate({ onIn }: { onIn: () => void }) {
     <div className={card + ' max-w-md mx-auto mt-16 p-8'}>
       <p className="text-3xl mb-2 text-center">🔐</p>
       <h1 className="text-lg font-bold text-center text-[#1A1D2E]">Cash Flow &amp; Liabilities</h1>
-      <p className="text-sm text-gray-500 text-center mb-5">Private board. Every visit needs a 6-digit code sent to {me.email}.</p>
+      <p className="text-sm text-gray-500 text-center mb-5">Private board. Every visit needs the board password and a 6-digit code sent to {me.email}.</p>
       {!sent ? (
         <button onClick={send} disabled={busy} className="w-full h-12 rounded-xl text-white font-bold disabled:opacity-50" style={{ background: G }}>{busy ? 'Sending…' : 'Email me a code'}</button>
       ) : (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">Code sent to <b>{sent}</b>. It works for 10 minutes.</p>
-          <input autoFocus inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={e => { if (e.key === 'Enter' && code.length === 6) verify() }}
+          <input autoFocus inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={e => { if (e.key === 'Enter' && code.length === 6 && pw) verify() }}
             placeholder="123456" className="w-full h-14 text-center text-2xl tracking-[0.5em] font-bold border border-[#E4E6EE] rounded-xl" />
-          <button onClick={verify} disabled={busy || code.length !== 6} className="w-full h-12 rounded-xl text-white font-bold disabled:opacity-40" style={{ background: G }}>{busy ? 'Checking…' : 'Open the board'}</button>
+          <input type="password" autoComplete="current-password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && code.length === 6 && pw) verify() }}
+            placeholder="Board password" className="w-full h-12 px-4 text-base border border-[#E4E6EE] rounded-xl" />
+          <button onClick={verify} disabled={busy || code.length !== 6 || !pw} className="w-full h-12 rounded-xl text-white font-bold disabled:opacity-40" style={{ background: G }}>{busy ? 'Checking…' : 'Open the board'}</button>
           <button onClick={send} disabled={busy} className="w-full text-xs text-gray-500 underline">Send a new code</button>
         </div>)}
       {err && <p className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
