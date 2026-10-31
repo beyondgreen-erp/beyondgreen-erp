@@ -49,9 +49,9 @@ function useOnce<T>(fn: () => Promise<T>, deps: any[] = []): T | null {
 }
 function BigNumber({ value, sub, color, href }: { value: any; sub: string; color?: string; href?: string }) {
   const inner = (
-    <div className="px-5 py-5 h-full flex flex-col justify-center">
-      <p className={`text-3xl font-bold ${color || 'text-[#0F1C2E]'}`}>{value ?? '…'}</p>
-      <p className="text-xs text-[#8A9FC0] mt-1 uppercase tracking-wide font-semibold">{sub}</p>
+    <div className="px-4 py-3 h-full flex flex-col justify-center">
+      <p className={`text-2xl font-bold leading-tight ${color || 'text-[#0F1C2E]'}`}>{value ?? '…'}</p>
+      <p className="text-[10px] text-[#8A9FC0] mt-0.5 uppercase tracking-wide font-semibold">{sub}</p>
     </div>
   )
   return href ? <Link href={href} className="block h-full hover:bg-[#F8FAFF]">{inner}</Link> : inner
@@ -667,11 +667,11 @@ function WorkflowCategories() {
     setC(out)
   })() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+    <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
       {cats.map(cat => (
-        <Link key={cat.label} href={cat.href} className="rounded-xl border border-[#E4E6EE] bg-white p-3 hover:shadow-md transition-shadow" style={{ borderLeft: '4px solid ' + cat.color }}>
-          <div className="text-2xl font-bold leading-none" style={{ color: cat.color }}>{c[cat.label] ?? '—'}</div>
-          <div className="text-[11px] font-medium text-gray-500 mt-1.5 leading-tight">{cat.label}</div>
+        <Link key={cat.label} href={cat.href} className="rounded-lg border border-[#E4E6EE] bg-white px-2.5 py-2 hover:shadow-sm hover:border-[#C9D3E6] transition" style={{ borderTop: '3px solid ' + cat.color }}>
+          <div className="text-lg font-bold leading-none" style={{ color: cat.color }}>{c[cat.label] ?? '—'}</div>
+          <div className="text-[10px] font-medium text-gray-500 mt-1 leading-tight truncate" title={cat.label}>{cat.label}</div>
         </Link>
       ))}
     </div>
@@ -724,14 +724,12 @@ function NotesInline() {
    DEFAULT LAYOUT — a nice starter set of widgets
    ============================================================ */
 const DEFAULT_LAYOUT: { type: string; size: WidgetSize; config?: any }[] = [
-  { type: 'clock', size: 'sm' },
   { type: 'kpi_open_orders', size: 'sm' },
   { type: 'kpi_revenue_mtd', size: 'sm' },
   { type: 'kpi_overdue_invoices', size: 'sm' },
   { type: 'tasks', size: 'md' },
   { type: 'reminders', size: 'sm' },
   { type: 'weather', size: 'sm', config: { city: 'Los Angeles' } },
-  { type: 'workflow_categories', size: 'xl' },
   { type: 'pipeline', size: 'md' },
   { type: 'recent_orders', size: 'md' },
   { type: 'mentions', size: 'xl' },
@@ -744,12 +742,17 @@ const DEFAULT_LAYOUT: { type: string; size: WidgetSize; config?: any }[] = [
 /* ============================================================
    TILE WRAPPER
    ============================================================ */
+// Widgets sit in a 6-column grid next to the chat column; rows pack densely so there are no holes.
 const SIZES: Record<WidgetSize, string> = {
-  sm: 'col-span-12 sm:col-span-6 md:col-span-4 lg:col-span-3',
-  md: 'col-span-12 sm:col-span-12 md:col-span-6 lg:col-span-6',
-  lg: 'col-span-12 md:col-span-8 lg:col-span-9',
-  xl: 'col-span-12',
+  sm: 'col-span-6 sm:col-span-3 xl:col-span-2',
+  md: 'col-span-6 sm:col-span-3',
+  lg: 'col-span-6',
+  xl: 'col-span-6',
 }
+// Cap tall widgets so one long list can't push everything else off the screen.
+const BODY_MAX: Record<WidgetSize, string> = { sm: 'max-h-[220px]', md: 'max-h-[300px]', lg: 'max-h-[320px]', xl: 'max-h-[340px]' }
+// Shown in the top strip / header already, so never rendered as tiles.
+const IN_HEADER = new Set(['workflow_categories', 'clock'])
 
 function Tile(props: {
   w: Widget; editing: boolean; onRemove: () => void; onResize: (s: WidgetSize) => void; onMove: (dir: 'up' | 'down') => void; onCfg: (patch: any) => void
@@ -758,11 +761,11 @@ function Tile(props: {
   const entry = CATALOG[w.type]
   if (!entry) return null
   return (
-    <div className={`${SIZES[w.size]} bg-white rounded-xl border ${editing ? 'border-[#3B6FE0]/40 ring-1 ring-[#3B6FE0]/10' : 'border-[#E2E8F0]'} overflow-hidden flex flex-col`}>
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#EEF0F4] bg-[#FAFBFD]">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-base leading-none">{entry.icon}</span>
-          <h3 className="font-bold text-xs text-[#0F1C2E] truncate">{entry.label}</h3>
+    <div className={`${SIZES[w.size]} bg-white rounded-xl border shadow-[0_1px_2px_rgba(15,28,46,0.04)] ${editing ? 'border-[#3B6FE0]/40 ring-1 ring-[#3B6FE0]/10' : 'border-[#E2E8F0]'} overflow-hidden flex flex-col`}>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#EEF0F4]">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-sm leading-none">{entry.icon}</span>
+          <h3 className="font-semibold text-[11px] uppercase tracking-wide text-[#5B6B85] truncate">{entry.label}</h3>
         </div>
         <div className="flex items-center gap-1">
           {editing ? (
@@ -777,9 +780,31 @@ function Tile(props: {
           ) : null}
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">{entry.render(w, onCfg)}</div>
+      <div className={`flex-1 min-h-0 overflow-y-auto ${BODY_MAX[w.size]}`}>{entry.render(w, onCfg)}</div>
     </div>
   )
+}
+
+/* Collapsible dashboard section; remembers open/closed per browser. */
+function Fold({ id, title, icon, children, defaultOpenDesktop = true, defaultOpenMobile = false, force = false }: {
+  id: string; title: string; icon: string; children: React.ReactNode; defaultOpenDesktop?: boolean; defaultOpenMobile?: boolean; force?: boolean
+}) {
+  const key = 'dash-fold-' + id
+  const [open, setOpen] = useState<boolean | null>(null)
+  useEffect(() => {
+    let v: string | null = null
+    try { v = localStorage.getItem(key) } catch { /* private mode */ }
+    setOpen(force || (v != null ? v === '1' : (window.innerWidth >= 1024 ? defaultOpenDesktop : defaultOpenMobile)))
+  }, [key, defaultOpenDesktop, defaultOpenMobile, force])
+  const toggle = () => setOpen(o => { const n = !o; try { localStorage.setItem(key, n ? '1' : '0') } catch { /* */ } return n })
+  return (
+    <div>
+      <button onClick={toggle} className="w-full flex items-center justify-between px-3 py-2 bg-white border border-[#E2E8F0] rounded-xl text-left hover:bg-[#FAFBFD]" style={open ? { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottomColor: 'transparent' } : undefined}>
+        <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold text-[#5B6B85]"><span className="text-sm">{icon}</span>{title}</span>
+        <span className="text-gray-400 text-xs">{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+      {open && <div className="border border-t-0 border-[#E2E8F0] rounded-b-xl overflow-hidden bg-white [&>*]:rounded-none">{children}</div>}
+    </div>)
 }
 
 /* ============================================================
@@ -913,66 +938,86 @@ export default function DashboardShell() {
 
   const existing = useMemo(() => new Set((widgets || []).map(w => w.type)), [widgets])
 
+  const shown = (widgets || []).filter(w => !IN_HEADER.has(w.type))
+  const QUICK = [
+    { href: '/production/shipping-queue', label: 'Shipping Queue', icon: '🚚' },
+    { href: '/production/maintenance', label: 'Maintenance', icon: '🛠' },
+    { href: '/production/walmart', label: 'Walmart', icon: '🏬' },
+    { href: '/production/straw', label: 'Straws', icon: '🥤' },
+    { href: '/production/mts-bags', label: 'MTS Bags', icon: '🛍' },
+    { href: '/production/private-label-bags', label: 'Private Label', icon: '🏷' },
+    { href: '/production/mts-cutlery', label: 'Cutlery', icon: '🍴' },
+    { href: '/production/contract-molding', label: 'Molding', icon: '⚙️' },
+  ]
+
   return (
-    <div className="min-h-screen bg-[#F7F8FA] p-4 sm:p-6">
-      <div className="mb-5 flex items-start sm:items-center justify-between flex-wrap gap-3">
-        <div>
-          <p className="text-sm text-[#8A9FC0]">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
-          <h1 className="text-2xl font-bold text-[#0F1C2E]">{greeting}{userName ? ', ' + userName : ''} 👋</h1>
+    <div className="min-h-screen bg-[#F5F7FA] px-3 py-3 sm:px-5 sm:py-4">
+      {/* Header — one line */}
+      <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="min-w-0">
+          <h1 className="text-lg font-bold text-[#0F1C2E] leading-tight">{greeting}{userName ? ', ' + userName.split(' ')[0] : ''}</h1>
+          <p className="text-xs text-[#8A9FC0]">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
-        <div className="flex gap-2 items-center flex-wrap">
-          <Link href="/sales/orders?new=1" className="px-3 py-2 bg-[#3B6FE0] text-white text-xs font-semibold rounded-lg hover:bg-[#2D5CC8]">+ New Order</Link>
-          <Link href="/sales/quotations?new=1" className="px-3 py-2 bg-white border border-[#E2E8F0] text-[#0F1C2E] text-xs font-semibold rounded-lg hover:bg-[#F1F4F9]">+ New Quote</Link>
-          <button onClick={() => setAdding(true)} className="px-3 py-2 bg-emerald-500 text-white text-xs font-semibold rounded-lg hover:bg-emerald-600">+ Add Widget</button>
-          <button onClick={() => setEditing(v => !v)} className={`px-3 py-2 text-xs font-semibold rounded-lg border ${editing ? 'bg-[#3B6FE0] text-white border-[#3B6FE0]' : 'bg-white text-[#0F1C2E] border-[#E2E8F0] hover:bg-[#F1F4F9]'}`}>
-            {editing ? 'Done Editing' : '✎ Customize'}
+        <div className="flex gap-1.5 items-center flex-wrap">
+          <Link href="/sales/orders?new=1" className="px-2.5 py-1.5 bg-[#3B6FE0] text-white text-xs font-semibold rounded-lg hover:bg-[#2D5CC8]">+ Order</Link>
+          <Link href="/sales/quotations?new=1" className="px-2.5 py-1.5 bg-white border border-[#E2E8F0] text-[#0F1C2E] text-xs font-semibold rounded-lg hover:bg-[#F1F4F9]">+ Quote</Link>
+          <button onClick={() => setEditing(v => !v)} className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border ${editing ? 'bg-[#3B6FE0] text-white border-[#3B6FE0]' : 'bg-white text-[#0F1C2E] border-[#E2E8F0] hover:bg-[#F1F4F9]'}`}>
+            {editing ? 'Done' : '✎ Customize'}
           </button>
-          {editing && <button onClick={resetDefaults} className="px-3 py-2 bg-white border border-[#E2E8F0] text-gray-500 text-xs font-semibold rounded-lg hover:bg-[#F1F4F9]">Reset to default</button>}
+          {editing && <button onClick={() => setAdding(true)} className="px-2.5 py-1.5 bg-emerald-500 text-white text-xs font-semibold rounded-lg hover:bg-emerald-600">+ Widget</button>}
+          {editing && <button onClick={resetDefaults} className="px-2.5 py-1.5 bg-white border border-[#E2E8F0] text-gray-500 text-xs font-semibold rounded-lg hover:bg-[#F1F4F9]">Reset</button>}
         </div>
       </div>
 
-      {/* Team chat — groups + direct messages, files, images, @mentions */}
-      <div className="mb-5"><TeamChat mode="embedded" height={520} initialConversationId={chatConv} /></div>
+      {/* Orders at a glance — every stage, one tap to the list */}
+      <div className="mb-2"><WorkflowCategories /></div>
 
-      <ActivityFeedCard />
-
-      {/* Warehouse quick access — always visible, mobile-friendly */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <Link href="/production/maintenance" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-white shadow-sm active:scale-[0.99] transition-transform" style={{ background: 'linear-gradient(135deg,#9a3412,#ea580c)' }}>
-          <span className="text-2xl leading-none">🛠</span>
-          <span className="min-w-0"><span className="block text-sm font-extrabold leading-tight">Maintenance</span><span className="block text-[11px] text-white/85">Machine down, building, supplies</span></span>
-        </Link>
-        <Link href="/production/shipping-queue" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-white shadow-sm active:scale-[0.99] transition-transform" style={{ background: 'linear-gradient(135deg,#c2410c,#ea7317)' }}>
-          <span className="text-2xl leading-none">🚚</span>
-          <span className="min-w-0"><span className="block text-sm font-extrabold leading-tight">Shipping Queue</span><span className="block text-[11px] text-white/85">Pack &amp; ship orders</span></span>
-        </Link>
+      {/* Quick access */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3 -mx-1 px-1">
+        {QUICK.map(q => (
+          <Link key={q.href} href={q.href} className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white border border-[#E2E8F0] text-xs font-semibold text-[#0F1C2E] hover:border-[#3B6FE0] hover:text-[#3B6FE0]">
+            <span className="leading-none">{q.icon}</span>{q.label}
+          </Link>
+        ))}
       </div>
 
-      {widgets == null ? (
-        <div className="grid grid-cols-12 gap-3">
-          {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="col-span-12 sm:col-span-6 md:col-span-4 lg:col-span-3 h-32 bg-white rounded-xl border border-[#E2E8F0] animate-pulse" />)}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+        {/* Widgets */}
+        <div className="lg:col-span-2 order-2 lg:order-1">
+          {widgets == null ? (
+            <div className="grid grid-cols-6 gap-3">
+              {[1, 2, 3, 4].map(i => <div key={i} className="col-span-6 sm:col-span-3 h-28 bg-white rounded-xl border border-[#E2E8F0] animate-pulse" />)}
+            </div>
+          ) : shown.length === 0 ? (
+            <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 text-center">
+              <p className="font-bold text-[#0F1C2E]">No widgets yet</p>
+              <p className="text-sm text-gray-500 mt-1">Click <b>✎ Customize</b> → <b>+ Widget</b>, or reset to the defaults.</p>
+              <button onClick={resetDefaults} className="mt-3 px-3 py-1.5 bg-white border border-[#E2E8F0] text-sm font-semibold rounded-lg">Reset to default</button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-6 gap-3 grid-flow-row-dense">
+              {shown.map(w => (
+                <Tile key={w.id} w={w} editing={editing}
+                  onRemove={() => removeWidget(w.id)}
+                  onResize={s => patchWidget(w.id, { size: s })}
+                  onMove={dir => moveWidget(w.id, dir)}
+                  onCfg={patch => patchWidget(w.id, { config: { ...w.config, ...patch } })}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      ) : widgets.length === 0 ? (
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-8 text-center">
-          <p className="text-lg font-bold text-[#0F1C2E]">Your dashboard is empty</p>
-          <p className="text-sm text-gray-500 mt-1">Click <b>+ Add Widget</b> to build your view — or reset to defaults.</p>
-          <div className="flex gap-2 justify-center mt-4">
-            <button onClick={() => setAdding(true)} className="px-4 py-2 bg-emerald-500 text-white text-sm font-semibold rounded-lg">+ Add Widget</button>
-            <button onClick={resetDefaults} className="px-4 py-2 bg-white border border-[#E2E8F0] text-[#0F1C2E] text-sm font-semibold rounded-lg">Reset to default</button>
-          </div>
+
+        {/* Team chat + live activity */}
+        <div className="order-1 lg:order-2 space-y-3 lg:sticky lg:top-16">
+          <Fold id="chat" title="Team chat" icon="💬" defaultOpenDesktop force={!!chatConv}>
+            <TeamChat mode="embedded" height={420} initialConversationId={chatConv} />
+          </Fold>
+          <Fold id="activity" title="Live activity" icon="📈" defaultOpenDesktop>
+            <div className="max-h-[360px] overflow-y-auto"><ActivityFeedCard /></div>
+          </Fold>
         </div>
-      ) : (
-        <div className="grid grid-cols-12 gap-3">
-          {widgets.map(w => (
-            <Tile key={w.id} w={w} editing={editing}
-              onRemove={() => removeWidget(w.id)}
-              onResize={s => patchWidget(w.id, { size: s })}
-              onMove={dir => moveWidget(w.id, dir)}
-              onCfg={patch => patchWidget(w.id, { config: { ...w.config, ...patch } })}
-            />
-          ))}
-        </div>
-      )}
+      </div>
 
       {adding && <AddModal existing={existing} onClose={() => setAdding(false)} onAdd={addWidget} />}
     </div>
