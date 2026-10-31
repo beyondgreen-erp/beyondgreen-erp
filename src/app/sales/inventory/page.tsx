@@ -193,7 +193,7 @@ const EditPanel = memo(function EditPanel({
   busy: boolean
   onClose: () => void
   onSave: () => void
-  onProduce: (addQty: number) => void
+  onProduce: (addQty: number, pullIds?: string[]) => void
   onDelete: () => void
   onToggleActive: () => void
   userEmail: string
@@ -204,6 +204,28 @@ const EditPanel = memo(function EditPanel({
   const [gtinUploading, setGtinUploading] = useState(false)
   const [gtinSignedUrl, setGtinSignedUrl] = useState('')
   const gsb = useMemo(() => createSupabaseBrowserClient(), [])
+  // Line pulls: product shipping took off a run that was still on the line and already
+  // recorded at the Shipping Queue. The daily sheet total includes them, so they are
+  // subtracted here instead of being counted twice.
+  const [pulls, setPulls] = useState<{ id: string; qty: number; created_at: string; note: string | null; created_by: string | null }[]>([])
+  const [pullSel, setPullSel] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    setPulls([]); setPullSel({})
+    if (!open || !editing?.id) return
+    let alive = true
+    gsb.from('inventory_movements').select('id, qty, created_at, note, created_by')
+      .eq('product_id', editing.id).eq('line_pull', true).is('reconciled_at', null).order('created_at')
+      .then(({ data }) => {
+        if (!alive) return
+        const rows = ((data as any[]) || []).map(r => ({ ...r, qty: Number(r.qty) || 0 }))
+        setPulls(rows); setPullSel(Object.fromEntries(rows.map(r => [r.id, true])))
+      })
+    return () => { alive = false }
+  }, [open, editing?.id, gsb])
+  const pullIds = pulls.filter(p => pullSel[p.id]).map(p => p.id)
+  const pullQty = pulls.filter(p => pullSel[p.id]).reduce((s, p) => s + p.qty, 0)
+  const sheetQty = parseFloat(addQty) || 0
+  const netQty = pulls.length ? sheetQty - pullQty : sheetQty
   async function uploadGtinImage(file: File) {
     setGtinUploading(true)
     try {
@@ -413,12 +435,34 @@ const EditPanel = memo(function EditPanel({
             {editing && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2.5">
                 <label className="block text-[11px] font-semibold text-emerald-700 mb-1">Record production / receipt <span className="font-normal text-emerald-600">· adds to on-hand, never overwrites</span></label>
+                {pulls.length > 0 && (
+                  <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2">
+                    <p className="text-[11px] font-semibold text-amber-800">Already pulled from the line at shipping · not yet matched to a sheet</p>
+                    <p className="text-[10px] text-amber-700 mb-1">Enter the full sheet total below. Ticked pulls are subtracted so they aren&apos;t counted twice. Untick any that belong to a different day&apos;s sheet.</p>
+                    {pulls.map(p => (
+                      <label key={p.id} className="flex items-center gap-2 text-[11px] text-amber-900 py-0.5 cursor-pointer">
+                        <input type="checkbox" checked={!!pullSel[p.id]} onChange={e => setPullSel(s => ({ ...s, [p.id]: e.target.checked }))} className="accent-amber-600"/>
+                        <span className="font-semibold">{p.qty} {baseUom}</span>
+                        <span>{new Date(p.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                        <span className="text-amber-700/80 truncate">{(p.created_by || '').split('@')[0]}{p.note ? ` · ${p.note.split(' · ')[0]}` : ''}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-600 font-bold text-lg leading-none">+</span>
-                  <input type="number" min="0" step="any" value={addQty} onChange={e => setAddQty(e.target.value)} placeholder={`qty in ${baseUom}`} className={`${inp} flex-1`}/>
-                  <button type="button" disabled={saving || !((parseFloat(addQty) || 0) > 0)} onClick={() => { onProduce(parseFloat(addQty) || 0); setAddQty('') }} className="px-3 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 whitespace-nowrap">Add to stock</button>
+                  <input type="number" min="0" step="any" value={addQty} onChange={e => setAddQty(e.target.value)} placeholder={pulls.length ? `sheet total in ${baseUom}` : `qty in ${baseUom}`} className={`${inp} flex-1`}/>
+                  <button type="button" disabled={saving || !(sheetQty > 0) || netQty < 0} onClick={() => { onProduce(sheetQty, pulls.length ? pullIds : undefined); setAddQty('') }} className="px-3 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 whitespace-nowrap">{pulls.length ? 'Post sheet' : 'Add to stock'}</button>
                 </div>
-                <p className="text-[10px] text-emerald-700/70 mt-1">Adds to current on-hand ({curOnHand} {baseUom}){(parseFloat(addQty) || 0) > 0 ? ` → new on-hand ${curOnHand + (parseFloat(addQty) || 0)} ${baseUom}` : ''}. Use this for FG completions so shipment debits aren't erased.</p>
+                {pulls.length > 0 && sheetQty > 0 ? (
+                  <p className={`text-[10px] mt-1 ${netQty < 0 ? 'text-red-600 font-semibold' : 'text-emerald-700/80'}`}>
+                    {netQty < 0
+                      ? `The ticked pulls (${pullQty}) are more than the sheet total (${sheetQty}). Untick pulls from another day or check the sheet.`
+                      : `Sheet ${sheetQty} − pulled at shipping ${pullQty} = ${netQty} ${baseUom} added → new on-hand ${curOnHand + netQty} ${baseUom}.`}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-emerald-700/70 mt-1">Adds to current on-hand ({curOnHand} {baseUom}){sheetQty > 0 ? ` → new on-hand ${curOnHand + sheetQty} ${baseUom}` : ''}. Use this for FG completions so shipment debits aren't erased.</p>
+                )}
               </div>
             )}
             <div>
@@ -996,10 +1040,19 @@ export default function InventoryPage() {
     setTimeout(() => { setEditing(null); setForm(emptyForm) }, 300)
   }
 
-  async function recordProduction(addQty: number) {
+  async function recordProduction(addQty: number, pullIds?: string[]) {
     if (!editing) return
     const add = Number(addQty)
     if (!add || add === 0) return
+    // Open line pulls exist: post through the RPC, which subtracts the ticked pulls from the
+    // sheet total and marks them matched in one transaction.
+    if (pullIds) {
+      setSaving(true)
+      const { error } = await sb.rpc('inventory_post_daily_production', { p_product_id: editing.id, p_sheet_qty: add, p_pull_ids: pullIds })
+      setSaving(false)
+      if (error) { setErr(error.message); return }
+      closeEdit(); load(); return
+    }
     const cur = Number(editing.on_hand_qty ?? 0)
     const next = cur + add
     setSaving(true)

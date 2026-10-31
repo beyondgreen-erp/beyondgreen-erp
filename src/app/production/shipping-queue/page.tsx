@@ -245,7 +245,9 @@ export default function ShippingQueuePage() {
   const [coBusy, setCoBusy] = useState('')
   // Stock guard: lines that would ship more than is on hand. Nothing ships on paper that
   // is not in inventory — the operator records the production that happened, then ships.
-  const [stockBlock, setStockBlock] = useState<{ sku: string; productId: string; description: string; need: number; onHand: number; qty: string; lot: string }[] | null>(null)
+  // source: 'line' = taken from a run still on the line (Robert's daily sheet will include it, so
+  // the sheet posting nets it out); 'stock' = finished goods that were simply never posted.
+  const [stockBlock, setStockBlock] = useState<{ sku: string; productId: string; description: string; need: number; onHand: number; qty: string; lot: string; source: '' | 'line' | 'stock' }[] | null>(null)
   const [stockBusy, setStockBusy] = useState(false)
   const pendingMove = useRef<{ keepOpen: boolean; closeShort: boolean; shortReason: string } | null>(null)
 
@@ -1474,7 +1476,7 @@ export default function ShippingQueuePage() {
             const p = ((stock as any[]) || []).find(x => String(x.sku).toUpperCase() === sku.toUpperCase())
             const onHand = Number(p?.on_hand_qty ?? 0); const need = shipNow[sku]
             const row = plan.find(r => r.sku === sku)
-            return p && p.production_line !== 'straw' && onHand < need ? { sku, productId: String(p.id), description: p.product_name || row?.description || '', need, onHand, qty: String(need - onHand), lot: `${sku}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}` } : null
+            return p && p.production_line !== 'straw' && onHand < need ? { sku, productId: String(p.id), description: p.product_name || row?.description || '', need, onHand, qty: String(need - onHand), lot: `${sku}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}`, source: '' as const } : null
           }).filter(Boolean) as NonNullable<typeof stockBlock>
           if (short.length) { pendingMove.current = { keepOpen, closeShort, shortReason }; setStockBlock(short); setCoBusy(''); return }
         }
@@ -1639,15 +1641,29 @@ export default function ShippingQueuePage() {
                     <label className="block"><span className="text-[11px] text-gray-500">Lot / batch #</span><input value={l.lot} onChange={e => setStockBlock(b => b!.map((x, k) => k === i ? { ...x, lot: e.target.value } : x))} className="w-full border border-[#E4E6EE] rounded-lg px-2.5 py-1.5 text-sm font-mono" /></label>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">Needs at least {Math.max(0, l.need - l.onHand)} to cover this shipment.</p>
+                  <p className="text-[11px] font-semibold text-[#1A1D2E] mt-2">Where is this coming from?</p>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    {([
+                      ['line', 'Taken from the production line', 'The run is still going or its sheet isn’t posted yet. Robert’s daily sheet will subtract this so it isn’t counted twice.'],
+                      ['stock', 'Finished stock never posted', 'Already made and sitting on the floor, not part of a run that is on today’s sheet.'],
+                    ] as const).map(([v, t, d]) => (
+                      <button key={v} type="button" onClick={() => setStockBlock(b => b!.map((x, k) => k === i ? { ...x, source: v } : x))}
+                        className={`text-left rounded-lg border px-2.5 py-2 transition-colors ${l.source === v ? 'border-[#0F7A4E] bg-emerald-50 ring-1 ring-[#0F7A4E]' : 'border-[#E4E6EE] hover:bg-gray-50'}`}>
+                        <span className="block text-xs font-semibold text-[#1A1D2E]">{l.source === v ? '● ' : '○ '}{t}</span>
+                        <span className="block text-[10px] text-gray-500 mt-0.5 leading-snug">{d}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ))}
               <div className="flex gap-2 pt-1">
-                <button disabled={stockBusy} onClick={async () => {
+                <button disabled={stockBusy || stockBlock.some(l => Number(l.qty) > 0 && !l.source)} title={stockBlock.some(l => Number(l.qty) > 0 && !l.source) ? 'Pick where each item is coming from' : undefined} onClick={async () => {
                   setStockBusy(true)
                   try {
                     for (const l of stockBlock) {
                       const q = Number(l.qty); if (!(q > 0)) continue
-                      const { error } = await sb.rpc('inventory_record_production', { p_product_id: l.productId, p_qty: q, p_lot: l.lot.trim() || null, p_note: `Recorded at shipping for order ${o?.order_number || ''}` })
+                      const linePull = l.source === 'line'
+                      const { error } = await sb.rpc('inventory_record_production', { p_product_id: l.productId, p_qty: q, p_lot: l.lot.trim() || null, p_note: `Recorded at shipping for order ${o?.order_number || ''}`, p_line_pull: linePull })
                       if (error) throw new Error(error.message)
                     }
                     const pm = pendingMove.current; setStockBlock(null); pendingMove.current = null
