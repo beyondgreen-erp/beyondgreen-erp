@@ -243,7 +243,7 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 const TOPIC_ROUTE: Record<string, string[]> = {}
-const SALES_TOPICS = ['Buy for my business', 'Contract manufacturing', 'Private label', 'Custom printing', 'Order support', 'Samples', 'Distributor or reseller']
+const SALES_TOPICS = ['Buy for my business', 'Contract manufacturing', 'Private label', 'Custom printing', 'Order support', 'Samples', 'Distributor or reseller', 'Spec sheet request']
 
 async function websiteForm(req: NextRequest, body: any): Promise<NextResponse> {
   const h = corsHeaders(req)
