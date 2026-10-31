@@ -743,14 +743,15 @@ const DEFAULT_LAYOUT: { type: string; size: WidgetSize; config?: any }[] = [
    TILE WRAPPER
    ============================================================ */
 // Widgets sit in a 6-column grid next to the chat column; rows pack densely so there are no holes.
+// A strict two-column grid of fixed-height rows: every tile is a half or full width, one
+// (single-number KPI) or two rows tall, so edges always line up. Long content scrolls inside.
 const SIZES: Record<WidgetSize, string> = {
-  sm: 'col-span-6 sm:col-span-3 xl:col-span-2',
+  sm: 'col-span-6 sm:col-span-3',
   md: 'col-span-6 sm:col-span-3',
   lg: 'col-span-6',
   xl: 'col-span-6',
 }
-// Cap tall widgets so one long list can't push everything else off the screen.
-const BODY_MAX: Record<WidgetSize, string> = { sm: 'max-h-[220px]', md: 'max-h-[300px]', lg: 'max-h-[320px]', xl: 'max-h-[340px]' }
+const rowsFor = (type: string) => (type.startsWith('kpi_') ? 'row-span-1' : 'row-span-2')
 // Shown in the top strip / header already, so never rendered as tiles.
 const IN_HEADER = new Set(['workflow_categories', 'clock'])
 
@@ -761,7 +762,7 @@ function Tile(props: {
   const entry = CATALOG[w.type]
   if (!entry) return null
   return (
-    <div className={`${SIZES[w.size]} bg-white rounded-xl border shadow-[0_1px_2px_rgba(15,28,46,0.04)] ${editing ? 'border-[#3B6FE0]/40 ring-1 ring-[#3B6FE0]/10' : 'border-[#E2E8F0]'} overflow-hidden flex flex-col`}>
+    <div className={`${SIZES[w.size]} ${rowsFor(w.type)} h-full min-h-0 bg-white rounded-xl border shadow-[0_1px_2px_rgba(15,28,46,0.04)] ${editing ? 'border-[#3B6FE0]/40 ring-1 ring-[#3B6FE0]/10' : 'border-[#E2E8F0]'} overflow-hidden flex flex-col`}>
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#EEF0F4]">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm leading-none">{entry.icon}</span>
@@ -780,7 +781,7 @@ function Tile(props: {
           ) : null}
         </div>
       </div>
-      <div className={`flex-1 min-h-0 overflow-y-auto ${BODY_MAX[w.size]}`}>{entry.render(w, onCfg)}</div>
+      <div className="flex-1 min-h-0 overflow-y-auto">{entry.render(w, onCfg)}</div>
     </div>
   )
 }
@@ -995,7 +996,7 @@ export default function DashboardShell() {
               <button onClick={resetDefaults} className="mt-3 px-3 py-1.5 bg-white border border-[#E2E8F0] text-sm font-semibold rounded-lg">Reset to default</button>
             </div>
           ) : (
-            <div className="grid grid-cols-6 gap-3 grid-flow-row-dense items-start">
+            <div className="grid grid-cols-6 gap-3 grid-flow-row-dense auto-rows-[132px]">
               {shown.map(w => (
                 <Tile key={w.id} w={w} editing={editing}
                   onRemove={() => removeWidget(w.id)}
