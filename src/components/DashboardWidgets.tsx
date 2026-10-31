@@ -751,18 +751,19 @@ const SIZES: Record<WidgetSize, string> = {
   lg: 'col-span-6',
   xl: 'col-span-6',
 }
-const rowsFor = (type: string) => (type.startsWith('kpi_') ? 'row-span-1' : 'row-span-2')
+const isKpi = (type: string) => type.startsWith('kpi_')
+const isStrip = (type: string) => type === 'news'
 // Shown in the top strip / header already, so never rendered as tiles.
 const IN_HEADER = new Set(['workflow_categories', 'clock'])
 
 function Tile(props: {
-  w: Widget; editing: boolean; onRemove: () => void; onResize: (s: WidgetSize) => void; onMove: (dir: 'up' | 'down') => void; onCfg: (patch: any) => void
+  w: Widget; editing: boolean; onRemove: () => void; onResize: (s: WidgetSize) => void; onMove: (dir: 'up' | 'down') => void; onCfg: (patch: any) => void; place?: string
 }) {
   const { w, editing, onRemove, onResize, onMove, onCfg } = props
   const entry = CATALOG[w.type]
   if (!entry) return null
   return (
-    <div className={`${SIZES[w.size]} ${rowsFor(w.type)} h-full min-h-0 bg-white rounded-xl border shadow-[0_1px_2px_rgba(15,28,46,0.04)] ${editing ? 'border-[#3B6FE0]/40 ring-1 ring-[#3B6FE0]/10' : 'border-[#E2E8F0]'} overflow-hidden flex flex-col`}>
+    <div className={`${props.place ?? SIZES[w.size] + ' row-span-2'} h-full min-h-0 bg-white rounded-xl border shadow-[0_1px_2px_rgba(15,28,46,0.04)] ${editing ? 'border-[#3B6FE0]/40 ring-1 ring-[#3B6FE0]/10' : 'border-[#E2E8F0]'} overflow-hidden flex flex-col`}>
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#EEF0F4]">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm leading-none">{entry.icon}</span>
@@ -940,6 +941,13 @@ export default function DashboardShell() {
   const existing = useMemo(() => new Set((widgets || []).map(w => w.type)), [widgets])
 
   const shown = (widgets || []).filter(w => !IN_HEADER.has(w.type))
+  const tileFor = (w: Widget, place?: string) => (
+    <Tile key={w.id} w={w} editing={editing} place={place}
+      onRemove={() => removeWidget(w.id)}
+      onResize={s => patchWidget(w.id, { size: s })}
+      onMove={dir => moveWidget(w.id, dir)}
+      onCfg={patch => patchWidget(w.id, { config: { ...w.config, ...patch } })}
+    />)
   const QUICK = [
     { href: '/production/shipping-queue', label: 'Shipping Queue', icon: '🚚' },
     { href: '/production/maintenance', label: 'Maintenance', icon: '🛠' },
@@ -996,15 +1004,23 @@ export default function DashboardShell() {
               <button onClick={resetDefaults} className="mt-3 px-3 py-1.5 bg-white border border-[#E2E8F0] text-sm font-semibold rounded-lg">Reset to default</button>
             </div>
           ) : (
-            <div className="grid grid-cols-6 gap-3 grid-flow-row-dense auto-rows-[132px]">
-              {shown.map(w => (
-                <Tile key={w.id} w={w} editing={editing}
-                  onRemove={() => removeWidget(w.id)}
-                  onResize={s => patchWidget(w.id, { size: s })}
-                  onMove={dir => moveWidget(w.id, dir)}
-                  onCfg={patch => patchWidget(w.id, { config: { ...w.config, ...patch } })}
-                />
-              ))}
+            <div className="space-y-3">
+              {/* single numbers: one even row of equal tiles */}
+              {shown.some(w => isKpi(w.type)) && <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {shown.filter(w => isKpi(w.type)).map(w => tileFor(w, 'h-[104px]'))}
+              </div>}
+              {/* strips (news ticker) */}
+              {shown.filter(w => isStrip(w.type)).map(w => tileFor(w, ''))}
+              {/* everything else: half or full width, all the same height, so rows line up */}
+              <div className="grid grid-cols-6 gap-3 grid-flow-row-dense auto-rows-[150px]">
+                {(() => {
+                  const rest = shown.filter(w => !isKpi(w.type) && !isStrip(w.type))
+                  const halves = rest.filter(w => w.size === 'sm' || w.size === 'md')
+                  // an odd half-width tile left over would leave a hole at the end — let it run full width
+                  const orphan = halves.length % 2 === 1 ? halves[halves.length - 1].id : null
+                  return rest.map(w => tileFor(w, w.id === orphan ? 'col-span-6 row-span-2' : undefined))
+                })()}
+              </div>
             </div>
           )}
         </div>
