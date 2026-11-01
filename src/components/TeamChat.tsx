@@ -441,32 +441,41 @@ export function ChatLauncher() {
     const onOpen = (e: Event) => { const id = (e as CustomEvent).detail?.conversationId || null; setConv(id); setOpen(true) }
     window.addEventListener('open-team-chat', onOpen); return () => window.removeEventListener('open-team-chat', onOpen)
   }, [])
-  if (isDashboard && !open) return <HiddenUnreadProbe onUnread={setUnread} />
+  void isDashboard
+  const close = () => { setOpen(false); window.dispatchEvent(new Event('team-chat-closed')) }
   return (
     <>
+      {/* big pop-up: wide enough to actually read the conversation */}
       {open && (
-        <div className="fixed z-[70] bottom-20 right-4 left-4 sm:left-auto sm:w-[760px] max-w-[calc(100vw-2rem)]">
-          <TeamChat key={conv || 'chat'} mode="floating" height="min(640px, calc(100vh - 7rem))" initialConversationId={conv} onUnread={setUnread} onClose={() => setOpen(false)} />
+        <div className="fixed inset-0 z-[90] bg-black/45 flex items-center justify-center p-2 sm:p-6" onClick={close}>
+          <div className="w-full max-w-[1100px]" onClick={e => e.stopPropagation()}>
+            <TeamChat key={conv || 'chat'} mode="floating" height="min(860px, calc(100vh - 3rem))" initialConversationId={conv} onUnread={setUnread} onClose={close} />
+          </div>
         </div>
       )}
       {!open && <HiddenUnreadProbe onUnread={setUnread} />}
-      <button data-ro-ok onClick={() => setOpen(o => !o)} className="fixed z-[70] bottom-5 right-4 w-12 h-12 rounded-full text-white shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform" style={{ background: ACCENT }} title="Team chat">
-        {open ? '×' : '💬'}
-        {!open && unread > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">{unread > 99 ? '99+' : unread}</span>}
-      </button>
+      {!open && <button data-ro-ok onClick={() => { setConv(null); setOpen(true) }} className={`fixed z-[70] bottom-5 right-4 h-12 rounded-full text-white shadow-xl flex items-center justify-center gap-2 px-4 text-sm font-bold hover:scale-105 transition-transform ${unread > 0 ? 'animate-bounce ring-4 ring-red-300' : ''}`} style={{ background: unread > 0 ? '#e2445c' : ACCENT }} title="Team chat">
+        <span className="text-xl leading-none">💬</span>{unread > 0 ? `${unread > 99 ? '99+' : unread} new` : <span className="hidden sm:inline">Chat</span>}
+      </button>}
     </>
   )
 }
 
 /* Keeps the unread badge honest while the panel is closed (cheap: one RPC + realtime). */
-function HiddenUnreadProbe({ onUnread }: { onUnread: (n: number) => void }) {
+export function HiddenUnreadProbe({ onUnread }: { onUnread: (n: number) => void }) {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const refresh = () => sb.rpc('chat_overview').then(({ data }: any) => onUnread(((data as Conv[]) || []).reduce((s, c) => s + (c.muted ? 0 : Number(c.unread || 0)), 0)))
     refresh()
-    const ch = sb.channel('team-chat-badge').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => { if (timer) clearTimeout(timer); timer = setTimeout(refresh, 400) }).subscribe()
-    return () => { sb.removeChannel(ch); if (timer) clearTimeout(timer) }
+    const bump = () => { if (timer) clearTimeout(timer); timer = setTimeout(refresh, 400) }
+    const ch = sb.channel('team-chat-badge-' + Math.random().toString(36).slice(2))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, bump)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_members' }, bump)
+      .subscribe()
+    const iv = setInterval(refresh, 30000)
+    window.addEventListener('team-chat-closed', bump)
+    return () => { sb.removeChannel(ch); if (timer) clearTimeout(timer); clearInterval(iv); window.removeEventListener('team-chat-closed', bump) }
   }, [sb, onUnread])
   return null
 }

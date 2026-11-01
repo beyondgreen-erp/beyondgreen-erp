@@ -10,7 +10,7 @@ import RawMaterialsPanel from './RawMaterialsPanel'
 import InventoryLinkGaps from './InventoryLinkGaps'
 import ActivityFeedCard from './ActivityFeedCard'
 import RevealGate from './RevealGate'
-import TeamChat from './TeamChat'
+import { HiddenUnreadProbe } from './TeamChat'
 
 const sb = createSupabaseBrowserClient()
 
@@ -871,8 +871,10 @@ export default function DashboardShell() {
   const [widgets, setWidgets] = useState<Widget[] | null>(null)
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
-  const [chatConv, setChatConv] = useState<string | null>(null)
-  useEffect(() => { const c = new URLSearchParams(window.location.search).get('chat'); if (c && c !== 'full') setChatConv(c) }, [])
+  const [unread, setUnread] = useState(0)
+  const openChat = (conversationId: string | null) => window.dispatchEvent(new CustomEvent('open-team-chat', { detail: { conversationId } }))
+  // links like /?chat=<conversation> open the chat pop-up on that conversation
+  useEffect(() => { const c = new URLSearchParams(window.location.search).get('chat'); if (c) setTimeout(() => openChat(c === 'full' ? null : c), 300) }, [])
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -978,6 +980,20 @@ export default function DashboardShell() {
         </div>
       </div>
 
+      {/* New chat messages: impossible to miss */}
+      <HiddenUnreadProbe onUnread={setUnread} />
+      {unread > 0 && (
+        <button onClick={() => openChat(null)} className="dash-chat-flash w-full mb-3 flex items-center gap-3 rounded-xl px-4 py-3 text-left text-white shadow-lg">
+          <span className="text-2xl leading-none animate-bounce">💬</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm sm:text-base font-extrabold">You have {unread} unread team chat message{unread === 1 ? '' : 's'}</span>
+            <span className="block text-[11px] text-white/90">Tap to open the chat</span>
+          </span>
+          <span className="shrink-0 bg-white text-[#c81e3a] text-xs font-extrabold rounded-lg px-3 py-1.5">Open chat</span>
+        </button>
+      )}
+      <style>{`@keyframes dashChatFlash{0%,100%{background:#e2445c;box-shadow:0 0 0 0 rgba(226,68,92,.55)}50%{background:#ff7a2f;box-shadow:0 0 0 10px rgba(226,68,92,0)}}.dash-chat-flash{animation:dashChatFlash 1.1s ease-in-out infinite}`}</style>
+
       {/* Orders at a glance — every stage, one tap to the list */}
       <div className="mb-2"><WorkflowCategories /></div>
 
@@ -1027,9 +1043,10 @@ export default function DashboardShell() {
 
         {/* Team chat + live activity */}
         <div className="order-1 lg:order-2 space-y-3 lg:sticky lg:top-16">
-          <Fold id="chat" title="Team chat" icon="💬" defaultOpenDesktop force={!!chatConv}>
-            <TeamChat mode="embedded" height={420} initialConversationId={chatConv} />
-          </Fold>
+          <button onClick={() => openChat(null)} className="w-full flex items-center justify-between px-3 py-2.5 bg-white border border-[#E2E8F0] rounded-xl text-left hover:border-[#0F7A4E]">
+            <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold text-[#5B6B85]"><span className="text-sm">💬</span>Team chat</span>
+            <span className="text-xs font-bold text-[#0F7A4E]">{unread > 0 ? `${unread} unread · Open →` : 'Open →'}</span>
+          </button>
           <Fold id="activity" title="Live activity" icon="📈" defaultOpenDesktop>
             <div className="max-h-[360px] overflow-y-auto"><ActivityFeedCard /></div>
           </Fold>
