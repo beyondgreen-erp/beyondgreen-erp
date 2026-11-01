@@ -13,7 +13,7 @@ interface Machine { id: string; name: string; machine_code: string; status: stri
 interface Rate { pieces_per_hour: number; basis: string; efficiency_pct: number | null }
 interface OpInfo { id: string; qty_produced: number | null; qty_uom: string | null }
 // Only work orders connected from a production board (connected_from set) appear here.
-interface OpenWo { id: string; wo_number: number; wo_code: string | null; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_ordered: number | null; qty_produced: number | null; uom: string | null; due_date: string | null; scheduled_date: string | null; scheduled_start: string | null; item_part_number: string | null; sku: string | null; group_name: string | null; customer: string | null; connected_from: string; op: OpInfo | null; rate: Rate | null }
+interface OpenWo { id: string; wo_number: number; wo_code: string | null; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_ordered: number | null; qty_produced: number | null; qty_completed: number | null; uom: string | null; due_date: string | null; scheduled_date: string | null; scheduled_start: string | null; item_part_number: string | null; sku: string | null; group_name: string | null; customer: string | null; connected_from: string; op: OpInfo | null; rate: Rate | null }
 
 const CAPACITY_HOURS = 22
 const CLOSED = ['Complete', 'QC Passed', 'Cancelled']
@@ -91,7 +91,7 @@ function fmtHms(sec: number) {
 }
 function dbErr(e: { code?: string; message: string; hint?: string }) { console.error(e); return [e.message, e.code && `(${e.code})`, e.hint && `Hint: ${e.hint}`].filter(Boolean).join(' — ') }
 type DayRun = { run_date: string; machine_id: string; work_order_id: string; hours: number | null; start_time: string | null; created_at: string }
-type PlanLine = { run_date: string; machine_id: string; work_order_id: string; sku: string; product_name: string | null; uom: string | null; left_units: number; pcs_per_unit: number | null; pcs_known: boolean; pph: number | null; rate_basis: string | null; rate_known: boolean }
+type PlanLine = { run_date: string; machine_id: string; work_order_id: string; sku: string; product_name: string | null; uom: string | null; left_units: number; pcs_per_unit: number | null; pcs_known: boolean; pph: number | null; rate_basis: string | null; rate_known: boolean; child_sku: string | null }
 type BuildLine = PlanLine & { build_units: number; build_pcs: number; hrs: number }
 type SchedRun = { run: DayRun; wo: OpenWo | undefined; start: number; end: number; hours: number; lines: BuildLine[]; target_pcs: number; noRate: boolean; basis: string | null }
 const DAY_START = 6 * 60 // 6:00 AM when no start time is set
@@ -156,7 +156,8 @@ function PlanRunCard({ sr, canEdit, onTime, onHours }: { sr: SchedRun; canEdit: 
       )}
       {sr.lines.length === 0 ? <p className="text-gray-500">Nothing left to build on this work order.</p> : (
         <>
-          <p className="text-[#1A1D2E]"><b>Target: {fmtNum(sr.target_pcs)} pcs</b> in {sr.hours.toFixed(1)} h{sr.basis ? <span className="text-gray-500"> · {sr.basis}</span> : null}</p>
+          {sr.lines[0]?.child_sku && <p className="text-[#1A1D2E]">Mold makes <b className="font-mono">{sr.lines[0].child_sku}</b> pieces. Finished goods below are what those pieces build.</p>}
+          <p className="text-[#1A1D2E]"><b>Target: {fmtNum(sr.target_pcs)} {sr.lines[0]?.child_sku ? sr.lines[0].child_sku + ' ' : ''}pcs</b> in {sr.hours.toFixed(1)} h{sr.basis ? <span className="text-gray-500"> · {sr.basis}</span> : null}</p>
           {sr.noRate && <p className="text-amber-800">Some items have no spec rate for this machine. Add it in <a href="/production/rates" className="underline font-semibold">Production Rates</a>.</p>}
           <table className="w-full text-left">
             <thead><tr className="text-[10px] uppercase tracking-wide text-gray-500"><th className="py-1">Build</th><th className="text-right">Today</th><th className="text-right">Left on WO</th></tr></thead>
@@ -164,7 +165,7 @@ function PlanRunCard({ sr, canEdit, onTime, onHours }: { sr: SchedRun; canEdit: 
               {(building.length ? building : sr.lines).map(l => (
                 <tr key={l.sku} className="border-t border-emerald-100">
                   <td className="py-1 pr-2"><span className="font-mono font-semibold">{l.sku}</span><span className="block text-[10px] text-gray-500 truncate max-w-[220px]">{l.product_name}</span></td>
-                  <td className="text-right font-semibold whitespace-nowrap">{fmtNum(l.build_units)} {(l.uom || '').toLowerCase()}<span className="block text-[10px] font-normal text-gray-500">{fmtNum(l.build_pcs)} pcs</span></td>
+                  <td className="text-right font-semibold whitespace-nowrap">{fmtNum(l.build_units)} {(l.uom || '').toLowerCase()}<span className="block text-[10px] font-normal text-gray-500">{fmtNum(l.build_pcs)} {l.child_sku ? l.child_sku + ' ' : ''}pcs</span></td>
                   <td className="text-right whitespace-nowrap text-gray-600">{fmtNum(Number(l.left_units))} {(l.uom || '').toLowerCase()}</td>
                 </tr>
               ))}
@@ -177,10 +178,59 @@ function PlanRunCard({ sr, canEdit, onTime, onHours }: { sr: SchedRun; canEdit: 
   )
 }
 
+type Mold = { machine_id: string; mold_name: string | null; child_sku: string; cavities: number; cycle_sec: number; notes: string | null }
+// Mold in an injection molding machine: which child piece it makes, cavities and cycle time. Output is child pieces per hour;
+// the run plan turns those pieces into finished goods through each parent's BOM.
+function MoldEditor({ sb, machine, mold, pieces, onSaved }: { sb: any; machine: Machine; mold: Mold | undefined; pieces: string[]; onSaved: () => void }) {
+  const [f, setF] = useState({ mold_name: mold?.mold_name || '', child_sku: mold?.child_sku || '', cavities: String(mold?.cavities ?? ''), cycle_sec: String(mold?.cycle_sec ?? '') })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  useEffect(() => { setF({ mold_name: mold?.mold_name || '', child_sku: mold?.child_sku || '', cavities: String(mold?.cavities ?? ''), cycle_sec: String(mold?.cycle_sec ?? '') }) }, [mold, machine.id])
+  const cav = Number(f.cavities), cyc = Number(f.cycle_sec)
+  const pph = cav > 0 && cyc > 0 ? cav * 3600 / cyc : null
+  async function save() {
+    if (!f.child_sku.trim() || !(cav > 0) || !(cyc > 0)) { setMsg('Enter the child SKU, cavities and cycle time.'); return }
+    setBusy(true); setMsg('')
+    const { error } = await sb.from('machine_molds').upsert({ machine_id: machine.id, mold_name: f.mold_name.trim() || null, child_sku: f.child_sku.trim().toUpperCase(), cavities: Math.round(cav), cycle_sec: cyc, updated_at: new Date().toISOString() })
+    setBusy(false)
+    if (error) { setMsg(error.message); return }
+    setMsg('Saved.'); onSaved()
+  }
+  async function clear() {
+    if (!mold || !confirm(`Remove the mold from ${machine.machine_code}?`)) return
+    setBusy(true)
+    const { error } = await sb.from('machine_molds').delete().eq('machine_id', machine.id)
+    setBusy(false)
+    if (error) { setMsg(error.message); return }
+    setMsg('Mold removed.'); onSaved()
+  }
+  const inp = 'mt-1 w-full h-10 rounded-lg border border-[#E4E6EE] px-2 text-sm text-[#1A1D2E] bg-white'
+  return (
+    <div className="rounded-xl border border-[#E4E6EE] p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between"><p className="text-sm font-semibold text-[#1A1D2E]">Mold in this machine</p>{mold && <span className="text-[11px] text-gray-500">{mold.child_sku} · {mold.cavities} cav</span>}</div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-xs text-gray-600 col-span-2">Mold name (optional)<input value={f.mold_name} onChange={e => setF(p => ({ ...p, mold_name: e.target.value }))} placeholder="e.g. Fork 24 cav" className={inp} /></label>
+        <label className="text-xs text-gray-600 col-span-2">Child SKU it makes
+          <input list={'pieces-' + machine.id} value={f.child_sku} onChange={e => setF(p => ({ ...p, child_sku: e.target.value }))} placeholder="e.g. BGFRK" className={inp + ' font-mono'} />
+          <datalist id={'pieces-' + machine.id}>{pieces.map(x => <option key={x} value={x} />)}</datalist>
+        </label>
+        <label className="text-xs text-gray-600">Cavities<input inputMode="numeric" value={f.cavities} onChange={e => setF(p => ({ ...p, cavities: e.target.value }))} className={inp} /></label>
+        <label className="text-xs text-gray-600">Cycle time (sec)<input inputMode="decimal" value={f.cycle_sec} onChange={e => setF(p => ({ ...p, cycle_sec: e.target.value }))} className={inp} /></label>
+      </div>
+      <p className="text-xs text-gray-600">{pph ? <>Output: <b>{fmtNum(pph)} {f.child_sku || 'child'} pcs/hr</b> ({fmtNum(pph * CAPACITY_HOURS)} in {CAPACITY_HOURS} h)</> : 'Output is cavities × 3600 ÷ cycle seconds, in child pieces per hour.'}</p>
+      <div className="flex gap-2">
+        <button disabled={busy} onClick={save} className="flex-1 h-10 rounded-lg bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50">Save mold</button>
+        {mold && <button disabled={busy} onClick={clear} className="h-10 px-3 rounded-lg border border-[#E4E6EE] text-sm text-gray-600">Remove</button>}
+      </div>
+      {msg && <p className="text-xs text-gray-600">{msg}</p>}
+    </div>
+  )
+}
+
 // One connected work order on the operator panel: what it needs and what the spec says it should make.
 function JobCard({ w }: { w: OpenWo }) {
   const req = w.qty_required ?? w.qty_ordered
-  const done = Number(w.op?.qty_produced ?? w.qty_produced ?? 0)
+  const done = Math.max(Number(w.op?.qty_produced ?? 0), Number(w.qty_produced ?? 0), Number(w.qty_completed ?? 0))
   const remaining = req == null ? null : Math.max(0, Number(req) - done)
   const pph = w.rate ? w.rate.pieces_per_hour : null
   const sched = Number(w.scheduled_hours || 0)
@@ -250,6 +300,18 @@ export default function MachineStatusPage() {
   const [planLines, setPlanLines] = useState<PlanLine[]>([])
   const [tab, setTab] = useState<'machines' | 'schedule'>('machines')
   const [openPlan, setOpenPlan] = useState<string | null>(null)
+  const [molds, setMolds] = useState<Mold[]>([])
+  const [pieces, setPieces] = useState<string[]>([])
+  async function loadMolds() {
+    const { data } = await sb.from('machine_molds').select('machine_id,mold_name,child_sku,cavities,cycle_sec,notes')
+    setMolds((data ?? []) as Mold[])
+  }
+  useEffect(() => {
+    loadMolds()
+    sb.from('product_bom').select('component_sku').eq('uom_type', 'pcs').limit(5000).then(({ data }: any) => {
+      setPieces([...new Set(((data || []) as any[]).map(r => String(r.component_sku || '').trim()).filter(Boolean))].sort())
+    })
+  }, [sb]) // eslint-disable-line
   const [planBusy, setPlanBusy] = useState('')
   const anyRunning = rows.some(r => !!r.run_started_at)
   useEffect(() => {
@@ -264,7 +326,7 @@ export default function MachineStatusPage() {
     if (data) setRows(data as Machine[])
     // Only work orders connected from a production board (connected_from set) are shown.
     // A work order can be connected to several machines (wo_machines). Older single connections still count.
-    const WO_COLS = 'id,wo_number,wo_code,status,machine_id,product_id,scheduled_hours,scheduled_date,scheduled_start,qty_required,qty_ordered,qty_produced,uom,due_date,item_part_number,group_name,connected_from,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))'
+    const WO_COLS = 'id,wo_number,wo_code,status,machine_id,product_id,scheduled_hours,scheduled_date,scheduled_start,qty_required,qty_ordered,qty_produced,qty_completed,uom,due_date,item_part_number,group_name,connected_from,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))'
     const { data: lk } = await sb.from('wo_machines').select('work_order_id,machine_id,board')
     const links = (lk ?? []) as { work_order_id: string; machine_id: string; board: string | null }[]
     const linkIds = [...new Set(links.map(l => l.work_order_id))]
@@ -305,7 +367,7 @@ export default function MachineStatusPage() {
       const op = ops.find(o => o.work_order_id === x.id && o.machine_id === x.machine_id) ?? null
       return {
         id: x.id, wo_number: x.wo_number, wo_code: x.wo_code ?? null, status: x.status, machine_id: x.machine_id, scheduled_hours: x.scheduled_hours,
-        qty_required: x.qty_required, qty_ordered: x.qty_ordered, qty_produced: x.qty_produced, uom: x.uom, due_date: x.due_date,
+        qty_required: x.qty_required, qty_ordered: x.qty_ordered, qty_produced: x.qty_produced, qty_completed: x.qty_completed ?? null, uom: x.uom, due_date: x.due_date,
         scheduled_date: x.scheduled_date, scheduled_start: x.scheduled_start,
         item_part_number: x.item_part_number, sku: x.product_id ? (skuOf.get(x.product_id) ?? null) : null, group_name: x.group_name,
         connected_from: x.connected_from,
@@ -331,6 +393,7 @@ export default function MachineStatusPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'work_orders' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'wo_machines' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'machine_day_runs' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'machine_molds' }, () => { loadMolds(); loadPlanLines() })
       .subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb]) // eslint-disable-line
@@ -531,6 +594,7 @@ export default function MachineStatusPage() {
                     <li key={m.id} className="px-5 py-3">
                       <button onClick={() => setOpenPlan(expanded ? null : m.id)} aria-expanded={expanded} className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 text-left">
                         <span className="font-mono font-bold text-[#1A1D2E] w-24">{m.machine_code}</span>
+                        {(() => { const md = molds.find(x => x.machine_id === m.id); return md ? <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#EEF2FB] text-[#3A4A6B]">{md.child_sku} · {md.cavities} cav</span> : null })()}
                         {on ? (
                           <>
                             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">Turn on {fmtClock(runs[0].start)}</span>
@@ -731,6 +795,8 @@ export default function MachineStatusPage() {
                   </div>
                 )
               })()}
+
+              {m.equipment_group === 'MOLDING' && <MoldEditor sb={sb} machine={m} mold={molds.find(x => x.machine_id === m.id)} pieces={pieces} onSaved={() => { loadMolds(); loadPlanLines() }} />}
 
               {(() => {
                 const runs = sched(todayStr, m.id)
