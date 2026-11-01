@@ -13,7 +13,7 @@ interface Machine { id: string; name: string; machine_code: string; status: stri
 interface Rate { pieces_per_hour: number; basis: string; efficiency_pct: number | null }
 interface OpInfo { id: string; qty_produced: number | null; qty_uom: string | null }
 // Only work orders connected from a production board (connected_from set) appear here.
-interface OpenWo { id: string; wo_number: number; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_ordered: number | null; qty_produced: number | null; uom: string | null; due_date: string | null; scheduled_date: string | null; scheduled_start: string | null; item_part_number: string | null; sku: string | null; group_name: string | null; customer: string | null; connected_from: string; op: OpInfo | null; rate: Rate | null }
+interface OpenWo { id: string; wo_number: number; wo_code: string | null; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_ordered: number | null; qty_produced: number | null; uom: string | null; due_date: string | null; scheduled_date: string | null; scheduled_start: string | null; item_part_number: string | null; sku: string | null; group_name: string | null; customer: string | null; connected_from: string; op: OpInfo | null; rate: Rate | null }
 
 const CAPACITY_HOURS = 22
 const CLOSED = ['Complete', 'QC Passed', 'Cancelled']
@@ -29,19 +29,23 @@ function stateOf(status: string): StateKey { return status === 'Running' ? 'Runn
 
 // Production boards. Each board draws from one machine section.
 const SECTIONS = [
-  { key: 'cut', name: 'Cutlery Molding', flow: 'Injection molding, then kitting or secondary', board: 'walmart',
+  { key: 'cut', name: 'Cutlery Molding', flow: 'Injection molding, then kitting or secondary', boards: ['walmart', 'mts_cutlery', 'cm_molding'],
     match: (m: Machine) => m.equipment_group === 'MOLDING' && !m.machine_code.startsWith('MLD') },
-  { key: 'pla', name: 'PLA Injection Molding', flow: 'Molded parts, then secondary operations', board: null as string | null,
+  { key: 'pla', name: 'PLA Injection Molding', flow: 'Molded parts, then secondary operations', boards: ['cm_molding'],
     match: (m: Machine) => m.machine_code.startsWith('MLD') },
-  { key: 'straw', name: 'Straw Extrusion', flow: 'Extrusion, then wrapper or crimping', board: 'straw',
+  { key: 'straw', name: 'Straw Extrusion', flow: 'Extrusion, then wrapper or crimping', boards: ['straw'],
     match: (m: Machine) => m.equipment_group === 'STRAWS' },
-  { key: 'bag', name: 'Bag Extrusion', flow: 'Blown film, then bag conversion', board: null as string | null,
+  { key: 'bag', name: 'Bag Extrusion', flow: 'Blown film, then bag conversion', boards: ['mts_bags', 'pl_bags'],
     match: (m: Machine) => m.equipment_group === 'EXTRUDER' || m.equipment_group === 'CONVERSION' },
 ]
 const BOARDS = [
   { key: 'all', label: 'All production boards' },
   { key: 'walmart', label: 'Walmart Production' },
   { key: 'straw', label: 'Straw Production' },
+  { key: 'mts_bags', label: 'MTS Bags' },
+  { key: 'mts_cutlery', label: 'MTS Cutlery' },
+  { key: 'pl_bags', label: 'Private Label Bags' },
+  { key: 'cm_molding', label: 'Contract Molding' },
 ]
 
 // Icon artwork for each machine type (64 x 48 viewBox).
@@ -97,7 +101,7 @@ function JobCard({ w }: { w: OpenWo }) {
   return (
     <li className="rounded-xl border border-[#E4E6EE] p-4 text-sm flex flex-col gap-3">
       <div className="flex justify-between gap-2">
-        <span className="font-semibold">WO-{w.wo_number}{w.customer ? ` · ${w.customer}` : ''}</span>
+        <span className="font-semibold">{w.wo_code || `WO-${w.wo_number}`}{w.customer ? ` · ${w.customer}` : ''}</span>
         <span className="text-xs text-gray-500">{w.status}</span>
       </div>
       <div className="text-xs text-gray-600">{w.sku || w.item_part_number || 'No item'}{w.due_date ? ` · due ${w.due_date}` : ''}</div>
@@ -144,6 +148,12 @@ export default function MachineStatusPage() {
   const [stopNote, setStopNote] = useState('')
   const [stopBusy, setStopBusy] = useState(false)
   const [stopMsg, setStopMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const ymdLocal = (d: Date) => d.toLocaleDateString('en-CA')
+  const todayStr = ymdLocal(new Date())
+  const [planDate, setPlanDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return ymdLocal(d) })
+  // Day plan: which connected work orders each machine runs on a given date (machine_day_runs).
+  const [dayRuns, setDayRuns] = useState<{ run_date: string; machine_id: string; work_order_id: string }[]>([])
+  const [planBusy, setPlanBusy] = useState('')
   const anyRunning = rows.some(r => !!r.run_started_at)
   useEffect(() => {
     if (!anyRunning) return
@@ -156,12 +166,27 @@ export default function MachineStatusPage() {
     const { data } = await sb.from('machines').select('*').order('name')
     if (data) setRows(data as Machine[])
     // Only work orders connected from a production board (connected_from set) are shown.
-    const { data: w } = await sb.from('work_orders')
-      .select('id,wo_number,status,machine_id,product_id,scheduled_hours,scheduled_date,scheduled_start,qty_required,qty_ordered,qty_produced,uom,due_date,item_part_number,group_name,connected_from,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))')
-      .not('machine_id', 'is', null)
-      .not('connected_from', 'is', null)
-      .order('created_at', { ascending: false })
-    const open = ((w ?? []) as any[]).filter(x => !CLOSED.includes(x.status))
+    // A work order can be connected to several machines (wo_machines). Older single connections still count.
+    const WO_COLS = 'id,wo_number,wo_code,status,machine_id,product_id,scheduled_hours,scheduled_date,scheduled_start,qty_required,qty_ordered,qty_produced,uom,due_date,item_part_number,group_name,connected_from,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))'
+    const { data: lk } = await sb.from('wo_machines').select('work_order_id,machine_id,board')
+    const links = (lk ?? []) as { work_order_id: string; machine_id: string; board: string | null }[]
+    const linkIds = [...new Set(links.map(l => l.work_order_id))]
+    const [{ data: w }, linkedRes] = await Promise.all([
+      sb.from('work_orders').select(WO_COLS).not('machine_id', 'is', null).not('connected_from', 'is', null).order('created_at', { ascending: false }),
+      linkIds.length ? sb.from('work_orders').select(WO_COLS).in('id', linkIds) : Promise.resolve({ data: [] as any[] }),
+    ])
+    const byId = new Map<string, any>()
+    for (const x of [...((w ?? []) as any[]), ...(((linkedRes as any).data ?? []) as any[])]) byId.set(x.id, x)
+    const openBase = [...byId.values()].filter(x => !CLOSED.includes(x.status))
+    // One row per work order per machine.
+    const open: any[] = []
+    for (const x of openBase) {
+      const ms = links.filter(l => l.work_order_id === x.id).map(l => l.machine_id)
+      const set = ms.length ? ms : x.machine_id ? [x.machine_id] : []
+      for (const mid of set) open.push({ ...x, machine_id: mid, connected_from: x.connected_from || links.find(l => l.work_order_id === x.id)?.board || 'board' })
+    }
+    const { data: dr } = await sb.from('machine_day_runs').select('run_date,machine_id,work_order_id').gte('run_date', todayStr)
+    setDayRuns((dr ?? []) as any[])
     const ids = open.map(x => x.id)
     const pids = [...new Set(open.map(x => x.product_id).filter(Boolean))] as string[]
     const [opsRes, prodRes] = await Promise.all([
@@ -175,20 +200,20 @@ export default function MachineStatusPage() {
       const { data: r } = await sb.rpc('rate_pieces_per_hour', { p_machine_id: x.machine_id, p_product_id: x.product_id })
       const row: any = Array.isArray(r) ? r[0] : r
       const rate: Rate | null = row && row.known ? { pieces_per_hour: Number(row.pieces_per_hour), basis: String(row.basis), efficiency_pct: row.efficiency_pct ?? null } : null
-      return [x.id, rate] as [string, Rate | null]
+      return [x.id + ':' + x.machine_id, rate] as [string, Rate | null]
     }))
     const rateOf = new Map(rateEntries)
     setWos(open.map(x => {
       const op = ops.find(o => o.work_order_id === x.id && o.machine_id === x.machine_id) ?? null
       return {
-        id: x.id, wo_number: x.wo_number, status: x.status, machine_id: x.machine_id, scheduled_hours: x.scheduled_hours,
+        id: x.id, wo_number: x.wo_number, wo_code: x.wo_code ?? null, status: x.status, machine_id: x.machine_id, scheduled_hours: x.scheduled_hours,
         qty_required: x.qty_required, qty_ordered: x.qty_ordered, qty_produced: x.qty_produced, uom: x.uom, due_date: x.due_date,
         scheduled_date: x.scheduled_date, scheduled_start: x.scheduled_start,
         item_part_number: x.item_part_number, sku: x.product_id ? (skuOf.get(x.product_id) ?? null) : null, group_name: x.group_name,
         connected_from: x.connected_from,
         customer: x.sales_orders?.customers?.company_name ?? null,
         op: op ? { id: op.id, qty_produced: op.qty_produced, qty_uom: op.qty_uom } : null,
-        rate: rateOf.get(x.id) ?? null,
+        rate: rateOf.get(x.id + ':' + x.machine_id) ?? null,
       }
     }))
     setLoading(false)
@@ -200,6 +225,8 @@ export default function MachineStatusPage() {
     const ch = sb.channel('machine-status-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'machines' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'work_orders' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'wo_machines' }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'machine_day_runs' }, bump)
       .subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb]) // eslint-disable-line
@@ -212,10 +239,23 @@ export default function MachineStatusPage() {
   }, [wos])
   const hoursOf = (id: string) => (woByMachine[id] || []).reduce((s, w) => s + (Number(w.scheduled_hours) || 0), 0)
 
-  const shownSections = SECTIONS.filter(s => board === 'all' || s.board === board)
+  const shownSections = SECTIONS.filter(s => board === 'all' || s.boards.includes(board))
   const counts = { Running: 0, Paused: 0, Off: 0 }
   active.forEach(m => { counts[stateOf(m.status)]++ })
-  const totalOpen = wos.length
+  const totalOpen = new Set(wos.map(w => w.id)).size
+  const woLabel = (w: OpenWo) => w.wo_code || `WO-${w.wo_number}`
+  const isPlanned = (date: string, mid: string, wid: string) => dayRuns.some(r => r.run_date === date && r.machine_id === mid && r.work_order_id === wid)
+  async function togglePlan(date: string, mid: string, wid: string) {
+    const k = date + mid + wid
+    setPlanBusy(k)
+    const on = isPlanned(date, mid, wid)
+    const { error } = on
+      ? await sb.from('machine_day_runs').delete().eq('run_date', date).eq('machine_id', mid).eq('work_order_id', wid)
+      : await sb.from('machine_day_runs').insert({ run_date: date, machine_id: mid, work_order_id: wid })
+    setPlanBusy('')
+    if (error) { alert('Could not update the day plan: ' + error.message); return }
+    setDayRuns(prev => on ? prev.filter(r => !(r.run_date === date && r.machine_id === mid && r.work_order_id === wid)) : [...prev, { run_date: date, machine_id: mid, work_order_id: wid }])
+  }
   const totalBooked = active.reduce((s, m) => s + hoursOf(m.id), 0)
 
   function openAdd() { setEditing(null); setForm(empty); setErr(''); setOpen(true) }
@@ -339,10 +379,57 @@ export default function MachineStatusPage() {
         ))}
       </div>
 
+      {/* Day plan: pick which connected work orders each machine runs on a date (tomorrow by default). */}
+      {(() => {
+        const sectionMachines = active.filter(m => shownSections.some(sec => sec.match(m)))
+        const withJobs = sectionMachines.filter(m => (woByMachine[m.id] || []).length > 0)
+        const plannedCount = dayRuns.filter(r => r.run_date === planDate && sectionMachines.some(m => m.id === r.machine_id)).length
+        const machinesOn = new Set(dayRuns.filter(r => r.run_date === planDate).map(r => r.machine_id))
+        return (
+          <section className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden mb-6">
+            <div className="px-5 py-4 border-b border-[#E4E6EE] flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[#1A1D2E]">Run plan</h2>
+                <p className="text-xs text-gray-500">Tick the work orders each machine should run that day. {plannedCount} picked · {[...machinesOn].filter(id => sectionMachines.some(m => m.id === id)).length} machines on</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { const d = new Date(planDate + 'T12:00:00'); d.setDate(d.getDate() - 1); const v = ymdLocal(d); if (v >= todayStr) setPlanDate(v) }} className="w-9 h-9 rounded-lg border border-[#E4E6EE] text-sm" aria-label="Previous day">‹</button>
+                <input type="date" value={planDate} min={todayStr} onChange={e => e.target.value && setPlanDate(e.target.value)} className="h-9 rounded-lg border border-[#E4E6EE] px-2 text-sm" />
+                <button onClick={() => { const d = new Date(planDate + 'T12:00:00'); d.setDate(d.getDate() + 1); setPlanDate(ymdLocal(d)) }} className="w-9 h-9 rounded-lg border border-[#E4E6EE] text-sm" aria-label="Next day">›</button>
+              </div>
+            </div>
+            {withJobs.length === 0 ? <p className="px-5 py-6 text-sm text-gray-500">No work orders are connected to these machines yet. Connect them from the production boards.</p> : (
+              <ul className="divide-y divide-[#E4E6EE]">
+                {withJobs.map(m => (
+                  <li key={m.id} className="px-5 py-3 flex flex-col sm:flex-row sm:items-start gap-2">
+                    <div className="w-28 shrink-0">
+                      <span className="font-mono font-bold text-[#1A1D2E]">{m.machine_code}</span>
+                      {machinesOn.has(m.id) && <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">ON</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-2 flex-1">
+                      {(woByMachine[m.id] || []).map(w => {
+                        const on = isPlanned(planDate, m.id, w.id)
+                        const k = planDate + m.id + w.id
+                        return (
+                          <button key={w.id} disabled={planBusy === k} onClick={() => togglePlan(planDate, m.id, w.id)} aria-pressed={on}
+                            className={`min-h-[36px] px-3 rounded-lg border text-xs font-semibold text-left disabled:opacity-50 ${on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-[#1A1D2E] border-[#D5DED7] hover:border-gray-400'}`}>
+                            {on ? '✓ ' : ''}{woLabel(w)}{w.customer ? ` · ${w.customer}` : ''}{w.due_date ? ` · due ${w.due_date}` : ''}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )
+      })()}
+
       {/* Today's schedule: which machines to turn on, and when. Only connected work orders with a scheduled date appear. */}
       {(() => {
-        const today = new Date().toLocaleDateString('en-CA')
-        const todays = wos.filter(w => w.scheduled_date === today)
+        const today = todayStr
+        const todays = wos.filter(w => w.scheduled_date === today || isPlanned(today, w.machine_id, w.id))
           .sort((a, b) => String(a.scheduled_start ?? '99:99').localeCompare(String(b.scheduled_start ?? '99:99')))
         return (
           <section className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden mb-6">
@@ -357,11 +444,11 @@ export default function MachineStatusPage() {
                   const running = mc?.run_wo_id === w.id && !!mc?.run_started_at
                   const paused = mc?.run_wo_id === w.id && !mc?.run_started_at
                   return (
-                    <li key={w.id}>
+                    <li key={w.id + w.machine_id}>
                       <button onClick={() => mc && setSelected(mc)} className="w-full text-left px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 hover:bg-[#F5F6FA]">
                         <span className="font-mono font-bold text-[#1A1D2E] w-14">{w.scheduled_start ? w.scheduled_start.slice(0, 5) : 'No time'}</span>
                         <span className="font-mono font-semibold text-[#1A1D2E] w-24">{mc?.machine_code ?? '—'}</span>
-                        <span className="text-sm text-[#1A1D2E] flex-1 min-w-[160px]">WO-{w.wo_number} · {w.sku || w.item_part_number || 'no item'}</span>
+                        <span className="text-sm text-[#1A1D2E] flex-1 min-w-[160px]">{woLabel(w)} · {w.sku || w.item_part_number || 'no item'}</span>
                         <span className="text-xs text-gray-600">{Number(w.scheduled_hours || 0).toFixed(1)} h</span>
                         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${running ? 'bg-emerald-50 text-emerald-700' : paused ? 'bg-amber-50 text-amber-800' : 'bg-[#F2F4F8] text-gray-600'}`}>
                           {running ? 'Running' : paused ? 'Paused' : 'Turn on'}
@@ -460,14 +547,14 @@ export default function MachineStatusPage() {
                       <div className="flex flex-col gap-2">
                         <select value={startWo} onChange={e => setStartWo(e.target.value)} className="min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-sm bg-white">
                           <option value="">Choose a connected work order</option>
-                          {jobs.map(w => <option key={w.id} value={w.id}>WO-{w.wo_number} · {w.sku || w.item_part_number || 'no item'}</option>)}
+                          {jobs.map(w => <option key={w.id} value={w.id}>{woLabel(w)} · {w.sku || w.item_part_number || 'no item'}</option>)}
                         </select>
                         <button disabled={!startWo} onClick={() => { const w = jobs.find(j => j.id === startWo); if (w) startRun(m, w.id, w.rate ? w.rate.pieces_per_hour : null) }} className="min-h-[52px] rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-40">Start run</button>
                         {jobs.length === 0 && <p className="text-xs text-gray-500">No work orders connected to this machine. Connect one from its production board.</p>}
                       </div>
                     ) : (
                       <>
-                        <p className="text-sm text-[#1A1D2E]">WO-{runWo?.wo_number ?? '?'} · {runWo?.sku || runWo?.item_part_number || ''}</p>
+                        <p className="text-sm text-[#1A1D2E]">{runWo ? woLabel(runWo) : 'WO-?'} · {runWo?.sku || runWo?.item_part_number || ''}</p>
                         <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
                           <p className="text-[11px] text-amber-900">Estimate from the spec rate, for information only. Not in inventory.</p>
                           <p className="text-2xl font-bold font-mono text-[#1A1D2E]">{estPcs == null ? '—' : Math.floor(estPcs).toLocaleString()} <span className="text-xs font-normal text-gray-500">pcs</span></p>
