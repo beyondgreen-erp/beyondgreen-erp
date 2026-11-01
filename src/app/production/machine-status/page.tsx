@@ -7,12 +7,13 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ImportExportBar from '@/components/ImportExportBar'
 
 interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean;
-  make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null }
+  make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null;
+  run_wo_id: string | null; run_rate: number | null; run_started_at: string | null; run_elapsed_sec: number | null }
 
 interface Rate { pieces_per_hour: number; basis: string; efficiency_pct: number | null }
 interface OpInfo { id: string; qty_produced: number | null; qty_uom: string | null }
 // Only work orders connected from a production board (connected_from set) appear here.
-interface OpenWo { id: string; wo_number: number; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_ordered: number | null; qty_produced: number | null; uom: string | null; due_date: string | null; item_part_number: string | null; sku: string | null; group_name: string | null; customer: string | null; connected_from: string; op: OpInfo | null; rate: Rate | null }
+interface OpenWo { id: string; wo_number: number; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_ordered: number | null; qty_produced: number | null; uom: string | null; due_date: string | null; scheduled_date: string | null; scheduled_start: string | null; item_part_number: string | null; sku: string | null; group_name: string | null; customer: string | null; connected_from: string; op: OpInfo | null; rate: Rate | null }
 
 const CAPACITY_HOURS = 22
 const CLOSED = ['Complete', 'QC Passed', 'Cancelled']
@@ -80,41 +81,19 @@ function MachineIcon({ kind, pct, color, size = 52 }: { kind: string; pct: numbe
 const empty = { name: '', machine_code: '', status: 'Idle', location: '', notes: '',
   make: '', model: '', description: '', serial_number: '', equipment_type: '', equipment_group: '' }
 type F = typeof empty
+function fmtHms(sec: number) {
+  const s = Math.floor(sec), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60
+  return `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}`
+}
 function dbErr(e: { code?: string; message: string; hint?: string }) { console.error(e); return [e.message, e.code && `(${e.code})`, e.hint && `Hint: ${e.hint}`].filter(Boolean).join(' — ') }
-type Sb = ReturnType<typeof createSupabaseBrowserClient>
-
-// One connected work order on the operator panel: what it needs, the spec rate, and a form to log the actual run.
-function JobCard({ w, sb, operator, onLogged }: { w: OpenWo; sb: Sb; operator: string; onLogged: () => void }) {
+// One connected work order on the operator panel: what it needs and what the spec says it should make.
+function JobCard({ w }: { w: OpenWo }) {
   const req = w.qty_required ?? w.qty_ordered
   const done = Number(w.op?.qty_produced ?? w.qty_produced ?? 0)
   const remaining = req == null ? null : Math.max(0, Number(req) - done)
   const pph = w.rate ? w.rate.pieces_per_hour : null
   const sched = Number(w.scheduled_hours || 0)
   const unit = w.op?.qty_uom || w.uom || 'pcs'
-  const [hours, setHours] = useState('')
-  const [qty, setQty] = useState('')
-  const [note, setNote] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
-
-  async function submit() {
-    if (!w.op) { setMsg({ ok: false, text: 'This work order has no operation on this machine yet. Set one up on the work order first.' }); return }
-    const h = Number(hours), q = Number(qty)
-    if (!(h > 0) || !(q > 0)) { setMsg({ ok: false, text: 'Enter run hours and a quantity greater than zero.' }); return }
-    setBusy(true); setMsg(null)
-    const { data, error } = await sb.rpc('record_manual_run', {
-      p_operation_id: w.op.id, p_run_hours: h, p_qty_produced: q,
-      p_entered_by: operator.trim() || null, p_note: note.trim() || null,
-    })
-    setBusy(false)
-    if (error) { setMsg({ ok: false, text: error.message }); return }
-    const text = String(data ?? '')
-    const ok = text.startsWith('Recorded')
-    setMsg({ ok, text })
-    if (ok) { setHours(''); setQty(''); setNote(''); onLogged() }
-  }
-
-  const field = 'mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]'
   return (
     <li className="rounded-xl border border-[#E4E6EE] p-4 text-sm flex flex-col gap-3">
       <div className="flex justify-between gap-2">
@@ -140,24 +119,7 @@ function JobCard({ w, sb, operator, onLogged }: { w: OpenWo; sb: Sb; operator: s
         ) : <p className="text-amber-800">No spec rate for this machine and product yet.</p>}
       </div>
 
-      <form onSubmit={e => { e.preventDefault(); submit() }} className="flex flex-col gap-2">
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-xs text-gray-600">Run hours
-            <input inputMode="decimal" value={hours} onChange={e => setHours(e.target.value)} className={field} />
-          </label>
-          <label className="text-xs text-gray-600">Total produced ({unit})
-            <input inputMode="decimal" value={qty} onChange={e => setQty(e.target.value)} className={field} />
-          </label>
-        </div>
-        <p className="text-[11px] text-gray-500">Currently {done} {unit}. The total you enter replaces the running total.</p>
-        <label className="text-xs text-gray-600">Note (optional)
-          <input value={note} onChange={e => setNote(e.target.value)} className={field} />
-        </label>
-        <button type="submit" disabled={busy || !w.op} className="min-h-[48px] rounded-xl bg-[#1A1D2E] text-white font-bold disabled:opacity-40">
-          {busy ? 'Saving…' : 'Log actual run'}
-        </button>
-        {msg && <p role="status" className={`text-xs ${msg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{msg.text}</p>}
-      </form>
+      <p className="text-[11px] text-gray-500">Booked so far: {done} {unit}</p>
     </li>
   )
 }
@@ -175,6 +137,19 @@ export default function MachineStatusPage() {
   const [err, setErr] = useState('')
   const [wos, setWos] = useState<OpenWo[]>([])
   const [operator, setOperator] = useState('')
+  const [now, setNow] = useState(() => Date.now())
+  const [startWo, setStartWo] = useState('')
+  const [stopOpen, setStopOpen] = useState(false)
+  const [stopQty, setStopQty] = useState('')
+  const [stopNote, setStopNote] = useState('')
+  const [stopBusy, setStopBusy] = useState(false)
+  const [stopMsg, setStopMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const anyRunning = rows.some(r => !!r.run_started_at)
+  useEffect(() => {
+    if (!anyRunning) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [anyRunning])
 
   async function load() {
     setLoading(true)
@@ -182,7 +157,7 @@ export default function MachineStatusPage() {
     if (data) setRows(data as Machine[])
     // Only work orders connected from a production board (connected_from set) are shown.
     const { data: w } = await sb.from('work_orders')
-      .select('id,wo_number,status,machine_id,product_id,scheduled_hours,qty_required,qty_ordered,qty_produced,uom,due_date,item_part_number,group_name,connected_from,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))')
+      .select('id,wo_number,status,machine_id,product_id,scheduled_hours,scheduled_date,scheduled_start,qty_required,qty_ordered,qty_produced,uom,due_date,item_part_number,group_name,connected_from,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))')
       .not('machine_id', 'is', null)
       .not('connected_from', 'is', null)
       .order('created_at', { ascending: false })
@@ -208,6 +183,7 @@ export default function MachineStatusPage() {
       return {
         id: x.id, wo_number: x.wo_number, status: x.status, machine_id: x.machine_id, scheduled_hours: x.scheduled_hours,
         qty_required: x.qty_required, qty_ordered: x.qty_ordered, qty_produced: x.qty_produced, uom: x.uom, due_date: x.due_date,
+        scheduled_date: x.scheduled_date, scheduled_start: x.scheduled_start,
         item_part_number: x.item_part_number, sku: x.product_id ? (skuOf.get(x.product_id) ?? null) : null, group_name: x.group_name,
         connected_from: x.connected_from,
         customer: x.sales_orders?.customers?.company_name ?? null,
@@ -252,10 +228,39 @@ export default function MachineStatusPage() {
   function close() { setOpen(false); setTimeout(() => { setEditing(null); setForm(empty) }, 300) }
   useItemDeepLink(rows, openEdit)
 
-  async function setStatus(m: Machine, status: string) {
-    const { error } = await sb.from('machines').update({ status, updated_at: new Date().toISOString() }).eq('id', m.id)
-    if (error) { alert('Could not update the machine: ' + error.message); return }
-    setSelected({ ...m, status }); load()
+  // Run time so far, in seconds, including the current running stretch.
+  function elapsedSec(m: Machine) {
+    return Number(m.run_elapsed_sec || 0) + (m.run_started_at ? Math.max(0, (now - Date.parse(m.run_started_at)) / 1000) : 0)
+  }
+  async function startRun(m: Machine, woId: string, rate: number | null) {
+    const resuming = !!m.run_wo_id && m.run_wo_id === woId
+    if (m.run_wo_id && !resuming) { alert('Stop the current run before starting another work order.'); return }
+    const t = new Date().toISOString()
+    const patch: Record<string, unknown> = { run_started_at: t, status: 'Running', updated_at: t }
+    if (!resuming) { patch.run_wo_id = woId; patch.run_rate = rate; patch.run_elapsed_sec = 0 }
+    const { error } = await sb.from('machines').update(patch).eq('id', m.id)
+    if (error) { alert('Could not start the run: ' + error.message); return }
+    load()
+  }
+  async function pauseRun(m: Machine) {
+    const { error } = await sb.from('machines').update({ run_elapsed_sec: elapsedSec(m), run_started_at: null, status: 'Paused', updated_at: new Date().toISOString() }).eq('id', m.id)
+    if (error) { alert('Could not pause the run: ' + error.message); return }
+    load()
+  }
+  // Stop books the operator's actual number to the work order and to inventory, converted to the finished good unit.
+  async function stopRun(m: Machine) {
+    const q = Number(stopQty)
+    if (!(q > 0)) { setStopMsg({ ok: false, text: 'Enter the actual quantity produced, greater than zero.' }); return }
+    setStopBusy(true); setStopMsg(null)
+    const job = wos.find(w => w.id === m.run_wo_id)
+    const uom = job?.op?.qty_uom || job?.uom || null
+    const { data, error } = await sb.rpc('machine_run_stop', { p_machine_id: m.id, p_qty: q, p_uom: uom, p_operator: operator.trim() || null, p_note: stopNote.trim() || null } as any)
+    setStopBusy(false)
+    if (error) { setStopMsg({ ok: false, text: error.message }); return }
+    const text = String(data ?? '')
+    const ok = text.startsWith('Booked')
+    setStopMsg({ ok, text })
+    if (ok) { setStopQty(''); setStopNote(''); setStopOpen(false); load() }
   }
 
   async function save() {
@@ -334,6 +339,43 @@ export default function MachineStatusPage() {
         ))}
       </div>
 
+      {/* Today's schedule: which machines to turn on, and when. Only connected work orders with a scheduled date appear. */}
+      {(() => {
+        const today = new Date().toLocaleDateString('en-CA')
+        const todays = wos.filter(w => w.scheduled_date === today)
+          .sort((a, b) => String(a.scheduled_start ?? '99:99').localeCompare(String(b.scheduled_start ?? '99:99')))
+        return (
+          <section className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden mb-6">
+            <div className="px-5 py-4 border-b border-[#E4E6EE]">
+              <h2 className="text-lg font-semibold text-[#1A1D2E]">Today's schedule</h2>
+              <p className="text-xs text-gray-500">{today} · tap a line to open that machine</p>
+            </div>
+            {todays.length === 0 ? <p className="px-5 py-6 text-sm text-gray-500">Nothing scheduled for today on the connected machines.</p> : (
+              <ul className="divide-y divide-[#E4E6EE]">
+                {todays.map(w => {
+                  const mc = rows.find(r => r.id === w.machine_id)
+                  const running = mc?.run_wo_id === w.id && !!mc?.run_started_at
+                  const paused = mc?.run_wo_id === w.id && !mc?.run_started_at
+                  return (
+                    <li key={w.id}>
+                      <button onClick={() => mc && setSelected(mc)} className="w-full text-left px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 hover:bg-[#F5F6FA]">
+                        <span className="font-mono font-bold text-[#1A1D2E] w-14">{w.scheduled_start ? w.scheduled_start.slice(0, 5) : 'No time'}</span>
+                        <span className="font-mono font-semibold text-[#1A1D2E] w-24">{mc?.machine_code ?? '—'}</span>
+                        <span className="text-sm text-[#1A1D2E] flex-1 min-w-[160px]">WO-{w.wo_number} · {w.sku || w.item_part_number || 'no item'}</span>
+                        <span className="text-xs text-gray-600">{Number(w.scheduled_hours || 0).toFixed(1)} h</span>
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${running ? 'bg-emerald-50 text-emerald-700' : paused ? 'bg-amber-50 text-amber-800' : 'bg-[#F2F4F8] text-gray-600'}`}>
+                          {running ? 'Running' : paused ? 'Paused' : 'Turn on'}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+        )
+      })()}
+
       {loading ? <div className="py-20 text-center text-sm text-gray-500">Loading…</div> : shownSections.map(section => {
         const machines = active.filter(section.match)
         const booked = machines.reduce((s, m) => s + hoursOf(m.id), 0)
@@ -406,21 +448,66 @@ export default function MachineStatusPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setStatus(m, 'Running')} disabled={m.status === 'Running'} className="min-h-[56px] rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-40">Start</button>
-                <button onClick={() => setStatus(m, 'Paused')} disabled={m.status !== 'Running'} className="min-h-[56px] rounded-xl bg-amber-500 text-[#13201A] font-bold disabled:opacity-40">Pause</button>
-                <button onClick={() => setStatus(m, 'Idle')} disabled={stateOf(m.status) === 'Off'} className="min-h-[56px] rounded-xl bg-red-600 text-white font-bold disabled:opacity-40">Stop</button>
-              </div>
+              {(() => {
+                const runWo = jobs.find(w => w.id === m.run_wo_id) ?? wos.find(w => w.id === m.run_wo_id) ?? null
+                const mState = m.run_wo_id ? (m.run_started_at ? 'running' : 'paused') : 'idle'
+                const estPcs = m.run_rate && m.run_wo_id ? Number(m.run_rate) * elapsedSec(m) / 3600 : null
+                const runUnit = runWo?.op?.qty_uom || runWo?.uom || 'units'
+                return (
+                  <div className="rounded-xl border border-[#E4E6EE] p-4 flex flex-col gap-3">
+                    <p className="text-sm font-semibold text-[#1A1D2E]">Run</p>
+                    {mState === 'idle' ? (
+                      <div className="flex flex-col gap-2">
+                        <select value={startWo} onChange={e => setStartWo(e.target.value)} className="min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-sm bg-white">
+                          <option value="">Choose a connected work order</option>
+                          {jobs.map(w => <option key={w.id} value={w.id}>WO-{w.wo_number} · {w.sku || w.item_part_number || 'no item'}</option>)}
+                        </select>
+                        <button disabled={!startWo} onClick={() => { const w = jobs.find(j => j.id === startWo); if (w) startRun(m, w.id, w.rate ? w.rate.pieces_per_hour : null) }} className="min-h-[52px] rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-40">Start run</button>
+                        {jobs.length === 0 && <p className="text-xs text-gray-500">No work orders connected to this machine. Connect one from its production board.</p>}
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm text-[#1A1D2E]">WO-{runWo?.wo_number ?? '?'} · {runWo?.sku || runWo?.item_part_number || ''}</p>
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                          <p className="text-[11px] text-amber-900">Estimate from the spec rate, for information only. Not in inventory.</p>
+                          <p className="text-2xl font-bold font-mono text-[#1A1D2E]">{estPcs == null ? '—' : Math.floor(estPcs).toLocaleString()} <span className="text-xs font-normal text-gray-500">pcs</span></p>
+                          <p className="text-xs text-gray-600 font-mono">{fmtHms(elapsedSec(m))} run time{m.run_rate ? ` · ${Math.round(Number(m.run_rate)).toLocaleString()} pcs/hr` : ' · no spec rate'}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {mState === 'running'
+                            ? <button onClick={() => pauseRun(m)} className="min-h-[52px] rounded-xl bg-amber-500 text-[#13201A] font-bold">Pause</button>
+                            : <button onClick={() => startRun(m, m.run_wo_id as string, m.run_rate)} className="min-h-[52px] rounded-xl bg-emerald-600 text-white font-bold">Resume</button>}
+                          <button onClick={() => { setStopOpen(o => !o); setStopMsg(null) }} className="min-h-[52px] rounded-xl bg-red-600 text-white font-bold">Stop and book output</button>
+                        </div>
+                        {stopOpen && (
+                          <div className="flex flex-col gap-2 border-t border-[#E4E6EE] pt-3">
+                            <label className="text-xs text-gray-600">Actual produced ({runUnit})
+                              <input inputMode="decimal" value={stopQty} onChange={e => setStopQty(e.target.value)} className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
+                            </label>
+                            <label className="text-xs text-gray-600">Note (optional)
+                              <input value={stopNote} onChange={e => setStopNote(e.target.value)} className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
+                            </label>
+                            <button disabled={stopBusy} onClick={() => stopRun(m)} className="min-h-[48px] rounded-xl bg-[#1A1D2E] text-white font-bold disabled:opacity-40">
+                              {stopBusy ? 'Booking…' : 'Confirm actual and book to inventory'}
+                            </button>
+                          </div>
+                        )}
+                        {stopMsg && <p role="status" className={`text-xs ${stopMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{stopMsg.text}</p>}
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
 
               <label className="text-xs text-gray-600">Operator name
-                <input value={operator} onChange={e => setOperator(e.target.value)} placeholder="Who is logging these runs" className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
+                <input value={operator} onChange={e => setOperator(e.target.value)} placeholder="Who is running this machine" className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
               </label>
 
               <div>
                 <h3 className="text-sm font-semibold text-[#1A1D2E] mb-2">Connected work orders ({jobs.length})</h3>
                 {jobs.length === 0 ? <p className="text-sm text-gray-500">None connected. Connect a work order from its production board.</p> : (
                   <ul className="flex flex-col gap-3">
-                    {jobs.map(w => <JobCard key={w.id} w={w} sb={sb} operator={operator} onLogged={load} />)}
+                    {jobs.map(w => <JobCard key={w.id} w={w} />)}
                   </ul>
                 )}
               </div>

@@ -623,6 +623,18 @@ function NewWoModal({ sb, cfg, orders, wos, start, addTo, prog, onClose, onDone 
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [machineId, setMachineId] = useState('')
+  const [machineChoices, setMachineChoices] = useState<MachineOpt[]>([])
+  useEffect(() => {
+    sb.from('machines').select('id,machine_code,name,equipment_group').eq('is_active', true).order('machine_code')
+      .then(({ data }: any) => setMachineChoices((data as MachineOpt[]) || []))
+  }, [sb])
+  // Stamp the connection on the new work order so Machine Status picks it up.
+  async function connectNew(newId: string) {
+    if (!machineId) return
+    const { error } = await sb.from('work_orders').update({ machine_id: machineId, connected_from: cfg.key, updated_at: new Date().toISOString() }).eq('id', newId)
+    if (error) window.alert(`Work order created, but the machine did not connect: ${error.message}. Pick the machine on the work order card.`)
+  }
   const addWo = addTo ? wos.find(w => w.id === addTo) : null
   const skus = useMemo(() => new Set(addWo ? prog.filter(p => p.work_order_id === addWo.id).map(p => p.sku) : (free.get(primary) || []).map(l => l.sku)), [addWo, prog, free, primary])
   const candidates = Array.from(free.entries()).filter(([id, ls]) => id !== primary && ls.some(l => skus.has(l.sku)))
@@ -641,6 +653,7 @@ function NewWoModal({ sb, cfg, orders, wos, start, addTo, prog, onClose, onDone 
       const { data: newId, error } = await sb.rpc('pb_wo_create', { p_board: cfg.key, p_orders: [], p_note: note.trim() || null })
       setBusy(false)
       if (error) { setErr(error.message); return }
+      await connectNew(newId as string)
       onDone('✓ Stock build work order created — add the items and quantities to make (✎ Targets).', newId as string); return
     }
     if (!primary) { setErr('Pick the PO for this work order.'); return }
@@ -648,6 +661,7 @@ function NewWoModal({ sb, cfg, orders, wos, start, addTo, prog, onClose, onDone 
     const { data: newId, error } = await sb.rpc('pb_wo_create', { p_board: cfg.key, p_orders: [primary, ...Array.from(extra)], p_note: note.trim() || null })
     setBusy(false)
     if (error) { setErr(error.message); return }
+    await connectNew(newId as string)
     onDone(`✓ Work order created for SO ${free.get(primary)?.[0].order_number}${extra.size ? ` + ${extra.size} more PO${extra.size === 1 ? '' : 's'}` : ''} — targets set from the order.`, newId as string)
   }
   const inp = 'h-11 border border-[#E4E6EE] rounded-lg px-3 text-sm w-full'
@@ -685,6 +699,15 @@ function NewWoModal({ sb, cfg, orders, wos, start, addTo, prog, onClose, onDone 
               </label>))}
           </div>
         </div>}
+        {!addWo && (
+          <div>
+            <label className="text-xs text-gray-500">Machine (optional)</label>
+            <select value={machineId} onChange={e => setMachineId(e.target.value)} className={inp}>
+              <option value="">Not connected yet</option>
+              {machineChoices.map(m => <option key={m.id} value={m.id}>{m.machine_code} · {m.name}</option>)}
+            </select>
+          </div>
+        )}
         {!addWo && <div><label className="text-xs text-gray-500">Note (optional)</label><input value={note} onChange={e => setNote(e.target.value)} className={inp} /></div>}
         {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
       </div>
