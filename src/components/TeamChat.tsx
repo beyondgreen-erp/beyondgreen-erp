@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import RichTextEditor from '@/components/RichTextEditor'
 import { useToast } from '@/components/Toast'
+import { playPing, soundBlocked, soundOn } from '@/components/ChatAlerts'
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Team Chat — groups + direct messages with rich text, @mentions, files and
@@ -444,6 +445,21 @@ export function ChatLauncher() {
   void isDashboard
   // share the live unread count with the dashboard banner
   useEffect(() => { window.dispatchEvent(new CustomEvent('team-chat-unread', { detail: unread })) }, [unread])
+  // keep chiming every 2 minutes until unread messages are read, so they can't be missed
+  useEffect(() => {
+    if (open || unread <= 0) return
+    const iv = setInterval(() => { if (soundOn() && document.visibilityState === 'visible') playPing() }, 120000)
+    return () => clearInterval(iv)
+  }, [open, unread])
+  // browsers block sound until the page has been clicked once since it loaded — say so when it matters
+  const [blocked, setBlocked] = useState(false)
+  useEffect(() => {
+    const check = () => setBlocked(soundOn() && soundBlocked())
+    check(); const iv = setInterval(check, 3000)
+    const unlock = () => setTimeout(check, 200)
+    window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock)
+    return () => { clearInterval(iv); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock) }
+  }, [])
   const close = () => { setOpen(false); window.dispatchEvent(new Event('team-chat-closed')) }
   return (
     <>
@@ -456,6 +472,7 @@ export function ChatLauncher() {
         </div>
       )}
       {!open && <HiddenUnreadProbe onUnread={setUnread} />}
+      {!open && blocked && <button data-ro-ok onClick={() => { playPing(); setBlocked(false) }} className="fixed z-[70] bottom-[4.6rem] right-4 rounded-full bg-amber-100 border border-amber-300 text-amber-900 text-[11px] font-bold px-3 py-1.5 shadow" title="Your browser blocks sound until you click the page once">🔇 Tap to turn chat sound on</button>}
       {!open && <button data-ro-ok onClick={() => { setConv(null); setOpen(true) }} className={`fixed z-[70] bottom-5 right-4 h-12 rounded-full text-white shadow-xl flex items-center justify-center gap-2 px-4 text-sm font-bold hover:scale-105 transition-transform ${unread > 0 ? 'animate-bounce ring-4 ring-red-300' : ''}`} style={{ background: unread > 0 ? '#e2445c' : ACCENT }} title="Team chat">
         <span className="text-xl leading-none">💬</span>{unread > 0 ? `${unread > 99 ? '99+' : unread} new` : <span className="hidden sm:inline">Chat</span>}
       </button>}

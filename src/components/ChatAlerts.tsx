@@ -23,6 +23,9 @@ function ctx() {
   if (!audioCtx) { const C = (window as any).AudioContext || (window as any).webkitAudioContext; if (C) audioCtx = new C() }
   return audioCtx
 }
+/** true when the browser is still blocking sound (no click on the page yet since it loaded) */
+export function soundBlocked() { const c = ctx(); return !!c && c.state !== 'running' }
+export function soundOn() { try { return localStorage.getItem(LS_SOUND) !== 'off' } catch { return true } }
 export function playPing() {
   const c = ctx(); if (!c) return
   if (c.state === 'suspended') c.resume().catch(() => {})
