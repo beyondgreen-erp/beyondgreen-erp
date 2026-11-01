@@ -51,7 +51,7 @@ export default function WoMachinePicker({ sb, woId, woCode, value, board, canEdi
   }, [sb, woId, value])
 
   const codeOf = (id: string) => opts.find(m => m.id === id)?.machine_code || (cache || []).find(m => m.id === id)?.machine_code || '?'
-  if (!canEdit) return sel.length ? <p className="text-[11px] text-gray-500 mt-1">Machines: <b className="text-[#1A1D2E]">{sel.map(codeOf).join(', ')}</b></p> : null
+  if (!canEdit) return <p className="text-[11px] text-gray-500 mt-1">Machines: <b className="text-[#1A1D2E]">{sel.length ? sel.map(codeOf).join(', ') : 'none'}</b> <span className="text-gray-400">(view only on this board)</span></p>
 
   async function save(next: string[], msg: string) {
     const prev = sel
