@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic'
   All writes go through database functions that check board access, so the page can't drift
   from inventory.
 */
+import WoMachinePicker from '@/components/WoMachinePicker'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { planSnippet, copyText } from '@/lib/planSnippet'
@@ -122,7 +123,7 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
 }
 
 interface StockRow { lu: number; oh: number; res: number; erp: number; rel: number; bld: number; blt: number }
-interface WO { id: string; wo_code: string | null; wo_number: number; status: string | null; start_date: string; due_date: string | null; notes: string | null; qty_ordered: number | null; qty_completed: number | null }
+interface WO { id: string; wo_code: string | null; wo_number: number; status: string | null; start_date: string; due_date: string | null; notes: string | null; qty_ordered: number | null; qty_completed: number | null; machine_id?: string | null }
 interface Prog { work_order_id?: string; sku: string; product_name: string | null; target_qty: number; made_qty: number; left_qty: number; on_hand_qty: number | null }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
 interface Move { id: string; ref_id: string; ref_table: string; sku: string; movement_type: string; qty: number; created_at: string }
@@ -192,7 +193,7 @@ export default function WalmartProductionPage() {
     setLoadErr('')
     const [woR, entR, prodR, allocR] = await Promise.all([
       // this week's work orders + every earlier one that is still open (they roll over until closed out)
-      sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed')
+      sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed,machine_id')
         .eq('form_type', 'walmart_weekly').lte('start_date', week).neq('status', 'Cancelled')
         .or(`start_date.eq.${week},status.not.in.(${WO_DONE.join(',')})`)
         .order('start_date', { ascending: true }).order('created_at', { ascending: true }),
@@ -228,7 +229,7 @@ export default function WalmartProductionPage() {
       setRuns((runR.data as MRun[]) || [])
     } else { setProg([]); setWoOrders([]); setWoRel([]); setRuns([]) }
     const [ssR, relR] = await Promise.all([
-      sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed')
+      sb.from('work_orders').select('id,wo_code,wo_number,status,start_date,due_date,notes,qty_ordered,qty_completed,machine_id')
         .eq('form_type', 'walmart_safety').not('status', 'in', '("Complete","Cancelled")').order('created_at'),
       sb.from('walmart_releases').select('*, walmart_board_orders(po_number,name,group_name,ship_due_date)')
         .or(`status.eq.Released,and(status.eq.Claimed,claimed_at.gte.${addDays(today, -14)})`).order('released_at', { ascending: false }),
@@ -433,6 +434,7 @@ export default function WalmartProductionPage() {
               <p className="font-bold text-[#1A1D2E] truncate">{wo.wo_code}{wos.length > 1 ? <span className="ml-1 text-[11px] font-normal text-gray-400">({wos.findIndex(w => w.id === wo.id) + 1} of {wos.length} open)</span> : null} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: wo.status === 'Complete' ? '#00c875' : wo.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{wo.status}</span></p>
             ) : <p className="font-semibold text-gray-500">No open work order — create one for this week</p>}
             {wo && wo.start_date < week && !WO_DONE.includes(wo.status || '') && <p className="text-[11px] font-semibold text-amber-700 mt-0.5">↻ Carried over from the week of {fmtShort(wo.start_date)} — stays open until it is closed out</p>}
+            {wo && !WO_DONE.includes(wo.status || '') && <WoMachinePicker sb={sb} woId={wo.id} woCode={wo.wo_code} value={wo.machine_id} board="walmart" canEdit={canEdit} onSaved={m => { setFlash(m); reload() }} />}
           </div>
           {canEdit && <div className="flex flex-wrap gap-1.5 sm:shrink-0 sm:justify-end">
             <button onClick={() => setShowSafety(true)} className="text-sm font-semibold rounded-xl px-3 py-2 border border-[#E4E6EE] text-gray-600">+ Safety stock</button>
@@ -518,6 +520,7 @@ export default function WalmartProductionPage() {
               <p className="font-bold text-[#1A1D2E]">{ss.wo_code} <span className="ml-1 text-[11px] font-semibold text-white rounded-full px-2 py-0.5 align-middle" style={{ background: ss.status === 'In Progress' ? '#fdab3d' : '#579bfc' }}>{ss.status}</span>{ss.notes ? <span className="ml-2 text-xs font-normal text-gray-500">{ss.notes}</span> : null}</p>
               <div className="flex items-center justify-between text-xs text-gray-500 mt-2 mb-1"><span>{fmtN(m)} of {fmtN(t)} SRP</span><span className="font-semibold text-[#1A1D2E]">{fmtN(Math.max(t - m, 0))} left</span></div>
               <Bar value={m} total={t} color="#9699a6" />
+              <WoMachinePicker sb={sb} woId={ss.id} woCode={ss.wo_code} value={ss.machine_id} board="walmart" canEdit={canEdit} onSaved={msg => { setFlash(msg); reload() }} />
               <div className="flex flex-wrap gap-2 mt-2">{rows.map(p => <span key={p.sku} className="text-[11px] rounded-full px-2 py-0.5 bg-[#F2F4F8]"><b style={{ color: meta(p.sku).color }}>{meta(p.sku).short}</b> {fmtN(p.made_qty)}/{fmtN(p.target_qty)}</span>)}</div>
             </div>
           </div>)
