@@ -228,6 +228,13 @@ export default function MachineStatusPage() {
   const [err, setErr] = useState('')
   const [wos, setWos] = useState<OpenWo[]>([])
   const [operator, setOperator] = useState('')
+  // Operators come from the employee directory: active floor staff (warehouse, manufacturing, shipping/receiving).
+  const [staff, setStaff] = useState<{ id: string; name: string; department: string | null }[]>([])
+  useEffect(() => {
+    sb.from('employees').select('id,name,department').eq('status', 'Active').is('end_date', null)
+      .in('department', ['Warehouse Operations', 'Manufacturing', 'Shipping/Receiving']).order('name')
+      .then(({ data }: any) => setStaff((data || []).filter((e: any) => e.name)))
+  }, [sb])
   const [now, setNow] = useState(() => Date.now())
   const [startWo, setStartWo] = useState('')
   const [stopOpen, setStopOpen] = useState(false)
@@ -736,8 +743,15 @@ export default function MachineStatusPage() {
                 )
               })()}
 
-              <label className="text-xs text-gray-600">Operator name
-                <input value={operator} onChange={e => setOperator(e.target.value)} placeholder="Who is running this machine" className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
+              <label className="text-xs text-gray-600">Operator
+                <select value={operator} onChange={e => setOperator(e.target.value)} className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E] bg-white">
+                  <option value="">Who is running this machine?</option>
+                  {['Warehouse Operations', 'Manufacturing', 'Shipping/Receiving'].map(d => {
+                    const people = staff.filter(e => e.department === d)
+                    return people.length ? <optgroup key={d} label={d}>{people.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}</optgroup> : null
+                  })}
+                  {operator && !staff.some(e => e.name === operator) && <option value={operator}>{operator}</option>}
+                </select>
               </label>
 
               <div>
