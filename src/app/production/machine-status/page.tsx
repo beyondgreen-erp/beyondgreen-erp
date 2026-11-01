@@ -2,7 +2,7 @@
 import ShareLink from '@/components/ShareLink'
 import { useItemDeepLink } from '@/components/useItemDeepLink'
 export const dynamic = 'force-dynamic'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ImportExportBar from '@/components/ImportExportBar'
 
@@ -90,6 +90,93 @@ function fmtHms(sec: number) {
   return `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}`
 }
 function dbErr(e: { code?: string; message: string; hint?: string }) { console.error(e); return [e.message, e.code && `(${e.code})`, e.hint && `Hint: ${e.hint}`].filter(Boolean).join(' — ') }
+type DayRun = { run_date: string; machine_id: string; work_order_id: string; hours: number | null; start_time: string | null; created_at: string }
+type PlanLine = { run_date: string; machine_id: string; work_order_id: string; sku: string; product_name: string | null; uom: string | null; left_units: number; pcs_per_unit: number | null; pcs_known: boolean; pph: number | null; rate_basis: string | null; rate_known: boolean }
+type BuildLine = PlanLine & { build_units: number; build_pcs: number; hrs: number }
+type SchedRun = { run: DayRun; wo: OpenWo | undefined; start: number; end: number; hours: number; lines: BuildLine[]; target_pcs: number; noRate: boolean; basis: string | null }
+const DAY_START = 6 * 60 // 6:00 AM when no start time is set
+const fmtNum = (n: number) => Math.round(n).toLocaleString()
+function fmtClock(min: number) {
+  const day = Math.floor(min / 1440), m = ((Math.round(min) % 1440) + 1440) % 1440
+  const h = Math.floor(m / 60), mm = m % 60, ap = h < 12 ? 'AM' : 'PM', h12 = h % 12 || 12
+  return `${h12}:${String(mm).padStart(2, '0')} ${ap}${day > 0 ? ' (next day)' : ''}`
+}
+const toMin = (t: string | null) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0) }
+const toTime = (min: number) => { const m = ((Math.round(min) % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}` }
+
+// The runs planned on one machine for one date, in order, with start and end times and what to build.
+// Hours default to an even split of the 22 hour day. Each run starts when the one before it ends unless a start time is set.
+function scheduleFor(date: string, mid: string, runs: DayRun[], lines: PlanLine[], wos: OpenWo[]): SchedRun[] {
+  const mine = runs.filter(r => r.run_date === date && r.machine_id === mid)
+    .sort((a, b) => (toMin(a.start_time) ?? 1e9) - (toMin(b.start_time) ?? 1e9) || a.created_at.localeCompare(b.created_at))
+  let clock = DAY_START
+  return mine.map((run, i) => {
+    const hours = run.hours != null ? Number(run.hours) : CAPACITY_HOURS / mine.length
+    const set = toMin(run.start_time)
+    const start = set != null ? (set < clock - 720 && i > 0 ? set + 1440 : set) : clock
+    const end = start + hours * 60
+    clock = end
+    let left = hours
+    let noRate = false
+    const built: BuildLine[] = lines.filter(l => l.run_date === date && l.machine_id === mid && l.work_order_id === run.work_order_id && Number(l.left_units) > 0)
+      .map(l => {
+        const pph = l.rate_known && l.pph ? Number(l.pph) : null
+        const per = l.pcs_known && l.pcs_per_unit ? Number(l.pcs_per_unit) : null
+        if (!pph || !per) { noRate = noRate || !pph; return { ...l, build_units: 0, build_pcs: 0, hrs: 0 } }
+        const needPcs = Number(l.left_units) * per
+        const hrs = Math.min(left, needPcs / pph)
+        left -= hrs
+        const units = Math.floor(hrs * pph / per)
+        return { ...l, build_units: units, build_pcs: units * per, hrs }
+      })
+    return { run, wo: wos.find(w => w.id === run.work_order_id && w.machine_id === mid), start, end, hours, lines: built,
+      target_pcs: built.reduce((t, l) => t + l.build_pcs, 0), noRate, basis: built.find(l => l.rate_basis)?.rate_basis ?? null }
+  })
+}
+
+// One planned run: time window, spec rate and the build list for the day.
+function PlanRunCard({ sr, canEdit, onTime, onHours }: { sr: SchedRun; canEdit: boolean; onTime?: (v: string) => void; onHours?: (v: number | null) => void }) {
+  const label = sr.wo ? (sr.wo.wo_code || `WO-${sr.wo.wo_number}`) : 'Work order'
+  const building = sr.lines.filter(l => l.build_units > 0)
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 text-xs flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold text-sm text-[#1A1D2E]">{label}{sr.wo?.customer ? ` · ${sr.wo.customer}` : ''}</span>
+        <span className="font-mono font-semibold text-emerald-800">{fmtClock(sr.start)} to {fmtClock(sr.end)}</span>
+      </div>
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-gray-600">Start
+            <input type="time" defaultValue={toTime(sr.start)} key={'t' + sr.start} onBlur={e => onTime?.(e.target.value)} className="h-8 rounded-lg border border-[#E4E6EE] px-2 bg-white text-[#1A1D2E]" />
+          </label>
+          <label className="flex items-center gap-1.5 text-gray-600">Run hours
+            <input type="number" min={0.5} max={24} step={0.5} defaultValue={Number(sr.hours.toFixed(2))} key={'h' + sr.hours} onBlur={e => onHours?.(e.target.value ? Number(e.target.value) : null)} className="h-8 w-20 rounded-lg border border-[#E4E6EE] px-2 bg-white text-[#1A1D2E]" />
+          </label>
+        </div>
+      )}
+      {sr.lines.length === 0 ? <p className="text-gray-500">Nothing left to build on this work order.</p> : (
+        <>
+          <p className="text-[#1A1D2E]"><b>Target: {fmtNum(sr.target_pcs)} pcs</b> in {sr.hours.toFixed(1)} h{sr.basis ? <span className="text-gray-500"> · {sr.basis}</span> : null}</p>
+          {sr.noRate && <p className="text-amber-800">Some items have no spec rate for this machine. Add it in <a href="/production/rates" className="underline font-semibold">Production Rates</a>.</p>}
+          <table className="w-full text-left">
+            <thead><tr className="text-[10px] uppercase tracking-wide text-gray-500"><th className="py-1">Build</th><th className="text-right">Today</th><th className="text-right">Left on WO</th></tr></thead>
+            <tbody>
+              {(building.length ? building : sr.lines).map(l => (
+                <tr key={l.sku} className="border-t border-emerald-100">
+                  <td className="py-1 pr-2"><span className="font-mono font-semibold">{l.sku}</span><span className="block text-[10px] text-gray-500 truncate max-w-[220px]">{l.product_name}</span></td>
+                  <td className="text-right font-semibold whitespace-nowrap">{fmtNum(l.build_units)} {(l.uom || '').toLowerCase()}<span className="block text-[10px] font-normal text-gray-500">{fmtNum(l.build_pcs)} pcs</span></td>
+                  <td className="text-right whitespace-nowrap text-gray-600">{fmtNum(Number(l.left_units))} {(l.uom || '').toLowerCase()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {building.length > 0 && building.length < sr.lines.length && <p className="text-[10px] text-gray-500">{sr.lines.length - building.length} more item(s) on this work order after these.</p>}
+        </>
+      )}
+    </div>
+  )
+}
+
 // One connected work order on the operator panel: what it needs and what the spec says it should make.
 function JobCard({ w }: { w: OpenWo }) {
   const req = w.qty_required ?? w.qty_ordered
@@ -152,7 +239,10 @@ export default function MachineStatusPage() {
   const todayStr = ymdLocal(new Date())
   const [planDate, setPlanDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return ymdLocal(d) })
   // Day plan: which connected work orders each machine runs on a given date (machine_day_runs).
-  const [dayRuns, setDayRuns] = useState<{ run_date: string; machine_id: string; work_order_id: string }[]>([])
+  const [dayRuns, setDayRuns] = useState<DayRun[]>([])
+  const [planLines, setPlanLines] = useState<PlanLine[]>([])
+  const [tab, setTab] = useState<'machines' | 'schedule'>('machines')
+  const [openPlan, setOpenPlan] = useState<string | null>(null)
   const [planBusy, setPlanBusy] = useState('')
   const anyRunning = rows.some(r => !!r.run_started_at)
   useEffect(() => {
@@ -185,8 +275,9 @@ export default function MachineStatusPage() {
       const set = ms.length ? ms : x.machine_id ? [x.machine_id] : []
       for (const mid of set) open.push({ ...x, machine_id: mid, connected_from: x.connected_from || links.find(l => l.work_order_id === x.id)?.board || 'board' })
     }
-    const { data: dr } = await sb.from('machine_day_runs').select('run_date,machine_id,work_order_id').gte('run_date', todayStr)
+    const { data: dr } = await sb.from('machine_day_runs').select('run_date,machine_id,work_order_id,hours,start_time,created_at').gte('run_date', todayStr)
     setDayRuns((dr ?? []) as any[])
+    loadPlanLines()
     const ids = open.map(x => x.id)
     const pids = [...new Set(open.map(x => x.product_id).filter(Boolean))] as string[]
     const [opsRes, prodRes] = await Promise.all([
@@ -218,6 +309,12 @@ export default function MachineStatusPage() {
     }))
     setLoading(false)
   }
+  async function loadPlanLines(date?: string) {
+    const { data } = await sb.rpc('machine_day_plan_lines', { p_dates: [todayStr, date || planDateRef.current] })
+    setPlanLines((data ?? []) as PlanLine[])
+  }
+  const planDateRef = useRef(planDate)
+  useEffect(() => { planDateRef.current = planDate; loadPlanLines(planDate) }, [planDate]) // eslint-disable-line
   useEffect(() => { load() }, []) // eslint-disable-line
   useEffect(() => {
     let t: any
@@ -254,8 +351,15 @@ export default function MachineStatusPage() {
       : await sb.from('machine_day_runs').insert({ run_date: date, machine_id: mid, work_order_id: wid })
     setPlanBusy('')
     if (error) { alert('Could not update the day plan: ' + error.message); return }
-    setDayRuns(prev => on ? prev.filter(r => !(r.run_date === date && r.machine_id === mid && r.work_order_id === wid)) : [...prev, { run_date: date, machine_id: mid, work_order_id: wid }])
+    setDayRuns(prev => on ? prev.filter(r => !(r.run_date === date && r.machine_id === mid && r.work_order_id === wid)) : [...prev, { run_date: date, machine_id: mid, work_order_id: wid, hours: null, start_time: null, created_at: new Date().toISOString() }])
+    loadPlanLines()
   }
+  async function updateRun(r: DayRun, patch: Partial<Pick<DayRun, 'hours' | 'start_time'>>) {
+    const { error } = await sb.from('machine_day_runs').update(patch).eq('run_date', r.run_date).eq('machine_id', r.machine_id).eq('work_order_id', r.work_order_id)
+    if (error) { alert('Could not save: ' + error.message); return }
+    setDayRuns(prev => prev.map(x => (x.run_date === r.run_date && x.machine_id === r.machine_id && x.work_order_id === r.work_order_id ? { ...x, ...patch } : x)))
+  }
+  const sched = (date: string, mid: string) => scheduleFor(date, mid, dayRuns, planLines, wos)
   const totalBooked = active.reduce((s, m) => s + hoursOf(m.id), 0)
 
   function openAdd() { setEditing(null); setForm(empty); setErr(''); setOpen(true) }
@@ -364,11 +468,12 @@ export default function MachineStatusPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Running</span><p className="text-2xl font-bold text-emerald-600">{counts.Running} / {active.length}</p></div>
-        <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Paused</span><p className="text-2xl font-bold text-amber-600">{counts.Paused}</p></div>
-        <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Off or down</span><p className="text-2xl font-bold text-red-600">{counts.Off}</p></div>
-        <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Connected work orders</span><p className="text-2xl font-bold text-[#1A1D2E]">{totalOpen} <span className="text-sm font-medium text-gray-500">· {totalBooked.toFixed(1)} h booked</span></p></div>
+      <div className="flex gap-1 mb-5 border-b border-[#E4E6EE]" role="tablist">
+        {([['machines', 'Machines'], ['schedule', 'Schedule']] as const).map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+            className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 ${tab === k ? 'border-emerald-600 text-[#1A1D2E]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>{l}</button>
+        ))}
+        <a href="/production/rates" className="ml-auto self-center text-xs font-semibold text-emerald-700 hover:underline">Spec rates per machine →</a>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -379,47 +484,81 @@ export default function MachineStatusPage() {
         ))}
       </div>
 
-      {/* Day plan: pick which connected work orders each machine runs on a date (tomorrow by default). */}
-      {(() => {
+      {tab === 'machines' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Running</span><p className="text-2xl font-bold text-emerald-600">{counts.Running} / {active.length}</p></div>
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Paused</span><p className="text-2xl font-bold text-amber-600">{counts.Paused}</p></div>
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Off or down</span><p className="text-2xl font-bold text-red-600">{counts.Off}</p></div>
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Connected work orders</span><p className="text-2xl font-bold text-[#1A1D2E]">{totalOpen} <span className="text-sm font-medium text-gray-500">· {totalBooked.toFixed(1)} h booked</span></p></div>
+        </div>
+      )}
+
+      {tab === 'schedule' && (() => {
         const sectionMachines = active.filter(m => shownSections.some(sec => sec.match(m)))
         const withJobs = sectionMachines.filter(m => (woByMachine[m.id] || []).length > 0)
-        const plannedCount = dayRuns.filter(r => r.run_date === planDate && sectionMachines.some(m => m.id === r.machine_id)).length
-        const machinesOn = new Set(dayRuns.filter(r => r.run_date === planDate).map(r => r.machine_id))
+        const onIds = new Set(dayRuns.filter(r => r.run_date === planDate).map(r => r.machine_id))
+        const onCount = sectionMachines.filter(m => onIds.has(m.id)).length
+        const shift = (d: number) => { const x = new Date(planDate + 'T12:00:00'); x.setDate(x.getDate() + d); const v = ymdLocal(x); if (v >= todayStr) setPlanDate(v) }
+        const dayLabel = planDate === todayStr ? 'Today' : new Date(planDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
         return (
           <section className="bg-white border border-[#E4E6EE] rounded-2xl overflow-hidden mb-6">
             <div className="px-5 py-4 border-b border-[#E4E6EE] flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-[#1A1D2E]">Run plan</h2>
-                <p className="text-xs text-gray-500">Tick the work orders each machine should run that day. {plannedCount} picked · {[...machinesOn].filter(id => sectionMachines.some(m => m.id === id)).length} machines on</p>
+                <h2 className="text-lg font-semibold text-[#1A1D2E]">Run plan · {dayLabel}</h2>
+                <p className="text-xs text-gray-500">Pick the work orders each machine runs, then tap the machine for times and what to build. {onCount} machine{onCount === 1 ? '' : 's'} on.</p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => { const d = new Date(planDate + 'T12:00:00'); d.setDate(d.getDate() - 1); const v = ymdLocal(d); if (v >= todayStr) setPlanDate(v) }} className="w-9 h-9 rounded-lg border border-[#E4E6EE] text-sm" aria-label="Previous day">‹</button>
+                <button onClick={() => shift(-1)} className="w-9 h-9 rounded-lg border border-[#E4E6EE] text-sm" aria-label="Previous day">‹</button>
                 <input type="date" value={planDate} min={todayStr} onChange={e => e.target.value && setPlanDate(e.target.value)} className="h-9 rounded-lg border border-[#E4E6EE] px-2 text-sm" />
-                <button onClick={() => { const d = new Date(planDate + 'T12:00:00'); d.setDate(d.getDate() + 1); setPlanDate(ymdLocal(d)) }} className="w-9 h-9 rounded-lg border border-[#E4E6EE] text-sm" aria-label="Next day">›</button>
+                <button onClick={() => shift(1)} className="w-9 h-9 rounded-lg border border-[#E4E6EE] text-sm" aria-label="Next day">›</button>
               </div>
             </div>
             {withJobs.length === 0 ? <p className="px-5 py-6 text-sm text-gray-500">No work orders are connected to these machines yet. Connect them from the production boards.</p> : (
               <ul className="divide-y divide-[#E4E6EE]">
-                {withJobs.map(m => (
-                  <li key={m.id} className="px-5 py-3 flex flex-col sm:flex-row sm:items-start gap-2">
-                    <div className="w-28 shrink-0">
-                      <span className="font-mono font-bold text-[#1A1D2E]">{m.machine_code}</span>
-                      {machinesOn.has(m.id) && <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">ON</span>}
-                    </div>
-                    <div className="flex flex-wrap gap-2 flex-1">
-                      {(woByMachine[m.id] || []).map(w => {
-                        const on = isPlanned(planDate, m.id, w.id)
-                        const k = planDate + m.id + w.id
-                        return (
-                          <button key={w.id} disabled={planBusy === k} onClick={() => togglePlan(planDate, m.id, w.id)} aria-pressed={on}
-                            className={`min-h-[36px] px-3 rounded-lg border text-xs font-semibold text-left disabled:opacity-50 ${on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-[#1A1D2E] border-[#D5DED7] hover:border-gray-400'}`}>
-                            {on ? '✓ ' : ''}{woLabel(w)}{w.customer ? ` · ${w.customer}` : ''}{w.due_date ? ` · due ${w.due_date}` : ''}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </li>
-                ))}
+                {withJobs.map(m => {
+                  const runs = sched(planDate, m.id)
+                  const on = runs.length > 0
+                  const expanded = openPlan === m.id
+                  const target = runs.reduce((t, r) => t + r.target_pcs, 0)
+                  return (
+                    <li key={m.id} className="px-5 py-3">
+                      <button onClick={() => setOpenPlan(expanded ? null : m.id)} aria-expanded={expanded} className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 text-left">
+                        <span className="font-mono font-bold text-[#1A1D2E] w-24">{m.machine_code}</span>
+                        {on ? (
+                          <>
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">Turn on {fmtClock(runs[0].start)}</span>
+                            <span className="text-xs text-gray-600">off {fmtClock(runs[runs.length - 1].end)}</span>
+                            <span className="text-xs font-semibold text-[#1A1D2E]">{target > 0 ? `target ${fmtNum(target)} pcs` : 'no target yet'}</span>
+                          </>
+                        ) : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#F2F4F8] text-gray-500">Off this day</span>}
+                        <span className="ml-auto text-xs text-gray-400">{expanded ? 'Hide' : 'Details'}</span>
+                      </button>
+                      {expanded && (
+                        <div className="mt-3 flex flex-col gap-3">
+                          <div>
+                            <p className="text-[11px] font-semibold text-gray-600 mb-1.5">Work orders to run on {m.machine_code}</p>
+                            <div className="flex flex-wrap gap-2">
+                              {(woByMachine[m.id] || []).map(w => {
+                                const sel = isPlanned(planDate, m.id, w.id)
+                                const k = planDate + m.id + w.id
+                                return (
+                                  <button key={w.id} disabled={planBusy === k} onClick={() => togglePlan(planDate, m.id, w.id)} aria-pressed={sel}
+                                    className={`min-h-[36px] px-3 rounded-lg border text-xs font-semibold text-left disabled:opacity-50 ${sel ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-[#1A1D2E] border-[#D5DED7] hover:border-gray-400'}`}>
+                                    {sel ? '✓ ' : '+ '}{woLabel(w)}{w.customer ? ` · ${w.customer}` : ''}{w.due_date ? ` · due ${w.due_date}` : ''}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          {runs.length === 0 ? <p className="text-xs text-gray-500">Tap a work order above to run it on this day.</p> :
+                            runs.map(sr => <PlanRunCard key={sr.run.work_order_id} sr={sr} canEdit
+                              onTime={v => v && updateRun(sr.run, { start_time: v })}
+                              onHours={v => updateRun(sr.run, { hours: v })} />)}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>
@@ -427,7 +566,7 @@ export default function MachineStatusPage() {
       })()}
 
       {/* Today's schedule: which machines to turn on, and when. Only connected work orders with a scheduled date appear. */}
-      {(() => {
+      {tab === 'schedule' && (() => {
         const today = todayStr
         const todays = wos.filter(w => w.scheduled_date === today || isPlanned(today, w.machine_id, w.id))
           .sort((a, b) => String(a.scheduled_start ?? '99:99').localeCompare(String(b.scheduled_start ?? '99:99')))
@@ -463,7 +602,7 @@ export default function MachineStatusPage() {
         )
       })()}
 
-      {loading ? <div className="py-20 text-center text-sm text-gray-500">Loading…</div> : shownSections.map(section => {
+      {tab === 'machines' && (loading ? <div className="py-20 text-center text-sm text-gray-500">Loading…</div> : shownSections.map(section => {
         const machines = active.filter(section.match)
         const booked = machines.reduce((s, m) => s + hoursOf(m.id), 0)
         const total = machines.length * CAPACITY_HOURS
@@ -506,7 +645,7 @@ export default function MachineStatusPage() {
             )}
           </section>
         )
-      })}
+      }))}
 
       {/* Operator panel */}
       {selected && (() => {
@@ -582,6 +721,17 @@ export default function MachineStatusPage() {
                         {stopMsg && <p role="status" className={`text-xs ${stopMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{stopMsg.text}</p>}
                       </>
                     )}
+                  </div>
+                )
+              })()}
+
+              {(() => {
+                const runs = sched(todayStr, m.id)
+                return (
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#1A1D2E] mb-2">Today's plan</h3>
+                    {runs.length === 0 ? <p className="text-sm text-gray-500">Not on today's run plan. Plan it in the Schedule tab.</p> :
+                      <div className="flex flex-col gap-2">{runs.map(sr => <PlanRunCard key={sr.run.work_order_id} sr={sr} canEdit={false} />)}</div>}
                   </div>
                 )
               })()}
