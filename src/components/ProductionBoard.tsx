@@ -12,6 +12,7 @@
  *
  * Everything counts in each SKU's own stocking unit (packs, rolls, cases, pieces).
  */
+import WoMachinePicker, { machineFitsBoard } from '@/components/WoMachinePicker'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -59,19 +60,6 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
   const weekEnd = addDays(week, 6)
   const [tab, setTab] = useState<'production' | 'orders' | 'activity'>('production')
   const [wos, setWos] = useState<WO[]>([])
-  const [machineOpts, setMachineOpts] = useState<MachineOpt[]>([])
-  useEffect(() => {
-    sb.from('machines').select('id,machine_code,name,equipment_group').eq('is_active', true).order('machine_code')
-      .then(({ data }: any) => setMachineOpts((data as MachineOpt[]) || []))
-  }, [sb])
-  // Connect a work order to a machine from this board. Machine Status reads only what is stamped here.
-  async function setWoMachine(wo: WO, machineId: string) {
-    const mid = machineId || null
-    const { error } = await sb.from('work_orders').update({ machine_id: mid, connected_from: mid ? boardKey : null, updated_at: new Date().toISOString() }).eq('id', wo.id)
-    if (error) { setFlash(`Could not connect ${wo.wo_code}: ${error.message}`); return }
-    setWos(prev => prev.map(w => (w.id === wo.id ? { ...w, machine_id: mid, connected_from: mid ? boardKey : null } : w)))
-    setFlash(mid ? `✓ ${wo.wo_code} connected to a machine.` : `${wo.wo_code} disconnected from its machine.`)
-  }
   const [prog, setProg] = useState<Prog[]>([])
   const [entries, setEntries] = useState<Entry[]>([])
   const [stock, setStock] = useState<Stock[]>([])
@@ -310,14 +298,7 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
                     {!pos.length && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 bg-[#FFF4E5] text-[#B26A00]">stock build</span>}
                     {allMade && !done && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 bg-emerald-50 text-emerald-700">all made</span>}</p>
                   <div className="flex flex-wrap gap-1 mt-1">{pos.map(o => <a key={o.sales_order_id} href={`/sales/orders?item=${o.sales_order_id}`} className="text-[11px] px-2 py-0.5 rounded-full bg-[#EEF2FB] text-[#3A4A6B] hover:underline">{orderLabel(o)}</a>)}</div>
-                  {canEdit && !done && (
-                    <label className="flex items-center gap-2 mt-2 text-[11px] font-semibold text-gray-600">Machine
-                      <select value={wo.machine_id || ''} onChange={e => setWoMachine(wo, e.target.value)} className="h-8 rounded-lg border border-[#E4E6EE] bg-white px-2 text-xs text-[#1A1D2E]">
-                        <option value="">Not connected</option>
-                        {machineOpts.map(m => <option key={m.id} value={m.id}>{m.machine_code} · {m.name}</option>)}
-                      </select>
-                    </label>
-                  )}
+                  {!done && <WoMachinePicker sb={sb} woId={wo.id} woCode={wo.wo_code} value={wo.machine_id} board={boardKey} canEdit={canEdit} onSaved={m => setFlash(m)} />}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {canEdit && !done && pos.length > 0 && <button onClick={() => setNewWo({ addTo: wo.id })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">+ Add PO</button>}
@@ -627,12 +608,12 @@ function NewWoModal({ sb, cfg, orders, wos, start, addTo, prog, onClose, onDone 
   const [machineChoices, setMachineChoices] = useState<MachineOpt[]>([])
   useEffect(() => {
     sb.from('machines').select('id,machine_code,name,equipment_group').eq('is_active', true).order('machine_code')
-      .then(({ data }: any) => setMachineChoices((data as MachineOpt[]) || []))
+      .then(({ data }: any) => setMachineChoices(((data as MachineOpt[]) || []).filter(m => machineFitsBoard(cfg.key, m))))
   }, [sb])
   // Stamp the connection on the new work order so Machine Status picks it up.
   async function connectNew(newId: string) {
     if (!machineId) return
-    const { error } = await sb.from('work_orders').update({ machine_id: machineId, connected_from: cfg.key, updated_at: new Date().toISOString() }).eq('id', newId)
+    const { error } = await sb.rpc('wo_set_machines', { p_wo: newId, p_board: cfg.key, p_machine_ids: [machineId] })
     if (error) window.alert(`Work order created, but the machine did not connect: ${error.message}. Pick the machine on the work order card.`)
   }
   const addWo = addTo ? wos.find(w => w.id === addTo) : null
