@@ -32,6 +32,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/production': 'Work Orders',
   '/production/qc': 'Quality Control',
   '/production/walmart': 'Walmart Production',
+  '/production/dashboard': 'Production Dashboard',
   '/production/straw': 'Straw Production',
   '/production/mts-bags': 'Make to Stock — Bags',
   '/production/mts-cutlery': 'Make to Stock — Cutlery',
