@@ -228,7 +228,7 @@ function MoldEditor({ sb, machine, mold, pieces, onSaved }: { sb: any; machine: 
 }
 
 // One connected work order on the operator panel: what it needs and what the spec says it should make.
-function JobCard({ w }: { w: OpenWo }) {
+function JobCard({ w, qh }: { w: OpenWo; qh?: { need_pcs: number; pph: number | null; hours: number | null; basis: string } }) {
   const req = w.qty_required ?? w.qty_ordered
   const done = Math.max(Number(w.op?.qty_produced ?? 0), Number(w.qty_produced ?? 0), Number(w.qty_completed ?? 0))
   const remaining = req == null ? null : Math.max(0, Number(req) - done)
@@ -260,6 +260,7 @@ function JobCard({ w }: { w: OpenWo }) {
         ) : <p className="text-amber-800">No spec rate for this machine and product yet.</p>}
       </div>
 
+      {qh && <p className="text-[11px] text-gray-600">Queued on this machine: <b>{Number(qh.hours ?? 0).toFixed(1)} h</b> for {Math.round(Number(qh.need_pcs)).toLocaleString()} pcs{qh.pph ? ` at ${Math.round(Number(qh.pph)).toLocaleString()}/hr (${qh.basis})` : ' · no rate'}</p>}
       <p className="text-[11px] text-gray-500">Booked so far: {done} {unit}</p>
     </li>
   )
@@ -304,6 +305,7 @@ export default function MachineStatusPage() {
   const [tab, setTab] = useState<'machines' | 'schedule'>('machines')
   const [openPlan, setOpenPlan] = useState<string | null>(null)
   const [molds, setMolds] = useState<Mold[]>([])
+  const [queue, setQueue] = useState<{ machine_id: string; work_order_id: string; need_pcs: number; pph: number | null; hours: number | null; basis: string }[]>([])
   // What each machine actually did over its last runs (from reported actuals). Used for estimates and plan targets.
   const [learned, setLearned] = useState<{ machine_id: string; child_sku: string | null; runs: number; pph: number; spec_pph: number | null }[]>([])
   const learnedFor = (mid: string) => { const md = molds.find(x => x.machine_id === mid); return learned.find(l => l.machine_id === mid && (l.child_sku || '') === (md?.child_sku || '')) }
@@ -354,6 +356,7 @@ export default function MachineStatusPage() {
     }
     const { data: dr } = await sb.from('machine_day_runs').select('run_date,machine_id,work_order_id,hours,start_time,created_at').gte('run_date', todayStr)
     setDayRuns((dr ?? []) as any[])
+    sb.rpc('machine_queue_load').then(({ data: ql }: any) => setQueue((ql ?? []) as any[]))
     loadPlanLines()
     const ids = open.map(x => x.id)
     const pids = [...new Set(open.map(x => x.product_id).filter(Boolean))] as string[]
@@ -412,7 +415,9 @@ export default function MachineStatusPage() {
     for (const w of wos) (map[w.machine_id] ||= []).push(w)
     return map
   }, [wos])
-  const hoursOf = (id: string) => (woByMachine[id] || []).reduce((s, w) => s + (Number(w.scheduled_hours) || 0), 0)
+  // Booked hours: scheduled hours when set, otherwise what's left on the work order divided by the machine's rate (machine_queue_load).
+  const queueHrs = (mid: string, wid: string) => queue.find(q => q.machine_id === mid && q.work_order_id === wid)
+  const hoursOf = (id: string) => (woByMachine[id] || []).reduce((s, w) => s + (Number(w.scheduled_hours) || Number(queueHrs(id, w.id)?.hours) || 0), 0)
 
   const shownSections = SECTIONS.filter(s => board === 'all' || s.boards.includes(board))
   const counts = { Running: 0, Paused: 0, Off: 0 }
@@ -737,7 +742,8 @@ export default function MachineStatusPage() {
                 {machines.map(m => {
                   const st = STATE[stateOf(m.status)]
                   const h = hoursOf(m.id)
-                  const pct = Math.min(100, Math.round(h / CAPACITY_HOURS * 100))
+                  const pctRaw = Math.round(h / CAPACITY_HOURS * 100)
+                  const pct = Math.min(100, pctRaw)
                   const jobs = woByMachine[m.id] || []
                   const barColor = pct >= 90 ? '#E5541B' : pct >= 70 ? '#E0A21B' : '#1E9E6A'
                   return (
@@ -758,7 +764,7 @@ export default function MachineStatusPage() {
                         </div>
                       )}
                       <div>
-                        <div className="flex justify-between text-[11px] text-gray-600"><span>{pct}% booked</span><span className="font-mono">{Math.max(0, CAPACITY_HOURS - h).toFixed(1)} h open</span></div>
+                        <div className="flex justify-between text-[11px] text-gray-600"><span className={pctRaw > 100 ? 'text-red-600 font-semibold' : ''}>{pctRaw}% booked</span><span className="font-mono">{h > CAPACITY_HOURS ? `${(h / CAPACITY_HOURS).toFixed(1)} days queued` : `${Math.max(0, CAPACITY_HOURS - h).toFixed(1)} h open`}</span></div>
                         <div className="h-2 rounded-full bg-[#E6ECE7] overflow-hidden mt-1"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} /></div>
                       </div>
                     </button>
@@ -793,7 +799,8 @@ export default function MachineStatusPage() {
                 <div className={st.glow}><MachineIcon kind={kindOf(m)} pct={Math.min(100, Math.round(h / CAPACITY_HOURS * 100))} color={st.color} size={72} /></div>
                 <div>
                   <p className={`text-sm font-bold ${st.text} flex items-center gap-2`}><span className={`w-2.5 h-2.5 rounded-full ${st.dot}`} />{st.label}</p>
-                  <p className="text-xs text-gray-600 mt-1">{h.toFixed(1)} h booked of {CAPACITY_HOURS} h today</p>
+                  <p className="text-xs text-gray-600 mt-1">{h.toFixed(1)} h queued of {CAPACITY_HOURS} h a day{h > CAPACITY_HOURS ? ` (about ${(h / CAPACITY_HOURS).toFixed(1)} days)` : ''}</p>
+                  <p className="text-[11px] text-gray-500">From what's left on the connected work orders at the {learnedFor(m.id) ? 'actual' : 'spec'} rate.</p>
                 </div>
               </div>
 
@@ -909,7 +916,7 @@ export default function MachineStatusPage() {
                 <h3 className="text-sm font-semibold text-[#1A1D2E] mb-2">Connected work orders ({jobs.length})</h3>
                 {jobs.length === 0 ? <p className="text-sm text-gray-500">None connected. Connect a work order from its production board.</p> : (
                   <ul className="flex flex-col gap-3">
-                    {jobs.map(w => <JobCard key={w.id} w={w} />)}
+                    {jobs.map(w => <JobCard key={w.id} w={w} qh={queueHrs(m.id, w.id)} />)}
                   </ul>
                 )}
               </div>
