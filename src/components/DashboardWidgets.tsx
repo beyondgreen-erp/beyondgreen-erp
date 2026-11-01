@@ -872,6 +872,7 @@ export default function DashboardShell() {
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
   const [unread, setUnread] = useState(0)
+  useEffect(() => { const on = (e: Event) => setUnread(Number((e as CustomEvent).detail) || 0); window.addEventListener('team-chat-unread', on); return () => window.removeEventListener('team-chat-unread', on) }, [])
   const openChat = (conversationId: string | null) => window.dispatchEvent(new CustomEvent('open-team-chat', { detail: { conversationId } }))
   // links like /?chat=<conversation> open the chat pop-up on that conversation
   useEffect(() => { const c = new URLSearchParams(window.location.search).get('chat'); if (c) setTimeout(() => openChat(c === 'full' ? null : c), 300) }, [])

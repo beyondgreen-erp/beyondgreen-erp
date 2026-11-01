@@ -442,6 +442,8 @@ export function ChatLauncher() {
     window.addEventListener('open-team-chat', onOpen); return () => window.removeEventListener('open-team-chat', onOpen)
   }, [])
   void isDashboard
+  // share the live unread count with the dashboard banner
+  useEffect(() => { window.dispatchEvent(new CustomEvent('team-chat-unread', { detail: unread })) }, [unread])
   const close = () => { setOpen(false); window.dispatchEvent(new Event('team-chat-closed')) }
   return (
     <>
