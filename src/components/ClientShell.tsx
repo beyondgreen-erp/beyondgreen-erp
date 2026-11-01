@@ -14,6 +14,7 @@ import { ToastProvider } from './Toast'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import AuthWatcher from './AuthWatcher'
 import UpdateWatcher from './UpdateWatcher'
+import MoneyGuard from './MoneyGuard'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -197,6 +198,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
       <ChatLauncher />
       <ChatAlerts />
+      <MoneyGuard />
       <PresenceTracker />
       <div className="md:hidden">
         <MobileNav />
