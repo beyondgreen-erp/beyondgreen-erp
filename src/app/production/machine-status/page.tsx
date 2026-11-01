@@ -289,6 +289,9 @@ export default function MachineStatusPage() {
   const [startWo, setStartWo] = useState('')
   const [stopOpen, setStopOpen] = useState(false)
   const [stopQty, setStopQty] = useState('')
+  // Board work orders: the operator reports actual per SKU (or child pieces when a mold is set).
+  const [stopLines, setStopLines] = useState<{ sku: string; product_name: string | null; uom: string | null; left_units: number }[]>([])
+  const [stopLineQty, setStopLineQty] = useState<Record<string, string>>({})
   const [stopNote, setStopNote] = useState('')
   const [stopBusy, setStopBusy] = useState(false)
   const [stopMsg, setStopMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -450,8 +453,17 @@ export default function MachineStatusPage() {
     const resuming = !!m.run_wo_id && m.run_wo_id === woId
     if (m.run_wo_id && !resuming) { alert('Stop the current run before starting another work order.'); return }
     const t = new Date().toISOString()
+    // Rate for the running estimate: the mold (cavities x 3600 / cycle) wins, then the product rate, then the machine's own rate.
+    let r = rate
+    const md = molds.find(x => x.machine_id === m.id)
+    if (md) r = md.cavities * 3600 / Number(md.cycle_sec)
+    else if (r == null) {
+      const { data } = await sb.rpc('rate_pieces_per_hour', { p_machine_id: m.id, p_product_id: null })
+      const row: any = Array.isArray(data) ? data[0] : data
+      if (row?.known) r = Number(row.pieces_per_hour)
+    }
     const patch: Record<string, unknown> = { run_started_at: t, status: 'Running', updated_at: t }
-    if (!resuming) { patch.run_wo_id = woId; patch.run_rate = rate; patch.run_elapsed_sec = 0 }
+    if (!resuming) { patch.run_wo_id = woId; patch.run_rate = r; patch.run_elapsed_sec = 0 }
     const { error } = await sb.from('machines').update(patch).eq('id', m.id)
     if (error) { alert('Could not start the run: ' + error.message); return }
     load()
@@ -462,7 +474,27 @@ export default function MachineStatusPage() {
     load()
   }
   // Stop books the operator's actual number to the work order and to inventory, converted to the finished good unit.
+  async function openStop(m: Machine) {
+    const next = !stopOpen
+    setStopOpen(next); setStopMsg(null); setStopLineQty({}); setStopQty('')
+    if (next && m.run_wo_id) {
+      const { data } = await sb.rpc('wo_open_lines', { p_wo: m.run_wo_id })
+      setStopLines(((data ?? []) as any[]).map(x => ({ sku: x.sku, product_name: x.product_name, uom: x.uom, left_units: Number(x.left_units) })))
+    }
+  }
   async function stopRun(m: Machine) {
+    const md = molds.find(x => x.machine_id === m.id)
+    if (md || stopLines.length) {
+      const lines = md ? [{ sku: md.child_sku, qty: Number(stopQty) }] : stopLines.map(l => ({ sku: l.sku, qty: Number(stopLineQty[l.sku] || 0) })).filter(l => l.qty > 0)
+      if (!lines.length || !(lines[0].qty > 0)) { setStopMsg({ ok: false, text: md ? `Enter the actual ${md.child_sku} pieces produced.` : 'Enter the actual quantity for at least one SKU.' }); return }
+      setStopBusy(true); setStopMsg(null)
+      const { data, error } = await sb.rpc('machine_run_stop_board', { p_machine_id: m.id, p_lines: lines, p_operator: operator.trim() || null, p_note: stopNote.trim() || null })
+      setStopBusy(false)
+      if (error) { setStopMsg({ ok: false, text: error.message }); return }
+      setStopMsg({ ok: true, text: String(data ?? 'Booked.') })
+      setStopQty(''); setStopNote(''); setStopLineQty({}); setStopOpen(false); load()
+      return
+    }
     const q = Number(stopQty)
     if (!(q > 0)) { setStopMsg({ ok: false, text: 'Enter the actual quantity produced, greater than zero.' }); return }
     setStopBusy(true); setStopMsg(null)
@@ -705,6 +737,12 @@ export default function MachineStatusPage() {
                         <div className={st.glow}><MachineIcon kind={kindOf(m)} pct={pct} color={barColor} size={64} /></div>
                         {jobs.length > 0 && <span className="absolute -top-1 right-2 min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#13201A] text-white text-[11px] font-bold flex items-center justify-center font-mono">{jobs.length}</span>}
                       </div>
+                      {m.run_wo_id && (
+                        <div className="rounded-lg bg-white/80 border border-amber-200 px-2 py-1 text-center" title="Estimate from the spec rate. Not added to inventory or the boards.">
+                          <p className="font-mono font-bold text-sm text-[#1A1D2E]">≈ {m.run_rate ? fmtNum(Number(m.run_rate) * elapsedSec(m) / 3600) : '—'} <span className="text-[10px] font-normal text-gray-500">{molds.find(x => x.machine_id === m.id)?.child_sku || ''} pcs est.</span></p>
+                          <p className="font-mono text-[10px] text-gray-500">{fmtHms(elapsedSec(m))}{m.run_rate ? '' : ' · no rate'}</p>
+                        </div>
+                      )}
                       <div>
                         <div className="flex justify-between text-[11px] text-gray-600"><span>{pct}% booked</span><span className="font-mono">{Math.max(0, CAPACITY_HOURS - h).toFixed(1)} h open</span></div>
                         <div className="h-2 rounded-full bg-[#E6ECE7] overflow-hidden mt-1"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} /></div>
@@ -767,20 +805,39 @@ export default function MachineStatusPage() {
                         <p className="text-sm text-[#1A1D2E]">{runWo ? woLabel(runWo) : 'WO-?'} · {runWo?.sku || runWo?.item_part_number || ''}</p>
                         <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
                           <p className="text-[11px] text-amber-900">Estimate from the spec rate, for information only. Not in inventory.</p>
-                          <p className="text-2xl font-bold font-mono text-[#1A1D2E]">{estPcs == null ? '—' : Math.floor(estPcs).toLocaleString()} <span className="text-xs font-normal text-gray-500">pcs</span></p>
+                          <p className="text-2xl font-bold font-mono text-[#1A1D2E]">{estPcs == null ? '—' : Math.floor(estPcs).toLocaleString()} <span className="text-xs font-normal text-gray-500">{molds.find(x => x.machine_id === m.id)?.child_sku ? molds.find(x => x.machine_id === m.id)!.child_sku + ' ' : ''}pcs</span></p>
                           <p className="text-xs text-gray-600 font-mono">{fmtHms(elapsedSec(m))} run time{m.run_rate ? ` · ${Math.round(Number(m.run_rate)).toLocaleString()} pcs/hr` : ' · no spec rate'}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           {mState === 'running'
                             ? <button onClick={() => pauseRun(m)} className="min-h-[52px] rounded-xl bg-amber-500 text-[#13201A] font-bold">Pause</button>
                             : <button onClick={() => startRun(m, m.run_wo_id as string, m.run_rate)} className="min-h-[52px] rounded-xl bg-emerald-600 text-white font-bold">Resume</button>}
-                          <button onClick={() => { setStopOpen(o => !o); setStopMsg(null) }} className="min-h-[52px] rounded-xl bg-red-600 text-white font-bold">Stop and book output</button>
+                          <button onClick={() => openStop(m)} className="min-h-[52px] rounded-xl bg-red-600 text-white font-bold">Stop and book output</button>
                         </div>
                         {stopOpen && (
                           <div className="flex flex-col gap-2 border-t border-[#E4E6EE] pt-3">
-                            <label className="text-xs text-gray-600">Actual produced ({runUnit})
-                              <input inputMode="decimal" value={stopQty} onChange={e => setStopQty(e.target.value)} className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
-                            </label>
+                            {(() => {
+                              const md = molds.find(x => x.machine_id === m.id)
+                              if (md) return (
+                                <label className="text-xs text-gray-600">Actual {md.child_sku} pieces produced (counted, not the estimate)
+                                  <input inputMode="numeric" value={stopQty} onChange={e => setStopQty(e.target.value)} className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
+                                  <span className="block mt-1 text-[11px] text-gray-500">Goes to {md.child_sku} on the inventory board. Pack-out into finished goods is logged on the production board.</span>
+                                </label>)
+                              if (stopLines.length) return (
+                                <div className="flex flex-col gap-2">
+                                  <p className="text-xs text-gray-600">Actual produced per SKU (counted, not the estimate). This is recorded on the production board and added to inventory.</p>
+                                  {stopLines.map(l => (
+                                    <label key={l.sku} className="text-xs text-gray-600 flex items-center gap-2">
+                                      <span className="flex-1"><span className="font-mono font-semibold text-[#1A1D2E]">{l.sku}</span><span className="block text-[10px] text-gray-500">{fmtNum(l.left_units)} {(l.uom || '').toLowerCase()} left</span></span>
+                                      <input inputMode="decimal" value={stopLineQty[l.sku] || ''} onChange={e => setStopLineQty(p => ({ ...p, [l.sku]: e.target.value }))} placeholder={(l.uom || 'qty').toLowerCase()} className="w-28 min-h-[40px] rounded-lg border border-[#E4E6EE] px-2 text-base text-[#1A1D2E]" />
+                                    </label>
+                                  ))}
+                                </div>)
+                              return (
+                                <label className="text-xs text-gray-600">Actual produced ({runUnit})
+                                  <input inputMode="decimal" value={stopQty} onChange={e => setStopQty(e.target.value)} className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
+                                </label>)
+                            })()}
                             <label className="text-xs text-gray-600">Note (optional)
                               <input value={stopNote} onChange={e => setStopNote(e.target.value)} className="mt-1 w-full min-h-[44px] rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E]" />
                             </label>
