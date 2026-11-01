@@ -475,6 +475,13 @@ export default function MachineStatusPage() {
     if (error) { alert('Could not start the run: ' + error.message); return }
     load()
   }
+  // Cancel a run (test or mistake): clears the run and books nothing to inventory, the boards or the learned rate.
+  async function cancelRun(m: Machine) {
+    if (!confirm(`Cancel the run on ${m.machine_code}? Nothing will be booked.`)) return
+    const { error } = await sb.from('machines').update({ run_wo_id: null, run_rate: null, run_started_at: null, run_elapsed_sec: 0, status: 'Idle', updated_at: new Date().toISOString() }).eq('id', m.id)
+    if (error) { alert('Could not cancel the run: ' + error.message); return }
+    setStopOpen(false); setStopMsg({ ok: true, text: `Run on ${m.machine_code} cancelled. Nothing was booked.` }); load()
+  }
   async function pauseRun(m: Machine) {
     const { error } = await sb.from('machines').update({ run_elapsed_sec: elapsedSec(m), run_started_at: null, status: 'Paused', updated_at: new Date().toISOString() }).eq('id', m.id)
     if (error) { alert('Could not pause the run: ' + error.message); return }
@@ -853,6 +860,7 @@ export default function MachineStatusPage() {
                             </button>
                           </div>
                         )}
+ <button onClick={() => cancelRun(m)} className="text-xs font-semibold text-gray-500 underline self-start">Cancel run (test or mistake, books nothing)</button>
                         {stopMsg && <p role="status" className={`text-xs ${stopMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{stopMsg.text}</p>}
                       </>
                     )}
