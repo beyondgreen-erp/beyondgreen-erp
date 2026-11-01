@@ -143,8 +143,7 @@ export default function MoneyGuard() {
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4" onClick={() => setAsk(false)}>
           <form onSubmit={submit} onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-3">
             <div className="text-3xl">🔒</div>
-            <h2 className="text-lg font-bold text-[#1A1D2E]">Dollar amounts are hidden</h2>
-            <p className="text-sm text-gray-500">Enter the money password to show prices, costs and revenue for the next {HOURS} hours on this tab.</p>
+            <h2 className="text-lg font-bold text-[#1A1D2E]">Request visibility</h2>
             <input ref={pwRef} type="password" autoComplete="off" defaultValue="" onChange={e => setPw(e.target.value)} placeholder="Money password"
               className="h-11 rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E] focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             {msg && <p className="text-xs text-red-600">{msg}</p>}
