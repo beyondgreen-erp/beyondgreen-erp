@@ -304,10 +304,15 @@ export default function MachineStatusPage() {
   const [tab, setTab] = useState<'machines' | 'schedule'>('machines')
   const [openPlan, setOpenPlan] = useState<string | null>(null)
   const [molds, setMolds] = useState<Mold[]>([])
+  // What each machine actually did over its last runs (from reported actuals). Used for estimates and plan targets.
+  const [learned, setLearned] = useState<{ machine_id: string; child_sku: string | null; runs: number; pph: number; spec_pph: number | null }[]>([])
+  const learnedFor = (mid: string) => { const md = molds.find(x => x.machine_id === mid); return learned.find(l => l.machine_id === mid && (l.child_sku || '') === (md?.child_sku || '')) }
   const [pieces, setPieces] = useState<string[]>([])
   async function loadMolds() {
     const { data } = await sb.from('machine_molds').select('machine_id,mold_name,child_sku,cavities,cycle_sec,notes')
     setMolds((data ?? []) as Mold[])
+    const { data: lr } = await sb.from('v_machine_learned_rate').select('machine_id,child_sku,runs,pph,spec_pph')
+    setLearned(((lr ?? []) as any[]).map(x => ({ ...x, pph: Number(x.pph), spec_pph: x.spec_pph == null ? null : Number(x.spec_pph) })))
   }
   useEffect(() => {
     loadMolds()
@@ -456,7 +461,9 @@ export default function MachineStatusPage() {
     // Rate for the running estimate: the mold (cavities x 3600 / cycle) wins, then the product rate, then the machine's own rate.
     let r = rate
     const md = molds.find(x => x.machine_id === m.id)
-    if (md) r = md.cavities * 3600 / Number(md.cycle_sec)
+    const lr = learnedFor(m.id)
+    if (lr) r = lr.pph
+    else if (md) r = md.cavities * 3600 / Number(md.cycle_sec)
     else if (r == null) {
       const { data } = await sb.rpc('rate_pieces_per_hour', { p_machine_id: m.id, p_product_id: null })
       const row: any = Array.isArray(data) ? data[0] : data
@@ -492,7 +499,7 @@ export default function MachineStatusPage() {
       setStopBusy(false)
       if (error) { setStopMsg({ ok: false, text: error.message }); return }
       setStopMsg({ ok: true, text: String(data ?? 'Booked.') })
-      setStopQty(''); setStopNote(''); setStopLineQty({}); setStopOpen(false); load()
+      setStopQty(''); setStopNote(''); setStopLineQty({}); setStopOpen(false); load(); loadMolds()
       return
     }
     const q = Number(stopQty)
@@ -849,6 +856,19 @@ export default function MachineStatusPage() {
                         {stopMsg && <p role="status" className={`text-xs ${stopMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{stopMsg.text}</p>}
                       </>
                     )}
+                  </div>
+                )
+              })()}
+
+              {(() => {
+                const lr = learnedFor(m.id)
+                const md = molds.find(x => x.machine_id === m.id)
+                const spec = md ? md.cavities * 3600 / Number(md.cycle_sec) : lr?.spec_pph ?? null
+                return (
+                  <div className="rounded-xl border border-[#E4E6EE] p-4 text-xs text-gray-600">
+                    <p className="text-sm font-semibold text-[#1A1D2E] mb-1">Actual output rate</p>
+                    {lr ? <p><b className="text-[#1A1D2E]">{fmtNum(lr.pph)} {md?.child_sku ? md.child_sku + ' ' : ''}pcs/hr</b> over the last {lr.runs} run{lr.runs === 1 ? '' : 's'}{spec ? ` · ${Math.round(lr.pph / spec * 100)}% of spec (${fmtNum(spec)}/hr)` : ''}. Estimates and plan targets use this.</p>
+                      : <p>No reported runs yet. Estimates use the spec rate until the operator books an actual. Each Stop updates this from the last 5 runs.</p>}
                   </div>
                 )
               })()}
