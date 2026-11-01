@@ -12,6 +12,7 @@
  * Everything here counts in CASES; each straw's "1 case = X" converts to its stocking unit.
  * Work orders are per PO (STR-<SO#>); a work order can also cover other POs that need the same straws.
  */
+import WoMachinePicker from '@/components/WoMachinePicker'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -38,7 +39,7 @@ const fmtTime = (s: string) => new Date(s).toLocaleTimeString('en-US', { hour: '
 const kOf = (std: any, pack: any) => num(std) > 0 && num(pack) > 0 && Math.abs(num(std) - num(pack)) > 1e-6 ? num(std) / num(pack) : 1
 const who = (e?: string | null) => (e || 'unknown').split('@')[0]
 
-interface WO { id: string; wo_code: string | null; status: string | null; start_date: string; due_date: string | null; qty_ordered: number | null; qty_completed: number | null }
+interface WO { id: string; wo_code: string | null; status: string | null; start_date: string; due_date: string | null; qty_ordered: number | null; qty_completed: number | null; machine_id?: string | null }
 interface Prog { work_order_id: string; sku: string; product_name: string | null; target_qty: number; made_qty: number; std_pcs?: number | null; pack_pcs?: number | null }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; kind: string; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null; pack_pcs?: number | null }
 interface Stock { sku: string; product_name: string; uom: string | null; per_case: number | null; free: number; released: number; built: number; on_hand_cases: number; total_cases: number; committed: number; short: number; erp_on_hand: number; erp_built: number }
@@ -84,7 +85,7 @@ export default function StrawProductionPage() {
     setLoadErr('')
     const [w, e, s, o, r, a] = await Promise.all([
       // Per-PO work orders: all open ones, plus ones closed in the last 30 days
-      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed,completed_at')
+      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed,completed_at,machine_id')
         .eq('form_type', 'straw_po').neq('status', 'Cancelled')
         .or(`status.not.in.(${WO_DONE.join(',')}),completed_at.gte.${addDays(today, -30)}`).order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
       sb.from('straw_production_entries').select('*').eq('kind', 'production').gte('production_date', week).lte('production_date', weekEnd)
@@ -292,6 +293,7 @@ export default function StrawProductionPage() {
                     {wo.due_date && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full ml-1 bg-[#F2F4F8] text-gray-600">ship {fmtDay(wo.due_date)}</span>}</p>
                   <div className="flex flex-wrap gap-1 mt-1">{pos.map(o => <a key={o.sales_order_id} href={`/sales/orders?item=${o.sales_order_id}`} className="text-[11px] px-2 py-0.5 rounded-full bg-[#EEF2FB] text-[#3A4A6B] hover:underline">{orderLabel(o)}</a>)}</div>
                   <p className="text-xs text-gray-500 mt-1">{fmtN(made)} of {fmtN(tgt)} cases made{tgt ? ` · ${Math.round((made / tgt) * 100)}%` : ''}</p>
+                  {!done && <WoMachinePicker sb={sb} woId={wo.id} woCode={wo.wo_code} value={wo.machine_id} board="straw" canEdit={canEdit} onSaved={m => { setFlash(m); reload() }} />}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {canEdit && !done && <button onClick={() => setNewWo({ addTo: wo.id })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">+ Add PO</button>}
