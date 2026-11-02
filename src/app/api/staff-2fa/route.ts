@@ -50,6 +50,14 @@ async function twoStepOn(admin: any) {
   return String(data?.value ?? 'on').replace(/"/g, '').trim() !== 'off'
 }
 
+/** emails that skip the emailed code (no real inbox, e.g. floor accounts). erp_settings.staff_2fa_exempt = ["a@b.com", ...] */
+async function exempt(admin: any, email: string) {
+  const { data } = await admin.from('erp_settings').select('value').eq('key', 'staff_2fa_exempt').maybeSingle()
+  let v: any = data?.value
+  if (typeof v === 'string') { try { v = JSON.parse(v) } catch { v = v.split(',') } }
+  return Array.isArray(v) && v.map((x: any) => String(x).trim().toLowerCase()).includes(email)
+}
+
 async function markVerified(admin: any, u: { id: string; email: string; sid: string }, method: string, deviceId: string | null) {
   await admin.from('staff_verified_sessions').upsert({ session_id: u.sid, user_id: u.id, email: u.email, device_id: deviceId, method, verified_at: new Date().toISOString(), revoked_at: null })
 }
@@ -72,6 +80,7 @@ export async function POST(req: NextRequest) {
   // Already verified this session, 2-step is off, or this device is remembered -> pass without a code.
   if (a === 'status') {
     if (!(await twoStepOn(admin))) { await markVerified(admin, sess, 'off', null); return okResponse(u.sid) }
+    if (await exempt(admin, u.email)) { await markVerified(admin, sess, 'exempt', null); return okResponse(u.sid) }
     // Accounts with no real mailbox (made through the ERP / Resend) can never receive the code.
     const { data: prof } = await admin.from('user_profiles').select('skip_2fa').ilike('email', u.email).maybeSingle()
     if (prof?.skip_2fa) { await markVerified(admin, sess, 'no_mailbox', null); return okResponse(u.sid) }
