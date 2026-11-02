@@ -14,10 +14,11 @@ export interface PbPrintLine {
   upc: string | null; gtin_image_url: string | null; customer_part: string | null; our_part: string | null
   case_size: string | null; case_weight: string | number | null; cases_per_pallet: number | null; color: string | null; print_color: string | null
   size: string | null; thickness: string | null; weight_g: number | null; special: string | null; by_order: PbPrintByOrder[]; bom: PbPrintBom[]
+  material?: string | null; gusset?: string | null; seal_type?: string | null; perforation?: string | null; print_plate?: string | null
 }
 export interface PbPrint {
   board: { key: string; title: string }
-  wo: { id: string; code: string | null; status: string | null; notes: string | null; start_date: string | null; due_date: string | null; created_at: string | null; operator: string | null; machine: string | null; printed_by: string | null }
+  wo: { id: string; code: string | null; status: string | null; notes: string | null; start_date: string | null; due_date: string | null; created_at: string | null; operator: string | null; machine: string | null; printed_by: string | null; supervisor?: string | null; scheduled_date?: string | null; scheduled_start?: string | null; shift?: string | null }
   orders: PbPrintOrder[]; lines: PbPrintLine[]
 }
 
@@ -114,15 +115,20 @@ export function buildPbWorkOrderPdf(d: PbPrint): jsPDF {
     row(['Sales Order #', uniq(ords.map(o => o.order_number)).join(', ')], ['Ship Date', fmtDate(ords.map(o => o.ship_date).filter(Boolean).sort()[0] || d.wo.due_date)])
     row(['Start Date', fmtDate(d.wo.start_date)], ['Due Date', fmtDate(d.wo.due_date)])
     row(['Operator', d.wo.operator || ''], ['Machine', d.wo.machine || ''])
+    if (d.wo.supervisor || d.wo.scheduled_date || d.wo.scheduled_start || d.wo.shift) row(['Supervisor', d.wo.supervisor || ''], ['Scheduled Start', [fmtDate(d.wo.scheduled_date), d.wo.scheduled_start ? String(d.wo.scheduled_start).slice(0, 5) : '', d.wo.shift ? `${d.wo.shift} shift` : ''].filter(Boolean).join(' · ')])
     bar('PRODUCT')
     row(['Item SKU', l.sku], ['Customer Part #', l.customer_part || ''])
     wide('Description', l.name || '')
     row(['Quantity to Make', `${fmt(units)} ${l.uom || ''}`], ['Cases', `${fmt(cm.cases)} cases (cajas) × ${fmt(cm.perCase, 0)} ${cm.label.toLowerCase()}`])
     row(['Size', l.size || ''], ['Thickness', l.thickness || ''])
     row(['Color', l.color || ''], ['Print', l.print_color || ''])
+    if (l.material || l.print_plate) row(['Material', l.material || ''], ['Artwork / Plate #', l.print_plate || ''])
+    if (l.gusset || l.seal_type || l.perforation) row(['Gusset', l.gusset || ''], ['Seal Type', l.seal_type || ''])
+    if (l.perforation) row(['Perforation', l.perforation])
     row(['Unit Weight (g)', fmt(l.weight_g, 3)], ['UPC / GTIN', l.upc || ''])
     row(['Case Size', l.case_size || ''], ['Cases / Pallet', fmt(l.cases_per_pallet, 0)])
     if (l.special) wide('Special Instructions', l.special)
+    if (d.wo.notes) wide('Notes', d.wo.notes)
     row(['Made so far', n(l.made) ? `${fmt(l.made)} ${l.uom || ''}` : ''], ['Lot #', ''])
     if (l.by_order.length) {
       bar('BY ORDER')

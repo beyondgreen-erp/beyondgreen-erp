@@ -15,9 +15,10 @@ export interface StrawPrintLine {
   case_size: string | null; case_weight: number | null; cases_per_pallet: number | null; color: string | null; print_color: string | null
   inner_diameter_mm: number | null; wall_thickness_mm: number | null; straw_length_in: number | null; straw_weight_g: number | null
   cycle: number | null; special: string | null; by_order: StrawPrintByOrder[]; bom: StrawPrintBom[]
+  wrapped?: string | null; wrapper_print?: string | null; print_plate?: string | null; upc_override?: string | null
 }
 export interface StrawPrint {
-  wo: { id: string; code: string | null; status: string | null; notes: string | null; start_date: string | null; due_date: string | null; created_at: string | null; operator: string | null; machine: string | null; printed_by: string | null }
+  wo: { id: string; code: string | null; status: string | null; notes: string | null; start_date: string | null; due_date: string | null; created_at: string | null; operator: string | null; machine: string | null; printed_by: string | null; supervisor?: string | null; scheduled_date?: string | null; scheduled_start?: string | null; shift?: string | null }
   orders: StrawPrintOrder[]; lines: StrawPrintLine[]
 }
 
@@ -122,8 +123,8 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
     row(['Straw Quantity', `${fmt(q.packs)} cases (cajas) × ${fmt(q.pack, 0)} pcs = ${fmt(q.pcs, 0)} pcs`], ['UOM', bi('Cases')])
     row(['Sales Order #', uniq(os.map(o => o.order_number)).join(', ')], ['Customer', uniq(os.map(o => o.customer)).join(', ')])
     row(['Customer PO', uniq(os.map(o => o.po_number)).join(', ')], ['Required Ship Date', uniq(os.map(o => fmtDate(o.ship_date))).join(', ') || fmtDate(d.wo.due_date)])
-    row(['Operator', d.wo.operator || ''], ['Supervisor', ''])
-    row(['Scheduled Start', ''], ['Status', d.wo.status || ''])
+    row(['Operator', d.wo.operator || ''], ['Supervisor', d.wo.supervisor || ''])
+    row(['Scheduled Start', [fmtDate(d.wo.scheduled_date), d.wo.scheduled_start ? String(d.wo.scheduled_start).slice(0, 5) : '', d.wo.shift ? `${d.wo.shift} shift` : ''].filter(Boolean).join(' · ')], ['Status', d.wo.status || ''])
 
     bar('Packing: use these counts on every case')
     row(['Pcs per Case', `${fmt(q.pack, 0)} pcs`], ['Cases to Pack', fmt(Math.ceil(q.packs - 1e-9), 0)])
@@ -139,12 +140,13 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
 
     bar('Product Specifications')
     const nm = (l.name || '').toLowerCase()
-    const wrapped = /unwrapped/.test(nm) ? 'No' : /wrapped/.test(nm) ? 'Yes (Sí)' : ''
+    const wr = l.wrapped || (/unwrapped/.test(nm) ? 'No' : /wrapped/.test(nm) ? 'Yes' : '')
+    const wrapped = wr === 'Yes' ? 'Yes (Sí)' : wr
     row(['Inner Diameter (mm)', fmt(l.inner_diameter_mm)], ['Straw Length (in)', fmt(l.straw_length_in)])
     row(['Wall Thickness (mm)', fmt(l.wall_thickness_mm)], ['Straw Weight (g)', fmt(l.straw_weight_g, 3)])
     row(['Straw Color', l.color || ''], ['Wrapper', wrapped])
-    row(['Wrapper Print', ''], ['Print Color', l.print_color || ''])
-    row(['Print Plate', ''], ['Customer Part #', l.customer_part || ''])
+    row(['Wrapper Print', l.wrapper_print || ''], ['Print Color', l.print_color || ''])
+    row(['Print Plate', l.print_plate || ''], ['Customer Part #', l.customer_part || ''])
 
     bar('Materials: record the lot number and actual quantity used')
     const gw = n(l.straw_weight_g)
@@ -183,7 +185,7 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
     y += 0.63
 
     bar('Production Record: completed on the floor')
-    row(['Shift', ''], ['Date Run', ''])
+    row(['Shift', d.wo.shift || ''], ['Date Run', ''])
     row(['Actual Start Time', ''], ['Actual Stop Time', ''])
     row(['Total Run Hours', ''], ['Good Cases Produced', ''])
     row(['Scrap / Reject Qty', ''], ['Scrap Reason', ''])

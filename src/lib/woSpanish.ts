@@ -34,7 +34,7 @@ export const ES: Record<string, string> = {
   'Actual Stop Time': 'Hora real de paro', 'Total Run Hours': 'Horas totales de producción', 'Good Cases Produced': 'Cajas buenas producidas',
   'Scrap / Reject Qty': 'Cantidad de desperdicio / rechazo', 'Scrap Reason': 'Motivo del desperdicio',
   'Operator (print & sign)': 'Operador (nombre y firma)', 'QC Check': 'Control de calidad', 'Quality Check': 'Control de calidad',
-  'Checked By': 'Revisado por', 'Completed By': 'Completado por',
+  'Checked By': 'Revisado por', 'Material': 'Material', 'Artwork / Plate #': 'Arte / placa #', 'Gusset': 'Fuelle', 'Seal Type': 'Tipo de sello', 'Perforation': 'Perforación', 'Notes': 'Notas', 'Completed By': 'Completado por',
   // table headings
   'SO #': 'Orden de venta #', 'Ordered': 'Pedido', 'Ship': 'Envío', 'Component': 'Componente', 'Basis': 'Base', 'Per': 'Por',
   'Needed': 'Necesario', 'Shift / Operator': 'Turno / Operador', 'Scrap': 'Desperdicio', 'Initials': 'Iniciales',
