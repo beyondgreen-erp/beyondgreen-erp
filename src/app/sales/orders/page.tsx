@@ -3106,7 +3106,7 @@ export default function OrdersPage() {
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody data-money-ok>
               {filtered.map((order, i) => {
                 const expanded = expandedIds.has(order.id)
                 const flagged = flaggedMap[order.id] ?? 0
@@ -3201,7 +3201,7 @@ export default function OrdersPage() {
                                     ))}
                                   </tr>
                                 </thead>
-                                <tbody>
+                                <tbody data-money-ok>
                                   <LinesTable orderId={order.id} onLineUpdated={() => {
                                     load() // refresh flagged counts
                                   }}/>
@@ -3284,7 +3284,7 @@ export default function OrdersPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody>
+                <tbody data-money-ok>
                   {completedOrders.map((order, i) => {
                     const expanded = expandedCompletedIds.has(order.id)
                     const custName = orderTitle(order)
@@ -3335,7 +3335,7 @@ export default function OrdersPage() {
                                       ))}
                                     </tr>
                                   </thead>
-                                  <tbody>
+                                  <tbody data-money-ok>
                                     <LinesTable orderId={order.id} onLineUpdated={load}/>
                                   </tbody>
                                 </table>

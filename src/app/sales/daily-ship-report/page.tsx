@@ -277,7 +277,7 @@ export default function DailyShipReportPage() {
                           <th className="w-8" />
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-[#EAECF2]">
+                      <tbody data-money-ok className="divide-y divide-[#EAECF2]">
                         {gr.map((r, i) => (
                           <tr key={r.id} className={`group mon-row ${i % 2 ? 'bg-[#F6F8FB]' : 'bg-white'}`} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(group.key, r.id)}>
                             <td className="text-center text-gray-300 group-hover:text-gray-500 cursor-grab" draggable onDragStart={e => { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; dragId.current = r.id }} onDragEnd={() => { setTimeout(() => { dragId.current = null }, 0) }}>&#8942;&#8942;</td>

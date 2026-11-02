@@ -1691,7 +1691,7 @@ export default function ShippingQueuePage() {
                       : pv.lines.length === 0 ? <p className="text-[11px] text-gray-500">Nothing: there is no BOM for {l.sku}.</p>
                       : (
                         <table className="w-full text-[11px]">
-                          <tbody>
+                          <tbody data-money-ok>
                             {pv.lines.map(b => (
                               <tr key={b.component_sku} className="align-top">
                                 <td className="pr-2 font-mono text-emerald-700 whitespace-nowrap">{b.component_sku}</td>
@@ -1745,7 +1745,7 @@ export default function ShippingQueuePage() {
                   <p className="font-semibold text-[#1A1D2E] text-sm">+{fmtQty(d.qty)} {d.sku} added to finished goods</p>
                   {d.consumed.length === 0 ? <p className="text-[11px] text-red-600 mt-1">No materials were deducted (no BOM on file).</p> : (
                     <table className="w-full text-[11px] mt-1">
-                      <tbody>
+                      <tbody data-money-ok>
                         {d.consumed.map((c: any) => (
                           <tr key={c.sku}>
                             <td className="pr-2 font-mono text-emerald-700">{c.sku}</td>
