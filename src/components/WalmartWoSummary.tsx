@@ -12,13 +12,14 @@ import { createPortal } from 'react-dom'
 import jsPDF from 'jspdf'
 import '@/lib/pdfSafeText'
 import autoTable from 'jspdf-autotable'
+import { bi, bi2, es, unitEs } from '@/lib/woSpanish'
 import { uploadFile } from '@/lib/fileHelpers'
 
 export type SummaryKind = 'walmart' | 'straw' | 'pb'
 const KINDS = {
-  walmart: { rpc: 'walmart_wo_summary', status: 'walmart_wo_set_status', board: 'Walmart Production', unit: 'SRP', po: 'PO', load: 'Load ', where: 'Where it went — by load and PO', claimed: 'Claimed' },
-  straw: { rpc: 'straw_wo_summary', status: 'straw_wo_set_status', board: 'Straw Production', unit: 'cases', po: 'PO', load: '', where: 'Where it went — by sales order', claimed: 'Built' },
-  pb: { rpc: 'pb_wo_summary', status: 'pb_wo_set_status', board: 'Production', unit: 'units', po: 'PO', load: '', where: 'Where it went — by sales order', claimed: 'Built' },
+  walmart: { rpc: 'walmart_wo_summary', status: 'walmart_wo_set_status', board: 'Walmart Production', unit: 'SRP', po: 'PO', load: 'Load ', where: 'Where it went: by load and PO', claimed: 'Claimed' },
+  straw: { rpc: 'straw_wo_summary', status: 'straw_wo_set_status', board: 'Straw Production', unit: 'cases', po: 'PO', load: '', where: 'Where it went: by sales order', claimed: 'Built' },
+  pb: { rpc: 'pb_wo_summary', status: 'pb_wo_set_status', board: 'Production', unit: 'units', po: 'PO', load: '', where: 'Where it went: by sales order', claimed: 'Built' },
 } as const
 interface Props { kind?: SummaryKind; sb: any; woId: string; mode: 'view' | 'close'; canEdit: boolean; userEmail: string; onClose: () => void; onClosedOut?: (msg: string) => void }
 type S = any
@@ -48,40 +49,41 @@ export function buildSummaryPdf(s: S, kind: SummaryKind = 'walmart'): jsPDF {
   const W = doc.internal.pageSize.getWidth()
   let y = 44
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text(`Work Order Close-out Summary — ${wo.code}`, 40, y)
+  y += 15; doc.setFont('helvetica', 'italic'); doc.setFontSize(11); doc.text(`${es('Work Order Close-out Summary')} — ${wo.code}`, 40, y)
   y += 16; doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110)
   const sub = doc.splitTextToSize(`beyondGREEN biotech · ${K.board} · Status: ${wo.status}${wo.completed_at ? ' (closed ' + dt(wo.completed_at) + ')' : ''} · ${wo.weeks_open} week${wo.weeks_open === 1 ? '' : 's'} open · Generated ${new Date(wo.generated_at).toLocaleString('en-US')} by ${wo.generated_by || '—'}`, W - 80)
   doc.text(sub, 40, y); y += (sub.length - 1) * 11
   doc.setTextColor(0); y += 14
   const head = { fillColor: [0, 113, 206] as [number, number, number], textColor: 255, fontStyle: 'bold' as const, fontSize: 8 }
-  const sec = (t: string) => { y = ((doc as any).lastAutoTable?.finalY ?? y) + 20; if (y > 700) { doc.addPage(); y = 44 } doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(t, 40, y); y += 6 }
-  const tbl = (headRow: string[], body: any[][], opts: any = {}) => autoTable(doc, { startY: y, head: [headRow], body: body.length ? body : [[{ content: 'None', colSpan: headRow.length, styles: { textColor: 120 } }]], styles: { fontSize: 8, cellPadding: 3 }, headStyles: head, margin: { left: 40, right: 40 }, ...opts })
+  const sec = (t0: string) => { const m = t0.match(/^(\d+\.\s*)(.*)$/); const t = m ? m[1] + bi(m[2]) : bi(t0); y = ((doc as any).lastAutoTable?.finalY ?? y) + 20; if (y > 700) { doc.addPage(); y = 44 } doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(t, 40, y); y += 6 }
+  const tbl = (headRow0: string[], body: any[][], opts: any = {}) => { const headRow = headRow0.map(h => bi2(h)); return autoTable(doc, { startY: y, head: [headRow], body: body.length ? body : [[{ content: bi('None'), colSpan: headRow.length, styles: { textColor: 120 } }]], styles: { fontSize: 8, cellPadding: 3 }, headStyles: head, margin: { left: 40, right: 40 }, ...opts }) }
 
   sec('1. Targets vs made')
-  tbl(['SKU', 'Product', 'Target', 'Made', 'Over / under'], (s.skus || []).map((k: any) => [k.sku, k.name || '', fmt(k.target), fmt(k.made), n(k.diff) === 0 ? 'On target' : (n(k.diff) > 0 ? '+' : '') + fmt(k.diff)]),
+  tbl(['SKU', 'Product', 'Target', 'Made', 'Over / under'], (s.skus || []).map((k: any) => [k.sku, k.name || '', fmt(k.target), fmt(k.made), n(k.diff) === 0 ? bi('On target') : (n(k.diff) > 0 ? '+' : '') + fmt(k.diff)]),
     { foot: [['Total', '', fmt((s.skus || []).reduce((a: number, k: any) => a + n(k.target), 0)), fmt((s.skus || []).reduce((a: number, k: any) => a + n(k.made), 0)), '']], footStyles: { fillColor: [240, 242, 246], textColor: 20, fontStyle: 'bold', fontSize: 8 } })
   sec('2. ' + K.where)
   const rows: any[][] = []
   for (const [load, list] of Array.from(d.byLoad.entries())) for (const p of list)
-    rows.push([load, p.po || '', p.sku, fmt(p.ordered), fmt(p.released), fmt(p.claimed), p.shipped ? 'Shipped' : (p.status || p.group || ''), p.shipped && n(p.released) < n(p.ordered) ? `Short ${fmt(n(p.ordered) - n(p.released))}` : !p.shipped && n(p.released) < n(p.ordered) ? `${fmt(n(p.ordered) - n(p.released))} open` : ''])
+    rows.push([load, p.po || '', p.sku, fmt(p.ordered), fmt(p.released), fmt(p.claimed), p.shipped ? bi('Shipped') : (p.status || p.group || ''), p.shipped && n(p.released) < n(p.ordered) ? `Short ${fmt(n(p.ordered) - n(p.released))}` : !p.shipped && n(p.released) < n(p.ordered) ? `${fmt(n(p.ordered) - n(p.released))} open` : ''])
   tbl([kind !== 'walmart' ? 'Order' : 'Load', K.po, 'SKU', 'Ordered', 'Released', K.claimed, 'Status', 'Flag'], rows)
   sec('3. Loose ends')
   const loose: any[][] = []
-  for (const k of d.under) loose.push(['Under target', k.sku, `${fmt(-n(k.diff))} ${K.unit} short of ${fmt(k.target)}`])
-  for (const u of d.unreleased) loose.push(['Made, not released', u.sku, `${fmt(u.available)} ${K.unit} sitting unreleased`])
-  for (const p of d.openPos) loose.push(['PO still open', `${p.po} · ${p.sku}`, `${fmt(n(p.ordered) - n(p.released))} of ${fmt(p.ordered)} not released (load ${p.load || '—'})`])
-  for (const p of d.shortShipped) loose.push(['Shipped short', `${p.po} · ${p.sku}`, `${fmt(n(p.ordered) - n(p.released))} short on load ${p.load || '—'}`])
-  for (const w of s.writeoffs || []) loose.push(['Written off', `${w.po} · ${w.sku}`, w.note || ''])
+  for (const k of d.under) loose.push([bi('Under target'), k.sku, `${fmt(-n(k.diff))} ${K.unit} short of ${fmt(k.target)}`])
+  for (const u of d.unreleased) loose.push([bi('Made, not released'), u.sku, `${fmt(u.available)} ${K.unit} sitting unreleased`])
+  for (const p of d.openPos) loose.push([bi('PO still open'), `${p.po} · ${p.sku}`, `${fmt(n(p.ordered) - n(p.released))} of ${fmt(p.ordered)} not released (load ${p.load || '—'})`])
+  for (const p of d.shortShipped) loose.push([bi('Shipped short'), `${p.po} · ${p.sku}`, `${fmt(n(p.ordered) - n(p.released))} short on load ${p.load || '—'}`])
+  for (const w of s.writeoffs || []) loose.push([bi('Written off'), `${w.po} · ${w.sku}`, w.note || ''])
   tbl(['Type', 'Item', 'Detail'], loose, { columnStyles: { 2: { cellWidth: 300 } } })
   sec('4. Who did the work')
-  tbl(['Person', 'Logs', K.unit + ' logged', 'Days'], (s.people || []).map((p: any) => [p.who, fmt(p.logs), fmt(p.qty), fmt(p.days)]))
-  if ((s.daily || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Date', 'Person', 'SKU', K.unit], (s.daily || []).map((r: any) => [dt(r.date), short(r.who), r.sku, fmt(r.qty)])) }
-  if ((s.voids || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Voided entry', 'SKU', K.unit, 'Logged by', 'Voided by', 'Reason'], (s.voids || []).map((v: any) => [dt(v.date), v.sku, fmt(v.qty), short(v.by), short(v.voided_by), v.reason || ''])) }
+  tbl(['Person', 'Logs', `${K.unit} logged\n${unitEs(K.unit)} registrados`, 'Days'], (s.people || []).map((p: any) => [p.who, fmt(p.logs), fmt(p.qty), fmt(p.days)]))
+  if ((s.daily || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Date', 'Person', 'SKU', `${K.unit}\n${unitEs(K.unit)}`], (s.daily || []).map((r: any) => [dt(r.date), short(r.who), r.sku, fmt(r.qty)])) }
+  if ((s.voids || []).length) { y = (doc as any).lastAutoTable.finalY + 8; tbl(['Voided entry', 'SKU', `${K.unit}\n${unitEs(K.unit)}`, 'Logged by', 'Voided by', 'Reason'], (s.voids || []).map((v: any) => [dt(v.date), v.sku, fmt(v.qty), short(v.by), short(v.voided_by), v.reason || ''])) }
   sec('5. Materials used (net of voids)')
   tbl(['Item', 'Description', 'UOM', 'Used'], (s.materials || []).map((m: any) => [m.sku, m.name || '', m.uom || '', fmt(m.used)]))
   sec('6. Dates')
-  tbl(['Week of', 'Due', 'First log', 'Last log', 'Closed', 'Weeks open'], [[dt(wo.start_date), dt(wo.due_date), dt(wo.first_log), dt(wo.last_log), wo.completed_at ? dt(wo.completed_at) : 'Open', String(wo.weeks_open)]])
+  tbl(['Week of', 'Due', 'First log', 'Last log', 'Closed', 'Weeks open'], [[dt(wo.start_date), dt(wo.due_date), dt(wo.first_log), dt(wo.last_log), wo.completed_at ? dt(wo.completed_at) : bi('Open'), String(wo.weeks_open)]])
   const pages = doc.getNumberOfPages()
-  for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(140); doc.text(`${wo.code} close-out summary · page ${i} of ${pages}`, W - 40, doc.internal.pageSize.getHeight() - 20, { align: 'right' }) }
+  for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(140); doc.text(`${wo.code} close-out summary (resumen de cierre) · page ${i} of ${pages} (página ${i} de ${pages})`, W - 40, doc.internal.pageSize.getHeight() - 20, { align: 'right' }) }
   return doc
 }
 
