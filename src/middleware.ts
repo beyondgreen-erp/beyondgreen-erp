@@ -50,6 +50,24 @@ function isPortalPath(pathname: string): boolean {
     /\.(?:png|jpe?g|gif|svg|ico|webp|css|js|woff2?|ttf|otf|map)$/i.test(pathname)
 }
 
+// ── Two-step sign-in (once per device) ────────────────────────────────────────
+// bg_sv = "<session_id>.<hmac>" set by /api/staff-2fa after the device is confirmed.
+function sessionIdOf(token?: string | null): string | null {
+  try {
+    const part = (token || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const p = JSON.parse(atob(part + '==='.slice((part.length + 3) % 4)))
+    return typeof p.session_id === 'string' ? p.session_id : null
+  } catch { return null }
+}
+async function svValid(sid: string, sig: string): Promise<boolean> {
+  try {
+    const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SUPABASE_SERVICE_ROLE_KEY || 'bg'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode('sv:' + sid)))
+    const hex = Array.from(mac).map(b => b.toString(16).padStart(2, '0')).join('')
+    return hex.length === sig.length && hex === sig
+  } catch { return false }
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const host = (request.headers.get('host') || '').toLowerCase().split(':')[0]
@@ -151,6 +169,20 @@ export async function middleware(request: NextRequest) {
     const url = new URL('/login', request.url)
     url.searchParams.set('error', 'unauthorized')
     return NextResponse.redirect(url)
+  }
+
+  // Confirm the device once with an emailed code; remembered devices pass straight through /verify.
+  if (!pathname.startsWith('/verify')) {
+    const { data: { session } } = await supabase.auth.getSession()
+    const sid = sessionIdOf(session?.access_token)
+    const sv = request.cookies.get('bg_sv')?.value || ''
+    const ok = !!sid && sv.startsWith(sid + '.') && await svValid(sid, sv.slice(sid.length + 1))
+    if (!ok) {
+      const v = new URL('/verify', request.url)
+      const dest = pathname + (request.nextUrl.search || '')
+      if (dest && dest !== '/') v.searchParams.set('next', dest)
+      return NextResponse.redirect(v)
+    }
   }
 
   return response
