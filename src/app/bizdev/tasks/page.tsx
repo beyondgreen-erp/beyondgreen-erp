@@ -564,7 +564,7 @@ function TicketWindow({ r, sb, team, customers, userEmail, me, resolveMember, cu
         {/* header */}
         <div className="flex items-start justify-between gap-3 px-6 py-4 text-white" style={{ background: ACCENT }}>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-white/80 text-xs"><TypeBadge type={r.ticket_type} small /><span className="font-bold tracking-wide">{r.ticket_key}</span><span>·</span><span>{r.ticket_type || 'Task'}</span>{r.customer_id && <><span>·</span><span>{customerName(r.customer_id)}</span></>}</div>
+            <div className="flex items-center gap-2 text-white/80 text-xs"><TypeBadge type={r.ticket_type} small /><span className="font-bold tracking-wide">{r.ticket_key}</span><TicketReference r={r} sb={sb} /><span>·</span><span>{r.ticket_type || 'Task'}</span>{r.customer_id && <><span>·</span><span>{customerName(r.customer_id)}</span></>}</div>
             {editTitle ? (
               <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onBlur={async () => { setEditTitle(false); if (title.trim() && title.trim() !== r.task_name) await onPatch({ task_name: title.trim() }, 'Title saved') }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setTitle(r.task_name); setEditTitle(false) } }}
                 className="mt-1 w-full bg-white/15 border border-white/40 rounded-lg px-2 py-1 text-lg font-bold text-white focus:outline-none" />
@@ -654,5 +654,62 @@ function TicketWindow({ r, sb, team, customers, userEmail, me, resolveMember, cu
         </div>
       </div>
     </div>
+  )
+}
+
+
+// "What was this again?" The board now answers it. ticket_origin() returns whatever we know
+// about where a ticket came from: the email, the work order, the health check, the old Monday
+// tracker, or simply who typed it in and when.
+function TicketReference({ r, sb }: { r: any; sb: any }) {
+  const [open, setOpen] = useState(false)
+  const [o, setO] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  async function show() {
+    setOpen(true)
+    if (o) return
+    setBusy(true)
+    const { data } = await sb.rpc('ticket_origin', { p_task_id: r.id })
+    setO(data)
+    setBusy(false)
+  }
+  return (
+    <>
+      <button type="button" onClick={show} title="Where did this ticket come from?"
+        className="ml-2 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/20 hover:bg-white/30">Reference</button>
+      {open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(26,32,53,0.55)' }} onClick={() => setOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 text-[#1B1D23]" onClick={(e) => e.stopPropagation()}>
+            <div className="text-[11px] font-semibold tracking-wide text-gray-400">WHERE THIS CAME FROM</div>
+            <h3 className="text-lg font-semibold mt-1 mb-3">{busy ? 'Looking it up...' : (o?.title || 'Nothing was recorded')}</h3>
+            {(o?.lines || []).map((l: any, i: number) => (
+              <div key={i} className="flex gap-3 py-1 border-b border-[#F1F3F7] text-sm">
+                <div className="w-32 shrink-0 text-gray-500">{l.label}</div>
+                <div className="font-medium break-words">{l.value}</div>
+              </div>
+            ))}
+            <div className="flex gap-3 py-1 border-b border-[#F1F3F7] text-sm">
+              <div className="w-32 shrink-0 text-gray-500">Raised by</div>
+              <div className="font-medium break-words">{o?.reporter || '-'}</div>
+            </div>
+            <div className="flex gap-3 py-1 text-sm">
+              <div className="w-32 shrink-0 text-gray-500">Opened</div>
+              <div className="font-medium">{o?.created_at ? new Date(o.created_at).toLocaleString() : '-'}</div>
+            </div>
+            {o?.first_comment && (
+              <div className="mt-3 p-3 rounded-lg bg-[#F8FAFC] text-sm">
+                <div className="text-[11px] text-gray-500 mb-1">First note, {o.first_comment.author}</div>
+                <div className="whitespace-pre-wrap">{o.first_comment.excerpt}</div>
+              </div>
+            )}
+            {o?.note && <p className="mt-3 text-xs text-gray-500">{o.note}</p>}
+            <div className="mt-4 flex gap-2 justify-end">
+              {o?.link && <a href={o.link} className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white" style={{ background: '#2BA84A' }}>Open the source</a>}
+              <button type="button" onClick={() => setOpen(false)} className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#EEF1F6]">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
