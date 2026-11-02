@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const sb = createSupabaseBrowserClient()
@@ -24,6 +24,25 @@ export default function LoginPage() {
   const [resetSent, setResetSent] = useState(false)
   const [resetLoading, setResetLoading] = useState(false)
   const [resetError, setResetError] = useState('')
+
+  // Invite and password-reset links land here with the session in the URL (#access_token=...&type=invite).
+  // Those users have no password yet, so send them straight to "Choose a password".
+  const [linkBusy, setLinkBusy] = useState(false)
+  useEffect(() => {
+    const h = new URLSearchParams((window.location.hash || '').replace(/^#/, ''))
+    const q = new URLSearchParams(window.location.search)
+    const type = h.get('type') || q.get('type')
+    if (h.get('error_description')) { setError(decodeURIComponent(h.get('error_description') || '').replace(/\+/g, ' ') + ' Ask Rudy to send a new invite.'); return }
+    if (!type || !['invite', 'recovery', 'signup', 'magiclink'].includes(type)) return
+    setLinkBusy(true)
+    let tries = 0
+    const go = async () => {
+      const { data } = await sb.auth.getSession()
+      if (data.session) { window.location.replace(type === 'magiclink' ? safeNext() : '/auth/update-password'); return }
+      if (++tries < 20) setTimeout(go, 250); else { setLinkBusy(false); setError('That link has expired or was already used. Use "Forgot password" below to get a new one.') }
+    }
+    go()
+  }, [])
 
   async function handleLogin() {
     setError('')
@@ -56,6 +75,8 @@ export default function LoginPage() {
 
   const inp: React.CSSProperties = { width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '11px 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box', color: '#0F1C2E', fontFamily: 'inherit' }
   const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: '#5A6E8A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }
+
+  if (linkBusy) return <div style={{ minHeight: '100vh', background: '#1A2035', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontFamily: 'inherit', fontSize: 15 }}>Setting up your account…</div>
 
   return (
     <div style={{ minHeight: '100vh', background: '#1A2035', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
