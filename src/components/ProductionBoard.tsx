@@ -13,6 +13,8 @@
  * Everything counts in each SKU's own stocking unit (packs, rolls, cases, pieces).
  */
 import WoMachinePicker, { machineFitsBoard } from '@/components/WoMachinePicker'
+import WoDetailsModal from '@/components/WoDetailsModal'
+import { applyWoDetails, loadWoDetails } from '@/lib/woDetails'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -80,6 +82,7 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
   const [showClosed, setShowClosed] = useState(false)
   const [newWo, setNewWo] = useState<{ order?: string; addTo?: string } | null>(null)
   const [fresh, setFresh] = useState<string | null>(null)
+  const [details, setDetails] = useState<{ id: string; code: string | null; isNew?: boolean } | null>(null)
   const [catalog, setCatalog] = useState<{ sku: string; product_name: string; unit_of_measure: string | null; case_qty: number | null }[]>([])
   const seq = useRef(0)
 
@@ -178,7 +181,7 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
   async function loadPrint(wo: WO): Promise<PbPrint | null> {
     const { data, error } = await sb.rpc('pb_wo_print', { p_wo: wo.id })
     if (error) { setFlash('⚠ ' + error.message); return null }
-    return data as PbPrint
+    return applyWoDetails(data as PbPrint, await loadWoDetails(sb, wo.id))
   }
   async function printWo(wo: WO) {
     setBusy(true)
@@ -278,7 +281,8 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
         </div>}
         {(() => { const fw = fresh && wos.find(w => w.id === fresh); return fw ? (
           <div className="rounded-xl border-2 p-3 mb-3 flex flex-wrap items-center gap-2" style={{ borderColor: ACCENT, background: ACCENT + '0D' }}>
-            <p className="flex-1 text-sm text-[#1A1D2E]"><b>{fw.wo_code}</b> is ready. Print the work order for the floor and the 4×6 case labels.</p>
+            <p className="flex-1 text-sm text-[#1A1D2E]"><b>{fw.wo_code}</b> is ready. Add the job details (print, specs, operator…), then print the work order and the 4×6 case labels.</p>
+            <button onClick={() => setDetails({ id: fw.id, code: fw.wo_code })} className="h-9 px-3 rounded-lg text-xs font-bold border-2 bg-white" style={{ borderColor: ACCENT, color: ACCENT }}>✎ Details</button>
             <button onClick={() => printWo(fw)} disabled={busy} className="h-9 px-3 rounded-lg text-xs font-bold text-white" style={{ background: ACCENT }}>🖨 Download work order</button>
             <button onClick={() => printLabels(fw)} disabled={busy} className="h-9 px-3 rounded-lg text-xs font-bold text-white" style={{ background: ACCENT }}>🏷 Download case labels</button>
             <button onClick={() => setFresh(null)} className="text-gray-400 text-xl px-1" aria-label="Dismiss">&times;</button>
@@ -303,6 +307,7 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
                 <div className="flex flex-wrap gap-2">
                   {canEdit && !done && pos.length > 0 && <button onClick={() => setNewWo({ addTo: wo.id })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">+ Add PO</button>}
                   {canEdit && !done && <button onClick={() => setEditTargets(editTargets === wo.id ? null : wo.id)} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">{editTargets === wo.id ? 'Done editing' : '✎ Targets'}</button>}
+                  <button onClick={() => setDetails({ id: wo.id, code: wo.wo_code })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>✎ Details</button>
                   <button onClick={() => printWo(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>🖨 Work order</button>
                   <button onClick={() => printLabels(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>🏷 Case labels</button>
                   <button onClick={() => setSum({ id: wo.id, mode: 'view' })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>📄 Summary</button>
@@ -455,7 +460,8 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
       {releaseFor && <ReleaseModal sb={sb} cfg={cfg} line={releaseFor} free={num(stock.find(s => s.sku === releaseFor.sku)?.free)} onClose={() => setReleaseFor(null)}
         onDone={m => { setReleaseFor(null); setFlash(m); reload() }} />}
       {newWo && <NewWoModal sb={sb} cfg={cfg} orders={orders} wos={openWos} start={newWo.order} addTo={newWo.addTo} prog={prog} onClose={() => setNewWo(null)}
-        onDone={(m, id) => { setNewWo(null); setFlash(m); setTab('production'); if (id) { setFresh(id); setEditTargets(m.toLowerCase().includes('stock build') ? id : null) } reload() }} />}
+        onDone={(m, id) => { setNewWo(null); setFlash(m); setTab('production'); if (id) { const stockBuild = m.toLowerCase().includes('stock build'); setFresh(id); setEditTargets(stockBuild ? id : null); if (!stockBuild) setDetails({ id, code: null, isNew: true }) } reload() }} />}
+      {details && cfg && <WoDetailsModal sb={sb} kind="pb" boardKey={cfg.key} woId={details.id} woCode={details.code || wos.find(w => w.id === details.id)?.wo_code || null} accent={ACCENT} canEdit={canEdit} isNew={details.isNew} onClose={() => setDetails(null)} onSaved={m => { setDetails(null); setFlash(m); reload() }} />}
       {sum && <WalmartWoSummary kind="pb" sb={sb} woId={sum.id} mode={sum.mode} canEdit={canEdit} userEmail={me} onClose={() => setSum(null)} onClosedOut={m => { setSum(null); setFlash(m); reload() }} />}
     </div>
   )
@@ -497,8 +503,10 @@ function LogSheet({ sb, cfg, catalog, stock, wos, prog, today, itemWord, onClose
   const [err, setErr] = useState('')
   const set = (i: number, p: Partial<{ sku: string; qty: string }>) => setRows(r => r.map((x, j) => j === i ? { ...x, ...p } : x))
   // items on the chosen work order first, then the rest of the category
+  // only the items on the chosen work order (or on any open work order when Auto)
   const onWo = new Set(prog.filter(p => (woId ? p.work_order_id === woId : wos.some(w => w.id === p.work_order_id))).map(p => p.sku))
-  const opts = [...catalog.filter(c => onWo.has(c.sku.toUpperCase())), ...catalog.filter(c => !onWo.has(c.sku.toUpperCase()))]
+  const opts = catalog.filter(c => onWo.has(c.sku.toUpperCase()))
+  useEffect(() => { setRows(rs => rs.map(r => (r.sku && !onWo.has(r.sku.toUpperCase()) ? { ...r, sku: '' } : r))) }, [woId]) // eslint-disable-line
   async function save() {
     setErr('')
     const good = rows.filter(r => r.sku && Number(r.qty) > 0)
@@ -532,8 +540,8 @@ function LogSheet({ sb, cfg, catalog, stock, wos, prog, today, itemWord, onClose
           return (
             <div key={i} className="rounded-xl border border-[#ECEEF3] p-3 space-y-2">
               <select value={r.sku} onChange={e => set(i, { sku: e.target.value })} className={inp}>
-                <option value="">Pick a {itemWord}…</option>
-                {opts.map(s => <option key={s.sku} value={s.sku}>{onWo.has(s.sku.toUpperCase()) ? '★ ' : ''}{s.sku} — {s.product_name}</option>)}
+                <option value="">{opts.length ? `Pick a ${itemWord} on this work order…` : `No ${itemWord}s on this work order`}</option>
+                {opts.map(s => <option key={s.sku} value={s.sku}>{s.sku} — {s.product_name}</option>)}
               </select>
               <div className="flex items-center gap-2">
                 <input inputMode="decimal" value={r.qty} onChange={e => set(i, { qty: e.target.value.replace(/[^0-9.]/g, '') })} placeholder={c ? `${u(c.unit_of_measure)} made` : 'Quantity made'} className={inp} />
