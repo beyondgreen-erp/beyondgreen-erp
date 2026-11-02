@@ -2,6 +2,7 @@
 // and the 4x6 case labels. Data comes from the straw_wo_print(p_wo) RPC.
 import { jsPDF } from 'jspdf'
 import '@/lib/pdfSafeText'
+import { bi, biBar, drawBiLabel, drawBiHead } from '@/lib/woSpanish'
 import JsBarcode from 'jsbarcode'
 import { loadBarcodePng } from '@/lib/shipping/labels'
 
@@ -52,36 +53,35 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
   const lines = d.lines.length ? d.lines : []
   const ensure = (h: number) => { if (y + h > BOTTOM) { doc.addPage('letter', 'portrait'); y = 0.5 } }
   const bar = (t: string) => {
-    ensure(0.55)
+    ensure(0.95)
     doc.setFillColor(...GREEN); doc.rect(L, y, W, 0.24, 'F')
     doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
-    doc.text(t, L + 0.06, y + 0.165); doc.setTextColor(0, 0, 0)
+    doc.text(biBar(t), L + 0.06, y + 0.165); doc.setTextColor(0, 0, 0)
     y += 0.3
   }
   // one label/value pair; blank values print as a cream fill-in box
   const cell = (x: number, w: number, label: string, value: string) => {
-    const lw = 1.05
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(70, 75, 90)
-    doc.text(doc.splitTextToSize(label, lw - 0.05) as string[], x, y + 0.13)
+    const lw = 1.4
+    drawBiLabel(doc, label, x, y, lw - 0.06)
     const vx = x + lw, vw = w - lw - 0.08
-    if (!value) { doc.setFillColor(...CREAM); doc.rect(vx, y, vw, 0.26, 'F') }
-    doc.setDrawColor(...RULE); doc.setLineWidth(0.008); doc.line(vx, y + 0.26, vx + vw, y + 0.26)
+    if (!value) { doc.setFillColor(...CREAM); doc.rect(vx, y, vw, 0.25, 'F') }
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.008); doc.line(vx, y + 0.25, vx + vw, y + 0.25)
     doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
     if (value) doc.text((doc.splitTextToSize(value, vw - 0.04) as string[])[0] || '', vx + 0.03, y + 0.18)
   }
   const row = (a: [string, string], b?: [string, string]) => {
     ensure(0.32)
     cell(L, W / 2, a[0], a[1]); if (b) cell(L + W / 2, W / 2, b[0], b[1])
-    y += 0.31
+    y += 0.29
   }
-  const wide = (label: string, value: string) => { ensure(0.32); cell(L, W, label, value); y += 0.31 }
+  const wide = (label: string, value: string) => { ensure(0.32); cell(L, W, label, value); y += 0.29 }
   const table = (head: string[], widths: number[], rows: string[][], blankRows = 0) => {
     const rh = 0.22
-    ensure(rh * (1 + Math.min(rows.length + blankRows, 4)))
-    doc.setFillColor(90, 96, 112); doc.rect(L, y, W, rh, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.2)
-    let x = L; head.forEach((h, i) => { doc.text(h, x + widths[i] * W / 2, y + 0.15, { align: 'center' }); x += widths[i] * W })
-    doc.setTextColor(0, 0, 0); y += rh
+    const hh = 0.34
+    ensure(hh + rh * Math.min(rows.length + blankRows, 4))
+    doc.setFillColor(90, 96, 112); doc.rect(L, y, W, hh, 'F')
+    let x = L; head.forEach((h, i) => { drawBiHead(doc, h, x, y + 0.02, widths[i] * W, 'center', [255, 255, 255]); x += widths[i] * W })
+    doc.setTextColor(0, 0, 0); y += hh
     const all = [...rows, ...Array.from({ length: blankRows }, () => head.map(() => ''))]
     all.forEach(r => {
       ensure(rh)
@@ -107,43 +107,46 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
     const custom = q.pack && q.std && Math.abs(q.pack - q.std) > 0.001
     // header
     doc.setTextColor(...GREEN); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-    doc.text('beyondGREEN  —  Straw Conversion Work Order', 4.25, y + 0.1, { align: 'center' })
+    doc.text('beyondGREEN  —  Straw Conversion Work Order', 4.25, y + 0.05, { align: 'center' })
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(10)
+    doc.text('Orden de trabajo de conversión de popotes', 4.25, y + 0.24, { align: 'center' })
     doc.setTextColor(110, 115, 130); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
-    doc.text('OP_004 REV_A   ·   Production Work Order   ·   1202 E Wakeham Ave, Santa Ana, CA 92705', 4.25, y + 0.32, { align: 'center' })
+    doc.text('OP_004 REV_A   ·   Production Work Order (Orden de trabajo de producción)   ·   1202 E Wakeham Ave, Santa Ana, CA 92705', 4.25, y + 0.42, { align: 'center' })
     doc.setTextColor(0, 0, 0)
-    y += 0.5
+    y += 0.58
 
     bar('Work Order')
     row(['Date', fmtDate(d.wo.start_date || d.wo.created_at)], ['Machine #', d.wo.machine || ''])
     row(['Work Order #', d.wo.code || ''], ['Item Part # (SKU)', l.sku])
     wide('Description', l.name || '')
-    row(['Straw Quantity', `${fmt(q.packs)} cases × ${fmt(q.pack, 0)} pcs = ${fmt(q.pcs, 0)} pcs`], ['UOM', 'Cases'])
+    row(['Straw Quantity', `${fmt(q.packs)} cases (cajas) × ${fmt(q.pack, 0)} pcs = ${fmt(q.pcs, 0)} pcs`], ['UOM', bi('Cases')])
     row(['Sales Order #', uniq(os.map(o => o.order_number)).join(', ')], ['Customer', uniq(os.map(o => o.customer)).join(', ')])
     row(['Customer PO', uniq(os.map(o => o.po_number)).join(', ')], ['Required Ship Date', uniq(os.map(o => fmtDate(o.ship_date))).join(', ') || fmtDate(d.wo.due_date)])
     row(['Operator', d.wo.operator || ''], ['Supervisor', ''])
     row(['Scheduled Start', ''], ['Status', d.wo.status || ''])
 
-    bar('Packing — use these counts on every case')
+    bar('Packing: use these counts on every case')
     row(['Pcs per Case', `${fmt(q.pack, 0)} pcs`], ['Cases to Pack', fmt(Math.ceil(q.packs - 1e-9), 0)])
     row(['Case Labels Needed', fmt(Math.ceil(q.packs - 1e-9), 0)], ['Case Size', custom ? '' : (l.case_size || '')])
     row(['Case Weight (lb)', custom ? '' : fmt(l.case_weight)], ['Cases per Pallet', custom ? '' : fmt(l.cases_per_pallet, 0)])
     if (custom) {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(180, 83, 9)
-      ensure(0.22)
+      ensure(0.36)
       doc.text(`Customer case size: ${fmt(q.pack, 0)} pcs per case (our standard case is ${fmt(q.std, 0)}). Pack to the customer's count.`, L, y + 0.12)
-      doc.setTextColor(0, 0, 0); y += 0.22
+      doc.setFont('helvetica', 'italic'); doc.text(`Tamaño de caja del cliente: ${fmt(q.pack, 0)} piezas por caja (nuestra caja estándar es de ${fmt(q.std, 0)}). Empaque según la cantidad del cliente.`, L, y + 0.26)
+      doc.setTextColor(0, 0, 0); y += 0.36
     }
 
     bar('Product Specifications')
     const nm = (l.name || '').toLowerCase()
-    const wrapped = /unwrapped/.test(nm) ? 'No' : /wrapped/.test(nm) ? 'Yes' : ''
+    const wrapped = /unwrapped/.test(nm) ? 'No' : /wrapped/.test(nm) ? 'Yes (Sí)' : ''
     row(['Inner Diameter (mm)', fmt(l.inner_diameter_mm)], ['Straw Length (in)', fmt(l.straw_length_in)])
     row(['Wall Thickness (mm)', fmt(l.wall_thickness_mm)], ['Straw Weight (g)', fmt(l.straw_weight_g, 3)])
     row(['Straw Color', l.color || ''], ['Wrapper', wrapped])
     row(['Wrapper Print', ''], ['Print Color', l.print_color || ''])
     row(['Print Plate', ''], ['Customer Part #', l.customer_part || ''])
 
-    bar('Materials & Bill of Materials  —  record the lot number and actual quantity used')
+    bar('Materials: record the lot number and actual quantity used')
     const gw = n(l.straw_weight_g)
     const roleName = (r: string | null) => ({ rm: 'Raw material', color: 'Color', additive: 'Additive', packaging: 'Packaging' } as Record<string, string>)[String(r || '').toLowerCase()] || String(r || '').replace(/_/g, ' ')
     table(['Material (role)', 'Component SKU', 'Description', 'Basis', 'Qty', 'Req. (lb)', 'Lot / Batch #', 'Used'],
@@ -159,7 +162,7 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
     const hours = n(l.cycle) && meters ? meters / n(l.cycle) / 60 : 0
     row(['Ext. Cycle Time (M/Min)', fmt(l.cycle)], ['Straws Needed', fmt(q.pcs, 0)])
     row(['Extruded Length (M)', meters ? fmt(meters, 1) : ''], ['Production Hours', hours ? fmt(hours) : ''])
-    row(['Total Resin (lb)', gw ? fmt((q.pcs * gw) / 453.592) : ''], ['Made so far', n(l.made_std) ? `${fmt(n(l.made_std) * q.std / (q.pack || 1))} cases` : ''])
+    row(['Total Resin (lb)', gw ? fmt((q.pcs * gw) / 453.592) : ''], ['Made so far', n(l.made_std) ? `${fmt(n(l.made_std) * q.std / (q.pack || 1))} cases (cajas)` : ''])
 
     if (l.by_order.length) {
       bar('Orders on this work order')
@@ -172,14 +175,14 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
     }
 
     bar('Special Notes / Set-Up Instructions')
-    const notes = [d.wo.notes, l.special, custom ? `Pack ${fmt(q.pack, 0)} pcs per case for this order.` : ''].filter(Boolean).join('  ·  ')
+    const notes = [d.wo.notes, l.special, custom ? `Pack ${fmt(q.pack, 0)} pcs per case for this order (empaque ${fmt(q.pack, 0)} piezas por caja para esta orden).` : ''].filter(Boolean).join('  ·  ')
     ensure(0.6)
     doc.setFillColor(...CREAM); doc.rect(L, y, W, 0.55, 'F'); doc.setDrawColor(...RULE); doc.rect(L, y, W, 0.55)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
     if (notes) doc.text((doc.splitTextToSize(notes, W - 0.1) as string[]).slice(0, 4), L + 0.05, y + 0.15)
     y += 0.63
 
-    bar('Production Record  —  completed on the floor')
+    bar('Production Record: completed on the floor')
     row(['Shift', ''], ['Date Run', ''])
     row(['Actual Start Time', ''], ['Actual Stop Time', ''])
     row(['Total Run Hours', ''], ['Good Cases Produced', ''])
@@ -189,7 +192,7 @@ export function buildStrawWorkOrderPdf(d: StrawPrint): jsPDF {
     row(['Supervisor', ''], ['QC Check', ''])
 
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8); doc.setTextColor(120, 125, 140)
-    doc.text(`Shaded cells are filled in on the floor. ${d.wo.code || ''} · printed ${new Date().toLocaleString('en-US')}${d.wo.printed_by ? ' by ' + d.wo.printed_by.split('@')[0] : ''} · log production on the Straw board when done.`, L, Math.min(y + 0.1, 11 - 0.25))
+    doc.text(doc.splitTextToSize(`Shaded cells are filled in on the floor (las celdas sombreadas se llenan en planta). ${d.wo.code || ''} · printed ${new Date().toLocaleString('en-US')}${d.wo.printed_by ? ' by ' + d.wo.printed_by.split('@')[0] : ''} · log production on the Straw board when done.`, W) as string[], L, Math.min(y + 0.1, 11 - 0.35))
     doc.setTextColor(0, 0, 0)
   }
 

@@ -3,6 +3,7 @@
 // Data comes from the pb_wo_print(p_wo) RPC. Quantities are in each SKU's own stocking unit.
 import { jsPDF } from 'jspdf'
 import '@/lib/pdfSafeText'
+import { bi, biBar, drawBiLabel, drawBiHead, es, unitEs } from '@/lib/woSpanish'
 import { buildStrawCaseLabels, planLabels as planStrawLabels, type StrawPrint } from '@/lib/strawWoDocs'
 
 export interface PbPrintOrder { id: string; order_number: string | null; po_number: string | null; customer: string | null; ship_to: string | null; ship_date: string | null; status: string | null }
@@ -51,30 +52,32 @@ const RULE: [number, number, number] = [150, 160, 180]
 
 export function buildPbWorkOrderPdf(d: PbPrint): jsPDF {
   const doc = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' })
-  const L = 0.45, R = 8.5 - 0.45, W = R - L, BOTTOM = 11 - 0.5
+  const L = 0.45, R = 8.5 - 0.45, W = R - L, BOTTOM = 11 - 0.32
   let y = 0
   const ensure = (h: number) => { if (y + h > BOTTOM) { doc.addPage('letter', 'portrait'); y = 0.5 } }
   const bar = (t: string) => {
-    ensure(0.55)
+    ensure(0.95)
     doc.setFillColor(...GREEN); doc.rect(L, y, W, 0.24, 'F')
     doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
-    doc.text(t, L + 0.06, y + 0.165); doc.setTextColor(0, 0, 0)
+    doc.text(biBar(t), L + 0.06, y + 0.165); doc.setTextColor(0, 0, 0)
     y += 0.3
   }
   const cell = (x: number, w: number, label: string, value: string) => {
-    const lw = 1.15
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(70, 75, 90)
-    doc.text(doc.splitTextToSize(label, lw - 0.05) as string[], x, y + 0.13)
+    const lw = 1.4
+    drawBiLabel(doc, label, x, y, lw - 0.06)
     const vx = x + lw, vw = w - lw - 0.08
-    if (!value) { doc.setFillColor(...CREAM); doc.rect(vx, y, vw, 0.26, 'F') }
-    doc.setDrawColor(...RULE); doc.setLineWidth(0.008); doc.line(vx, y + 0.26, vx + vw, y + 0.26)
+    if (!value) { doc.setFillColor(...CREAM); doc.rect(vx, y, vw, 0.25, 'F') }
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.008); doc.line(vx, y + 0.25, vx + vw, y + 0.25)
     doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
     if (value) doc.text((doc.splitTextToSize(value, vw - 0.04) as string[])[0] || '', vx + 0.03, y + 0.18)
   }
-  const row = (a: [string, string], b?: [string, string]) => { ensure(0.32); cell(L, W / 2, a[0], a[1]); if (b) cell(L + W / 2, W / 2, b[0], b[1]); y += 0.31 }
-  const wide = (label: string, value: string) => { ensure(0.32); cell(L, W, label, value); y += 0.31 }
-  const table = (head: string[], widths: number[], rows: string[][], blankRows = 0) => {
+  const row = (a: [string, string], b?: [string, string]) => { ensure(0.32); cell(L, W / 2, a[0], a[1]); if (b) cell(L + W / 2, W / 2, b[0], b[1]); y += 0.29 }
+  const wide = (label: string, value: string) => { ensure(0.32); cell(L, W, label, value); y += 0.29 }
+  const table = (head: string[], widths: number[], rows: string[][], blankRows = 0, headEs: string[] = []) => {
     const rh = 0.22
+    // two-line heading: English over Spanish
+    ensure(0.34 + rh)
+    { let hx = L; head.forEach((h, i) => { const w = widths[i] * W; doc.setFillColor(232, 240, 235); doc.rect(hx, y, w, 0.34, 'F'); doc.setDrawColor(...RULE); doc.setLineWidth(0.006); doc.rect(hx, y, w, 0.34); drawBiHead(doc, h, hx, y + 0.02, w, 'left', [0, 0, 0], headEs[i]); hx += w }); y += 0.34 }
     const draw = (cells: string[], bold: boolean, fill?: [number, number, number]) => {
       ensure(rh)
       let x = L
@@ -88,7 +91,6 @@ export function buildPbWorkOrderPdf(d: PbPrint): jsPDF {
       })
       y += rh
     }
-    draw(head, true, [232, 240, 235])
     rows.forEach(r => draw(r, false))
     for (let i = 0; i < blankRows; i++) draw(head.map(() => ''), false, CREAM)
     y += 0.1
@@ -99,22 +101,23 @@ export function buildPbWorkOrderPdf(d: PbPrint): jsPDF {
     y = 0.45
     const units = n(l.target), cm = caseMath(l, units)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-    doc.text(`beyondGREEN  —  ${d.board.title} Work Order`, 4.25, y + 0.1, { align: 'center' })
+    doc.text(`beyondGREEN  —  ${d.board.title} Work Order`, 4.25, y + 0.05, { align: 'center' })
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(10); doc.text('Orden de trabajo', 4.25, y + 0.24, { align: 'center' })
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
-    doc.text('beyondGREEN Biotech, Inc.  ·  1202 E. Wakeham Ave., Santa Ana, CA 92705', 4.25, y + 0.3, { align: 'center' })
-    y += 0.5
+    doc.text('beyondGREEN Biotech, Inc.  ·  1202 E. Wakeham Ave., Santa Ana, CA 92705', 4.25, y + 0.4, { align: 'center' })
+    y += 0.58
     bar('WORK ORDER')
     const os = d.orders.filter(o => l.by_order.some(b => b.order_number === o.order_number))
     const ords = os.length ? os : d.orders
     row(['Work Order #', d.wo.code || ''], ['Status', d.wo.status || ''])
-    row(['Customer', uniq(ords.map(o => o.customer)).join(', ') || (d.orders.length ? '' : 'Stock build')], ['PO #', uniq(ords.map(o => o.po_number)).join(', ')])
+    row(['Customer', uniq(ords.map(o => o.customer)).join(', ') || (d.orders.length ? '' : bi('Stock build'))], ['PO #', uniq(ords.map(o => o.po_number)).join(', ')])
     row(['Sales Order #', uniq(ords.map(o => o.order_number)).join(', ')], ['Ship Date', fmtDate(ords.map(o => o.ship_date).filter(Boolean).sort()[0] || d.wo.due_date)])
     row(['Start Date', fmtDate(d.wo.start_date)], ['Due Date', fmtDate(d.wo.due_date)])
     row(['Operator', d.wo.operator || ''], ['Machine', d.wo.machine || ''])
     bar('PRODUCT')
     row(['Item SKU', l.sku], ['Customer Part #', l.customer_part || ''])
     wide('Description', l.name || '')
-    row(['Quantity to Make', `${fmt(units)} ${l.uom || ''}`], ['Cases', `${fmt(cm.cases)} cases × ${fmt(cm.perCase, 0)} ${cm.label.toLowerCase()}`])
+    row(['Quantity to Make', `${fmt(units)} ${l.uom || ''}`], ['Cases', `${fmt(cm.cases)} cases (cajas) × ${fmt(cm.perCase, 0)} ${cm.label.toLowerCase()}`])
     row(['Size', l.size || ''], ['Thickness', l.thickness || ''])
     row(['Color', l.color || ''], ['Print', l.print_color || ''])
     row(['Unit Weight (g)', fmt(l.weight_g, 3)], ['UPC / GTIN', l.upc || ''])
@@ -128,20 +131,20 @@ export function buildPbWorkOrderPdf(d: PbPrint): jsPDF {
     }
     if (l.bom.length) {
       bar('MATERIALS (BOM)')
-      table(['Component', 'Description', 'Basis', 'Per', 'Needed'], [0.17, 0.43, 0.13, 0.1, 0.17],
+      table(['Component', 'Description', 'Basis', 'Per', 'Needed'], [0.16, 0.38, 0.19, 0.1, 0.17],
         l.bom.map(b => {
           const need = bomNeed(l, b, units)
           const basis = b.uom_type === 'percentage' ? '% weight' : b.case_level ? 'per case' : b.uom_type === 'pcs_pack' ? 'per pack' : 'per unit'
-          return [b.component, b.name || '', basis, b.uom_type === 'percentage' ? `${fmt(b.qty)}%` : fmt(b.qty), `${fmt(need.qty)} ${need.uom}`]
+          return [b.component, b.name || '', bi(basis), b.uom_type === 'percentage' ? `${fmt(b.qty)}%` : fmt(b.qty), `${fmt(need.qty)} ${need.uom}`]
         }))
     }
     bar('PRODUCTION LOG (filled in on the floor)')
-    table(['Date', 'Shift / Operator', `${l.uom || 'Units'} made`, 'Cases', 'Scrap', 'Lot #', 'Initials'], [0.12, 0.2, 0.14, 0.11, 0.11, 0.18, 0.14], [], 6)
+    table(['Date', 'Shift / Operator', `${l.uom || 'Units'} made`, 'Cases', 'Scrap', 'Lot #', 'Initials'], [0.12, 0.2, 0.14, 0.11, 0.11, 0.18, 0.14], [], 5, ['', '', `${unitEs(l.uom || 'Units')} producidas`])
     bar('SIGN-OFF')
     row(['Quality Check', ''], ['Checked By', ''])
     row(['Completed By', ''], ['Date', ''])
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(110, 115, 130)
-    doc.text(`Shaded cells are filled in on the floor. ${d.wo.code || ''} · printed ${new Date().toLocaleString('en-US')}${d.wo.printed_by ? ' by ' + d.wo.printed_by.split('@')[0] : ''} · log production on the board when done.`, L, Math.min(y + 0.1, 11 - 0.25))
+    doc.text(doc.splitTextToSize(`Shaded cells are filled in on the floor (las celdas sombreadas se llenan en planta). ${d.wo.code || ''} · printed ${new Date().toLocaleString('en-US')}${d.wo.printed_by ? ' by ' + d.wo.printed_by.split('@')[0] : ''} · log production on the board when done.`, W) as string[], L, Math.min(y + 0.1, 11 - 0.28))
     doc.setTextColor(0, 0, 0)
   }
   if (!d.lines.length) { doc.setFontSize(12); doc.text('This work order has no targets yet.', L, 1) }
