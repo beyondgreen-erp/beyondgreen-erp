@@ -13,6 +13,8 @@
  * Work orders are per PO (STR-<SO#>); a work order can also cover other POs that need the same straws.
  */
 import WoMachinePicker from '@/components/WoMachinePicker'
+import WoDetailsModal from '@/components/WoDetailsModal'
+import { applyWoDetails, loadWoDetails } from '@/lib/woDetails'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
@@ -78,6 +80,7 @@ export default function StrawProductionPage() {
   const [showClosed, setShowClosed] = useState(false)
   const [newWo, setNewWo] = useState<{ order?: string; addTo?: string } | null>(null)
   const [fresh, setFresh] = useState<string | null>(null)
+  const [details, setDetails] = useState<{ id: string; code: string | null; isNew?: boolean } | null>(null)
   const seq = useRef(0)
 
   const load = useCallback(async () => {
@@ -166,7 +169,7 @@ export default function StrawProductionPage() {
   async function loadPrint(wo: WO): Promise<StrawPrint | null> {
     const { data, error } = await sb.rpc('straw_wo_print', { p_wo: wo.id })
     if (error) { setFlash('⚠ ' + error.message); return null }
-    return data as StrawPrint
+    return applyWoDetails(data as StrawPrint, await loadWoDetails(sb, wo.id))
   }
   async function printWo(wo: WO) {
     setBusy(true)
@@ -275,7 +278,8 @@ export default function StrawProductionPage() {
         </div>}
         {(() => { const fw = fresh && wos.find(w => w.id === fresh); return fw ? (
           <div className="rounded-xl border-2 p-3 mb-3 flex flex-wrap items-center gap-2" style={{ borderColor: ACCENT, background: '#F1FAF5' }}>
-            <p className="flex-1 text-sm text-[#1A1D2E]"><b>{fw.wo_code}</b> is ready. Print the work order for the floor and the 4×6 case labels.</p>
+            <p className="flex-1 text-sm text-[#1A1D2E]"><b>{fw.wo_code}</b> is ready. Add the job details (print, wrapper, operator…), then print the work order and the 4×6 case labels.</p>
+            <button onClick={() => setDetails({ id: fw.id, code: fw.wo_code })} className="h-9 px-3 rounded-lg text-xs font-bold border-2 bg-white" style={{ borderColor: ACCENT, color: ACCENT }}>✎ Details</button>
             <button onClick={() => printWo(fw)} disabled={busy} className="h-9 px-3 rounded-lg text-xs font-bold text-white" style={{ background: ACCENT }}>🖨 Download work order</button>
             <button onClick={() => printLabels(fw)} disabled={busy} className="h-9 px-3 rounded-lg text-xs font-bold text-white" style={{ background: ACCENT }}>🏷 Download case labels</button>
             <button onClick={() => setFresh(null)} className="text-gray-400 text-xl px-1" aria-label="Dismiss">&times;</button>
@@ -298,6 +302,7 @@ export default function StrawProductionPage() {
                 <div className="flex flex-wrap gap-2">
                   {canEdit && !done && <button onClick={() => setNewWo({ addTo: wo.id })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">+ Add PO</button>}
                   {canEdit && !done && <button onClick={() => setEditTargets(editTargets === wo.id ? null : wo.id)} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">{editTargets === wo.id ? 'Done editing' : '✎ Targets'}</button>}
+                  <button onClick={() => setDetails({ id: wo.id, code: wo.wo_code })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>✎ Details</button>
                   <button onClick={() => printWo(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>🖨 Work order</button>
                   <button onClick={() => printLabels(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>🏷 Case labels</button>
                   <button onClick={() => setSum({ id: wo.id, mode: 'view' })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>📄 Summary</button>
@@ -455,7 +460,8 @@ export default function StrawProductionPage() {
       {releaseFor && <ReleaseModal sb={sb} line={releaseFor} free={num(stock.find(s => s.sku === releaseFor.sku)?.free)} onClose={() => setReleaseFor(null)}
         onDone={m => { setReleaseFor(null); setFlash(m); reload() }} />}
       {newWo && <NewWoModal sb={sb} orders={orders} wos={openWos} start={newWo.order} addTo={newWo.addTo} prog={prog} onClose={() => setNewWo(null)}
-        onDone={(m, id) => { setNewWo(null); setFlash(m); setTab('production'); if (id) setFresh(id); reload() }} />}
+        onDone={(m, id) => { setNewWo(null); setFlash(m); setTab('production'); if (id) { setFresh(id); setDetails({ id, code: null, isNew: true }) } reload() }} />}
+      {details && <WoDetailsModal sb={sb} kind="straw" woId={details.id} woCode={details.code || wos.find(w => w.id === details.id)?.wo_code || null} accent={ACCENT} canEdit={canEdit} isNew={details.isNew} onClose={() => setDetails(null)} onSaved={m => { setDetails(null); setFlash(m); reload() }} />}
       {sum && <WalmartWoSummary kind="straw" sb={sb} woId={sum.id} mode={sum.mode} canEdit={canEdit} userEmail={me} onClose={() => setSum(null)} onClosedOut={m => { setSum(null); setFlash(m); reload() }} />}
     </div>
   )
@@ -502,6 +508,10 @@ function LogSheet({ sb, stock, wos, prog, today, onClose, onSaved }: {
     const std = num(stock.find(s => s.sku === sku)?.per_case)
     return packs.length === 1 && packs[0] > 0 && std > 0 && Math.abs(packs[0] - std) > 1e-6 ? packs[0] : null
   }
+  // only the straws on the chosen work order (or on any open work order when Auto)
+  const onWo = new Set(prog.filter(p => (woId ? p.work_order_id === woId : wos.some(w => w.id === p.work_order_id))).map(p => p.sku))
+  const opts = stock.filter(s => onWo.has(s.sku))
+  useEffect(() => { setRows(rs => rs.map(r => (r.sku && !onWo.has(r.sku) ? { ...r, sku: '' } : r))) }, [woId]) // eslint-disable-line
   async function save() {
     setErr('')
     const good = rows.filter(r => r.sku && Number(r.qty) > 0)
@@ -536,8 +546,8 @@ function LogSheet({ sb, stock, wos, prog, today, onClose, onSaved }: {
           return (
             <div key={i} className="rounded-xl border border-[#ECEEF3] p-3 space-y-2">
               <select value={r.sku} onChange={e => set(i, { sku: e.target.value })} className={inp}>
-                <option value="">Pick a straw…</option>
-                {stock.map(s => <option key={s.sku} value={s.sku}>{s.sku} — {s.product_name}</option>)}
+                <option value="">{opts.length ? 'Pick a straw on this work order…' : 'No straws on this work order'}</option>
+                {opts.map(s => <option key={s.sku} value={s.sku}>{s.sku} — {s.product_name}</option>)}
               </select>
               <div className="flex items-center gap-2">
                 <input inputMode="decimal" value={r.qty} onChange={e => set(i, { qty: e.target.value.replace(/[^0-9.]/g, '') })} placeholder="Cases made" className={inp} />
