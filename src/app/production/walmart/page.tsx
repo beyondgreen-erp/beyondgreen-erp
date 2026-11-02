@@ -817,7 +817,8 @@ function LogSheet({ sb, wo, wos = [], rankByOrder, safety, safetyProg, progBySku
             </label>
           ) : <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">No Walmart work order covers this week yet — production still goes into inventory, but ask the office to create the week&apos;s WO.</p>}
           <div className="space-y-2">
-            {SKUS.map(s => {
+            {/* only the SKUs on the chosen work order (all four if it has no targets yet) */}
+            {(Object.keys(progFor).length ? SKUS.filter(s => progFor[s.sku]) : SKUS).map(s => {
               const p = progFor[s.sku]
               const left = p ? Math.max(num(p.target_qty) - num(p.made_qty), 0) : null
               return (
