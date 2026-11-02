@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import ShareLink from '@/components/ShareLink'
 export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useState } from 'react'
@@ -58,6 +59,18 @@ function perHour(value: number, uom: string, cavities: number) {
   if (!value || value <= 0) return 0
   return uom === 'Seconds' ? (3600 / value) * cavities : value * 60 * cavities
 }
+// Shea's standard units by department: extruders M/M, converters B/M, molding/straws Pcs/Min.
+function unitsFor(m?: Machine | null): { rate_uom: RateUom; output_uom: string; label: string } {
+  const g = (m?.equipment_group || '').toUpperCase(), t = (m?.equipment_type || '').toLowerCase(), code = (m?.name || '').toUpperCase()
+  if (g === 'EXTRUDER' || t.includes('extruder') && g !== 'STRAWS') return { rate_uom: 'Meters/Minute', output_uom: 'meters', label: 'Bag Dept extruder: M/M (meters per minute)' }
+  if (g === 'CONVERSION' || t.includes('conversion')) return { rate_uom: 'Bags/Minute', output_uom: 'bags', label: 'Bag Dept converter: B/M (bags per minute)' }
+  if (code.startsWith('WRP-SFK')) return { rate_uom: 'Packs/Minute', output_uom: 'packs', label: 'Cutlery kitting: packs per minute' }
+  return { rate_uom: 'Pcs/Minute', output_uom: 'pcs', label: 'Molding / straws: Pcs/Min (pieces per minute). Molds can use cycle seconds.' }
+}
+const UNIT_ALIASES: Record<string, RateUom> = { 'm/m': 'Meters/Minute', 'meters/minute': 'Meters/Minute', 'mpm': 'Meters/Minute', 'b/m': 'Bags/Minute', 'bags/minute': 'Bags/Minute', 'bpm': 'Bags/Minute',
+  'pcs/min': 'Pcs/Minute', 'pcs/minute': 'Pcs/Minute', 'ppm': 'Pcs/Minute', 'packs/min': 'Packs/Minute', 'packs/minute': 'Packs/Minute', 'sec': 'Seconds', 'seconds': 'Seconds', 'cycle sec': 'Seconds', 'cycle (sec)': 'Seconds' }
+const OUT_FOR: Record<RateUom, string> = { 'Meters/Minute': 'meters', 'Bags/Minute': 'bags', 'Pcs/Minute': 'pcs', 'Packs/Minute': 'packs', 'Seconds': 'pcs' }
+
 const n = (v: number | null | undefined, d = 0) =>
   v === null || v === undefined ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: d })
 
@@ -158,6 +171,51 @@ export default function ProductionRatesPage() {
     close(); load()
   }
 
+  // Capacity sheet: one row per machine, in the ERP format (download the template, fill it, import it).
+  async function downloadTemplate() {
+    const XLSX = await import('xlsx')
+    const rows = machines.slice().sort((a, b) => (a.equipment_group || '').localeCompare(b.equipment_group || '') || a.name.localeCompare(b.name)).map(m => {
+      const cur = rates.find(r => r.machine_id === m.id && !r.product_id)
+      const u = unitsFor(m)
+      const short: Record<string, string> = { 'Meters/Minute': 'M/M', 'Bags/Minute': 'B/M', 'Pcs/Minute': 'Pcs/Min', 'Packs/Minute': 'Packs/Min', 'Seconds': 'Sec' }
+      return { 'Machine Code': m.name, 'Department': m.equipment_group || '', 'Unit (M/M, B/M, Pcs/Min, Packs/Min, Sec)': short[cur?.rate_uom || u.rate_uom], 'Rate': cur ? Number(cur.rate_value) : '', 'Cavities': cur ? cur.cavities : 1, 'Efficiency %': cur ? Number(cur.efficiency_pct) : 85, 'SKU (optional)': '', 'Notes': cur?.notes || '' }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 34 }, { wch: 10 }, { wch: 10 }, { wch: 13 }, { wch: 16 }, { wch: 40 }]
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Capacity')
+    XLSX.writeFile(wb, 'beyondGREEN-machine-capacity-template.xlsx')
+  }
+  async function importSheet(file: File) {
+    setBusy('import')
+    try {
+      const XLSX = await import('xlsx')
+      const wb = XLSX.read(await file.arrayBuffer())
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+      const get = (r: any, ...keys: string[]) => { for (const k of Object.keys(r)) { const kl = k.toLowerCase(); if (keys.some(x => kl.startsWith(x))) return r[k] } return '' }
+      let ok = 0; const errs: string[] = []
+      for (const [i, r] of rows.entries()) {
+        const code = String(get(r, 'machine')).trim(); const rate = Number(get(r, 'rate'))
+        if (!code && !rate) continue
+        const m = machines.find(x => x.name.toUpperCase() === code.toUpperCase())
+        if (!m) { errs.push(`Row ${i + 2}: machine "${code}" not found`); continue }
+        if (!(rate > 0)) { errs.push(`Row ${i + 2}: ${code} needs a rate`); continue }
+        const ut = String(get(r, 'unit')).trim().toLowerCase()
+        const uom: RateUom = UNIT_ALIASES[ut] || unitsFor(m).rate_uom
+        const sku = String(get(r, 'sku')).trim()
+        const prod = sku ? products.find(p => p.sku.toUpperCase() === sku.toUpperCase()) : null
+        if (sku && !prod) { errs.push(`Row ${i + 2}: SKU "${sku}" not found`); continue }
+        const payload = { machine_id: m.id, product_id: prod?.id || null, rate_value: rate, rate_uom: uom, output_uom: OUT_FOR[uom], cavities: parseInt(String(get(r, 'cavit'))) || 1,
+          efficiency_pct: Number(get(r, 'efficiency')) || 85, notes: String(get(r, 'notes')).trim() || null, entered_by: email || null, updated_at: new Date().toISOString() }
+        const existing = rates.find(x => x.machine_id === m.id && (x.product_id || null) === (prod?.id || null))
+        const { error } = existing ? await sb.from('machine_rates').update(payload).eq('id', existing.id) : await sb.from('machine_rates').insert({ ...payload, source: 'estimated', setup_minutes: 0 })
+        if (error) errs.push(`Row ${i + 2}: ${error.message}`); else ok++
+      }
+      alert(`Imported ${ok} rate${ok === 1 ? '' : 's'}.` + (errs.length ? `\n\nSkipped:\n${errs.slice(0, 15).join('\n')}` : ''))
+      load()
+    } catch (e: any) { alert('Could not read that file: ' + (e?.message || e)) }
+    setBusy('')
+  }
+
   async function confirmRate(r: Rate) {
     setBusy(r.id)
     await sb.from('machine_rates')
@@ -199,7 +257,14 @@ export default function ProductionRatesPage() {
             {loading ? 'Loading…' : `${rates.length} rates · ${estimated} still estimates · ${promotable} ready to promote · ${gaps.length} data gaps`}
           </p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">+ Add Rate</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={downloadTemplate} className="text-sm font-medium px-3 py-2.5 rounded-lg border border-[#E4E6EE] bg-white text-[#1A1D2E] hover:bg-gray-50">Capacity template</button>
+          <label className={`text-sm font-medium px-3 py-2.5 rounded-lg border border-[#E4E6EE] bg-white text-[#1A1D2E] hover:bg-gray-50 cursor-pointer ${busy === 'import' ? 'opacity-50 pointer-events-none' : ''}`}>
+            {busy === 'import' ? 'Importing…' : 'Import capacity sheet'}
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importSheet(f) }} />
+          </label>
+          <button onClick={openAdd} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">+ Add Rate</button>
+        </div>
       </div>
 
       <div className="flex items-center gap-1 mb-4 border-b border-[#E4E6EE]">
@@ -357,7 +422,7 @@ export default function ProductionRatesPage() {
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Machine</label>
-            <select value={form.machine_id} onChange={e => setForm(p => ({ ...p, machine_id: e.target.value }))} className={inp + ' cursor-pointer'}>
+            <select value={form.machine_id} onChange={e => { const mm = machines.find(x => x.id === e.target.value); const u = unitsFor(mm); setForm(p => ({ ...p, machine_id: e.target.value, rate_uom: u.rate_uom, output_uom: u.output_uom })) }} className={inp + ' cursor-pointer'}>
               <option value="">— Pick a machine —</option>
               {Array.from(new Set(machines.map(m => m.equipment_group ?? 'Other'))).map(g => (
                 <optgroup key={g} label={g}>
@@ -372,12 +437,13 @@ export default function ProductionRatesPage() {
               <option value="">— Any product (the machine's own rate) —</option>
               {products.map(p => <option key={p.id} value={p.id}>{p.sku} · {p.product_name ?? ''}</option>)}
             </select>
+            {form.machine_id && <p className="text-[11px] text-emerald-700 mt-1.5 -mb-1">Unit for this machine: {unitsFor(machines.find(x => x.id === form.machine_id)).label}</p>}
             <p className="text-[11px] text-gray-400 mt-1.5">Set a product only when it runs differently — a mold with a different cavity count, for instance.</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Entered as</label>
-              <select value={form.rate_uom} onChange={e => setForm(p => ({ ...p, rate_uom: e.target.value as RateUom }))} className={inp + ' cursor-pointer'}>
+              <select value={form.rate_uom} onChange={e => setForm(p => ({ ...p, rate_uom: e.target.value as RateUom, output_uom: OUT_FOR[e.target.value as RateUom] || p.output_uom }))} className={inp + ' cursor-pointer'}>
                 {RATE_UOMS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
