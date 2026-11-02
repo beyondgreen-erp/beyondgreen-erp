@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ImportExportBar from '@/components/ImportExportBar'
+import RatesPage from '../rates/page'
 
 interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean;
   make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null;
@@ -158,7 +159,7 @@ function PlanRunCard({ sr, canEdit, onTime, onHours }: { sr: SchedRun; canEdit: 
         <>
           {sr.lines[0]?.child_sku && <p className="text-[#1A1D2E]">Mold makes <b className="font-mono">{sr.lines[0].child_sku}</b> pieces. Finished goods below are what those pieces build.</p>}
           <p className="text-[#1A1D2E]"><b>Target: {fmtNum(sr.target_pcs)} {sr.lines[0]?.child_sku ? sr.lines[0].child_sku + ' ' : ''}pcs</b> in {sr.hours.toFixed(1)} h{sr.basis ? <span className="text-gray-500"> · {sr.basis}</span> : null}</p>
-          {sr.noRate && <p className="text-amber-800">Some items have no spec rate for this machine. Add it in <a href="/production/rates" className="underline font-semibold">Production Rates</a>.</p>}
+          {sr.noRate && <p className="text-amber-800">Some items have no spec rate for this machine. Add it in <a href="/production/machine-status?tab=rates" className="underline font-semibold">Production Rates</a>.</p>}
           <table className="w-full text-left">
             <thead><tr className="text-[10px] uppercase tracking-wide text-gray-500"><th className="py-1">Build</th><th className="text-right">Today</th><th className="text-right">Left on WO</th></tr></thead>
             <tbody>
@@ -302,7 +303,8 @@ export default function MachineStatusPage() {
   // Day plan: which connected work orders each machine runs on a given date (machine_day_runs).
   const [dayRuns, setDayRuns] = useState<DayRun[]>([])
   const [planLines, setPlanLines] = useState<PlanLine[]>([])
-  const [tab, setTab] = useState<'machines' | 'schedule'>('machines')
+  const [tab, setTab] = useState<'machines' | 'schedule' | 'rates'>('machines')
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'schedule' || t === 'rates') setTab(t) }, [])
   const [openPlan, setOpenPlan] = useState<string | null>(null)
   const [molds, setMolds] = useState<Mold[]>([])
   const [queue, setQueue] = useState<{ machine_id: string; work_order_id: string; need_pcs: number; pph: number | null; hours: number | null; basis: string }[]>([])
@@ -590,14 +592,15 @@ export default function MachineStatusPage() {
       </div>
 
       <div className="flex gap-1 mb-5 border-b border-[#E4E6EE]" role="tablist">
-        {([['machines', 'Machines'], ['schedule', 'Schedule']] as const).map(([k, l]) => (
+        {([['machines', 'Machines'], ['schedule', 'Schedule'], ['rates', 'Spec rates']] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
             className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 ${tab === k ? 'border-emerald-600 text-[#1A1D2E]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>{l}</button>
         ))}
-        <a href="/production/rates" className="ml-auto self-center text-xs font-semibold text-emerald-700 hover:underline">Spec rates per machine →</a>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-6">
+      {tab === 'rates' && <div className="-mx-4 md:-mx-8 -mt-4"><RatesPage /></div>}
+
+      <div className={`flex flex-wrap items-center gap-2 mb-6 ${tab === 'rates' ? 'hidden' : ''}`}>
         <span className="text-xs font-semibold text-gray-500 mr-1">Show production board</span>
         {BOARDS.map(b => (
           <button key={b.key} onClick={() => setBoard(b.key)} aria-pressed={board === b.key}
