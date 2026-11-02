@@ -3025,7 +3025,7 @@ export default function OrdersPage() {
                       const sc = statusColor(o.status)
                       const sv = shipDateVisual(o)
                       return (
-                      <div data-money-ok key={o.id} {...boardDnd.item(o.id)} {...boardDnd.zone(grp + '::' + idx)} className={`group flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 mon-row touch-manipulation ${boardDnd.dragId === o.id ? 'opacity-30' : ''} ${boardDnd.dragging && boardDnd.overZone === grp + '::' + idx && boardDnd.dragId !== o.id ? 'shadow-[inset_0_2px_0_#00A84F]' : ''}`}>
+                      <div key={o.id} {...boardDnd.item(o.id)} {...boardDnd.zone(grp + '::' + idx)} className={`group flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-2.5 mon-row touch-manipulation ${boardDnd.dragId === o.id ? 'opacity-30' : ''} ${boardDnd.dragging && boardDnd.overZone === grp + '::' + idx && boardDnd.dragId !== o.id ? 'shadow-[inset_0_2px_0_#00A84F]' : ''}`}>
                         <span className="text-gray-300 group-hover:text-gray-500 cursor-grab active:cursor-grabbing select-none text-xs shrink-0" title="Drag to reorder or move">&#8942;&#8942;</span>
                         <div className="flex-1 min-w-0" onClick={() => openEdit(o)}>
                           <p className="text-sm font-semibold text-[#1A1D2E] truncate">{orderTitle(o)}</p>
@@ -3106,7 +3106,7 @@ export default function OrdersPage() {
                 ))}
               </tr>
             </thead>
-            <tbody data-money-ok>
+            <tbody>
               {filtered.map((order, i) => {
                 const expanded = expandedIds.has(order.id)
                 const flagged = flaggedMap[order.id] ?? 0
@@ -3201,7 +3201,7 @@ export default function OrdersPage() {
                                     ))}
                                   </tr>
                                 </thead>
-                                <tbody data-money-ok>
+                                <tbody>
                                   <LinesTable orderId={order.id} onLineUpdated={() => {
                                     load() // refresh flagged counts
                                   }}/>
@@ -3284,7 +3284,7 @@ export default function OrdersPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody data-money-ok>
+                <tbody>
                   {completedOrders.map((order, i) => {
                     const expanded = expandedCompletedIds.has(order.id)
                     const custName = orderTitle(order)
@@ -3335,7 +3335,7 @@ export default function OrdersPage() {
                                       ))}
                                     </tr>
                                   </thead>
-                                  <tbody data-money-ok>
+                                  <tbody>
                                     <LinesTable orderId={order.id} onLineUpdated={load}/>
                                   </tbody>
                                 </table>

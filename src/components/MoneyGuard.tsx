@@ -32,13 +32,13 @@ function scan(root: ParentNode) {
     const t = n.nodeValue
     if (!t || t.indexOf('$') < 0 || !MONEY_RE.test(t)) continue
     const el = (n as Text).parentElement
-    if (!el || el.closest('[data-money-ok]') || el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue
+    if (!el || !el.closest('[data-money-hide]') || el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue
     if (!el.hasAttribute('data-money-blur')) el.setAttribute('data-money-blur', '')
   }
   // Inputs that hold money.
   ;(root as Element).querySelectorAll?.('input, textarea').forEach(i => {
     const el = i as HTMLInputElement
-    if (el.closest('[data-money-ok]') || el.hasAttribute('data-money-blur')) return
+    if (!el.closest('[data-money-hide]') || el.hasAttribute('data-money-blur')) return
     if (el.type === 'password' || el.type === 'checkbox' || el.type === 'radio' || el.type === 'search') return
     const label = el.closest('label')?.textContent || ''
     const hint = [el.name, el.id, el.placeholder, el.getAttribute('aria-label'), label.slice(0, 60)].join(' ')
@@ -83,7 +83,7 @@ export default function MoneyGuard() {
     })
     mo.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['value'] })
     // Typed values in inputs don't fire mutations; catch them on input.
-    const onInput = (e: Event) => { const el = e.target as HTMLInputElement; if (el?.value && MONEY_RE.test(' ' + el.value) && !el.closest('[data-money-ok]')) el.setAttribute('data-money-blur', '') }
+    const onInput = (e: Event) => { const el = e.target as HTMLInputElement; if (el?.value && MONEY_RE.test(' ' + el.value) && !!el.closest('[data-money-hide]')) el.setAttribute('data-money-blur', '') }
     document.addEventListener('input', onInput, true)
     return () => { mo.disconnect(); document.removeEventListener('input', onInput, true); if (raf) cancelAnimationFrame(raf) }
   }, [])

@@ -700,9 +700,9 @@ export const CATALOG: Record<string, CatalogEntry> = {
 
   kpi_open_orders: { label: 'Open Orders', icon: '📦', defaultSize: 'sm', category: 'KPIs', description: 'Count of open sales orders.', render: () => <KpiOpenOrders /> },
   kpi_orders_per_day: { label: 'Orders / Day', icon: '📈', defaultSize: 'sm', category: 'KPIs', description: 'Average orders per day over the trailing 7 days.', render: () => <KpiOrdersPerDay /> },
-  kpi_revenue_mtd: { label: 'Revenue MTD', icon: '💰', defaultSize: 'sm', category: 'KPIs', description: 'Shipped/closed order revenue this month.', render: () => <KpiRevenueMTD /> },
+  kpi_revenue_mtd: { label: 'Revenue MTD', icon: '💰', defaultSize: 'sm', category: 'KPIs', description: 'Shipped/closed order revenue this month.', render: () => <span data-money-hide><KpiRevenueMTD /></span> },
   kpi_shipping_queue: { label: 'Shipping Queue', icon: '🚚', defaultSize: 'sm', category: 'KPIs', description: 'Orders ready to ship.', render: () => <KpiShippingQueue /> },
-  kpi_overdue_invoices: { label: 'Overdue Invoices', icon: '⚠️', defaultSize: 'sm', category: 'KPIs', description: 'Count & total of overdue invoices.', render: () => <KpiOverdueInvoices /> },
+  kpi_overdue_invoices: { label: 'Overdue Invoices', icon: '⚠️', defaultSize: 'sm', category: 'KPIs', description: 'Count & total of overdue invoices.', render: () => <span data-money-hide><KpiOverdueInvoices /></span> },
   kpi_open_tasks: { label: 'Open Tasks (count)', icon: '✅', defaultSize: 'sm', category: 'KPIs', description: 'Total unresolved tasks.', render: () => <KpiOpenTasks /> },
   kpi_customers: { label: 'Total Customers', icon: '👥', defaultSize: 'sm', category: 'KPIs', description: 'Customer count.', render: () => <KpiCustomers /> },
   kpi_pr_open: { label: 'Open Purchasing Reqs', icon: '🛒', defaultSize: 'sm', category: 'KPIs', description: 'Open purchasing requests.', render: () => <KpiPROpen /> },
