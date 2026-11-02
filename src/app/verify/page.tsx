@@ -29,6 +29,8 @@ export default function VerifyDevice() {
       if (status === 401) { window.location.replace('/login?next=' + encodeURIComponent(safeNext())); return }
       if (data.verified) { go(); return }
       setTo(data.email || ''); setPhase('ask')
+      // send the code right away so nobody waits on a button they did not see
+      send()
     })
   }, []) // eslint-disable-line
 
