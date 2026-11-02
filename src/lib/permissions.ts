@@ -52,10 +52,27 @@ async function fetchPerms(): Promise<Perms> {
   }
 }
 
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+let retryCount = 0
+
 export function loadPermissions(force = false): Promise<Perms> {
-  if (cache && !force) return Promise.resolve(cache)
+  // A failed lookup is never served from cache: it usually means the session was not verified yet
+  // (two-step sign-in pending) or a network blip, so ask again instead of keeping a wide-open answer.
+  if (cache && !cache.failed && !force) return Promise.resolve(cache)
   if (!inflight) {
-    inflight = fetchPerms().then(p => { cache = p; inflight = null; listeners.forEach(l => l(p)); return p })
+    inflight = fetchPerms().then(p => {
+      cache = p; inflight = null; listeners.forEach(l => l(p))
+      if (p.failed && typeof window !== 'undefined') {
+        if (!retryTimer) {
+          const wait = Math.min(30_000, 2_000 * 2 ** Math.min(retryCount, 4))
+          retryCount++
+          retryTimer = setTimeout(() => { retryTimer = null; loadPermissions(true) }, wait)
+        }
+      } else {
+        retryCount = 0
+      }
+      return p
+    })
   }
   return inflight
 }
@@ -99,16 +116,20 @@ export function usePermissions() {
     return () => { alive = false; listeners.delete(l) }
   }, [])
 
+  // Until permissions are actually known, only the always-allowed pages show. A failed lookup
+  // retries on its own (see loadPermissions) instead of opening every board.
   const canView = useCallback((key: string | null | undefined) => {
-    if (!perms.loaded || perms.failed || perms.is_admin) return true
     if (!key || ALWAYS.has(key)) return true
+    if (!perms.loaded || perms.failed) return false
+    if (perms.is_admin) return true
     return !!perms.boards[key]?.can_view
   }, [perms])
 
   const canEdit = useCallback((key: string | null | undefined) => {
-    if (!perms.loaded || perms.failed || perms.is_admin) return true
     if (!key) return true
     if (ALWAYS.has(key)) return true
+    if (!perms.loaded || perms.failed) return false
+    if (perms.is_admin) return true
     const b = perms.boards[key]
     return !!(b?.can_view && b?.can_edit)
   }, [perms])
