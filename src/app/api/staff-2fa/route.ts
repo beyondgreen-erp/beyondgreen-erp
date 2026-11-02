@@ -72,6 +72,9 @@ export async function POST(req: NextRequest) {
   // Already verified this session, 2-step is off, or this device is remembered -> pass without a code.
   if (a === 'status') {
     if (!(await twoStepOn(admin))) { await markVerified(admin, sess, 'off', null); return okResponse(u.sid) }
+    // Accounts with no real mailbox (made through the ERP / Resend) can never receive the code.
+    const { data: prof } = await admin.from('user_profiles').select('skip_2fa').ilike('email', u.email).maybeSingle()
+    if (prof?.skip_2fa) { await markVerified(admin, sess, 'no_mailbox', null); return okResponse(u.sid) }
     const { data: v } = await admin.from('staff_verified_sessions').select('session_id').eq('session_id', u.sid).is('revoked_at', null).maybeSingle()
     if (v) return okResponse(u.sid)
     const dev = req.cookies.get(DEVICE_COOKIE)?.value
