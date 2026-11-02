@@ -16,6 +16,7 @@ import { uomOptions, normalizeUom, describeLadder } from '@/lib/uom'
 import ItemHistory from '@/components/ItemHistory'
 import { bomPreview, bomLinesText, fmtQty, type BomLine } from '@/lib/bomConsumption'
 import WalmartCommitments, { loadCommitments, type CommitRow } from '@/components/WalmartCommitments'
+import { rpcWithSizeCheck } from '@/lib/productionGuard'
 
 interface Product {
   id: string
@@ -1057,7 +1058,7 @@ export default function InventoryPage() {
     // sheet total and marks them matched in one transaction.
     if (pullIds) {
       setSaving(true)
-      const { error } = await sb.rpc('inventory_post_daily_production', { p_product_id: editing.id, p_sheet_qty: add, p_pull_ids: pullIds })
+      const { error } = await rpcWithSizeCheck(sb, 'inventory_post_daily_production', { p_product_id: editing.id, p_sheet_qty: add, p_pull_ids: pullIds }, editing.id, add)
       setSaving(false)
       if (error) { setErr(error.message); return }
       closeEdit(); load(); return
@@ -1075,7 +1076,7 @@ export default function InventoryPage() {
           + `\n\nOK = record as production and deduct these materials\nCancel = other options (receipt without deduction)`)
         if (asProduction) {
           setSaving(true)
-          const { data, error } = await sb.rpc('inventory_record_production', { p_product_id: editing.id, p_qty: add, p_lot: null, p_note: `Finished-goods completion (+${add}) from the Inventory board` })
+          const { data, error } = await rpcWithSizeCheck(sb, 'inventory_record_production', { p_product_id: editing.id, p_qty: add, p_lot: null, p_note: `Finished-goods completion (+${add}) from the Inventory board` }, editing.id, add)
           setSaving(false)
           if (error) { setErr(error.message); return }
           const used = (((data as any)?.consumed as any[]) || [])

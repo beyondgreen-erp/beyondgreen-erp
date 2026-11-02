@@ -9,6 +9,7 @@ import { buildBOL, buildMasterBOL, buildPackingList, loadImageDataUrl, type BolL
 import { normalizeUom } from '@/lib/uom'
 import ItemHistory from '@/components/ItemHistory'
 import { bomPreview, bomStatus, fmtQty, BOM_STATUS_TEXT, type BomLine, type BomStatus } from '@/lib/bomConsumption'
+import { rpcWithSizeCheck } from '@/lib/productionGuard'
 
 const sb = createSupabaseBrowserClient()
 const GRAMS_PER_LB = 453.592
@@ -1712,7 +1713,7 @@ export default function ShippingQueuePage() {
                     for (const l of stockBlock) {
                       const q = Number(l.qty); if (!(q > 0)) continue
                       const linePull = l.source === 'line'
-                      const { data, error } = await sb.rpc('inventory_record_production', { p_product_id: l.productId, p_qty: q, p_lot: l.lot.trim() || null, p_note: `Production entry at shipping for order ${o?.order_number || ''}`, p_line_pull: linePull })
+                      const { data, error } = await rpcWithSizeCheck(sb, 'inventory_record_production', { p_product_id: l.productId, p_qty: q, p_lot: l.lot.trim() || null, p_note: `Production entry at shipping for order ${o?.order_number || ''}`, p_line_pull: linePull }, l.productId, q)
                       if (error) throw new Error(error.message)
                       done.push({ sku: l.sku, qty: q, consumed: ((data as any)?.consumed as any[]) || [] })
                     }
