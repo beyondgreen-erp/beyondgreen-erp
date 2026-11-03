@@ -7,9 +7,10 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import ImportExportBar from '@/components/ImportExportBar'
 import RatesPage from '../rates/page'
 
+interface SetupRow { machine_id: string; work_order_id: string | null; started_at: string; ended_at: string | null; minutes: number | null; operator: string | null }
 interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean;
   make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null;
-  run_wo_id: string | null; run_rate: number | null; run_started_at: string | null; run_elapsed_sec: number | null; run_opened_at?: string | null; run_pause_count?: number | null; run_paused_at?: string | null }
+  run_wo_id: string | null; run_rate: number | null; run_started_at: string | null; run_elapsed_sec: number | null; run_opened_at?: string | null; run_pause_count?: number | null; run_paused_at?: string | null; setup_started_at?: string | null; setup_wo_id?: string | null }
 
 interface Rate { pieces_per_hour: number; basis: string; efficiency_pct: number | null }
 interface OpInfo { id: string; qty_produced: number | null; qty_uom: string | null }
@@ -22,11 +23,12 @@ const CLOSED = ['Complete', 'QC Passed', 'Cancelled']
 // Machine states. Running pulses green, Paused blinks amber, everything else (Idle, Down, Maintenance) is red.
 const STATE = {
   Running: { label: 'Running', text: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-300', dot: 'bg-emerald-500 animate-pulse', glow: 'run-glow', color: '#1E9E6A' },
+  Setup: { label: 'Setup', text: 'text-sky-800', bg: 'bg-sky-50', border: 'border-sky-300', dot: 'bg-sky-500 blink', glow: 'pause-blink', color: '#2B8BD6' },
   Paused: { label: 'Paused', text: 'text-amber-800', bg: 'bg-amber-50', border: 'border-amber-300', dot: 'bg-amber-500 blink', glow: 'pause-blink', color: '#E0A21B' },
   Off: { label: 'Off / down', text: 'text-red-700', bg: 'bg-red-50', border: 'border-red-300', dot: 'bg-red-500', glow: 'off-glow', color: '#E5231B' },
 } as const
 type StateKey = keyof typeof STATE
-function stateOf(status: string): StateKey { return status === 'Running' ? 'Running' : status === 'Paused' ? 'Paused' : 'Off' }
+function stateOf(status: string): StateKey { return status === 'Running' ? 'Running' : status === 'Paused' ? 'Paused' : status === 'Setup' ? 'Setup' : 'Off' }
 
 // Production boards. Each board draws from one machine section.
 const SECTIONS = [
@@ -297,6 +299,21 @@ export default function MachineStatusPage() {
   const [stopNote, setStopNote] = useState('')
   const [stopBusy, setStopBusy] = useState(false)
   const [stopMsg, setStopMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [setups, setSetups] = useState<SetupRow[]>([])
+  const setupSec = (m: Machine) => (m.setup_started_at ? Math.max(0, (now - Date.parse(m.setup_started_at)) / 1000) : 0)
+  async function startSetup(m: Machine) {
+    const { error } = await sb.rpc('machine_setup_start', { p_machine_id: m.id, p_wo: startWo || null, p_operator: operator.trim() || null })
+    if (error) { setStopMsg({ ok: false, text: error.message }); return }
+    setStopMsg({ ok: true, text: `Setup started on ${m.machine_code}. Tap Stop setup when it is ready to run.` }); load()
+  }
+  async function stopSetup(m: Machine, quiet = false) {
+    const { data, error } = await sb.rpc('machine_setup_stop', { p_machine_id: m.id, p_note: null })
+    if (error) { if (!quiet) setStopMsg({ ok: false, text: error.message }); return false }
+    const min = Number((data as any)?.minutes || 0)
+    setStopMsg({ ok: true, text: `Setup on ${m.machine_code} recorded: ${fmtHms(min * 60)}.` })
+    if (!quiet) load()
+    return true
+  }
   const ymdLocal = (d: Date) => d.toLocaleDateString('en-CA')
   const todayStr = ymdLocal(new Date())
   const [planDate, setPlanDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return ymdLocal(d) })
@@ -336,6 +353,8 @@ export default function MachineStatusPage() {
     setLoading(true)
     const { data } = await sb.from('machines').select('*').order('name')
     if (data) setRows(data as Machine[])
+    sb.from('machine_setup_log').select('machine_id,work_order_id,started_at,ended_at,minutes,operator').order('started_at', { ascending: false }).limit(200)
+      .then(({ data: sl }: any) => setSetups((sl || []) as SetupRow[]))
     // Only work orders connected from a production board (connected_from set) are shown.
     // A work order can be connected to several machines (wo_machines). Older single connections still count.
     const WO_COLS = 'id,wo_number,wo_code,status,machine_id,product_id,scheduled_hours,scheduled_date,scheduled_start,qty_required,qty_ordered,qty_produced,qty_completed,uom,due_date,item_part_number,group_name,connected_from,sales_orders!work_orders_sales_order_id_fkey(customers(company_name))'
@@ -422,7 +441,7 @@ export default function MachineStatusPage() {
   const hoursOf = (id: string) => (woByMachine[id] || []).reduce((s, w) => s + (Number(w.scheduled_hours) || Number(queueHrs(id, w.id)?.hours) || 0), 0)
 
   const shownSections = SECTIONS.filter(s => board === 'all' || s.boards.includes(board))
-  const counts = { Running: 0, Paused: 0, Off: 0 }
+  const counts = { Running: 0, Setup: 0, Paused: 0, Off: 0 }
   active.forEach(m => { counts[stateOf(m.status)]++ })
   const totalOpen = new Set(wos.map(w => w.id)).size
   const woLabel = (w: OpenWo) => w.wo_code || `WO-${w.wo_number}`
@@ -470,6 +489,7 @@ export default function MachineStatusPage() {
   async function startRun(m: Machine, woId: string, rate: number | null) {
     const resuming = !!m.run_wo_id && m.run_wo_id === woId
     if (m.run_wo_id && !resuming) { alert('Stop the current run before starting another work order.'); return }
+    if (!resuming && m.setup_started_at) await stopSetup(m, true)
     const t = new Date().toISOString()
     // Rate for the running estimate: the mold (cavities x 3600 / cycle) wins, then the product rate, then the machine's own rate.
     let r = rate
@@ -482,7 +502,8 @@ export default function MachineStatusPage() {
       const row: any = Array.isArray(data) ? data[0] : data
       if (row?.known) r = Number(row.pieces_per_hour)
     }
-    const patch: Record<string, unknown> = { run_started_at: t, status: 'Running', updated_at: t }
+    const t2 = new Date().toISOString()
+    const patch: Record<string, unknown> = { run_started_at: t2, status: 'Running', updated_at: t2 }
     if (!resuming) { patch.run_wo_id = woId; patch.run_rate = r; patch.run_elapsed_sec = 0 }
     const { error } = await sb.from('machines').update(patch).eq('id', m.id)
     if (error) { alert('Could not start the run: ' + error.message); return }
@@ -617,7 +638,7 @@ export default function MachineStatusPage() {
       {tab === 'machines' && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Running</span><p className="text-2xl font-bold text-emerald-600">{counts.Running} / {active.length}</p></div>
-          <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Paused</span><p className="text-2xl font-bold text-amber-600">{counts.Paused}</p></div>
+          <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Paused · in setup</span><p className="text-2xl font-bold text-amber-600">{counts.Paused} <span className="text-sky-600">· {counts.Setup}</span></p></div>
           <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Off or down</span><p className="text-2xl font-bold text-red-600">{counts.Off}</p></div>
           <div className="bg-white border border-[#E4E6EE] rounded-xl p-4"><span className="text-xs text-gray-500">Connected work orders</span><p className="text-2xl font-bold text-[#1A1D2E]">{totalOpen} <span className="text-sm font-medium text-gray-500">· {totalBooked.toFixed(1)} h booked</span></p></div>
         </div>
@@ -766,6 +787,11 @@ export default function MachineStatusPage() {
                         <div className={st.glow}><MachineIcon kind={kindOf(m)} pct={pct} color={barColor} size={64} /></div>
                         {jobs.length > 0 && <span className="absolute -top-1 right-2 min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#13201A] text-white text-[11px] font-bold flex items-center justify-center font-mono">{jobs.length}</span>}
                       </div>
+                      {!m.run_wo_id && m.setup_started_at && (
+                        <div className="rounded-lg bg-white/80 border border-sky-200 px-2 py-1 text-center" title="Setup time before the work order starts">
+                          <p className="font-mono font-bold text-sm text-sky-800">🔧 Setup {fmtHms(setupSec(m))}</p>
+                        </div>
+                      )}
                       {m.run_wo_id && (
                         <div className="rounded-lg bg-white/80 border border-amber-200 px-2 py-1 text-center" title="Estimate from the spec rate. Not added to inventory or the boards.">
                           <p className="font-mono font-bold text-sm text-[#1A1D2E]">≈ {m.run_rate ? fmtNum(Number(m.run_rate) * elapsedSec(m) / 3600) : '—'} <span className="text-[10px] font-normal text-gray-500">{molds.find(x => x.machine_id === m.id)?.child_sku || ''} pcs est.</span></p>
@@ -827,7 +853,18 @@ export default function MachineStatusPage() {
                           <option value="">Choose a connected work order</option>
                           {jobs.map(w => <option key={w.id} value={w.id}>{woLabel(w)} · {w.sku || w.item_part_number || 'no item'}</option>)}
                         </select>
+                        {m.setup_started_at ? (
+                          <div className="rounded-lg bg-sky-50 border border-sky-200 p-3">
+                            <p className="text-[11px] text-sky-900">Setup in progress{m.setup_wo_id ? ` for ${(() => { const w = jobs.find(j => j.id === m.setup_wo_id) ?? wos.find(j => j.id === m.setup_wo_id); return w ? woLabel(w) : 'a work order' })()}` : ''}</p>
+                            <p className="text-2xl font-bold font-mono text-sky-900">🔧 {fmtHms(setupSec(m))}</p>
+                            <button onClick={() => stopSetup(m)} className="mt-2 w-full min-h-[48px] rounded-xl bg-sky-600 text-white font-bold">Stop setup</button>
+                            <p className="text-[11px] text-sky-800 mt-1">Starting the run also stops the setup clock.</p>
+                          </div>
+                        ) : (
+                          <button onClick={() => startSetup(m)} className="min-h-[48px] rounded-xl border-2 border-sky-500 text-sky-700 font-bold bg-white">🔧 Start setup{startWo ? '' : ' (pick the work order above first, optional)'}</button>
+                        )}
                         <button disabled={!startWo} onClick={() => { const w = jobs.find(j => j.id === startWo); if (w) startRun(m, w.id, w.rate ? w.rate.pieces_per_hour : null) }} className="min-h-[52px] rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-40">Start run</button>
+                        {(() => { const last = setups.find(x => x.machine_id === m.id && x.ended_at); return last ? <p className="text-[11px] text-gray-500">Last setup: {fmtHms(Number(last.minutes || 0) * 60)} · {new Date(last.started_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{last.operator ? ` · ${last.operator}` : ''}</p> : null })()}
                         {jobs.length === 0 && <p className="text-xs text-gray-500">No work orders connected to this machine. Connect one from its production board.</p>}
                       </div>
                     ) : (
@@ -845,6 +882,7 @@ export default function MachineStatusPage() {
                             <div><p className="text-[10px] uppercase tracking-wide text-gray-400">Uptime</p><p className="font-mono font-bold text-[#1A1D2E]">{uptimePct(m)}%</p></div>
                           </div>
                           <div className="mt-2 h-2.5 rounded-full bg-amber-200 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: uptimePct(m) + '%' }} /></div>
+                          {(() => { const su = setups.filter(x => x.machine_id === m.id && x.ended_at && m.run_opened_at && Date.parse(x.ended_at) <= Date.parse(m.run_opened_at) + 60000 && Date.parse(x.ended_at) > Date.parse(m.run_opened_at) - 12 * 3600000); const mins = su.reduce((t, x) => t + Number(x.minutes || 0), 0); return mins > 0 ? <p className="text-[11px] text-sky-800 mt-1.5">🔧 Setup before this run: {fmtHms(mins * 60)}</p> : null })()}
                           <p className="text-[11px] text-gray-500 mt-1.5">
                             {m.run_opened_at ? `Started ${new Date(m.run_opened_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}
                             {` · ${m.run_pause_count || 0} pause${(m.run_pause_count || 0) === 1 ? '' : 's'}`}
