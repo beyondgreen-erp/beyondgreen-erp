@@ -50,6 +50,24 @@ interface OLine { work_order_id: string | null; wo_code: string | null; line_id:
 interface Rel { id: string; sales_order_id: string; line_id: string; sku: string; qty: number; status: string; source: string; note: string | null; released_by: string | null; released_at: string }
 interface StageEntry { id: string; work_order_id: string; sku: string; stage: string; pcs: number; production_date: string; note: string | null; entered_by: string | null; created_at: string }
 const STAGE_LABEL: Record<string, string> = { extrusion: 'Extrusion', bending: 'Bending', wrapping: 'Wrapping' }
+const ALL_STEPS = ['extrusion', 'bending', 'wrapping']
+/** best guess from the straws on the order: extrusion always, bending for bent/flex, wrapping for wrapped */
+function suggestSteps(lines: { sku: string; product_name?: string | null }[]): string[] {
+  const t = lines.map(l => `${l.sku} ${l.product_name || ''}`.toLowerCase())
+  const wrap = t.some(x => (/wrapped/.test(x) && !/unwrapped/.test(x)) || /-w(\b|-|f\b|\d)/.test(x))
+  const bend = t.some(x => /(bend|bent|flex)/.test(x))
+  return ['extrusion', ...(bend ? ['bending'] : []), ...(wrap ? ['wrapping'] : [])]
+}
+function StepPicker({ value, onChange, disabled }: { value: string[]; onChange: (v: string[]) => void; disabled?: boolean }) {
+  const tog = (g: string) => onChange(value.includes(g) ? value.filter(x => x !== g) : ALL_STEPS.filter(x => x === g || value.includes(x)))
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {ALL_STEPS.map((g, i) => (
+        <button key={g} type="button" disabled={disabled} onClick={() => tog(g)}
+          className={`h-9 px-3 rounded-lg border text-xs font-semibold ${value.includes(g) ? 'text-white' : 'bg-white text-gray-500 border-[#E4E6EE]'}`}
+          style={value.includes(g) ? { background: ACCENT, borderColor: ACCENT } : undefined}>{value.includes(g) ? '✓ ' : ''}{i + 1}. {g.charAt(0).toUpperCase() + g.slice(1)}</button>))}
+    </div>)
+}
 interface Act { id: number; at: string; actor: string | null; action: string; sku: string | null; qty: number | null; detail: string | null }
 
 export default function StrawProductionPage() {
@@ -83,6 +101,7 @@ export default function StrawProductionPage() {
   const [newWo, setNewWo] = useState<{ order?: string; addTo?: string } | null>(null)
   const [fresh, setFresh] = useState<string | null>(null)
   const [stagesBy, setStagesBy] = useState<Record<string, string[]>>({})
+  const [editSteps, setEditSteps] = useState<{ wo: string; v: string[] } | null>(null)
   const [stageEntries, setStageEntries] = useState<StageEntry[]>([])
   const [details, setDetails] = useState<{ id: string; code: string | null; isNew?: boolean } | null>(null)
   const seq = useRef(0)
@@ -203,6 +222,8 @@ export default function StrawProductionPage() {
     } catch (e: any) { setFlash('⚠ Could not build the labels: ' + (e?.message || e)) }
     setBusy(false)
   }
+  const saveSteps = (wo: WO, v: string[]) => run(() => sb.rpc('straw_wo_set_steps', { p_wo: wo.id, p_steps: v }) as any,
+    (d: any) => { setEditSteps(null); return `✓ ${wo.wo_code} steps: ${((d as string[]) || []).map(x => STAGE_LABEL[x] || x).join(' → ') || 'from its machines'}.` })
   async function undoStage(e: StageEntry) {
     const reason = window.prompt(`Remove ${fmtN(e.pcs)} pcs ${STAGE_LABEL[e.stage] || e.stage} for ${e.sku}? Materials taken out at this step go back to inventory. Reason:`)
     if (!reason || !reason.trim()) return
@@ -313,7 +334,20 @@ export default function StrawProductionPage() {
                   <div className="flex flex-wrap gap-1 mt-1">{pos.map(o => <a key={o.sales_order_id} href={`/sales/orders?item=${o.sales_order_id}`} className="text-[11px] px-2 py-0.5 rounded-full bg-[#EEF2FB] text-[#3A4A6B] hover:underline">{orderLabel(o)}</a>)}</div>
                   <p className="text-xs text-gray-500 mt-1">{fmtN(made)} of {fmtN(tgt)} cases made{tgt ? ` · ${Math.round((made / tgt) * 100)}%` : ''}</p>
                   {!done && <WoMachinePicker sb={sb} woId={wo.id} woCode={wo.wo_code} value={wo.machine_id} board="straw" canEdit={canEdit} onSaved={m => { setFlash(m); reload() }} />}
-                  {(stagesBy[wo.id] || []).length > 1 && (() => {
+                  {editSteps?.wo === wo.id ? (
+                    <div className="mt-2 rounded-lg border border-[#E4E6EE] p-2 bg-[#FAFBFD]">
+                      <p className="text-[11px] text-gray-500 mb-1.5">Process steps for this work order. Extrusion takes the resin and color; the last step adds finished cases to inventory and takes the packaging.</p>
+                      <StepPicker value={editSteps.v} onChange={v => setEditSteps({ wo: wo.id, v })} />
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => saveSteps(wo, editSteps.v)} disabled={busy || !editSteps.v.length} className="h-8 px-3 rounded-lg text-xs font-bold text-white disabled:opacity-50" style={{ background: ACCENT }}>Save steps</button>
+                        <button onClick={() => setEditSteps(null)} className="h-8 px-3 rounded-lg border border-[#E4E6EE] text-xs text-gray-600">Cancel</button>
+                      </div>
+                    </div>
+                  ) : !done && canEdit && (stagesBy[wo.id] || []).length <= 1 ? (
+                    <button onClick={() => setEditSteps({ wo: wo.id, v: (stagesBy[wo.id] || []).length ? stagesBy[wo.id] : ['extrusion'] })} className="mt-2 text-[11px] font-semibold hover:underline" style={{ color: ACCENT }}>
+                      Steps: {(stagesBy[wo.id] || []).map(x => STAGE_LABEL[x]).join(' → ') || 'one step'} · ✎ change</button>
+                  ) : null}
+                  {editSteps?.wo !== wo.id && (stagesBy[wo.id] || []).length > 1 && (() => {
                     const st = stagesBy[wo.id]; const se = stageEntries.filter(x => x.work_order_id === wo.id)
                     return (
                       <div className="mt-2">
@@ -330,6 +364,7 @@ export default function StrawProductionPage() {
                                 </span>
                               </span>)
                           })}
+                          {!done && canEdit && <button onClick={() => setEditSteps({ wo: wo.id, v: st })} className="text-[11px] font-semibold ml-1 hover:underline" style={{ color: ACCENT }}>✎ steps</button>}
                         </div>
                         {se.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{se.slice(0, 6).map(x => (
                           <span key={x.id} className="text-[10px] text-gray-500 bg-[#F5F6FA] rounded px-1.5 py-0.5">{fmtDay(x.production_date)} · {STAGE_LABEL[x.stage]} {fmtN(x.pcs)} {x.sku}
@@ -679,6 +714,8 @@ function NewWoModal({ sb, orders, wos, start, addTo, prog, onClose, onDone }: {
     return m
   }, [orders])
   const [primary, setPrimary] = useState<string>(start && free.has(start) ? start : '')
+  const [steps, setSteps] = useState<string[]>(['extrusion'])
+  const [stepsTouched, setStepsTouched] = useState(false)
   const [extra, setExtra] = useState<Set<string>>(new Set())
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -689,6 +726,7 @@ function NewWoModal({ sb, orders, wos, start, addTo, prog, onClose, onDone }: {
   const candidates = Array.from(free.entries()).filter(([id, ls]) => id !== primary && ls.some(l => skus.has(l.sku)))
   const label = (ls: OLine[]) => `${ls[0].order_name} · SO ${ls[0].order_number}${ls[0].po_number ? ' · PO ' + ls[0].po_number : ''}`
   const toggle = (id: string) => setExtra(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  useEffect(() => { if (!stepsTouched && primary) setSteps(suggestSteps(free.get(primary) || [])) }, [primary]) // eslint-disable-line
   async function go() {
     setErr('')
     if (addWo) {
@@ -700,8 +738,9 @@ function NewWoModal({ sb, orders, wos, start, addTo, prog, onClose, onDone }: {
     if (!primary) { setErr('Pick the PO for this work order.'); return }
     setBusy(true)
     const { data: newId, error } = await sb.rpc('straw_wo_create', { p_orders: [primary, ...Array.from(extra)], p_note: note.trim() || null })
+    if (error) { setBusy(false); setErr(error.message); return }
+    if (newId && steps.length) { const { error: se } = await sb.rpc('straw_wo_set_steps', { p_wo: newId, p_steps: steps }); if (se) { setBusy(false); setErr('Work order created, but the steps did not save: ' + se.message); return } }
     setBusy(false)
-    if (error) { setErr(error.message); return }
     onDone(`✓ Work order created for SO ${free.get(primary)?.[0].order_number}${extra.size ? ` + ${extra.size} more PO${extra.size === 1 ? '' : 's'}` : ''} — targets set from the open straws.`, newId as string)
   }
   const inp = 'h-11 border border-[#E4E6EE] rounded-lg px-3 text-sm w-full'
@@ -734,6 +773,11 @@ function NewWoModal({ sb, orders, wos, start, addTo, prog, onClose, onDone }: {
                   <span className="block text-[11px] text-gray-500">{ls.filter(l => skus.has(l.sku)).map(l => `${l.sku}: ${fmtN(l.open_cases)}`).join(' · ')}</span></span>
               </label>))}
           </div>
+        </div>}
+        {!addWo && primary && <div>
+          <p className="text-xs text-gray-500 mb-1">Process steps <span className="text-gray-400">(suggested from the straws; tap to change)</span></p>
+          <StepPicker value={steps} onChange={v => { setStepsTouched(true); setSteps(v) }} />
+          <p className="text-[11px] text-gray-400 mt-1">{steps.length > 1 ? `Extrusion takes resin and color. ${STAGE_LABEL[steps[steps.length - 1]]} adds the finished cases to inventory.` : 'One step: logging cases takes all materials and adds the cases to inventory.'}</p>
         </div>}
         {!addWo && <div><label className="text-xs text-gray-500">Note (optional)</label><input value={note} onChange={e => setNote(e.target.value)} className={inp} /></div>}
         {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
