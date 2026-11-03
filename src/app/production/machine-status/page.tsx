@@ -18,6 +18,9 @@ interface OpInfo { id: string; qty_produced: number | null; qty_uom: string | nu
 interface OpenWo { id: string; wo_number: number; wo_code: string | null; status: string; machine_id: string; scheduled_hours: number | null; qty_required: number | null; qty_ordered: number | null; qty_produced: number | null; qty_completed: number | null; uom: string | null; due_date: string | null; scheduled_date: string | null; scheduled_start: string | null; item_part_number: string | null; sku: string | null; group_name: string | null; customer: string | null; connected_from: string; op: OpInfo | null; rate: Rate | null }
 
 const CAPACITY_HOURS = 22
+// Where each production board lives, so a machine's work order opens on its own board.
+const BOARD_PATH: Record<string, string> = { walmart: '/production/walmart', straw: '/production/straw', mts_cutlery: '/production/mts-cutlery', cm_molding: '/production/contract-molding', mts_bags: '/production/mts-bags', pl_bags: '/production/private-label-bags' }
+const woHref = (w: { id: string; connected_from?: string | null } | null | undefined) => (w && w.connected_from && BOARD_PATH[w.connected_from] ? `${BOARD_PATH[w.connected_from]}?wo=${w.id}` : null)
 const CLOSED = ['Complete', 'QC Passed', 'Cancelled']
 
 // Machine states. Running pulses green, Paused blinks amber, everything else (Idle, Down, Maintenance) is red.
@@ -241,7 +244,7 @@ function JobCard({ w, qh }: { w: OpenWo; qh?: { need_pcs: number; pph: number | 
   return (
     <li className="rounded-xl border border-[#E4E6EE] p-4 text-sm flex flex-col gap-3">
       <div className="flex justify-between gap-2">
-        <span className="font-semibold">{w.wo_code || `WO-${w.wo_number}`}{w.customer ? ` · ${w.customer}` : ''}</span>
+        <span className="font-semibold">{woHref(w) ? <a href={woHref(w)!} className="hover:underline text-emerald-800">{w.wo_code || `WO-${w.wo_number}`} ↗</a> : (w.wo_code || `WO-${w.wo_number}`)}{w.customer ? ` · ${w.customer}` : ''}</span>
         <span className="text-xs text-gray-500">{w.status}</span>
       </div>
       <div className="text-xs text-gray-600">{w.sku || w.item_part_number || 'No item'}{w.due_date ? ` · due ${w.due_date}` : ''}</div>
@@ -294,6 +297,7 @@ export default function MachineStatusPage() {
   const [stopOpen, setStopOpen] = useState(false)
   const [stopQty, setStopQty] = useState('')
   // Board work orders: the operator reports actual per SKU (or child pieces when a mold is set).
+  const [strawStop, setStrawStop] = useState<{ stage: string | null; final: boolean } | null>(null)
   const [stopLines, setStopLines] = useState<{ sku: string; product_name: string | null; uom: string | null; left_units: number }[]>([])
   const [stopLineQty, setStopLineQty] = useState<Record<string, string>>({})
   const [stopNote, setStopNote] = useState('')
@@ -526,6 +530,11 @@ export default function MachineStatusPage() {
     const next = !stopOpen
     setStopOpen(next); setStopMsg(null); setStopLineQty({}); setStopQty('')
     if (next && m.run_wo_id) {
+      setStrawStop(null)
+      if (m.equipment_group === 'STRAWS') {
+        const { data: ss } = await sb.rpc('machine_straw_stage', { p_machine: m.id, p_wo: m.run_wo_id })
+        if (ss) setStrawStop({ stage: (ss as any).stage, final: !!(ss as any).final })
+      }
       const { data } = await sb.rpc('wo_open_lines', { p_wo: m.run_wo_id })
       setStopLines(((data ?? []) as any[]).map(x => ({ sku: x.sku, product_name: x.product_name, uom: x.uom, left_units: Number(x.left_units) })))
     }
@@ -533,7 +542,7 @@ export default function MachineStatusPage() {
   async function stopRun(m: Machine) {
     const md = molds.find(x => x.machine_id === m.id)
     if (md || stopLines.length) {
-      const lines = md ? [{ sku: md.child_sku, qty: Number(stopQty) }] : stopLines.map(l => ({ sku: l.sku, qty: Number(stopLineQty[l.sku] || 0) })).filter(l => l.qty > 0)
+      const lines = md ? [{ sku: md.child_sku, qty: Number(stopQty) }] : stopLines.map(l => ({ sku: l.sku, qty: Number(stopLineQty[l.sku] || 0), ...(strawStop ? { pcs: true } : {}) })).filter(l => l.qty > 0)
       if (!lines.length || !(lines[0].qty > 0)) { setStopMsg({ ok: false, text: md ? `Enter the actual ${md.child_sku} pieces produced.` : 'Enter the actual quantity for at least one SKU.' }); return }
       setStopBusy(true); setStopMsg(null)
       const { data, error } = await sb.rpc('machine_run_stop_board', { p_machine_id: m.id, p_lines: lines, p_operator: operator.trim() || null, p_note: stopNote.trim() || null })
@@ -853,6 +862,7 @@ export default function MachineStatusPage() {
                           <option value="">Choose a connected work order</option>
                           {jobs.map(w => <option key={w.id} value={w.id}>{woLabel(w)} · {w.sku || w.item_part_number || 'no item'}</option>)}
                         </select>
+                        {startWo && woHref(jobs.find(j => j.id === startWo)) && <a href={woHref(jobs.find(j => j.id === startWo))!} className="text-xs font-semibold text-emerald-700 hover:underline self-start">Open this work order on its board ↗</a>}
                         {m.setup_started_at ? (
                           <div className="rounded-lg bg-sky-50 border border-sky-200 p-3">
                             <p className="text-[11px] text-sky-900">Setup in progress{m.setup_wo_id ? ` for ${(() => { const w = jobs.find(j => j.id === m.setup_wo_id) ?? wos.find(j => j.id === m.setup_wo_id); return w ? woLabel(w) : 'a work order' })()}` : ''}</p>
@@ -869,7 +879,8 @@ export default function MachineStatusPage() {
                       </div>
                     ) : (
                       <>
-                        <p className="text-sm text-[#1A1D2E]">{runWo ? woLabel(runWo) : 'WO-?'} · {runWo?.sku || runWo?.item_part_number || ''}</p>
+                        <p className="text-sm text-[#1A1D2E]">{runWo ? woLabel(runWo) : 'WO-?'} · {runWo?.sku || runWo?.item_part_number || ''}
+                          {woHref(runWo) && <a href={woHref(runWo)!} className="ml-2 text-xs font-semibold text-emerald-700 hover:underline">Open work order ↗</a>}</p>
                         <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
                           <p className="text-[11px] text-amber-900">Estimate from the spec rate, for information only. Not in inventory.</p>
                           <p className="text-2xl font-bold font-mono text-[#1A1D2E]">{estPcs == null ? '—' : Math.floor(estPcs).toLocaleString()} <span className="text-xs font-normal text-gray-500">{molds.find(x => x.machine_id === m.id)?.child_sku ? molds.find(x => x.machine_id === m.id)!.child_sku + ' ' : ''}pcs</span></p>
@@ -906,11 +917,15 @@ export default function MachineStatusPage() {
                                 </label>)
                               if (stopLines.length) return (
                                 <div className="flex flex-col gap-2">
-                                  <p className="text-xs text-gray-600">Actual produced per SKU (counted, not the estimate). This is recorded on the production board and added to inventory.</p>
+                                  <p className="text-xs text-gray-600">{strawStop
+                                    ? (strawStop.final
+                                      ? `Straws made per SKU, in pieces (counted). ${strawStop.stage ? strawStop.stage.charAt(0).toUpperCase() + strawStop.stage.slice(1) + ' is the last step, so' : 'They are'} converted to cases with the Inventory case size and added to inventory.`
+                                      : `Straws done at ${strawStop.stage} per SKU, in pieces (counted). Logged on the work order only. Nothing goes into inventory until the last step reports cases.`)
+                                    : 'Actual produced per SKU (counted, not the estimate). This is recorded on the production board and added to inventory.'}</p>
                                   {stopLines.map(l => (
                                     <label key={l.sku} className="text-xs text-gray-600 flex items-center gap-2">
                                       <span className="flex-1"><span className="font-mono font-semibold text-[#1A1D2E]">{l.sku}</span><span className="block text-[10px] text-gray-500">{fmtNum(l.left_units)} {(l.uom || '').toLowerCase()} left</span></span>
-                                      <input inputMode="decimal" value={stopLineQty[l.sku] || ''} onChange={e => setStopLineQty(p => ({ ...p, [l.sku]: e.target.value }))} placeholder={(l.uom || 'qty').toLowerCase()} className="w-28 min-h-[40px] rounded-lg border border-[#E4E6EE] px-2 text-base text-[#1A1D2E]" />
+                                      <input inputMode="decimal" value={stopLineQty[l.sku] || ''} onChange={e => setStopLineQty(p => ({ ...p, [l.sku]: e.target.value }))} placeholder={strawStop ? 'pcs' : (l.uom || 'qty').toLowerCase()} className="w-28 min-h-[40px] rounded-lg border border-[#E4E6EE] px-2 text-base text-[#1A1D2E]" />
                                     </label>
                                   ))}
                                 </div>)
