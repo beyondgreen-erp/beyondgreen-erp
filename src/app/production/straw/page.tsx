@@ -52,7 +52,11 @@ interface StageEntry { id: string; work_order_id: string; sku: string; stage: st
 const STAGE_LABEL: Record<string, string> = { extrusion: 'Extrusion', bending: 'Bending', wrapping: 'Wrapping' }
 const ALL_STEPS = ['extrusion', 'bending', 'wrapping']
 /** best guess from the straws on the order: extrusion always, bending for bent/flex, wrapping for wrapped */
+const isUnwrapped = (sku: string, name?: string | null) => /unwrap/i.test(name || '') || /-UW/i.test(sku)
+/** unwrapped straws are extrusion only */
+const allUnwrapped = (lines: { sku: string; product_name?: string | null }[]) => lines.length > 0 && lines.every(l => isUnwrapped(l.sku, l.product_name))
 function suggestSteps(lines: { sku: string; product_name?: string | null }[]): string[] {
+  if (allUnwrapped(lines)) return ['extrusion']
   const t = lines.map(l => `${l.sku} ${l.product_name || ''}`.toLowerCase())
   const wrap = t.some(x => (/wrapped/.test(x) && !/unwrapped/.test(x)) || /-w(\b|-|f\b|\d)/.test(x))
   const bend = t.some(x => /(bend|bent|flex)/.test(x))
@@ -343,7 +347,7 @@ export default function StrawProductionPage() {
                         <button onClick={() => setEditSteps(null)} className="h-8 px-3 rounded-lg border border-[#E4E6EE] text-xs text-gray-600">Cancel</button>
                       </div>
                     </div>
-                  ) : !done && canEdit && (stagesBy[wo.id] || []).length <= 1 ? (
+                  ) : !done && canEdit && (stagesBy[wo.id] || []).length <= 1 && !allUnwrapped(rows.map(r => ({ sku: r.sku, product_name: r.product_name }))) ? (
                     <button onClick={() => setEditSteps({ wo: wo.id, v: (stagesBy[wo.id] || []).length ? stagesBy[wo.id] : ['extrusion'] })} className="mt-2 text-[11px] font-semibold hover:underline" style={{ color: ACCENT }}>
                       Steps: {(stagesBy[wo.id] || []).map(x => STAGE_LABEL[x]).join(' → ') || 'one step'} · ✎ change</button>
                   ) : null}
@@ -585,6 +589,22 @@ function LogSheet({ sb, stock, wos, prog, today, stagesBy, onClose, onSaved }: {
   const onWo = new Set(prog.filter(p => (woId ? p.work_order_id === woId : wos.some(w => w.id === p.work_order_id))).map(p => p.sku))
   const opts = stock.filter(s => onWo.has(s.sku))
   useEffect(() => { setRows(rs => rs.map(r => (r.sku && !onWo.has(r.sku) ? { ...r, sku: '' } : r))) }, [woId]) // eslint-disable-line
+  // case config from Inventory → Pack & Case Conversion: pieces per pack × packs per case
+  const [cfg, setCfg] = useState<Record<string, { ppp: number; ppc: number; uom: string }>>({})
+  useEffect(() => {
+    sb.from('products').select('sku,pieces_per_pack,packs_per_case,unit_of_measure').in('sku', stock.map(s => s.sku)).then(({ data }: any) => {
+      setCfg(Object.fromEntries(((data as any[]) || []).map(p => [String(p.sku).toUpperCase(), { ppp: num(p.pieces_per_pack), ppc: num(p.packs_per_case) || 1, uom: String(p.unit_of_measure || '').toUpperCase() }])))
+    })
+  }, [sb, stock])
+  const unitPcs = (sku: string) => { const c = cfg[sku.toUpperCase()]; if (!c) return 1; return /^(PCS|PC|EA|EACH|PIECES?|UNITS?|)$/.test(c.uom) ? 1 : /^(CASES?|CS|CTN|CARTONS?)$/.test(c.uom) ? (c.ppp || 1) * c.ppc : (c.ppp || 1) }
+  /** pieces in one case for this line (the order's own case when it differs) */
+  const casePcs = (sku: string) => {
+    const pk = packFor(sku); if (pk) return pk * unitPcs(sku)
+    const c = cfg[sku.toUpperCase()]; if (c && c.ppp > 0) return c.ppp * c.ppc
+    return num(stock.find(s => s.sku === sku)?.per_case) * unitPcs(sku)
+  }
+  const [inPcs, setInPcs] = useState(true)
+  const casesOf = (r: { sku: string; qty: string }) => (inPcs ? (casePcs(r.sku) > 0 ? Number(r.qty) / casePcs(r.sku) : 0) : Number(r.qty))
   // multi-step work orders (e.g. extrusion → bending → wrapping): earlier steps are logged in straws (pcs)
   const steps = woId ? (stagesBy[woId] || []) : []
   const [stage, setStage] = useState('')
@@ -609,15 +629,17 @@ function LogSheet({ sb, stock, wos, prog, today, stagesBy, onClose, onSaved }: {
     setErr('')
     if (inProcess) return saveStage()
     const good = rows.filter(r => r.sku && Number(r.qty) > 0)
-    if (!good.length) { setErr('Pick a straw and enter how many cases were made.'); return }
+    if (!good.length) { setErr(inPcs ? 'Pick a straw and enter how many straws (pcs) were made.' : 'Pick a straw and enter how many cases were made.'); return }
+    const noCase = inPcs ? good.find(r => !(casePcs(r.sku) > 0)) : null
+    if (noCase) { setErr(`${noCase.sku} has no case size. Set Pieces Per Pack and Packs Per Case on the Inventory board, or enter cases instead.`); return }
     setBusy(true)
     const ids: string[] = []; const ok: string[] = []; const bad: string[] = []
     for (const r of good) {
       const pk = packFor(r.sku)
       const { data, error } = pk
-        ? await sb.rpc('straw_record_production_pack', { p_sku: r.sku, p_packs: Number(r.qty), p_pack_pcs: pk, p_date: date, p_wo: woId || null, p_note: note.trim() || null })
-        : await sb.rpc('straw_record_production', { p_sku: r.sku, p_qty: Number(r.qty), p_date: date, p_wo: woId || null, p_note: note.trim() || null })
-      if (error) bad.push(`${r.sku}: ${error.message}`); else { ok.push(`${r.qty} × ${r.sku}`); if ((data as any)?.id) ids.push((data as any).id) }
+        ? await sb.rpc('straw_record_production_pack', { p_sku: r.sku, p_packs: +casesOf(r).toFixed(6), p_pack_pcs: pk, p_date: date, p_wo: woId || null, p_note: (inPcs ? `${fmtN(r.qty)} pcs. ` : '') + (note.trim() || '') || null })
+        : await sb.rpc('straw_record_production', { p_sku: r.sku, p_qty: +casesOf(r).toFixed(6), p_date: date, p_wo: woId || null, p_note: (inPcs ? `${fmtN(r.qty)} pcs. ` : '') + (note.trim() || '') || null })
+      if (error) bad.push(`${r.sku}: ${error.message}`); else { ok.push(`${fmtN(casesOf(r))}${inPcs ? ` (${fmtN(r.qty)} pcs)` : ''} × ${r.sku}`); if ((data as any)?.id) ids.push((data as any).id) }
     }
     setBusy(false)
     if (bad.length) { setErr((ok.length ? `Saved: ${ok.join(', ')}. ` : '') + 'Not saved — ' + bad.join(' · ')); setRows(rows.filter(r => bad.some(b => b.startsWith(r.sku + ':')))); return }
@@ -641,6 +663,12 @@ function LogSheet({ sb, stock, wos, prog, today, stagesBy, onClose, onSaved }: {
             <button key={g} type="button" onClick={() => setStage(g)} className={`h-10 px-3 rounded-lg border text-sm font-semibold ${stage === g ? 'text-white' : 'bg-white text-gray-600 border-[#E4E6EE]'}`} style={stage === g ? { background: ACCENT, borderColor: ACCENT } : undefined}>{i + 1}. {g.charAt(0).toUpperCase() + g.slice(1)}</button>))}</div>
           <p className="text-[11px] text-gray-500 mt-1">{inProcess ? (stage === steps[0] ? 'Count the straws made. Resin, color and additives come out of inventory now. The straws are not added to inventory until the last step.' : 'Count the straws done at this step. Nothing is taken out of or added to inventory.') : 'Last step: enter finished cases. Packaging comes out and the cases go into inventory.'}</p>
         </div>}
+        {!inProcess && <div className="flex items-center gap-2 text-xs">
+          <span className="text-gray-500">Enter in</span>
+          {[['pcs', true], ['cases', false]].map(([lbl, v]) => (
+            <button key={String(lbl)} type="button" onClick={() => setInPcs(v as boolean)} className={`h-8 px-3 rounded-lg border font-semibold ${inPcs === v ? 'text-white' : 'bg-white text-gray-600 border-[#E4E6EE]'}`} style={inPcs === v ? { background: ACCENT, borderColor: ACCENT } : undefined}>{lbl === 'pcs' ? 'Pieces' : 'Cases'}</button>))}
+          {inPcs && <span className="text-gray-400">converted to cases with the Inventory case size</span>}
+        </div>}
         {rows.map((r, i) => {
           const st = stock.find(s => s.sku === r.sku)
           return (
@@ -650,10 +678,12 @@ function LogSheet({ sb, stock, wos, prog, today, stagesBy, onClose, onSaved }: {
                 {opts.map(s => <option key={s.sku} value={s.sku}>{s.sku} — {s.product_name}</option>)}
               </select>
               <div className="flex items-center gap-2">
-                <input inputMode="decimal" value={r.qty} onChange={e => set(i, { qty: e.target.value.replace(/[^0-9.]/g, '') })} placeholder={inProcess ? 'Straws (pcs)' : 'Cases made'} className={inp} />
+                <input inputMode="decimal" value={r.qty} onChange={e => set(i, { qty: e.target.value.replace(/[^0-9.]/g, '') })} placeholder={inProcess || inPcs ? 'Straws made (pcs)' : 'Cases made'} className={inp} />
                 {rows.length > 1 && <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-gray-400 text-xl px-2">&times;</button>}
               </div>
-              {st && !inProcess && (() => { const pk = packFor(r.sku); const per = pk || num(st.per_case); return <p className={`text-[11px] ${st.per_case ? (pk ? 'text-amber-700 font-semibold' : 'text-gray-500') : 'text-red-600 font-semibold'}`}>{st.per_case ? `1 case = ${fmtN(per)} ${st.uom || ''}${pk ? " (this order's case)" : ''}${Number(r.qty) > 0 ? ` → ${fmtN(Number(r.qty) * per)} ${st.uom || ''} into inventory` : ''}` : 'Case size not set — set it on the finished goods table first.'}</p> })()}
+              {st && !inProcess && inPcs && (() => { const cp = casePcs(r.sku); const c = cp > 0 ? Number(r.qty) / cp : 0
+                return <p className={`text-[11px] ${cp > 0 ? 'text-gray-600' : 'text-red-600 font-semibold'}`}>{cp > 0 ? `1 case = ${fmtN(cp)} pcs${packFor(r.sku) ? " (this order's case)" : ''}${Number(r.qty) > 0 ? ` → ${fmtN(c)} case${c === 1 ? '' : 's'} into inventory${Math.abs(c - Math.round(c)) > 1e-6 ? ` (${Math.floor(c)} full + ${fmtN(Number(r.qty) - Math.floor(c) * cp)} pcs)` : ''}` : ''}` : 'No case size: set Pieces Per Pack × Packs Per Case on the Inventory board.'}</p> })()}
+              {st && !inProcess && !inPcs && (() => { const pk = packFor(r.sku); const per = pk || num(st.per_case); return <p className={`text-[11px] ${st.per_case ? (pk ? 'text-amber-700 font-semibold' : 'text-gray-500') : 'text-red-600 font-semibold'}`}>{st.per_case ? `1 case = ${fmtN(per)} ${st.uom || ''}${pk ? " (this order's case)" : ''}${Number(r.qty) > 0 ? ` → ${fmtN(Number(r.qty) * per)} ${st.uom || ''} into inventory` : ''}` : 'Case size not set — set it on the finished goods table first.'}</p> })()}
             </div>)
         })}
         <button onClick={() => setRows(r => [...r, { sku: '', qty: '' }])} className="text-sm font-semibold" style={{ color: ACCENT }}>+ Another straw</button>
@@ -776,7 +806,9 @@ function NewWoModal({ sb, orders, wos, start, addTo, prog, onClose, onDone }: {
         </div>}
         {!addWo && primary && <div>
           <p className="text-xs text-gray-500 mb-1">Process steps <span className="text-gray-400">(suggested from the straws; tap to change)</span></p>
-          <StepPicker value={steps} onChange={v => { setStepsTouched(true); setSteps(v) }} />
+          {allUnwrapped(free.get(primary) || [])
+            ? <p className="text-sm text-[#1A1D2E] rounded-lg bg-[#FAFBFD] border border-[#ECEEF3] px-3 py-2">1. Extrusion only <span className="text-xs text-gray-500">(unwrapped straws)</span></p>
+            : <StepPicker value={steps} onChange={v => { setStepsTouched(true); setSteps(v) }} />}
           <p className="text-[11px] text-gray-400 mt-1">{steps.length > 1 ? `Extrusion takes resin and color. ${STAGE_LABEL[steps[steps.length - 1]]} adds the finished cases to inventory.` : 'One step: logging cases takes all materials and adds the cases to inventory.'}</p>
         </div>}
         {!addWo && <div><label className="text-xs text-gray-500">Note (optional)</label><input value={note} onChange={e => setNote(e.target.value)} className={inp} /></div>}
