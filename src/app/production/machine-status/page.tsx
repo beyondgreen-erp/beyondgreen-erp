@@ -9,7 +9,7 @@ import RatesPage from '../rates/page'
 
 interface Machine { id: string; name: string; machine_code: string; status: string; location: string | null; notes: string | null; is_active: boolean;
   make: string | null; model: string | null; description: string | null; serial_number: string | null; equipment_type: string | null; equipment_group: string | null;
-  run_wo_id: string | null; run_rate: number | null; run_started_at: string | null; run_elapsed_sec: number | null }
+  run_wo_id: string | null; run_rate: number | null; run_started_at: string | null; run_elapsed_sec: number | null; run_opened_at?: string | null; run_pause_count?: number | null; run_paused_at?: string | null }
 
 interface Rate { pieces_per_hour: number; basis: string; efficiency_pct: number | null }
 interface OpInfo { id: string; qty_produced: number | null; qty_uom: string | null }
@@ -461,6 +461,12 @@ export default function MachineStatusPage() {
   function elapsedSec(m: Machine) {
     return Number(m.run_elapsed_sec || 0) + (m.run_started_at ? Math.max(0, (now - Date.parse(m.run_started_at)) / 1000) : 0)
   }
+  // Downtime = time since the run opened minus run time (the paused stretches).
+  function downSec(m: Machine) {
+    if (!m.run_wo_id || !m.run_opened_at) return 0
+    return Math.max(0, (now - Date.parse(m.run_opened_at)) / 1000 - elapsedSec(m))
+  }
+  function uptimePct(m: Machine) { const r = elapsedSec(m), d = downSec(m); return r + d > 0 ? Math.round((r / (r + d)) * 100) : 100 }
   async function startRun(m: Machine, woId: string, rate: number | null) {
     const resuming = !!m.run_wo_id && m.run_wo_id === woId
     if (m.run_wo_id && !resuming) { alert('Stop the current run before starting another work order.'); return }
@@ -763,7 +769,7 @@ export default function MachineStatusPage() {
                       {m.run_wo_id && (
                         <div className="rounded-lg bg-white/80 border border-amber-200 px-2 py-1 text-center" title="Estimate from the spec rate. Not added to inventory or the boards.">
                           <p className="font-mono font-bold text-sm text-[#1A1D2E]">≈ {m.run_rate ? fmtNum(Number(m.run_rate) * elapsedSec(m) / 3600) : '—'} <span className="text-[10px] font-normal text-gray-500">{molds.find(x => x.machine_id === m.id)?.child_sku || ''} pcs est.</span></p>
-                          <p className="font-mono text-[10px] text-gray-500">{fmtHms(elapsedSec(m))}{m.run_rate ? '' : ' · no rate'}</p>
+                          <p className="font-mono text-[10px] text-gray-500"><span className="text-emerald-700">▶ {fmtHms(elapsedSec(m))}</span>{downSec(m) >= 1 ? <span className="text-amber-700"> · ⏸ {fmtHms(downSec(m))}</span> : null}{m.run_rate ? '' : ' · no rate'}</p>
                         </div>
                       )}
                       <div>
@@ -830,7 +836,20 @@ export default function MachineStatusPage() {
                         <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
                           <p className="text-[11px] text-amber-900">Estimate from the spec rate, for information only. Not in inventory.</p>
                           <p className="text-2xl font-bold font-mono text-[#1A1D2E]">{estPcs == null ? '—' : Math.floor(estPcs).toLocaleString()} <span className="text-xs font-normal text-gray-500">{molds.find(x => x.machine_id === m.id)?.child_sku ? molds.find(x => x.machine_id === m.id)!.child_sku + ' ' : ''}pcs</span></p>
-                          <p className="text-xs text-gray-600 font-mono">{fmtHms(elapsedSec(m))} run time{m.run_rate ? ` · ${Math.round(Number(m.run_rate)).toLocaleString()} pcs/hr` : ' · no spec rate'}</p>
+                          <p className="text-xs text-gray-600 font-mono">{m.run_rate ? `${Math.round(Number(m.run_rate)).toLocaleString()} pcs/hr spec` : 'No spec rate'}</p>
+                        </div>
+                        <div className="rounded-lg border border-[#E4E6EE] p-3">
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div><p className="text-[10px] uppercase tracking-wide text-gray-400">Production time</p><p className="font-mono font-bold text-emerald-700">{fmtHms(elapsedSec(m))}</p></div>
+                            <div><p className="text-[10px] uppercase tracking-wide text-gray-400">Downtime</p><p className="font-mono font-bold text-amber-700">{fmtHms(downSec(m))}</p></div>
+                            <div><p className="text-[10px] uppercase tracking-wide text-gray-400">Uptime</p><p className="font-mono font-bold text-[#1A1D2E]">{uptimePct(m)}%</p></div>
+                          </div>
+                          <div className="mt-2 h-2.5 rounded-full bg-amber-200 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: uptimePct(m) + '%' }} /></div>
+                          <p className="text-[11px] text-gray-500 mt-1.5">
+                            {m.run_opened_at ? `Started ${new Date(m.run_opened_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}
+                            {` · ${m.run_pause_count || 0} pause${(m.run_pause_count || 0) === 1 ? '' : 's'}`}
+                            {mState === 'paused' && m.run_paused_at ? ` · paused for ${fmtHms(Math.max(0, (now - Date.parse(m.run_paused_at)) / 1000))}` : ''}
+                          </p>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           {mState === 'running'
