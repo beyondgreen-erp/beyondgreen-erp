@@ -228,6 +228,18 @@ export default function StrawProductionPage() {
   }
   const saveSteps = (wo: WO, v: string[]) => run(() => sb.rpc('straw_wo_set_steps', { p_wo: wo.id, p_steps: v }) as any,
     (d: any) => { setEditSteps(null); return `✓ ${wo.wo_code} steps: ${((d as string[]) || []).map(x => STAGE_LABEL[x] || x).join(' → ') || 'from its machines'}.` })
+  // Fill part of the work order from free finished stock: releases it to the WO's orders and lowers the target.
+  async function fillFromStock(wo: WO, r: Prog, st: Stock) {
+    const k = kOf(r.std_pcs, r.pack_pcs)
+    const need = Math.max(0, num(r.target_qty) - num(r.made_qty)), free = num(st.free)
+    const def = +(Math.min(need, free) * k).toFixed(3)
+    const ans = window.prompt(`${r.sku}: ${fmtN(free * k)} case(s) are in stock and free.\nThis work order still needs ${fmtN(need * k)}.\n\nHow many cases to fill from stock? They are released to this work order's order(s) and the target goes down by the same amount.`, String(def))
+    if (ans == null) return
+    const q = Number(ans)
+    if (!(q > 0)) { setFlash('⚠ Enter a number of cases greater than zero.'); return }
+    await run(() => sb.rpc('straw_wo_fill_from_stock', { p_wo: wo.id, p_sku: r.sku, p_qty: +(q / k).toFixed(6) }) as any,
+      (d: any) => `📦 ${fmtN(num(d?.filled) * k)} case(s) of ${r.sku} filled from stock for ${wo.wo_code}. Target lowered to match.`)
+  }
   async function undoStage(e: StageEntry) {
     const reason = window.prompt(`Remove ${fmtN(e.pcs)} pcs ${STAGE_LABEL[e.stage] || e.stage} for ${e.sku}? Materials taken out at this step go back to inventory. Reason:`)
     if (!reason || !reason.trim()) return
@@ -399,7 +411,10 @@ export default function StrawProductionPage() {
                       <div className="flex-1 h-2.5 bg-[#F0F2F6] rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: pct + '%', background: num(r.made_qty) >= num(r.target_qty) && num(r.target_qty) > 0 ? '#00c875' : ACCENT }} /></div>
                       {editTargets === wo.id
                         ? <input type="number" min={0} defaultValue={+(num(r.target_qty) * k).toFixed(3)} onBlur={e => { const v = Number(e.target.value) / k; if (Math.abs(v - num(r.target_qty)) > 1e-6) setTarget(wo.id, r.sku, v) }} className="w-24 h-8 border border-[#E4E6EE] rounded px-2 text-sm text-right" />
-                        : <p className="w-44 text-right text-sm"><b>{fmtN(num(r.made_qty) * k)}</b><span className="text-gray-400"> / {fmtN(num(r.target_qty) * k)} cases</span>{st?.per_case && num(st.per_case) !== 1 ? <span className="block text-[10px] text-gray-400">{fmtN(num(r.target_qty) * num(st.per_case))} {st.uom} · {fmtN(num(r.pack_pcs) || st.per_case)}/case{k !== 1 ? ' (order case)' : ''}</span> : null}</p>}
+                        : <>{canEdit && !done && st && num(st.free) > 0.0001 && num(r.target_qty) > num(r.made_qty) && (
+                            <button onClick={() => fillFromStock(wo, r, st)} disabled={busy} title="Finished cases are sitting in inventory for this straw. Use them for this work order."
+                              className="shrink-0 h-8 px-2 rounded-lg border border-emerald-300 bg-emerald-50 text-[11px] font-bold text-emerald-800 whitespace-nowrap">📦 Use stock ({fmtN(num(st.free) * k)})</button>)}
+                          <p className="w-44 text-right text-sm"><b>{fmtN(num(r.made_qty) * k)}</b><span className="text-gray-400"> / {fmtN(num(r.target_qty) * k)} cases</span>{st?.per_case && num(st.per_case) !== 1 ? <span className="block text-[10px] text-gray-400">{fmtN(num(r.target_qty) * num(st.per_case))} {st.uom} · {fmtN(num(r.pack_pcs) || st.per_case)}/case{k !== 1 ? ' (order case)' : ''}</span> : null}</p></>}
                     </div>)
                 })}
                 {editTargets === wo.id && <AddTarget skus={stock.map(s => s.sku).filter(s => !rows.some(r => r.sku === s))} onAdd={(sku, q) => setTarget(wo.id, sku, q)} />}
