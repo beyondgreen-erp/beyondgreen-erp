@@ -515,7 +515,7 @@ export default function ShipmentsPage() {
                       {cost > 0 && <span className={`${val > 0 ? '' : 'ml-auto'} text-[11px] text-gray-400`}>Ship cost ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
                     </div>
                     {!isCol && (
-                      <div>
+                      <div className="overflow-x-auto">
                         <table className="w-full text-xs min-w-[980px]">
                           <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                             <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
