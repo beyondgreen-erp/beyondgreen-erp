@@ -254,71 +254,112 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
 
 // ── build sheet PDF (one page per pallet) ─────────────────────────────────────
 export function buildSheetPdf(po: { po_number: string | null; name?: string | null; ship_due_date?: string | null }, pallets: BPallet[], items: BItem[], dims: Record<string, Dims>) {
+  void dims
   const doc = new jsPDF({ unit: 'in', format: 'letter' })
   doc.setLineWidth(0.01)
-  const hex = (h: string): [number, number, number] => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
-  pallets.forEach((p, idx) => {
-    if (idx) doc.addPage()
-    const its = items.filter(i => i.pallet_id === p.id).sort((a, b) => a.seq - b.seq)
-    doc.setFillColor(18, 122, 74); doc.rect(0.45, 0.4, 7.6, 0.5, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-    doc.text(`PALLET BUILD SHEET  ·  PO ${po.po_number || ''}  ·  Pallet ${p.pallet_no} of ${pallets.length}`, 0.6, 0.73)
-    doc.setTextColor(0, 0, 0); doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-    doc.text(`${p.kind === 'full' ? 'FULL pallet' : ('FLOOR pallet' + (its.length > 1 ? ' (mixed)' : ''))}  ·  ${fmtN(p.srps)} SRPs  ·  ${fmtN(num(p.height_in) + 6, 1)}" tall  ·  ${fmtN(p.cube_ft, 1)} cu ft cube  ·  ${fmtN(p.weight_lb)} lb${po.ship_due_date ? '  ·  Ship ' + po.ship_due_date : ''}`, 0.5, 1.15)
-    // side view
-    const sx = 0.6, base = 6.2, s = 0.085
-    doc.setFillColor(139, 106, 62); doc.rect(sx, base, PW * s, 6 * s, 'F')
-    let y0 = 0
-    its.forEach(it => {
-      const layers = num(it.full_layers) + (num(it.partial) > 0 ? 1 : 0)
-      for (let k = 0; k < layers; k++) {
-        const partial = k === layers - 1 && num(it.partial) > 0
-        const w = partial ? Math.max(0.5, PW * num(it.partial) / (num(it.per_layer) || 1)) : PW
-        const lh = num(it.layer_h || 4)
-        doc.setFillColor(...hex(skuColor(it.sku))); doc.setDrawColor(255, 255, 255)
-        doc.rect(sx, base - (y0 + (k + 1) * lh) * s, w * s, lh * s, 'FD')
-      }
-      const h = layers * num(it.layer_h || 4)
-      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-      doc.text(skuShort(it.sku), sx + PW * s / 2, base - (y0 + h / 2) * s + 0.04, { align: 'center' })
-      y0 += h
-    })
-    doc.setTextColor(0, 0, 0); doc.setFontSize(8); doc.setFont('helvetica', 'normal')
-    doc.text('SIDE VIEW (48" face)', sx, base + 0.75)
-    // per block: top view + instructions
-    let ty = 1.45
-    its.forEach((it, i) => {
-      const g = layerGrid(num(it.ti) || 1, num(it.hi) || 1, dims[it.sku])
-      const ts = 0.045, tx = 5.0
-      const drawLayer = (yy: number, filled?: number) => {
-        doc.setFillColor(243, 231, 211); doc.rect(tx, yy, PW * ts, PD * ts, 'F')
-        const ox = (PW - g.cols * g.cw) / 2, oy = (PD - g.rows * g.ch) / 2
-        for (let c = 0; c < g.cols * g.rows; c++) {
-          const on = filled == null || c < filled
-          doc.setFillColor(...(on ? hex(skuColor(it.sku)) : [255, 255, 255] as [number, number, number])); doc.setDrawColor(40, 40, 40)
-          doc.rect(tx + (ox + (c % g.cols) * g.cw) * ts, yy + (oy + Math.floor(c / g.cols) * g.ch) * ts, g.cw * ts, g.ch * ts, 'FD')
-        }
-      }
-      if (ty > 9.2) { doc.addPage(); ty = 0.6 }
-      drawLayer(ty)
-      if (num(it.partial) > 0) drawLayer(ty + PD * ts + 0.1, num(it.partial))
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
-      doc.text(`${i + 1}. ${skuShort(it.sku)} (${it.sku})`, 3.0, ty + 0.15)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-      const lines = [`${fmtN(it.srps)} SRPs`, it.per_layer ? `${num(it.ti)} x ${num(it.hi)} = ${num(it.per_layer)} per layer` : '',
-        num(it.full_layers) ? `${num(it.full_layers)} full layer(s)` : '', num(it.partial) ? `+ ${num(it.partial)} on top layer (shaded)` : '']
-      lines.filter(Boolean).forEach((t, k) => doc.text(t, 3.0, ty + 0.35 + k * 0.17))
-      ty += (num(it.partial) > 0 ? 2 : 1) * (PD * ts + 0.1) + 0.25
-    })
-    doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-    doc.text('Build bottom to top in the order shown. One PO per pallet. Do not double stack. Wrap, label two sides, photo, then press Confirm built.', 0.5, 10.5)
-    doc.text('Staged ____  Released ____  Claimed ____  Wrapped ____  Built ____', 0.5, 10.7)
+  const M = 0.45, PG = 8.5, CW = (PG - 2 * M - 0.16) / 2, CH = 1.58
+  const its = (pid: string) => items.filter(i => i.pallet_id === pid).sort((a, b) => num(a.seq) - num(b.seq))
+  const head = () => {
     doc.setTextColor(0, 0, 0)
-  })
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+    doc.text('PALLET BUILD SHEET   ' + (po.po_number || ''), M, 0.55)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(80, 80, 80)
+    doc.text((po.name || '') + (po.ship_due_date ? '    Ship ' + po.ship_due_date : ''), M, 0.74)
+    const tS = pallets.reduce((a, p) => a + num(p.srps), 0)
+    const tW = pallets.reduce((a, p) => a + num(p.weight_lb), 0)
+    doc.text(pallets.length + ' pallets     ' + fmtN(tS) + ' SRPs     ' + fmtN(tW) + ' lb', M, 0.9)
+    doc.setDrawColor(150, 150, 150); doc.line(M, 1.0, PG - M, 1.0)
+  }
+  const card = (p: BPallet, x: number, y: number) => {
+    const li = its(p.id)
+    const a = li[0]
+    const ti = a ? num(a.ti) : 0
+    const hi = a ? num(a.hi) : 0
+    const lay = li.reduce((s, i) => s + Math.ceil(num(i.srps) / (num(i.per_layer) || 1)), 0)
+    doc.setDrawColor(190, 190, 190); doc.rect(x, y, CW, CH)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
+    doc.text('PALLET ' + p.pallet_no, x + 0.09, y + 0.22)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(110, 110, 110)
+    doc.text(String(p.kind || '').toUpperCase(), x + 0.75, y + 0.22)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(0, 0, 0)
+    doc.text(ti + ' x ' + hi + ' x ' + lay, x + 0.09, y + 0.62)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120)
+    doc.text('Ti x Hi x layers', x + 0.09, y + 0.76)
+    doc.setFontSize(7.5); doc.setTextColor(30, 30, 30)
+    li.slice(0, 3).forEach((i, k) => {
+      doc.text(fmtN(i.srps) + '  ' + skuShort(i.sku) + '   ' + fmtN(i.per_layer) + '/layer', x + 0.09, y + 0.96 + k * 0.13)
+    })
+    doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
+    doc.text(fmtN(p.srps) + ' SRPs    ' + fmtN(p.height_in, 1) + ' in    ' + fmtN(p.cube_ft, 1) + ' cu ft    ' + fmtN(p.weight_lb) + ' lb', x + 0.09, y + CH - 0.1)
+    const dw = 0.95, dh = 0.79, dx = x + CW - dw - 0.1, dy = y + 0.3
+    doc.setDrawColor(130, 130, 130); doc.rect(dx, dy, dw, dh)
+    if (ti > 0 && hi > 0) {
+      const cw = dw / ti, ch = dh / hi
+      doc.setDrawColor(165, 165, 165)
+      for (let c = 0; c < ti; c++) for (let r = 0; r < hi; r++) doc.rect(dx + c * cw, dy + r * ch, cw, ch)
+    }
+    doc.setFontSize(5.5); doc.setTextColor(130, 130, 130)
+    doc.text('one layer, from above', dx, dy + dh + 0.1)
+  }
+  let i = 0, pg = 0
+  while (i < pallets.length) {
+    if (pg > 0) doc.addPage()
+    head()
+    for (let k = 0; k < 10 && i < pallets.length; k++, i++) {
+      card(pallets[i], M + (k % 2) * (CW + 0.16), 1.15 + Math.floor(k / 2) * (CH + 0.06))
+    }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120)
+    doc.text('Ti x Hi = cases across x cases deep in one layer.  Layers = how many of those layers are stacked.  Pallet is 48 x 40 in, 6 in deck, 50 lb tare.', M, 10.5)
+    pg++
+  }
   return doc
 }
 
-// ── order detail panel ────────────────────────────────────────────────────────
+export function planPdf(po: { po_number: string | null; name?: string | null; ship_due_date?: string | null }, pallets: BPallet[], items: BItem[]) {
+  const doc = new jsPDF({ unit: 'in', format: 'letter' })
+  doc.setLineWidth(0.01)
+  const M = 0.5, R = 8.0
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(0, 0, 0)
+  doc.text('PALLET PLAN & CUBE   ' + (po.po_number || ''), M, 0.6)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(80, 80, 80)
+  doc.text((po.name || '') + (po.ship_due_date ? '    Ship ' + po.ship_due_date : ''), M, 0.8)
+  const cols = [M, M + 0.65, M + 1.55, M + 4.3, M + 5.45, M + 6.15, M + 6.9]
+  const hdr = ['PALLET', 'TYPE', 'CONTENTS', 'Ti x Hi x L', 'HT IN', 'CU FT', 'LB']
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(0, 0, 0)
+  hdr.forEach((h, k) => doc.text(h, cols[k], 1.18))
+  doc.setDrawColor(150, 150, 150); doc.line(M, 1.25, R, 1.25)
+  doc.setFont('helvetica', 'normal')
+  let y = 1.45
+  pallets.forEach(p => {
+    const li = items.filter(i => i.pallet_id === p.id).sort((a, b) => num(a.seq) - num(b.seq))
+    const a = li[0]
+    const lay = li.reduce((s, i) => s + Math.ceil(num(i.srps) / (num(i.per_layer) || 1)), 0)
+    const cont = li.map(i => fmtN(i.srps) + ' ' + skuShort(i.sku)).join(' + ')
+    doc.setTextColor(0, 0, 0)
+    doc.text(String(p.pallet_no), cols[0], y)
+    doc.setTextColor(90, 90, 90)
+    doc.text(String(p.kind || '').toUpperCase(), cols[1], y)
+    doc.setTextColor(0, 0, 0)
+    doc.text(cont.slice(0, 52), cols[2], y)
+    doc.setFont('helvetica', 'bold')
+    doc.text(a ? num(a.ti) + ' x ' + num(a.hi) + ' x ' + lay : '', cols[3], y)
+    doc.setFont('helvetica', 'normal')
+    doc.text(fmtN(p.height_in, 1), cols[4], y)
+    doc.text(fmtN(p.cube_ft, 1), cols[5], y)
+    doc.text(fmtN(p.weight_lb), cols[6], y)
+    y += 0.2
+  })
+  doc.setDrawColor(150, 150, 150); doc.line(M, y - 0.13, R, y - 0.13)
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0)
+  doc.text('TOTAL', cols[0], y + 0.05)
+  doc.text(pallets.length + ' pallets', cols[2], y + 0.05)
+  doc.text(fmtN(pallets.reduce((s, p) => s + num(p.cube_ft), 0), 1), cols[5], y + 0.05)
+  doc.text(fmtN(pallets.reduce((s, p) => s + num(p.weight_lb), 0)), cols[6], y + 0.05)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120)
+  doc.text('Ti x Hi x L = cases across x cases deep x layers high.  Cube and weight include a 48 x 40 in pallet, 6 in deck, 50 lb tare.', M, y + 0.35)
+  return doc
+}
+
 export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
   sb: any; order: { id: string; po_number: string | null; name?: string | null; ship_due_date?: string | null; cbm?: number | null; plan_pallets?: number | null; plan_weight?: number | null; plan_stale?: boolean | null; group_name?: string | null }
   canEdit: boolean; onChanged?: () => void
@@ -344,7 +385,8 @@ export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{fmtN(cube, 1)} cu ft cube</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{pallets.length} pallets ({full} full · {pallets.length - full} floor)</span>
         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white border border-[#CFE6D8]">{fmtN(wt)} lb</span>
-        {pallets.length > 0 && <button onClick={() => buildSheetPdf(order, pallets, items, dims).save(`Pallet-Build-${po || 'PO'}.pdf`)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#CFE6D8] text-[#0f7a4a] font-semibold" data-ro-ok>🖨 Build sheets</button>}
+        {pallets.length > 0 && <button onClick={() => planPdf(order, pallets, items).save(`Pallet-Plan-${po || 'PO'}.pdf`)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#E4E6EE] text-gray-600" title="Print this plan">Print plan</button>}
+            {pallets.length > 0 && <button onClick={() => buildSheetPdf(order, pallets, items, dims).save(`Pallet-Build-${po || 'PO'}.pdf`)} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#CFE6D8] text-[#0f7a4a] font-semibold" data-ro-ok>🖨 Build sheets</button>}
         {canEdit && <button onClick={replan} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-[#E4E6EE] text-gray-600" title="Re-plan from the order lines">↻ Re-plan</button>}
       </div>
       {order.plan_stale && <p className="text-[12px] rounded-lg bg-amber-50 border border-amber-300 text-amber-900 px-3 py-2 mb-2">⚠ The order lines changed after pallets were started, so this plan no longer matches the PO. Step the started pallets back (↩) and press Re-plan.</p>}
@@ -354,7 +396,7 @@ export function WalmartPalletPlan({ sb, order, canEdit, onChanged }: {
           {pallets.map(p => <PalletRow key={p.id} p={p} items={items.filter(i => i.pallet_id === p.id)} dims={dims} po={po} canEdit={false} busy={busy === p.id}
             onStep={(pp, s, ph) => step(pp, s, po, ph)} onUndo={pp => undo(pp, po)} />)}
         </div>)}
-      <p className="text-[10px] text-gray-500 mt-2">Full pallet = the SKU&apos;s pallet arrangement (S24 312 · F24 260 · A24 234 · A48 165 · K48 260 · S48 120 · F48 120). Anything less is floor and goes on a mixed pallet for this PO. Cube is in cubic feet (the figure Walmart asks for): 48×40 CHEP pallet, 6&quot; base, 65 lb, to the top of the load.</p>
+      <p className="text-[10px] text-gray-500 mt-2">Full pallet = the SKU&apos;s pallet arrangement (S24 312 · F24 260 · A24 260 · A48 195 · K48 260 · S48 156 · F48 156). Anything less is floor and goes on a mixed pallet for this PO. Cube is in cubic feet (the figure Walmart asks for): 48×40 CHEP pallet, 6&quot; base, 50 lb, to the top of the load.</p>
     </div>
   )
 }
