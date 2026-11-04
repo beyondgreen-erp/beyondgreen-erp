@@ -255,6 +255,7 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
 // ── build sheet PDF (one page per pallet) ─────────────────────────────────────
 export function buildSheetPdf(po: { po_number: string | null; name?: string | null; ship_due_date?: string | null }, pallets: BPallet[], items: BItem[], dims: Record<string, Dims>) {
   const doc = new jsPDF({ unit: 'in', format: 'letter' })
+  doc.setLineWidth(0.01)
   const hex = (h: string): [number, number, number] => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
   pallets.forEach((p, idx) => {
     if (idx) doc.addPage()
@@ -263,7 +264,7 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
     doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
     doc.text(`PALLET BUILD SHEET  ·  PO ${po.po_number || ''}  ·  Pallet ${p.pallet_no} of ${pallets.length}`, 0.6, 0.73)
     doc.setTextColor(0, 0, 0); doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-    doc.text(`${p.kind === 'full' ? 'FULL pallet' : 'FLOOR pallet (mixed)'}  ·  ${fmtN(p.srps)} SRPs  ·  ${fmtN(num(p.height_in) + 6, 1)}" tall  ·  ${fmtN(p.cube_ft, 1)} cu ft cube  ·  ${fmtN(p.weight_lb)} lb${po.ship_due_date ? '  ·  Ship ' + po.ship_due_date : ''}`, 0.5, 1.15)
+    doc.text(`${p.kind === 'full' ? 'FULL pallet' : ('FLOOR pallet' + (its.length > 1 ? ' (mixed)' : ''))}  ·  ${fmtN(p.srps)} SRPs  ·  ${fmtN(num(p.height_in) + 6, 1)}" tall  ·  ${fmtN(p.cube_ft, 1)} cu ft cube  ·  ${fmtN(p.weight_lb)} lb${po.ship_due_date ? '  ·  Ship ' + po.ship_due_date : ''}`, 0.5, 1.15)
     // side view
     const sx = 0.6, base = 6.2, s = 0.085
     doc.setFillColor(139, 106, 62); doc.rect(sx, base, PW * s, 6 * s, 'F')
