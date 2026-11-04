@@ -254,66 +254,76 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
 
 // ── build sheet PDF (one page per pallet) ─────────────────────────────────────
 export function buildSheetPdf(po: { po_number: string | null; name?: string | null; ship_due_date?: string | null }, pallets: BPallet[], items: BItem[], dims: Record<string, Dims>) {
+  // Compact print layout: two pallet cards per row, eight per page, black and white.
   const doc = new jsPDF({ unit: 'in', format: 'letter' })
-  const hex = (h: string): [number, number, number] => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
+  const L = 0.55, W = 7.4, GAP = 0.2, CW = (W - GAP) / 2, CH = 2.0, TOP = 1.3, ROWS = 4
+  const totSrp = pallets.reduce((t, p) => t + num(p.srps), 0), totLb = pallets.reduce((t, p) => t + num(p.weight_lb), 0)
+  const header = (cont: boolean) => {
+    doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
+    doc.text('PALLET BUILD SHEET', L, 0.7)
+    doc.text(po.po_number || '', L + 2.45, 0.7)
+    if (cont) { doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.text('(continued)', L + 3.9, 0.7) }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    doc.text(`${po.name || ''}${po.ship_due_date ? '     Ship ' + po.ship_due_date : ''}`, L, 0.92)
+    doc.text(`${pallets.length} pallet${pallets.length === 1 ? '' : 's'}     ${fmtN(totSrp)} SRPs     ${fmtN(totLb)} lb`, L, 1.1)
+    doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.01); doc.line(L, 1.18, L + W, 1.18)
+  }
+  const footer = () => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60)
+    doc.text('Ti x Hi = cases across x cases deep in one layer.  Layers = how many of those layers are stacked.  Pallet is 48 x 40 in, 6 in deck, 50 lb tare.', L, 10.55)
+    doc.setTextColor(0, 0, 0)
+  }
+  const layers = (it: BItem) => num(it.full_layers) + (num(it.partial) > 0 ? 1 : 0)
+  const grid = (it: BItem, x: number, y: number, maxW: number, maxH: number) => {
+    const g = layerGrid(num(it.ti) || 1, num(it.hi) || 1, dims[it.sku])
+    const sc = Math.min(maxW / (g.cols * g.cw), maxH / (g.rows * g.ch))
+    const gw = g.cols * g.cw * sc, gh = g.rows * g.ch * sc, gx = x + maxW - gw
+    doc.setDrawColor(60, 60, 60); doc.setLineWidth(0.008)
+    for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.cols; c++) doc.rect(gx + c * g.cw * sc, y + r * g.ch * sc, g.cw * sc, g.ch * sc)
+    doc.setFontSize(6); doc.setTextColor(90, 90, 90)
+    doc.text(`one layer of ${skuShort(it.sku)}, from above`, gx + gw, y + gh + 0.12, { align: 'right' })
+    doc.setTextColor(0, 0, 0)
+  }
+  header(false)
   pallets.forEach((p, idx) => {
-    if (idx) doc.addPage()
+    const slot = idx % (ROWS * 2)
+    if (idx && slot === 0) { footer(); doc.addPage(); header(true) }
+    const x = L + (slot % 2) * (CW + GAP), y = TOP + Math.floor(slot / 2) * (CH + GAP)
     const its = items.filter(i => i.pallet_id === p.id).sort((a, b) => a.seq - b.seq)
-    doc.setFillColor(18, 122, 74); doc.rect(0.45, 0.4, 7.6, 0.5, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-    doc.text(`PALLET BUILD SHEET  ·  PO ${po.po_number || ''}  ·  Pallet ${p.pallet_no} of ${pallets.length}`, 0.6, 0.73)
-    doc.setTextColor(0, 0, 0); doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-    doc.text(`${p.kind === 'full' ? 'FULL pallet' : 'FLOOR pallet (mixed)'}  ·  ${fmtN(p.srps)} SRPs  ·  ${fmtN(num(p.height_in) + 6, 1)}" tall  ·  ${fmtN(p.cube_ft, 1)} cu ft cube  ·  ${fmtN(p.weight_lb)} lb${po.ship_due_date ? '  ·  Ship ' + po.ship_due_date : ''}`, 0.5, 1.15)
-    // side view
-    const sx = 0.6, base = 6.2, s = 0.085
-    doc.setFillColor(139, 106, 62); doc.rect(sx, base, PW * s, 6 * s, 'F')
-    let y0 = 0
+    // merge rows of the same SKU (whole layers + short top layer) for display
+    const bySku: BItem[] = []
     its.forEach(it => {
-      const layers = num(it.full_layers) + (num(it.partial) > 0 ? 1 : 0)
-      for (let k = 0; k < layers; k++) {
-        const partial = k === layers - 1 && num(it.partial) > 0
-        const w = partial ? Math.max(0.5, PW * num(it.partial) / (num(it.per_layer) || 1)) : PW
-        const lh = num(it.layer_h || 4)
-        doc.setFillColor(...hex(skuColor(it.sku))); doc.setDrawColor(255, 255, 255)
-        doc.rect(sx, base - (y0 + (k + 1) * lh) * s, w * s, lh * s, 'FD')
-      }
-      const h = layers * num(it.layer_h || 4)
-      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-      doc.text(skuShort(it.sku), sx + PW * s / 2, base - (y0 + h / 2) * s + 0.04, { align: 'center' })
-      y0 += h
+      const e = bySku.find(b => b.sku === it.sku)
+      if (e) { e.srps = num(e.srps) + num(it.srps); e.full_layers = num(e.full_layers) + num(it.full_layers); e.partial = num(e.partial) + num(it.partial) }
+      else bySku.push({ ...it })
     })
-    doc.setTextColor(0, 0, 0); doc.setFontSize(8); doc.setFont('helvetica', 'normal')
-    doc.text('SIDE VIEW (48" face)', sx, base + 0.75)
-    // per block: top view + instructions
-    let ty = 1.45
-    its.forEach((it, i) => {
-      const g = layerGrid(num(it.ti) || 1, num(it.hi) || 1, dims[it.sku])
-      const ts = 0.045, tx = 5.0
-      const drawLayer = (yy: number, filled?: number) => {
-        doc.setFillColor(243, 231, 211); doc.rect(tx, yy, PW * ts, PD * ts, 'F')
-        const ox = (PW - g.cols * g.cw) / 2, oy = (PD - g.rows * g.ch) / 2
-        for (let c = 0; c < g.cols * g.rows; c++) {
-          const on = filled == null || c < filled
-          doc.setFillColor(...(on ? hex(skuColor(it.sku)) : [255, 255, 255] as [number, number, number])); doc.setDrawColor(40, 40, 40)
-          doc.rect(tx + (ox + (c % g.cols) * g.cw) * ts, yy + (oy + Math.floor(c / g.cols) * g.ch) * ts, g.cw * ts, g.ch * ts, 'FD')
-        }
-      }
-      if (ty > 9.2) { doc.addPage(); ty = 0.6 }
-      drawLayer(ty)
-      if (num(it.partial) > 0) drawLayer(ty + PD * ts + 0.1, num(it.partial))
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
-      doc.text(`${i + 1}. ${skuShort(it.sku)} (${it.sku})`, 3.0, ty + 0.15)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-      const lines = [`${fmtN(it.srps)} SRPs`, it.per_layer ? `${num(it.ti)} x ${num(it.hi)} = ${num(it.per_layer)} per layer` : '',
-        num(it.full_layers) ? `${num(it.full_layers)} full layer(s)` : '', num(it.partial) ? `+ ${num(it.partial)} on top layer (shaded)` : '']
-      lines.filter(Boolean).forEach((t, k) => doc.text(t, 3.0, ty + 0.35 + k * 0.17))
-      ty += (num(it.partial) > 0 ? 2 : 1) * (PD * ts + 0.1) + 0.25
-    })
-    doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-    doc.text('Build bottom to top in the order shown. One PO per pallet. Do not double stack. Wrap, label two sides, photo, then press Confirm built.', 0.5, 10.5)
-    doc.text('Staged ____  Released ____  Claimed ____  Wrapped ____  Built ____', 0.5, 10.7)
+    const single = bySku.length === 1
+    doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.012); doc.rect(x, y, CW, CH)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.text(`PALLET ${p.pallet_no}`, x + 0.14, y + 0.27)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80)
+    doc.text(single && p.kind === 'full' ? 'FULL' : single ? 'SINGLE SKU' : 'FLOOR', x + 1.05, y + 0.27); doc.setTextColor(0, 0, 0)
+    const main = bySku[0]
+    if (main) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(17)
+      doc.text(single && main.per_layer ? `${num(main.ti)} x ${num(main.hi)} x ${layers(main)}` : single ? `${fmtN(main.srps)} SRPs` : 'MIXED', x + 0.14, y + 0.65)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
+      doc.text(single ? 'Ti x Hi x layers' : 'Ti x Hi x layers per SKU below', x + 0.14, y + 0.8); doc.setTextColor(0, 0, 0)
+      doc.setFontSize(8.5)
+      const step = bySku.length > 5 ? 0.13 : 0.17
+      doc.setFontSize(bySku.length > 5 ? 7.5 : 8.5)
+      bySku.slice(0, 7).forEach((it, k) => {
+        const ly = y + 1.0 + k * step
+        doc.text(`${fmtN(it.srps)}  ${skuShort(it.sku)}`, x + 0.14, ly)
+        if (!single && it.per_layer) doc.text(`${num(it.ti)} x ${num(it.hi)} x ${layers(it)}`, x + 1.12, ly)
+        if (it.per_layer) doc.text(`${num(it.per_layer)} per layer`, x + (single ? 0.95 : 1.68), ly)
+      })
+      if (main.per_layer) grid(main, x + CW - 1.22, y + 0.16, 1.08, single ? 1.0 : 0.56)
+    }
+    doc.setFontSize(7.5); doc.setTextColor(40, 40, 40)
+    doc.text(`${fmtN(p.srps)} SRPs     ${fmtN(p.height_in, 1)} in     ${fmtN(p.cube_ft, 1)} cu ft     ${fmtN(p.weight_lb)} lb`, x + 0.14, y + CH - 0.13)
     doc.setTextColor(0, 0, 0)
   })
+  footer()
   return doc
 }
 
