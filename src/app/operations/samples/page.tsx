@@ -43,6 +43,19 @@ const GROUPS = [
   { key: 'Delivered Samples', color: '#00C875' },
 ]
 const GROUP_OPTIONS = GROUPS.map(g => g.key)
+// Date-only values ('2026-11-01') parse as UTC midnight, which lands on the previous day in
+// California and files the sample under the wrong month. Read them as local noon instead.
+const parseShipDate = (d: string) => new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? d + 'T12:00:00' : d)
+/** 'November 2026' -> a local Date on that day of the month (clamped), at noon. */
+function monthKeyToDate(key: string, day: number): Date | null {
+  const m = /^([A-Za-z]+) (\d{4})$/.exec(key.trim())
+  if (!m) return null
+  const mi = ['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(m[1].toLowerCase())
+  if (mi < 0) return null
+  const t = new Date(Number(m[2]), mi, 1)
+  const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate()
+  return new Date(t.getFullYear(), t.getMonth(), Math.min(Math.max(day, 1), last), 12)
+}
 // The UOMs already in use across Inventory (products.unit_of_measure) — kept as one list so
 // the sample line items pick from the same vocabulary the rest of the ERP already uses.
 const UOM_OPTIONS = ['EA', 'PCS', 'PKS', 'CASE', 'LBS', 'ROLLS', 'M', 'Bags']
@@ -382,6 +395,10 @@ export default function SamplesPage() {
   const [deliverSample, setDeliverSample] = useState<Sample | null>(null)
   const [userEmail, setUserEmail] = useState('')
   const dragId = useRef<string | null>(null)
+  // Month sections the team added by hand (shared via sample_board_months), so a month can
+  // exist on the board before anything in it has shipped.
+  const [extraMonths, setExtraMonths] = useState<string[]>([])
+  const [newMonth, setNewMonth] = useState('')
 
   const [detail, setDetail] = useState<Sample | null>(null)
   const [editing, setEditing] = useState(false)
@@ -405,6 +422,7 @@ export default function SamplesPage() {
     }
     setRows(all)
     setLoading(false)  // show the board immediately; comment badges fill in below
+    sb.from('sample_board_months').select('month_key').then(({ data }) => setExtraMonths(((data as any[]) || []).map(m => String(m.month_key))))
     sb.auth.getUser().then(({ data }) => { if (data.user?.email) setUserEmail(data.user.email) })
     const ids = all.map(r => r.id)
     if (ids.length) {
@@ -559,7 +577,7 @@ export default function SamplesPage() {
     const isShipped = (r: Sample) => (r.group_name || '') === 'Shipped Samples'
     const isCancelled = isCancelledRow
     const shipDate = (r: Sample) => ((r as any).shipped_at as string | null) || r.ship_due_date || r.sample_date || null
-    const monthKey = (r: Sample) => { const d = shipDate(r); if (!d) return 'Shipped — no date'; const dt = new Date(d); return isNaN(dt.getTime()) ? 'Shipped — no date' : dt.toLocaleString('en-US', { month: 'long', year: 'numeric' }) }
+    const monthKey = (r: Sample) => { const d = shipDate(r); if (!d) return 'Shipped — no date'; const dt = parseShipDate(d); return isNaN(dt.getTime()) ? 'Shipped — no date' : dt.toLocaleString('en-US', { month: 'long', year: 'numeric' }) }
     const byGroup = new Map<string, Sample[]>()
     const monthLatest = new Map<string, string>()
     const extraKeys: string[] = []
@@ -580,6 +598,12 @@ export default function SamplesPage() {
       const arr = byGroup.get(key); if (arr) arr.push(r); else byGroup.set(key, [r])
     }
     for (const arr of byGroup.values()) arr.sort((a, b) => (a.position || 0) - (b.position || 0))
+    // Hand-added months show even when empty; sort them by their first day.
+    for (const m of extraMonths) {
+      if (monthLatest.has(m)) continue
+      const first = monthKeyToDate(m, 1)
+      if (first) monthLatest.set(m, first.toISOString())
+    }
     const shippedMonthGroups = [...monthLatest.entries()]
       .sort((a, b) => (b[1] || '').localeCompare(a[1] || ''))
       .map(([key]) => ({ key, color: '#00A84F', shippedMonth: true as const }))
@@ -593,7 +617,23 @@ export default function SamplesPage() {
     if (byGroup.has(CANCELLED_KEY)) groups.push({ key: CANCELLED_KEY, color: '#E2445C' })
     let count = 0; for (const arr of byGroup.values()) count += arr.length
     return { allGroups: groups, rowsByGroup: byGroup, shownCount: count }
-  }, [rows, q])
+  }, [rows, q, extraMonths])
+
+  async function addMonth() {
+    if (!newMonth) return
+    const [y, m] = newMonth.split('-').map(Number)
+    const key = new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+    setNewMonth('')
+    if (extraMonths.includes(key)) return
+    setExtraMonths(ms => [...ms, key])
+    setCollapsed(c => ({ ...c, [key]: false }))
+    const { error } = await sb.from('sample_board_months').upsert({ month_key: key, created_by: userEmail || null })
+    if (error) { setExtraMonths(ms => ms.filter(x => x !== key)); alert('Could not add the month: ' + error.message) }
+  }
+  async function removeMonth(key: string) {
+    setExtraMonths(ms => ms.filter(x => x !== key))
+    await sb.from('sample_board_months').delete().eq('month_key', key)
+  }
   const groupRows = (g: { key: string; shippedMonth?: boolean }) => rowsByGroup.get(g.key) ?? []
   // Drag a submission into another group. Dropping into "Shipped Samples" or "Delivered Samples"
   // used to just flip the status/group directly, with no email — so a card dragged there looked
@@ -618,7 +658,21 @@ export default function SamplesPage() {
       return
     }
     if (target.shippedMonth) {
-      if ((row.group_name || '') === 'Shipped Samples') return // already shipped
+      if ((row.group_name || '') === 'Shipped Samples') {
+        // Already shipped: moving it to another month corrects its ship date to that month
+        // (same day of the month, clamped), with no email.
+        const cur = ((row as any).shipped_at as string | null) || row.ship_due_date || row.sample_date
+        const curDt = cur ? parseShipDate(cur) : null
+        const day = curDt && !isNaN(curDt.getTime()) ? curDt.getDate() : 1
+        const dt = monthKeyToDate(target.key, day)
+        if (!dt) return
+        if (curDt && curDt.getFullYear() === dt.getFullYear() && curDt.getMonth() === dt.getMonth()) return
+        const patch: any = { updated_at: new Date().toISOString(), shipped_at: dt.toISOString() }
+        setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r))
+        const { error } = await sb.from('sample_submissions').update(patch).eq('id', id)
+        if (error) { setRows(rs => rs.map(r => r.id === id ? row : r)); alert('Could not move: ' + error.message) }
+        return
+      }
       setShipSample(row)
       return
     }
@@ -671,6 +725,8 @@ export default function SamplesPage() {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <input placeholder="Search name, customer, product, tracking…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1 min-w-[240px] max-w-md bg-white border border-[#E4E6EE] rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <div className="flex items-center gap-1.5 ml-auto text-xs">
+          <input type="month" value={newMonth} onChange={e => setNewMonth(e.target.value)} className="bg-white border border-[#E4E6EE] rounded-md px-2 py-1 text-xs" aria-label="Month to add" />
+          <button onClick={addMonth} disabled={!newMonth} className="px-2.5 py-1.5 rounded-md bg-[#00A84F] text-white font-medium disabled:opacity-40">+ Add month</button>
           <button onClick={() => setCollapsed(Object.fromEntries(allGroups.map(g => [g.key, true])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Collapse all</button>
           <button onClick={() => setCollapsed(Object.fromEntries(allGroups.map(g => [g.key, false])))} className="px-2.5 py-1.5 rounded-md text-gray-500 hover:bg-[#F0F2F7]">Expand all</button>
         </div>
@@ -688,6 +744,7 @@ export default function SamplesPage() {
                   <span className="font-bold text-sm" style={{ color: group.color }}>{group.key}</span>
                   <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: group.color + '26', color: group.color }}>{gr.length}</span>
                   {cost > 0 && <span className="ml-auto text-[11px] text-gray-400">Ship cost ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                  {gr.length === 0 && extraMonths.includes(group.key) && <button onClick={e => { e.stopPropagation(); removeMonth(group.key) }} className="ml-auto text-[11px] text-gray-400 hover:text-red-500" title="Remove this empty month">Remove</button>}
                 </div>
                 {!isCol && (
                   <div className="overflow-x-auto">
