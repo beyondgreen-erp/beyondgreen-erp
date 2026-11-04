@@ -257,7 +257,7 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
   void dims
   const doc = new jsPDF({ unit: 'in', format: 'letter' })
   doc.setLineWidth(0.01)
-  const M = 0.45, PG = 8.5, CW = (PG - 2 * M - 0.16) / 2, CH = 1.58
+  const M = 0.45, PG = 8.5, CW = (PG - 2 * M - 0.16) / 2, CH = 1.7
   const its = (pid: string) => items.filter(i => i.pallet_id === pid).sort((a, b) => num(a.seq) - num(b.seq))
   const head = () => {
     doc.setTextColor(0, 0, 0)
@@ -280,18 +280,20 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
     doc.text('PALLET ' + p.pallet_no, x + 0.09, y + 0.22)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(110, 110, 110)
-    doc.text(String(p.kind || '').toUpperCase(), x + 0.75, y + 0.22)
+    doc.text(String(p.kind || '').toUpperCase(), x + 0.95, y + 0.22)
+    const mixed = li.length > 1
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(0, 0, 0)
-    doc.text(ti + ' x ' + hi + ' x ' + lay, x + 0.09, y + 0.62)
+    doc.text(mixed ? 'MIXED' : ti + ' x ' + hi + ' x ' + lay, x + 0.09, y + 0.62)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120)
-    doc.text('Ti x Hi x layers', x + 0.09, y + 0.76)
+    doc.text(mixed ? 'Ti x Hi x layers per SKU below' : 'Ti x Hi x layers', x + 0.09, y + 0.76)
     doc.setFontSize(7.5); doc.setTextColor(30, 30, 30)
-    li.slice(0, 3).forEach((i, k) => {
-      doc.text(fmtN(i.srps) + '  ' + skuShort(i.sku) + '   ' + fmtN(i.per_layer) + '/layer', x + 0.09, y + 0.96 + k * 0.13)
+    li.slice(0, 3).forEach((it, k) => {
+      const L = Math.ceil(num(it.srps) / (num(it.per_layer) || 1))
+      doc.text(fmtN(it.srps) + '  ' + skuShort(it.sku) + '    ' + (mixed ? num(it.ti) + ' x ' + num(it.hi) + ' x ' + L + '    ' : '') + fmtN(it.per_layer) + ' per layer', x + 0.09, y + 0.98 + k * 0.14)
     })
     doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
     doc.text(fmtN(p.srps) + ' SRPs    ' + fmtN(p.height_in, 1) + ' in    ' + fmtN(p.cube_ft, 1) + ' cu ft    ' + fmtN(p.weight_lb) + ' lb', x + 0.09, y + CH - 0.1)
-    const dw = 0.95, dh = 0.79, dx = x + CW - dw - 0.1, dy = y + 0.3
+    const dw = 1.08, dh = 0.9, dx = x + CW - dw - 0.12, dy = y + 0.3
     doc.setDrawColor(130, 130, 130); doc.rect(dx, dy, dw, dh)
     if (ti > 0 && hi > 0) {
       const cw = dw / ti, ch = dh / hi
@@ -299,17 +301,17 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
       for (let c = 0; c < ti; c++) for (let r = 0; r < hi; r++) doc.rect(dx + c * cw, dy + r * ch, cw, ch)
     }
     doc.setFontSize(5.5); doc.setTextColor(130, 130, 130)
-    doc.text('one layer, from above', dx, dy + dh + 0.1)
+    doc.text('one layer of ' + (a ? skuShort(a.sku) : '') + ', from above', dx, dy + dh + 0.1)
   }
   let i = 0, pg = 0
   while (i < pallets.length) {
     if (pg > 0) doc.addPage()
     head()
     for (let k = 0; k < 10 && i < pallets.length; k++, i++) {
-      card(pallets[i], M + (k % 2) * (CW + 0.16), 1.15 + Math.floor(k / 2) * (CH + 0.06))
+      card(pallets[i], M + (k % 2) * (CW + 0.16), 1.15 + Math.floor(k / 2) * (CH + 0.08))
     }
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120)
-    doc.text('Ti x Hi = cases across x cases deep in one layer.  Layers = how many of those layers are stacked.  Pallet is 48 x 40 in, 6 in deck, 50 lb tare.', M, 10.5)
+    doc.text('Ti x Hi = cases across x cases deep in one layer.  Layers = how many of those layers are stacked.  Pallet is 48 x 40 in, 6 in deck, 50 lb tare.', M, 10.45)
     pg++
   }
   return doc
@@ -352,7 +354,7 @@ export function planPdf(po: { po_number: string | null; name?: string | null; sh
   doc.setDrawColor(150, 150, 150); doc.line(M, y - 0.13, R, y - 0.13)
   doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0)
   doc.text('TOTAL', cols[0], y + 0.05)
-  doc.text(pallets.length + ' pallets', cols[2], y + 0.05)
+  doc.text(pallets.length + ' pallets    ' + fmtN(pallets.reduce((s, p) => s + num(p.srps), 0)) + ' SRPs', cols[2], y + 0.05)
   doc.text(fmtN(pallets.reduce((s, p) => s + num(p.cube_ft), 0), 1), cols[5], y + 0.05)
   doc.text(fmtN(pallets.reduce((s, p) => s + num(p.weight_lb), 0)), cols[6], y + 0.05)
   doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120)
