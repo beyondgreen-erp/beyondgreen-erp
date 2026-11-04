@@ -286,11 +286,13 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
     doc.text(mixed ? 'MIXED' : ti + ' x ' + hi + ' x ' + lay, x + 0.09, y + 0.62)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120)
     doc.text(mixed ? 'Ti x Hi x layers per SKU below' : 'Ti x Hi x layers', x + 0.09, y + 0.76)
-    doc.setFontSize(7.5); doc.setTextColor(30, 30, 30)
-    li.slice(0, 3).forEach((it, k) => {
+    const show = li.length > 5 ? li.slice(0, 4) : li
+    doc.setFontSize(7); doc.setTextColor(30, 30, 30)
+    show.forEach((it, k) => {
       const L = Math.ceil(num(it.srps) / (num(it.per_layer) || 1))
-      doc.text(fmtN(it.srps) + '  ' + skuShort(it.sku) + '    ' + (mixed ? num(it.ti) + ' x ' + num(it.hi) + ' x ' + L + '    ' : '') + fmtN(it.per_layer) + ' per layer', x + 0.09, y + 0.98 + k * 0.14)
+      doc.text(fmtN(it.srps) + '  ' + skuShort(it.sku) + '    ' + (mixed ? num(it.ti) + ' x ' + num(it.hi) + ' x ' + L + '    ' : '') + fmtN(it.per_layer) + ' per layer', x + 0.09, y + 0.93 + k * 0.125)
     })
+    if (li.length > 5) { doc.text('+ ' + (li.length - 4) + ' more - see Pallet Plan', x + 0.09, y + 0.93 + 4 * 0.125) }
     doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
     doc.text(fmtN(p.srps) + ' SRPs    ' + fmtN(p.height_in, 1) + ' in    ' + fmtN(p.cube_ft, 1) + ' cu ft    ' + fmtN(p.weight_lb) + ' lb', x + 0.09, y + CH - 0.1)
     const dw = 1.08, dh = 0.9, dx = x + CW - dw - 0.12, dy = y + 0.3
