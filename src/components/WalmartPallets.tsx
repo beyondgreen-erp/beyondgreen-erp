@@ -254,9 +254,10 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
 
 // ── build sheet PDF (one page per pallet) ─────────────────────────────────────
 export function buildSheetPdf(po: { po_number: string | null; name?: string | null; ship_due_date?: string | null }, pallets: BPallet[], items: BItem[], dims: Record<string, Dims>) {
-  // Compact print layout: two pallet cards per row, eight per page, black and white.
+  // Compact print layout. Single-SKU pallets: half-width cards, two per row.
+  // Mixed pallets: full-width card with every SKU's layer drawn from above, in build order (bottom to top).
   const doc = new jsPDF({ unit: 'in', format: 'letter' })
-  const L = 0.55, W = 7.4, GAP = 0.2, CW = (W - GAP) / 2, CH = 2.0, TOP = 1.3, ROWS = 4
+  const L = 0.55, W = 7.4, GAP = 0.2, CW = (W - GAP) / 2, CH = 2.0, TOP = 1.3, BOTTOM = 10.3
   const totSrp = pallets.reduce((t, p) => t + num(p.srps), 0), totLb = pallets.reduce((t, p) => t + num(p.weight_lb), 0)
   const header = (cont: boolean) => {
     doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
@@ -270,58 +271,97 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
   }
   const footer = () => {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60)
-    doc.text('Ti x Hi = cases across x cases deep in one layer.  Layers = how many of those layers are stacked.  Pallet is 48 x 40 in, 6 in deck, 50 lb tare.', L, 10.55)
+    doc.text('Ti x Hi = cases across x cases deep in one layer.  Layers = how many of those layers are stacked.', L, 10.5)
+    doc.text('Shaded = cases on a partial layer.  Pallet is 48 x 40 in, 6 in deck, 50 lb tare.  Do not double stack.', L, 10.65)
     doc.setTextColor(0, 0, 0)
   }
   const layers = (it: BItem) => num(it.full_layers) + (num(it.partial) > 0 ? 1 : 0)
-  const grid = (it: BItem, x: number, y: number, maxW: number, maxH: number) => {
+  // one layer of a SKU from above, right-aligned in the box; `shade` cells filled (partial layer)
+  const grid = (it: BItem, x: number, y: number, maxW: number, maxH: number, shade?: number, align: 'right' | 'left' = 'right') => {
     const g = layerGrid(num(it.ti) || 1, num(it.hi) || 1, dims[it.sku])
     const sc = Math.min(maxW / (g.cols * g.cw), maxH / (g.rows * g.ch))
-    const gw = g.cols * g.cw * sc, gh = g.rows * g.ch * sc, gx = x + maxW - gw
+    const gw = g.cols * g.cw * sc, gx = align === 'right' ? x + maxW - gw : x
     doc.setDrawColor(60, 60, 60); doc.setLineWidth(0.008)
-    for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.cols; c++) doc.rect(gx + c * g.cw * sc, y + r * g.ch * sc, g.cw * sc, g.ch * sc)
-    doc.setFontSize(6); doc.setTextColor(90, 90, 90)
-    doc.text(`one layer of ${skuShort(it.sku)}, from above`, gx + gw, y + gh + 0.12, { align: 'right' })
+    let c = 0
+    for (let r = 0; r < g.rows; r++) for (let q = 0; q < g.cols; q++) {
+      const on = shade != null && c < shade
+      if (on) doc.setFillColor(200, 200, 200)
+      doc.rect(gx + q * g.cw * sc, y + r * g.ch * sc, g.cw * sc, g.ch * sc, on ? 'FD' : 'S')
+      c++
+    }
+    return { w: gw, h: g.rows * g.ch * sc, x: gx }
+  }
+  const cardFoot = (p: BPallet, x: number, y: number, h: number) => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(40, 40, 40)
+    doc.text(`${fmtN(p.srps)} SRPs     ${fmtN(p.height_in, 1)} in     ${fmtN(p.cube_ft, 1)} cu ft     ${fmtN(p.weight_lb)} lb`, x + 0.14, y + h - 0.13)
     doc.setTextColor(0, 0, 0)
   }
-  header(false)
-  pallets.forEach((p, idx) => {
-    const slot = idx % (ROWS * 2)
-    if (idx && slot === 0) { footer(); doc.addPage(); header(true) }
-    const x = L + (slot % 2) * (CW + GAP), y = TOP + Math.floor(slot / 2) * (CH + GAP)
-    const its = items.filter(i => i.pallet_id === p.id).sort((a, b) => a.seq - b.seq)
-    // merge rows of the same SKU (whole layers + short top layer) for display
-    const bySku: BItem[] = []
-    its.forEach(it => {
-      const e = bySku.find(b => b.sku === it.sku)
-      if (e) { e.srps = num(e.srps) + num(it.srps); e.full_layers = num(e.full_layers) + num(it.full_layers); e.partial = num(e.partial) + num(it.partial) }
-      else bySku.push({ ...it })
-    })
-    const single = bySku.length === 1
-    doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.012); doc.rect(x, y, CW, CH)
+  const title = (p: BPallet, x: number, y: number, tag: string) => {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.text(`PALLET ${p.pallet_no}`, x + 0.14, y + 0.27)
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80)
-    doc.text(single && p.kind === 'full' ? 'FULL' : single ? 'SINGLE SKU' : 'FLOOR', x + 1.05, y + 0.27); doc.setTextColor(0, 0, 0)
-    const main = bySku[0]
-    if (main) {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(17)
-      doc.text(single && main.per_layer ? `${num(main.ti)} x ${num(main.hi)} x ${layers(main)}` : single ? `${fmtN(main.srps)} SRPs` : 'MIXED', x + 0.14, y + 0.65)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
-      doc.text(single ? 'Ti x Hi x layers' : 'Ti x Hi x layers per SKU below', x + 0.14, y + 0.8); doc.setTextColor(0, 0, 0)
-      doc.setFontSize(8.5)
-      const step = bySku.length > 5 ? 0.13 : 0.17
-      doc.setFontSize(bySku.length > 5 ? 7.5 : 8.5)
-      bySku.slice(0, 7).forEach((it, k) => {
-        const ly = y + 1.0 + k * step
-        doc.text(`${fmtN(it.srps)}  ${skuShort(it.sku)}`, x + 0.14, ly)
-        if (!single && it.per_layer) doc.text(`${num(it.ti)} x ${num(it.hi)} x ${layers(it)}`, x + 1.12, ly)
-        if (it.per_layer) doc.text(`${num(it.per_layer)} per layer`, x + (single ? 0.95 : 1.68), ly)
-      })
-      if (main.per_layer) grid(main, x + CW - 1.22, y + 0.16, 1.08, single ? 1.0 : 0.56)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80); doc.text(tag, x + 1.05, y + 0.27); doc.setTextColor(0, 0, 0)
+  }
+
+  header(false)
+  let cy = TOP, col = 0
+  const newPage = () => { footer(); doc.addPage(); header(true); cy = TOP; col = 0 }
+  pallets.forEach(p => {
+    const its = items.filter(i => i.pallet_id === p.id).sort((a, b) => a.seq - b.seq)
+    const skus = new Set(its.map(i => i.sku))
+    if (skus.size <= 1) {
+      // ── single SKU: half-width card
+      if (cy + CH > BOTTOM) newPage()
+      const x = L + col * (CW + GAP), y = cy
+      const it: BItem = its.reduce((m, i) => ({ ...m, srps: num(m.srps) + num(i.srps), full_layers: num(m.full_layers) + num(i.full_layers), partial: num(m.partial) + num(i.partial) }), { ...its[0], srps: 0, full_layers: 0, partial: 0 } as BItem)
+      doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.012); doc.rect(x, y, CW, CH)
+      title(p, x, y, p.kind === 'full' ? 'FULL' : 'SINGLE SKU')
+      if (its.length) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(17)
+        doc.text(it.per_layer ? `${num(it.ti)} x ${num(it.hi)} x ${layers(it)}` : `${fmtN(it.srps)} SRPs`, x + 0.14, y + 0.65)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
+        doc.text('Ti x Hi x layers', x + 0.14, y + 0.8); doc.setTextColor(0, 0, 0)
+        doc.setFontSize(8.5); doc.text(`${fmtN(it.srps)}  ${skuShort(it.sku)}`, x + 0.14, y + 1.0)
+        if (it.per_layer) doc.text(`${num(it.per_layer)} per layer`, x + 0.95, y + 1.0)
+        if (num(it.partial) > 0) { doc.setFontSize(7); doc.setTextColor(90, 90, 90); doc.text(`top layer: ${num(it.partial)} of ${num(it.per_layer)}`, x + 0.14, y + 1.17); doc.setTextColor(0, 0, 0) }
+        if (it.per_layer) {
+          const g = grid(it, x + CW - 1.22, y + 0.16, 1.08, 1.0)
+          doc.setFontSize(6); doc.setTextColor(90, 90, 90); doc.text(`one layer of ${skuShort(it.sku)}, from above`, g.x + g.w, y + 0.16 + g.h + 0.12, { align: 'right' }); doc.setTextColor(0, 0, 0)
+        }
+      }
+      cardFoot(p, x, y, CH)
+      if (col === 0) col = 1; else { col = 0; cy += CH + GAP }
+      return
     }
-    doc.setFontSize(7.5); doc.setTextColor(40, 40, 40)
-    doc.text(`${fmtN(p.srps)} SRPs     ${fmtN(p.height_in, 1)} in     ${fmtN(p.cube_ft, 1)} cu ft     ${fmtN(p.weight_lb)} lb`, x + 0.14, y + CH - 0.13)
+    // ── mixed: full-width card, one top-view grid per step, bottom to top
+    if (col === 1) { col = 0; cy += CH + GAP }
+    const steps = its
+    const PER_ROW = 5, cellW = (W - 0.28) / PER_ROW, rowH = 1.55
+    const rows = Math.ceil(steps.length / PER_ROW), h = 0.62 + rows * rowH + 0.22
+    if (cy + h > BOTTOM) newPage()
+    const x = L, y = cy
+    doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.012); doc.rect(x, y, W, h)
+    title(p, x, y, 'FLOOR')
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('MIXED', x + 1.7, y + 0.29)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80)
+    doc.text('Build in order: 1 goes on the deck, the last number goes on top. Each box is one layer seen from above.', x + 0.14, y + 0.5)
     doc.setTextColor(0, 0, 0)
+    steps.forEach((it, k) => {
+      const cx = x + 0.14 + (k % PER_ROW) * cellW, ry = y + 0.62 + Math.floor(k / PER_ROW) * rowH
+      const fl = num(it.full_layers), pq = num(it.partial)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+      doc.text(`${k + 1}. ${skuShort(it.sku)}`, cx, ry + 0.12)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+      doc.text(`${fmtN(it.srps)} SRPs`, cx + cellW - 0.12, ry + 0.12, { align: 'right' })
+      if (it.per_layer) {
+        const g = grid(it, cx, ry + 0.2, cellW - 0.2, 0.85, !fl && pq ? pq : undefined, 'left')
+        doc.setFontSize(7.5)
+        const l1 = fl ? `${num(it.ti)} x ${num(it.hi)} x ${fl}  (${fl} full layer${fl === 1 ? '' : 's'})` : `${pq} of ${num(it.per_layer)} on one layer`
+        doc.text(l1, cx, ry + 0.2 + g.h + 0.15)
+        if (fl && pq) { doc.setTextColor(90, 90, 90); doc.text(`+ ${pq} on a top layer`, cx, ry + 0.2 + g.h + 0.28); doc.setTextColor(0, 0, 0) }
+        else if (!fl) { doc.setFontSize(6.5); doc.setTextColor(90, 90, 90); doc.text('shaded = cases to place', cx, ry + 0.2 + g.h + 0.28); doc.setTextColor(0, 0, 0) }
+      } else doc.text(`${fmtN(it.srps)} loose`, cx, ry + 0.4)
+    })
+    cardFoot(p, x, y, h)
+    cy += h + GAP
   })
   footer()
   return doc
