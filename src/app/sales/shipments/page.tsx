@@ -517,7 +517,7 @@ export default function ShipmentsPage() {
                     {!isCol && (
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs min-w-[980px]">
-                          <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
+                          <thead className="[&_th]:bg-[#FBFCFE]">
                             <tr className="border-b border-[#EEF0F4] text-[11px] uppercase tracking-wide text-gray-400 bg-[#FBFCFE]">
                               <th className="w-10 px-4 py-2.5"><input type="checkbox" checked={gr.length > 0 && gr.every(r => ms.isSelected(r.id))} onChange={() => ms.toggleAll(gr)} className="accent-emerald-500 w-4 h-4 cursor-pointer" /></th>
                               <th className="text-left font-semibold px-4 py-2.5 min-w-[180px]">Customer</th>
