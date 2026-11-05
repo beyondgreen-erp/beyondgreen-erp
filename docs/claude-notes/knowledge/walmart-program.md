@@ -21,6 +21,7 @@
 - Chargebacks have been cube-mismatch/routing claims. Stride entries must be calculated, not measured from built pallets (pallets are built after loads are assigned).
 - Interim method (Oct 31, 2026, until Walmart Transportation answers): POs of 2+ pallets as PALLET with one position per pallet and DO NOT STACK labels; single-pallet and small POs as FLOOR at the cube of a full pallet position; gross weight includes pallets and BOL matches. Correct Walmart's pre-filled Stride values before confirming.
 - Rudy has asked Walmart to return to staple-stock POs in original full-pallet quantities (e.g., 48CT spoon and fork = 120 SRPs per pallet).
+- Pallet plans (Nov 4, 2026): like SKUs stay together. One block per SKU per pallet; a PO fitted into a set pallet count gives each SKU its own pallets when the count allows, mixed pallets only when forced, 54 in load cap. Re-planning never changes the pallet count the team set (it was submitted in Stride). See 2026-11-04-walmart-pallet-grouping.md.
 
 ## Actual SRP dimensions (L x W x H in, weight lb; supersede older ERP values)
 - F24 11.875 x 7 x 3.5, 2 | A24 11.75 x 7.25 x 3.375, 2 | K48 10.875 x 7.25 x 3.25, 3
