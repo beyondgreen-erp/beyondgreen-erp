@@ -841,7 +841,7 @@ export default function InventoryPage() {
       let rows: any[] | null = null
       for (let attempt = 0; attempt < 3 && (rows === null || rows.length === 0); attempt++) {
         if (attempt) await new Promise(res => setTimeout(res, 200))
-        const { data, error } = await sb.rpc('sku_activity', { p_sku: p.sku, p_limit: 25 })
+        const { data, error } = await sb.rpc('sku_activity2', { p_sku: p.sku, p_limit: 25 })
         rows = error ? rows : ((data as any[]) || [])
       }
       setActivityData(d => ({ ...d, [p.id]: rows || [] }))
@@ -1586,13 +1586,13 @@ export default function InventoryPage() {
                                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0F7A4E] mb-2">Activity · {p.sku}</p>
                                     {acts === undefined ? <p className="text-xs text-gray-400 italic">Loading movements…</p> : acts.length === 0 ? <p className="text-xs text-gray-400 italic">No recorded movements yet.</p> : (
                                       <table className="w-full text-xs">
-                                        <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400 text-left"><th className="py-1 pr-4">Date</th><th className="py-1 pr-4">Type</th><th className="py-1 pr-4 text-right">Qty</th><th className="py-1 pr-4">UOM</th><th className="py-1 pr-4">Bags</th><th className="py-1 pr-4">Lot</th><th className="py-1 pr-4">Source</th><th className="py-1 pr-4">By</th></tr></thead>
+                                        <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400 text-left"><th className="py-1 pr-4">Date</th><th className="py-1 pr-4">Type</th><th className="py-1 pr-4 text-right">Qty</th><th className="py-1 pr-4 text-right">Total</th><th className="py-1 pr-4">UOM</th><th className="py-1 pr-4">Bags</th><th className="py-1 pr-4">Lot</th><th className="py-1 pr-4">Source</th><th className="py-1 pr-4">By</th></tr></thead>
                                         <tbody>
                                           {acts.map((a: any) => (
                                             <tr key={a.id} className="border-t border-[#E4EFEA]">
                                               <td className="py-1.5 pr-4 text-gray-600 whitespace-nowrap">{fmtDT(a.created_at)}</td>
                                               <td className="py-1.5 pr-4"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${a.movement_type==='receive'?'bg-[#DDF3E8] text-[#0F7A4E]':a.movement_type==='ship'?'bg-[#FBE9E9] text-[#B3261E]':'bg-[#EEF2FB] text-[#3A4A6B]'}`}>{a.movement_type}</span></td>
-                                              <td className={`py-1.5 pr-4 text-right font-semibold ${Number(a.qty)<0?'text-red-600':'text-[#0F7A4E]'}`}>{Number(a.qty)>0?'+':''}{a.qty}</td>
+                                              <td className={`py-1.5 pr-4 text-right font-semibold ${Number(a.qty)<0?'text-red-600':'text-[#0F7A4E]'}`}>{Number(a.qty)>0?'+':''}{a.qty}</td><td className="py-1.5 pr-4 text-right font-bold text-[#1A1D2E]" title="On-hand after this movement">{a.total_after == null ? '—' : Number(a.total_after).toLocaleString()}</td>
                                               <td className="py-1.5 pr-4 text-gray-500">{a.uom || '—'}</td>
                                               <td className="py-1.5 pr-4 text-gray-500">{a.pack_qty ?? '—'}</td>
                                               <td className="py-1.5 pr-4 text-gray-500 font-mono">{a.lot_number || '—'}</td>
@@ -1682,7 +1682,7 @@ export default function InventoryPage() {
                                       <div key={av.id} className="flex items-center justify-between gap-2 text-[11px] border-t border-[#E4EFEA] pt-1.5 first:border-0 first:pt-0">
                                         <span className="text-gray-500 whitespace-nowrap">{fmtDT(av.created_at)}</span>
                                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${av.movement_type==='receive'?'bg-[#DDF3E8] text-[#0F7A4E]':av.movement_type==='ship'?'bg-[#FBE9E9] text-[#B3261E]':'bg-[#EEF2FB] text-[#3A4A6B]'}`}>{av.movement_type}</span>
-                                        <span className={`font-semibold ${Number(av.qty)<0?'text-red-600':'text-[#0F7A4E]'}`}>{Number(av.qty)>0?'+':''}{av.qty}</span>
+                                        <span className={`font-semibold ${Number(av.qty)<0?'text-red-600':'text-[#0F7A4E]'}`}>{Number(av.qty)>0?'+':''}{av.qty}</span><span className="font-bold text-[#1A1D2E]">= {av.total_after == null ? '—' : Number(av.total_after).toLocaleString()}</span>
                                         <span className="text-gray-400 truncate flex-1 text-right">{av.created_by || '\u2014'}</span>
                                       </div>
                                     ))}
