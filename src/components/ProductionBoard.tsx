@@ -22,6 +22,8 @@ import { usePermissions } from '@/lib/permissions'
 import WalmartWeekCharts from '@/components/WalmartWeekCharts'
 import WalmartWoSummary from '@/components/WalmartWoSummary'
 import { buildPbWorkOrderPdf, buildPbCaseLabels, planPbLabels, caseMath, type PbPrint } from '@/lib/pbWoDocs'
+import { buildBagRows, BagStepStrip, BagStageLog, DigitalWo, type StageEntry, type ProdEntry } from '@/components/PbBagStages'
+import type { BagProduct } from '@/lib/bagMath'
 
 const PALETTE = ['#0071ce', '#00c875', '#e2445c', '#a25ddc', '#fdab3d', '#579bfc', '#037f4c', '#784bd1', '#ff642e', '#66ccff', '#9cd326', '#bb3354']
 const WO_DONE = ['Complete', 'Completed', 'Closed', 'Cancelled']
@@ -39,7 +41,7 @@ const who = (e?: string | null) => (e || 'unknown').split('@')[0]
 const u = (s?: string | null) => (s || 'units')
 
 export interface BoardCfg { key: string; title: string; route: string; sections: string[]; category: string; wo_prefix: string; accent: string }
-interface WO { id: string; wo_code: string | null; status: string | null; start_date: string; due_date: string | null; qty_ordered: number | null; qty_completed: number | null; sales_order_id: string | null; machine_id: string | null; connected_from: string | null }
+interface WO { id: string; wo_code: string | null; status: string | null; start_date: string; due_date: string | null; qty_ordered: number | null; qty_completed: number | null; sales_order_id: string | null; machine_id: string | null; connected_from: string | null; spec?: any }
 interface MachineOpt { id: string; machine_code: string; name: string; equipment_group: string | null }
 interface Prog { work_order_id: string; sku: string; product_name: string | null; uom: string | null; case_qty: number | null; target_qty: number; made_qty: number }
 interface Entry { id: string; work_order_id: string | null; production_date: string; sku: string; qty: number; kind: string; lot_number: string | null; note: string | null; entered_by: string | null; created_at: string; voided_at: string | null; voided_by: string | null; void_reason: string | null }
@@ -83,6 +85,12 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
   const [newWo, setNewWo] = useState<{ order?: string; addTo?: string } | null>(null)
   const [fresh, setFresh] = useState<string | null>(null)
   const [details, setDetails] = useState<{ id: string; code: string | null; isNew?: boolean } | null>(null)
+  const [stages, setStages] = useState<StageEntry[]>([])
+  const [woProds, setWoProds] = useState<ProdEntry[]>([])
+  const [bagProds, setBagProds] = useState<Record<string, BagProduct>>({})
+  const [soPcs, setSoPcs] = useState<Record<string, Record<string, number>>>({})
+  const [logStage, setLogStage] = useState<{ woId: string; stage: string } | null>(null)
+  const [digital, setDigital] = useState<string | null>(null)
   const [catalog, setCatalog] = useState<{ sku: string; product_name: string; unit_of_measure: string | null; case_qty: number | null }[]>([])
   const seq = useRef(0)
 
@@ -100,7 +108,7 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
     const my = ++seq.current
     setLoadErr('')
     const [w, e, s, o, r, a] = await Promise.all([
-      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed,completed_at,sales_order_id,machine_id,connected_from')
+      sb.from('work_orders').select('id,wo_code,status,start_date,due_date,qty_ordered,qty_completed,completed_at,sales_order_id,machine_id,connected_from,spec')
         .eq('form_type', 'pb_' + cfg.key).neq('status', 'Cancelled')
         .or(`status.not.in.(${WO_DONE.join(',')}),completed_at.gte.${addDays(today, -30)}`).order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
       sb.from('pb_production_entries').select('*').eq('board', cfg.key).eq('kind', 'production').gte('production_date', week).lte('production_date', weekEnd)
@@ -122,7 +130,24 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
         sb.from('pb_wo_orders').select('work_order_id,sales_order_id,sales_orders(order_number,po_number,notes,customers(company_name))').in('work_order_id', wl.map(x => x.id)),
       ])
       if (my === seq.current) { setProg((p as Prog[]) || []); setWoOrders((wo2 as any[]) || []) }
-    } else { setProg([]); setWoOrders([]) }
+      const ids = wl.map(x => x.id), skus = Array.from(new Set(((p as Prog[]) || []).map(x => x.sku)))
+      const soIds = Array.from(new Set(((wo2 as any[]) || []).map(x => x.sales_order_id)))
+      const [st, pe, pr, sl] = await Promise.all([
+        sb.from('pb_stage_entries').select('*').in('work_order_id', ids).order('created_at', { ascending: false }),
+        sb.from('pb_production_entries').select('id,work_order_id,production_date,sku,qty,note,entered_by,created_at,voided_at,voided_by,void_reason,lot_number').eq('kind', 'production').in('work_order_id', ids).order('created_at', { ascending: false }),
+        skus.length ? sb.from('products').select('sku,product_name,product_size,unit_of_measure,case_qty,pieces_per_pack,packs_per_case,bag_length_in').in('sku', skus) : Promise.resolve({ data: [] } as any),
+        soIds.length ? sb.from('sales_order_lines').select('sales_order_id,sku,qty_per_case').in('sales_order_id', soIds).gt('qty_per_case', 0) : Promise.resolve({ data: [] } as any),
+      ])
+      if (my === seq.current) {
+        setStages((st.data as StageEntry[]) || []); setWoProds((pe.data as ProdEntry[]) || [])
+        setBagProds(Object.fromEntries((((pr as any).data as BagProduct[]) || []).map(x => [String(x.sku).toUpperCase(), x])))
+        const m: Record<string, Record<string, number>> = {}
+        for (const o of ((wo2 as any[]) || [])) for (const l of (((sl as any).data as any[]) || []).filter(l => l.sales_order_id === o.sales_order_id)) {
+          const k = String(l.sku || '').trim().toUpperCase(); (m[o.work_order_id] ||= {})[k] = Math.max(m[o.work_order_id][k] || 0, num(l.qty_per_case))
+        }
+        setSoPcs(m)
+      }
+    } else { setProg([]); setWoOrders([]); setStages([]); setWoProds([]) }
     setLoading(false)
   }, [sb, cfg, week, weekEnd, today])
   const reload = useCallback(() => { load(); setTimeout(load, 900) }, [load])
@@ -132,13 +157,16 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
     const ch = sb.channel('pb-board-' + cfg.key + '-' + Math.random().toString(36).slice(2))
     let t: any
     const bump = () => { clearTimeout(t); t = setTimeout(load, 600) }
-    for (const tb of ['pb_production_entries', 'pb_releases', 'pb_wo_targets', 'pb_wo_orders', 'sales_orders', 'sales_order_lines']) ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, bump)
+    for (const tb of ['pb_production_entries', 'pb_stage_entries', 'pb_releases', 'pb_wo_targets', 'pb_wo_orders', 'sales_orders', 'sales_order_lines']) ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, bump)
     ch.subscribe()
     return () => { clearTimeout(t); sb.removeChannel(ch) }
   }, [sb, load, cfg])
   useEffect(() => { if (!flash) return; const t = setTimeout(() => setFlash(''), flash.startsWith('⚠') ? 20000 : 7000); return () => clearTimeout(t) }, [flash])
   useEffect(() => { if (!justLogged) return; const t = setTimeout(() => setJustLogged(null), 10 * 60_000); return () => clearTimeout(t) }, [justLogged])
 
+  const isBags = cfg?.category === 'BAGS'
+  const bagRows = (wo: WO) => buildBagRows(wo, prog, bagProds, soPcs[wo.id] || {}, stages)
+  useEffect(() => { const q = new URLSearchParams(window.location.search).get('wo'); if (q) setDigital(q) }, [])
   const itemWord = cfg ? (cfg.category === 'CUTLERY' ? 'cutlery item' : cfg.category === 'MOLDING' ? 'molded part' : 'bag') : 'item'
   const info = useCallback((sku: string) => stock.find(s => s.sku === sku) || catalog.find(c => c.sku.toUpperCase() === sku) as any, [stock, catalog])
   const name = (sku: string) => info(sku)?.product_name || sku
@@ -307,6 +335,7 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
                 <div className="flex flex-wrap gap-2">
                   {canEdit && !done && pos.length > 0 && <button onClick={() => setNewWo({ addTo: wo.id })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">+ Add PO</button>}
                   {canEdit && !done && <button onClick={() => setEditTargets(editTargets === wo.id ? null : wo.id)} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">{editTargets === wo.id ? 'Done editing' : '✎ Targets'}</button>}
+                  {!isBags && <button onClick={() => setDigital(wo.id)} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>📋 Open</button>}
                   <button onClick={() => setDetails({ id: wo.id, code: wo.wo_code })} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>✎ Details</button>
                   <button onClick={() => printWo(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>🖨 Work order</button>
                   <button onClick={() => printLabels(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600" data-ro-ok>🏷 Case labels</button>
@@ -316,6 +345,9 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
                   {canEdit && done && <button onClick={() => reopen(wo)} disabled={busy} className="h-9 px-3 rounded-lg border border-[#E4E6EE] text-xs font-semibold text-gray-600">Reopen</button>}
                 </div>
               </div>
+              {isBags && rows.length > 0 && <BagStepStrip wo={wo} rows={bagRows(wo)} accent={ACCENT} canEdit={canEdit} busy={busy} onOpen={() => setDigital(wo.id)}
+                onLog={st => setLogStage({ woId: wo.id, stage: st })}
+                onMove={st => run(() => sb.rpc('pb_wo_set_stage', { p_wo: wo.id, p_stage: st }) as any, () => `✓ ${wo.wo_code} moved to ${st === 'packing' ? 'Packing' : st[0].toUpperCase() + st.slice(1)}.`)} />}
               {rows.length === 0 && <p className="text-sm text-gray-400">No targets{canEdit && !done ? ' — click ✎ Targets to add.' : '.'}</p>}
               <div className="space-y-2">
                 {rows.map(r => {
@@ -462,6 +494,13 @@ export default function ProductionBoard({ boardKey }: { boardKey: string }) {
       {newWo && <NewWoModal sb={sb} cfg={cfg} orders={orders} wos={openWos} start={newWo.order} addTo={newWo.addTo} prog={prog} onClose={() => setNewWo(null)}
         onDone={(m, id) => { setNewWo(null); setFlash(m); setTab('production'); if (id) { const stockBuild = m.toLowerCase().includes('stock build'); setFresh(id); setEditTargets(stockBuild ? id : null); if (!stockBuild) setDetails({ id, code: null, isNew: true }) } reload() }} />}
       {details && cfg && <WoDetailsModal sb={sb} kind="pb" boardKey={cfg.key} woId={details.id} woCode={details.code || wos.find(w => w.id === details.id)?.wo_code || null} accent={ACCENT} canEdit={canEdit} isNew={details.isNew} onClose={() => setDetails(null)} onSaved={m => { setDetails(null); setFlash(m); reload() }} />}
+      {logStage && (() => { const w = wos.find(x => x.id === logStage.woId); return w ? <BagStageLog sb={sb} wo={w} rows={bagRows(w)} stage={logStage.stage} accent={ACCENT} boardKey={cfg.key} today={today}
+        onClose={() => setLogStage(null)} onDone={m => { setLogStage(null); setFlash(m); reload() }} /> : null })()}
+      {digital && (() => { const w = wos.find(x => x.id === digital); return w ? <DigitalWo sb={sb} wo={w} rows={bagRows(w)} isBags={isBags}
+        orders={woOrders.filter(o => o.work_order_id === w.id).map(orderLabel)} stages={stages} prods={woProds} accent={ACCENT} canEdit={canEdit} me={me} isAdmin={!!perms.is_admin}
+        onClose={() => setDigital(null)} onChanged={m => { setFlash(m); reload() }} onDetails={() => setDetails({ id: w.id, code: w.wo_code })}
+        onTargets={() => { setDigital(null); setTab('production'); setEditTargets(w.id) }} onPrint={() => printWo(w)}
+        onLog={st => isBags ? setLogStage({ woId: w.id, stage: st }) : setShowLog(true)} /> : null })()}
       {sum && <WalmartWoSummary kind="pb" sb={sb} woId={sum.id} mode={sum.mode} canEdit={canEdit} userEmail={me} onClose={() => setSum(null)} onClosedOut={m => { setSum(null); setFlash(m); reload() }} />}
     </div>
   )
