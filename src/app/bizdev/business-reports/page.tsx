@@ -8,6 +8,7 @@ import WalmartActivityReport from '@/components/WalmartActivityReport'
 import ChewyRequirements from '@/components/ChewyRequirements'
 import ChewyMaterialRequirements from '@/components/ChewyMaterialRequirements'
 import ChewyActivityReport from '@/components/ChewyActivityReport'
+import WalmartWeeklyReport from '@/components/WalmartWeeklyReport'
 
 interface ExRow {
   id: string
@@ -66,7 +67,7 @@ export default function BusinessReportsPage() {
   const [userEmail, setUserEmail] = useState('')
   const [dupPrompt, setDupPrompt] = useState<any>(null)
   const [reviewPrompt, setReviewPrompt] = useState<any>(null)
-  const [tab, setTab] = useState<'exceptions' | 'walmart' | 'chewy'>('exceptions')
+  const [tab, setTab] = useState<'exceptions' | 'walmart' | 'chewy' | 'weekly'>('exceptions')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -224,9 +225,11 @@ export default function BusinessReportsPage() {
         <button onClick={() => setTab('exceptions')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'exceptions' ? { background: '#4F46E5', color: '#fff' } : { color: '#4F46E5' }}>Exception Report</button>
         <button onClick={() => setTab('walmart')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'walmart' ? { background: '#0071CE', color: '#fff' } : { color: '#0071CE' }}>Walmart PO Requirements</button>
         <button onClick={() => setTab('chewy')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'chewy' ? { background: '#1C49C2', color: '#fff' } : { color: '#1C49C2' }}>Chewy PO Requirements</button>
+        <button onClick={() => setTab('weekly')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={tab === 'weekly' ? { background: '#2BA84A', color: '#fff' } : { color: '#2BA84A' }}>Walmart Weekly Report</button>
       </div>
 
       {tab === 'walmart' && <><WalmartActivityReport /><WalmartRequirements /></>}
+      {tab === 'weekly' && <WalmartWeeklyReport />}
 
       {tab === 'chewy' && <><ChewyActivityReport /><ChewyMaterialRequirements /><div className="mt-6"><ChewyRequirements /></div></>}
 
