@@ -677,10 +677,11 @@ export async function onStatusChange(
   // ── Customer confirmation email (flag-gated; off by default) ──
   if (newStatus === 'Confirmed' && prevStatus !== 'Confirmed') { try { await emailCustomerOnStatus(orderId, 'confirmed') } catch { /* */ } }
 
-  // ── IN PRODUCTION / READY TO SHIP / WILL CALL → auto-add to shipping queue ──
-  // "In Production" is included so operators/packers can print Case Labels DURING
-  // production (the Label Wizard lives on the Shipping Queue), not only at the end.
-  if (newStatus === 'In Production' || newStatus === 'Ready to Ship' || newStatus === 'Ready at Will Call') {
+  // ── READY TO SHIP / WILL CALL → auto-add to shipping queue ──
+  // "In Production" used to be included so case labels could be printed during
+  // production, but that put unfinished orders on the Shipping Queue. Orders now
+  // join the queue only when they are marked Ready to Ship or Ready at Will Call.
+  if (newStatus === 'Ready to Ship' || newStatus === 'Ready at Will Call') {
     const { data: existing } = await sb
       .from('shipping_queue')
       .select('id')
@@ -711,9 +712,7 @@ export async function onStatusChange(
 
     return {
       success: true,
-      message: newStatus === 'In Production'
-        ? `Order added to Shipping Queue — Case Labels now available`
-        : `Order added to Shipping Queue`,
+      message: `Order added to Shipping Queue`,
       undoData: { action: 'remove_from_queue', orderId, prevStatus },
     }
   }
