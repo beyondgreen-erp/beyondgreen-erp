@@ -43,6 +43,9 @@ const PB_COMMON: WoField[] = [
   { key: 'weight_g', label: 'Unit weight (g)', type: 'number' },
 ]
 const PB_BAGS: WoField[] = [
+  { key: 'pcs_per_case', label: 'Pieces per case', type: 'number' },
+  { key: 'bag_length_in', label: 'Bag length (in) for extruder meters', type: 'number' },
+  { key: 'scrap_pct', label: 'Extrusion scrap allowance (%)', type: 'number' },
   { key: 'material', label: 'Material / film' },
   { key: 'gusset', label: 'Gusset' },
   { key: 'seal_type', label: 'Seal type' },
@@ -71,7 +74,7 @@ export function defaultOf(kind: WoKind, line: any, key: string): string {
   return v === null || v === undefined ? '' : String(v)
 }
 
-const NUMERIC = new Set(['inner_diameter_mm', 'wall_thickness_mm', 'straw_length_in', 'straw_weight_g', 'case_weight', 'cases_per_pallet', 'weight_g'])
+const NUMERIC = new Set(['pcs_per_case', 'bag_length_in', 'scrap_pct', 'inner_diameter_mm', 'wall_thickness_mm', 'straw_length_in', 'straw_weight_g', 'case_weight', 'cases_per_pallet', 'weight_g'])
 const clean = (k: string, v: any) => (v === '' || v === null || v === undefined ? undefined : NUMERIC.has(k) ? Number(v) : v)
 
 /** merge saved details into the print data (in place) */

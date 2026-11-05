@@ -2,6 +2,7 @@
 // the printed work order (beyondGREEN OP template style) and the 4x6 case labels.
 // Data comes from the pb_wo_print(p_wo) RPC. Quantities are in each SKU's own stocking unit.
 import { jsPDF } from 'jspdf'
+import { pcsPerCase as bagPcsPerCase, packPlan as bagPackPlan, metersFor as bagMeters } from '@/lib/bagMath'
 import '@/lib/pdfSafeText'
 import { bi, biBar, drawBiLabel, drawBiHead, es, unitEs } from '@/lib/woSpanish'
 import { buildStrawCaseLabels, planLabels as planStrawLabels, type StrawPrint } from '@/lib/strawWoDocs'
@@ -127,6 +128,15 @@ export function buildPbWorkOrderPdf(d: PbPrint): jsPDF {
     if (l.perforation) row(['Perforation', l.perforation])
     row(['Unit Weight (g)', fmt(l.weight_g, 3)], ['UPC / GTIN', l.upc || ''])
     row(['Case Size', l.case_size || ''], ['Cases / Pallet', fmt(l.cases_per_pallet, 0)])
+    if (Array.isArray((d.wo as any).steps) && (d.wo as any).steps.length + 1 > 1 && (l as any).pcs_per_unit != null) {
+      const L: any = l, ppu = n(L.pcs_per_unit) || 1, pcs = units * ppu
+      const cp = bagPcsPerCase({ ...L, unit_of_measure: L.uom }, { pcs_per_case: L.pcs_per_case }, L.so_pcs_per_case)
+      const plan = bagPackPlan(pcs, cp), len = n(L.bag_length_in) || null, m = bagMeters(pcs, len, L.scrap_pct)
+      bar('BAG PRODUCTION PLAN')
+      row(['Steps', [...(d.wo as any).steps, 'packing'].map((x: string) => x[0].toUpperCase() + x.slice(1)).join(' > ')], ['Pieces to Make', `${fmt(pcs, 0)} pcs`])
+      row(['Extruder Meters', m != null ? `${fmt(m, 0)} m` : 'Set bag length'], ['Bag Length', len ? `${len} in${n(L.scrap_pct) ? ` (+${n(L.scrap_pct)}% scrap)` : ''}` : ''])
+      wide('Case Plan', plan.text + (plan.partial ? `   **PARTIAL CASE: ${fmt(plan.partial, 0)} pcs**` : ''))
+    }
     if (l.special) wide('Special Instructions', l.special)
     if (d.wo.notes) wide('Notes', d.wo.notes)
     row(['Made so far', n(l.made) ? `${fmt(l.made)} ${l.uom || ''}` : ''], ['Lot #', ''])
