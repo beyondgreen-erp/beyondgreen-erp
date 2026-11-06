@@ -30,6 +30,10 @@ thinner so it is cheaper to produce, with the BPI engraving in place.
 - Marking per Detail A of the fork/spoon drawings: stadium recess 32 x 5.2 x 0.15 deep from x = 21,
   mark Ø2.4 at x = 24.6, 1.1 gap, text cap height 1.5, letters condensed in X so the line is 21.0,
   raised 0.10 (tops 0.05 below the handle face). Cavity ID not modeled (note on the drawing).
+- The BPI mark is the real emblem (ring + leaf, no (R), no BPI box) extracted from the official lockup
+  artwork `10529565_BeyondGREEN_BPI__lockup_US_Green1c_CMYK_Commercial_Only.jpg` (`bpi_emblem.py`:
+  threshold, connected components, OpenCV contours with holes) and modeled as raised solids in the STEP;
+  the drawing embeds it as a transparent PNG (PDF saved at 600 dpi so the raster stays sharp).
 - CAD volume 2,483 mm3 -> 3.15 g at 1.27 g/cm3 (ecovio IA1542), vs 4.10 g spoon / 4.30 g fork (about 23% less resin).
 - Side walls are vertical (bottom curve clamped to the plan outline), so the plan width is 31.7 at the top edge.
 
@@ -59,5 +63,9 @@ thinner so it is cheaper to produce, with the BPI engraving in place.
   over a local http.server (file:// blocks module imports) + Playwright with --use-gl=swiftshader.
 - Liberation Sans Bold is metric-compatible with Arial; "BPI COMPOSTABLE" at 1.5 cap height is
   19.6 long, so the production marking (21.0 line incl. mark) uses letters condensed about 11%.
+- Rudy asked for the actual BPI logo on the drawing (not a placeholder circle); the artwork is the
+  lockup JPG attached earlier in this session, also used on the product-facing sheet and the case labels.
+- Supabase storage objects can be replaced in place with PUT + `x-upsert: true` on the same path, so the
+  ERP file_attachments rows only need their file_size updated.
 - Matplotlib hatch line width is set with `plt.rcParams["hatch.linewidth"]`; section views at 6:1
   and 3:1 read well on a letter sheet. Keep leaders short and never let handle edge lines run into cards.
