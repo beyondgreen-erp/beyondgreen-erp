@@ -159,7 +159,7 @@ function LayerSvg({ it, d, filled, size = 150 }: { it: BItem; d?: Dims; filled?:
 
 /** Side view (stack) + one top view per block, with the build instructions written out */
 export function PalletSchematic({ pallet, items, dims }: { pallet: BPallet; items: BItem[]; dims: Record<string, Dims> }) {
-  const its = [...items].sort((a, b) => a.seq - b.seq)
+  const its = groupBySku(items)
   const H = 54, scale = 3.2
   let y = 0
   const blocks = its.map(it => {
@@ -196,7 +196,7 @@ export function PalletSchematic({ pallet, items, dims }: { pallet: BPallet; item
         <p className="text-[10px] text-gray-400">48&quot; × 40&quot; CHEP · {fmtN(num(pallet.height_in) + 6, 1)}&quot; tall · {fmtN(pallet.cube_ft, 1)} cu ft cube · {fmtN(pallet.weight_lb)} lb</p>
       </div>
       <div className="flex-1 min-w-0 space-y-3">
-        <p className="text-[10px] uppercase tracking-wide text-gray-400">Build order — bottom to top</p>
+        <p className="text-[10px] uppercase tracking-wide text-gray-400">Build order — bottom to top · <b className="text-[#1A1D2E] text-[12px]">Total rows: {its.reduce((t, i) => t + rowsOf(i), 0)}</b></p>
         {its.map((it, i) => {
           const d = dims[it.sku]
           const per = num(it.per_layer)
@@ -208,7 +208,7 @@ export function PalletSchematic({ pallet, items, dims }: { pallet: BPallet; item
               </div>
               <div className="text-[12px] text-[#1A1D2E]">
                 <p className="font-bold"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style={{ background: skuColor(it.sku) }} />{i + 1}. {skuShort(it.sku)} <span className="font-mono text-[10px] text-gray-400">{it.sku}</span></p>
-                <p><b>{fmtN(it.srps)} SRPs</b>{per ? <> · {num(it.ti)} × {num(it.hi)} = {per} per layer</> : null}</p>
+                <p><b>{fmtN(it.srps)} SRPs</b>{per ? <> · {num(it.ti)} × {num(it.hi)} = {per} per layer</> : null} · <b>{rowsOf(it)} row{rowsOf(it) === 1 ? '' : 's'}</b></p>
                 {per > 0 && <p>{num(it.full_layers) > 0 ? `${num(it.full_layers)} full layer${num(it.full_layers) === 1 ? '' : 's'}` : ''}{num(it.full_layers) > 0 && num(it.partial) > 0 ? ' + ' : ''}{num(it.partial) > 0 ? `${num(it.partial)} SRPs on a top layer (shaded cells, start from a corner)` : ''}</p>}
                 {d && <p className="text-[10px] text-gray-400">SRP {d.big}&quot; × {d.mid}&quot; · {d.small}&quot; per layer</p>}
               </div>
@@ -235,7 +235,7 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
         <button onClick={() => setOpen(o => !o)} className="text-left flex-1 min-w-[180px]" data-ro-ok>
           <p className="text-sm font-bold text-[#1A1D2E]">{showPo ? `PO ${po} · ` : ''}Pallet #{p.pallet_no} <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1 ${p.kind === 'full' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{p.kind === 'full' ? 'FULL' : 'FLOOR · mixed'}</span>
             {(canEdit || p.status !== 'planned') && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1 text-white" style={{ background: s.color }}>{s.label}</span>}</p>
-          <p className="text-[11px] text-gray-500">{items.map(it => `${fmtN(it.srps)} ${skuShort(it.sku)}`).join(' + ')} · {fmtN(p.srps)} SRPs · {fmtN(p.cube_ft, 1)} cu ft{last ? ' · ' + last : ''} · <span className="text-[#0071ce] underline">{open ? 'hide' : 'show'} build drawing</span></p>
+          <p className="text-[11px] text-gray-500">{groupBySku(items).map(it => `${fmtN(it.srps)} ${skuShort(it.sku)}`).join(' + ')} · {fmtN(p.srps)} SRPs · {palletRows(items)} rows · {fmtN(p.cube_ft, 1)} cu ft{last ? ' · ' + last : ''} · <span className="text-[#0071ce] underline">{open ? 'hide' : 'show'} build drawing</span></p>
         </button>
         {p.photo_url && <a href={p.photo_url} target="_blank" rel="noreferrer" data-ro-ok><img src={p.photo_url} alt="Built pallet" className="w-10 h-10 rounded-lg object-cover border border-[#E4E6EE]" /></a>}
         {canEdit && s.step === 'built' && (
@@ -251,6 +251,22 @@ export function PalletRow({ p, items, dims, po, canEdit, busy, onStep, onUndo, s
     </div>
   )
 }
+
+/** one block per SKU per pallet (never a SKU sandwich): merges split rows, keeps the first build position */
+export function groupBySku(its: BItem[]): BItem[] {
+  const out: BItem[] = []
+  for (const it of [...its].sort((a, b) => a.seq - b.seq)) {
+    const m = out.find(o => o.sku === it.sku)
+    if (!m) { out.push({ ...it }); continue }
+    const q = num(m.srps) + num(it.srps), per = num(m.per_layer || it.per_layer)
+    m.srps = q
+    if (per > 0) { m.full_layers = Math.floor(q / per); m.partial = q - Math.floor(q / per) * per } else { m.full_layers = 0; m.partial = q }
+  }
+  return out.map((o, i) => ({ ...o, seq: i + 1 }))
+}
+/** rows (layers) one SKU block takes: its full layers plus one for a short top layer */
+export const rowsOf = (it: BItem) => num(it.full_layers) + (num(it.partial) > 0 ? 1 : 0)
+export const palletRows = (its: BItem[]) => groupBySku(its).reduce((t, i) => t + rowsOf(i), 0)
 
 // ── build sheet PDF (one page per pallet) ─────────────────────────────────────
 export function buildSheetPdf(po: { po_number: string | null; name?: string | null; ship_due_date?: string | null }, pallets: BPallet[], items: BItem[], dims: Record<string, Dims>) {
@@ -271,7 +287,7 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
   }
   const footer = () => {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60)
-    doc.text('Ti x Hi = cases across x cases deep in one layer.  Layers = how many of those layers are stacked.', L, 10.5)
+    doc.text('Ti x Hi = cases across x cases deep in one row (layer).  Total rows = every row on the pallet, short top rows included.', L, 10.5)
     doc.text('Shaded = cases on a partial layer.  Pallet is 48 x 40 in, 6 in deck, 50 lb tare.  Do not double stack.', L, 10.65)
     doc.setTextColor(0, 0, 0)
   }
@@ -296,6 +312,12 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
     doc.text(`${fmtN(p.srps)} SRPs     ${fmtN(p.height_in, 1)} in     ${fmtN(p.cube_ft, 1)} cu ft     ${fmtN(p.weight_lb)} lb`, x + 0.14, y + h - 0.13)
     doc.setTextColor(0, 0, 0)
   }
+  const rowsBox = (n: number, x: number, y: number) => {
+    // big "TOTAL ROWS" box, top-right of the card, so the team can check the stack height at a glance
+    doc.setDrawColor(0, 0, 0); doc.setLineWidth(0.02); doc.rect(x - 1.05, y + 0.08, 0.95, 0.42)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text('TOTAL ROWS', x - 0.575, y + 0.19, { align: 'center' })
+    doc.setFontSize(14); doc.text(String(n), x - 0.575, y + 0.42, { align: 'center' })
+  }
   const title = (p: BPallet, x: number, y: number, tag: string) => {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.text(`PALLET ${p.pallet_no}`, x + 0.14, y + 0.27)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80); doc.text(tag, x + 1.05, y + 0.27); doc.setTextColor(0, 0, 0)
@@ -305,7 +327,8 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
   let cy = TOP, col = 0
   const newPage = () => { footer(); doc.addPage(); header(true); cy = TOP; col = 0 }
   pallets.forEach(p => {
-    const its = items.filter(i => i.pallet_id === p.id).sort((a, b) => a.seq - b.seq)
+    const its = groupBySku(items.filter(i => i.pallet_id === p.id))
+    const rowsTot = its.reduce((t, i) => t + rowsOf(i), 0)
     const skus = new Set(its.map(i => i.sku))
     if (skus.size <= 1) {
       // ── single SKU: half-width card
@@ -327,6 +350,7 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
           doc.setFontSize(6); doc.setTextColor(90, 90, 90); doc.text(`one layer of ${skuShort(it.sku)}, from above`, g.x + g.w, y + 0.16 + g.h + 0.12, { align: 'right' }); doc.setTextColor(0, 0, 0)
         }
       }
+      if (its.length) rowsBox(rowsTot, x + CW - 0.04, y + CH - 0.62)
       cardFoot(p, x, y, CH)
       if (col === 0) col = 1; else { col = 0; cy += CH + GAP }
       return
@@ -334,15 +358,16 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
     // ── mixed: full-width card, one top-view grid per step, bottom to top
     if (col === 1) { col = 0; cy += CH + GAP }
     const steps = its
-    const PER_ROW = 5, cellW = (W - 0.28) / PER_ROW, rowH = 1.55
+    const PER_ROW = 5, cellW = (W - 0.28) / PER_ROW, rowH = 1.6
     const rows = Math.ceil(steps.length / PER_ROW), h = 0.62 + rows * rowH + 0.22
     if (cy + h > BOTTOM) newPage()
     const x = L, y = cy
     doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.012); doc.rect(x, y, W, h)
     title(p, x, y, 'FLOOR')
+    rowsBox(rowsTot, x + W - 0.04, y)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('MIXED', x + 1.7, y + 0.29)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80)
-    doc.text('Build in order: 1 goes on the deck, the last number goes on top. Each box is one layer seen from above.', x + 0.14, y + 0.5)
+    doc.text('Build in order: 1 goes on the deck, the last number goes on top. Keep each SKU together (its short layer on top of its own rows).', x + 0.14, y + 0.5)
     doc.setTextColor(0, 0, 0)
     steps.forEach((it, k) => {
       const cx = x + 0.14 + (k % PER_ROW) * cellW, ry = y + 0.62 + Math.floor(k / PER_ROW) * rowH
@@ -350,14 +375,15 @@ export function buildSheetPdf(po: { po_number: string | null; name?: string | nu
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
       doc.text(`${k + 1}. ${skuShort(it.sku)}`, cx, ry + 0.12)
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
-      doc.text(`${fmtN(it.srps)} SRPs`, cx + cellW - 0.12, ry + 0.12, { align: 'right' })
+      doc.text(`${fmtN(it.srps)} SRPs`, cx, ry + 0.26)
+      doc.setFont('helvetica', 'bold'); doc.text(`${rowsOf(it)} row${rowsOf(it) === 1 ? '' : 's'}`, cx + cellW - 0.2, ry + 0.26, { align: 'right' }); doc.setFont('helvetica', 'normal')
       if (it.per_layer) {
-        const g = grid(it, cx, ry + 0.2, cellW - 0.2, 0.85, !fl && pq ? pq : undefined, 'left')
+        const g = grid(it, cx, ry + 0.33, cellW - 0.2, 0.75, !fl && pq ? pq : undefined, 'left')
         doc.setFontSize(7.5)
         const l1 = fl ? `${num(it.ti)} x ${num(it.hi)} x ${fl}  (${fl} full layer${fl === 1 ? '' : 's'})` : `${pq} of ${num(it.per_layer)} on one layer`
-        doc.text(l1, cx, ry + 0.2 + g.h + 0.15)
-        if (fl && pq) { doc.setTextColor(90, 90, 90); doc.text(`+ ${pq} on a top layer`, cx, ry + 0.2 + g.h + 0.28); doc.setTextColor(0, 0, 0) }
-        else if (!fl) { doc.setFontSize(6.5); doc.setTextColor(90, 90, 90); doc.text('shaded = cases to place', cx, ry + 0.2 + g.h + 0.28); doc.setTextColor(0, 0, 0) }
+        doc.text(l1, cx, ry + 0.33 + g.h + 0.14)
+        if (fl && pq) { doc.setTextColor(90, 90, 90); doc.text(`+ ${pq} of ${num(it.per_layer)} on its top row`, cx, ry + 0.33 + g.h + 0.27); doc.setTextColor(0, 0, 0) }
+        else if (!fl) { doc.setFontSize(6.5); doc.setTextColor(90, 90, 90); doc.text('shaded = cases to place', cx, ry + 0.33 + g.h + 0.27); doc.setTextColor(0, 0, 0) }
       } else doc.text(`${fmtN(it.srps)} loose`, cx, ry + 0.4)
     })
     cardFoot(p, x, y, h)
