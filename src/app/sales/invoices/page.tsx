@@ -115,6 +115,8 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('all')
   const [search, setSearch] = useState('')
+  // Deep link: ?q=term pre-fills the search (used by Analytics drill-downs).
+  useEffect(() => { const v = new URLSearchParams(window.location.search).get('q'); if (v) setSearch(v) }, [])
   const [sel, setSel] = useState<Invoice|null>(null)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [shipInfo, setShipInfo] = useState<{ carrier?: string | null; tracking_number?: string | null } | null>(null)
