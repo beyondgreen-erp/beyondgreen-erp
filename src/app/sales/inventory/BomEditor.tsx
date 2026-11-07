@@ -743,6 +743,30 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
     await sb.from('product_bom').update(patch).eq('id', id)
   }
 
+  // BOM complete sign-off. Until someone ticks this, every open order for the product carries a
+  // BOM_UNCONFIRMED red flag (Material Red Flags board). Long-lead items already on a partial BOM
+  // are still checked and flagged on their own, so ordering never waits for this.
+  const [bomDone, setBomDone] = useState<{ complete: boolean; at: string | null; by: string | null } | null>(null)
+  const [savingDone, setSavingDone] = useState(false)
+  useEffect(() => {
+    let live = true
+    sb.from('products').select('bom_complete, bom_completed_at, bom_completed_by').eq('sku', product.sku).maybeSingle()
+      .then(({ data }) => { if (live && data) setBomDone({ complete: !!(data as any).bom_complete, at: (data as any).bom_completed_at, by: (data as any).bom_completed_by }) })
+    return () => { live = false }
+  }, [sb, product.sku])
+  async function toggleBomDone(next: boolean) {
+    setSavingDone(true)
+    const { data: u } = await sb.auth.getUser()
+    const by = u?.user?.email || 'unknown'
+    const { error } = await sb.rpc('set_bom_complete', { p_sku: product.sku, p_complete: next, p_by: by })
+    if (!error) {
+      setBomDone({ complete: next, at: next ? new Date().toISOString() : null, by: next ? by : null })
+      try { await sb.rpc('material_red_flags_sync', { p_send: true }) } catch { /* flags refresh on the 15-minute check anyway */ }
+      onUpdate?.()
+    }
+    setSavingDone(false)
+  }
+
   const CatBadge = ({ c }: { c: string | null }) => c ? (() => { const s = catStyle(c); return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: s.bg, color: s.fg }}>{c}</span> })() : null
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -788,6 +812,26 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                     {uomSummary(product, packQty, caseQty)}
                 </span>
               </div>
+
+              {/* BOM complete sign-off */}
+              {bomDone && (
+                bomDone.complete ? (
+                  <div className="flex flex-wrap items-center gap-2 text-[12px] rounded-lg px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800">
+                    <span className="font-semibold">BOM marked complete</span>
+                    <span className="text-emerald-700/80">{bomDone.by ? `by ${bomDone.by}` : ''}{bomDone.at ? ` on ${new Date(bomDone.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}</span>
+                    <button onClick={() => toggleBomDone(false)} disabled={savingDone} className="ml-auto text-xs underline disabled:opacity-50">Reopen</button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2 text-[12px] rounded-lg px-3 py-2 bg-red-50 border border-red-300 text-red-800">
+                    <span className="font-bold">RED FLAG:</span>
+                    <span>BOM not marked complete. Open orders for this product stay red-flagged until every component is added and this is confirmed. Long-lead items already listed are still flagged for ordering.</span>
+                    <button onClick={() => toggleBomDone(true)} disabled={savingDone || loading || !components.length}
+                      className="ml-auto text-xs px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium disabled:opacity-50 whitespace-nowrap">
+                      {savingDone ? 'Saving…' : 'Mark BOM complete'}
+                    </button>
+                  </div>
+                )
+              )}
 
               {/* Warnings */}
               {anyPct && Math.abs(totalPct - 100) > 0.1 && (

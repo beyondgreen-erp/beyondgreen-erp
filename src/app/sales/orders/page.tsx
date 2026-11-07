@@ -971,6 +971,37 @@ function LastInvoice({ customerId }: { customerId: string }) {
   )
 }
 
+// Material red flags for one order (Material Red Flags board). Each stays red until its cause
+// is fixed: BOM finished and marked complete, long-lead material ordered, and so on.
+function OrderMaterialFlags({ orderId }: { orderId: string }) {
+  const [flags, setFlags] = useState<{ flag_key: string; kind: string; severity: string | null; detail: string | null; order_by_date: string | null }[]>([])
+  useEffect(() => {
+    let live = true
+    createSupabaseBrowserClient().from('material_red_flag_log').select('flag_key, kind, severity, detail, order_by_date')
+      .eq('order_id', orderId).is('resolved_at', null)
+      .then(({ data }) => { if (live) setFlags((data || []) as any) })
+    return () => { live = false }
+  }, [orderId])
+  if (!flags.length) return null
+  const red = flags.filter(f => f.severity === 'critical')
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${red.length ? 'border-red-300 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+      <p className={`text-xs font-bold mb-1 ${red.length ? 'text-red-700' : 'text-amber-800'}`}>
+        {red.length ? `RED FLAG: ${red.length} material issue${red.length > 1 ? 's' : ''} could delay this order` : `${flags.length} material item${flags.length > 1 ? 's' : ''} to check`}
+      </p>
+      <ul className="text-xs text-gray-800 list-disc pl-4 space-y-0.5 mb-2">
+        {flags.slice(0, 6).map(f => (
+          <li key={f.flag_key} className="break-words">
+            {f.detail}{f.order_by_date ? ` Order by ${new Date(f.order_by_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.` : ''}
+          </li>
+        ))}
+        {flags.length > 6 && <li>…and {flags.length - 6} more</li>}
+      </ul>
+      <a href="/production/material-flags" className="text-xs font-semibold underline text-red-700">Open Material Red Flags →</a>
+    </div>
+  )
+}
+
 function EditPanel({
   open, editing, form, setForm, editLines, setEditLines,
   customers, products, portals, err, saving, onClose, onSave, onDelete, onDuplicate, onDownloadSalesOrder, onSendAck, onOpenSOConfirm, emailBusy, canSendSO, onSearchLeads, userEmail,
@@ -1339,6 +1370,8 @@ function EditPanel({
               </div>
             )
           })()}
+
+          {editing?.id && <OrderMaterialFlags orderId={editing.id} />}
 
           {/* Awaiting BOM Components → link to the Purchase Order Request board */}
           {editing && form.status === 'Awaiting BOM Components' && (

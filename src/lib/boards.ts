@@ -41,6 +41,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/sales/daily-ship-report', label: '2026 Daily Ship Report', icon: 'ti-chart-dots', nav_group: 'Sales', href: '/sales/daily-ship-report', sort_order: 6 },
   { board_key: '/production/reports', label: 'Production Reports', icon: 'ti-chart-line', nav_group: 'Production', href: '/production/reports', sort_order: 0 },
   { board_key: '/production/daily-plan', label: 'Daily Plan', icon: 'ti-calendar-week', nav_group: 'Production', href: '/production/daily-plan', sort_order: 1 },
+  { board_key: '/production/material-flags', label: 'Material Red Flags', icon: 'ti-flag', nav_group: 'Production', href: '/production/material-flags', sort_order: 2 },
   { board_key: '/production/quality-control', label: 'Quality Control', icon: 'ti-checkup-list', nav_group: 'Production', href: '/production/quality-control', sort_order: 3 },
   { board_key: '/haccp', label: 'HACCP - Compliance', icon: 'ti-clipboard-check', nav_group: 'Production', href: '/haccp', sort_order: 4 },
   { board_key: '/production/lots', label: 'Lot Codes', icon: 'ti-barcode', nav_group: 'Production', href: '/production/lots', sort_order: 5 },
