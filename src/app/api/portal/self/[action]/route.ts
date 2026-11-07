@@ -346,7 +346,7 @@ async function websiteForm(req: NextRequest, body: any): Promise<NextResponse> {
     if ((count || 0) >= 8) return out({ error: 'Too many messages from this network. Please email info@byndgrn.com.' }, 429)
   }
   const extra: Record<string, string> = {}
-  for (const k of ['phone', 'role', 'volume', 'products', 'location', 'zip', 'linkedin', 'interest', 'timeline']) if (str(body[k])) extra[k] = str(body[k], 300)
+  for (const k of ['phone', 'role', 'volume', 'products', 'location', 'zip', 'linkedin', 'interest', 'timeline', 'branding', 'service', 'item', 'monthly_cases', 'landed_cost']) if (str(body[k])) extra[k] = str(body[k], 300)
   // Sales-type inquiries become (or attach to) a Lead on Customer/Leads.
   let customerId: string | null = null
   if (SALES_TOPICS.includes(topic) || body.kind === 'contact') {
