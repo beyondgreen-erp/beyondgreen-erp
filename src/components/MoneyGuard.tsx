@@ -1,6 +1,6 @@
 'use client'
 /**
- * MONEY GUARD — blurs every dollar amount across the ERP until the money password is entered.
+ * MONEY GUARD — blurs every dollar amount across the ERP until the unlock password is entered.
  *
  * How it finds money: a MutationObserver marks any element whose own text contains a $ amount
  * (e.g. "$12,307", "$0.16", "-$4.2k"), chart labels included, plus inputs that hold prices
@@ -144,7 +144,7 @@ export default function MoneyGuard() {
           <form onSubmit={submit} onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-3">
             <div className="text-3xl">🔒</div>
             <h2 className="text-lg font-bold text-[#1A1D2E]">Request visibility</h2>
-            <input ref={pwRef} type="password" autoComplete="off" defaultValue="" onChange={e => setPw(e.target.value)} placeholder="Money password"
+            <input ref={pwRef} type="password" autoComplete="off" defaultValue="" onChange={e => setPw(e.target.value)} placeholder="Password"
               className="h-11 rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E] focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             {msg && <p className="text-xs text-red-600">{msg}</p>}
             <div className="flex gap-2">
