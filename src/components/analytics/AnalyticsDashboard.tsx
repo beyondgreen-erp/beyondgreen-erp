@@ -585,7 +585,7 @@ function Flow({ d }: { d: any }) {
 function Plan({ d }: { d: any }) {
   const p = d.plan || {}
   const minCover = n(p.cover_min) || 21
-  const cover = (p.cover || []).map((r: any) => ({ ...r, cover_days: Math.min(n(r.cover_days), 180), real: r.cover_days }))
+  const cover = (p.cover || []).map((r: any) => ({ ...r, cover_days: Math.max(1.5, Math.min(n(r.cover_days), 180)), real: Math.max(0, n(r.cover_days)), out: n(r.on_hand) <= 0 }))
   const cash = (p.cash_weeks || []).map((r: any) => ({ ...r, label: r.wk === 0 ? 'This wk + past due' : r.label }))
   const noPayments = n(p.payments_recorded) === 0
   const arTotal = (p.ar_aging || []).reduce((t: number, r: any) => t + n(r.value), 0)
@@ -594,13 +594,13 @@ function Plan({ d }: { d: any }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi icon="ti-battery-2" label={`SKUs under ${minCover} d cover`} value={fmt(cover.filter((r: any) => n(r.real) < minCover).length)} sub="Based on the last 60 days of use" tone={cover.some((r: any) => n(r.real) < minCover) ? 'bad' : 'good'} />
+        <Kpi icon="ti-battery-2" label={`SKUs under ${minCover} d cover`} value={fmt(p.cover_under_n ?? cover.filter((r: any) => n(r.real) < minCover).length)} sub={`${fmt(p.cover_out_n)} already at zero or negative on hand`} tone={cover.some((r: any) => n(r.real) < minCover) ? 'bad' : 'good'} />
         <Kpi icon="ti-cash" label="Open invoices" value={usd(arTotal)} sub={noPayments ? 'Payments not recorded in ERP' : 'Balance due'} tone={noPayments ? 'warn' : 'neutral'} />
         <Kpi icon="ti-alert-octagon" label="Past due" value={usd(arOver)} sub={`${arTotal ? Math.round((100 * arOver) / arTotal) : 0}% of open`} tone={arOver ? 'bad' : 'good'} />
         <Kpi icon="ti-repeat" label="Customers overdue to reorder" value={fmt((p.reorder || []).length)} sub="Past their usual reorder gap" tone={(p.reorder || []).length ? 'warn' : 'good'} />
       </div>
 
-      <Card title="Days of stock cover" sub={`On hand divided by daily use (last 60 days). Red bars run out before ${minCover} days. Capped at 180 on the chart.`}>
+      <Card title="Days of stock cover" sub={`On hand divided by daily use (last 60 days). Red bars run out before ${minCover} days; a tiny red stub means none left (zero or negative on hand, needs a count). Capped at 180.`}>
         <div className="h-[460px]">
           {cover.length ? <ResponsiveContainer width="100%" height="100%">
             <BarChart data={cover.slice(0, 25)} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
@@ -610,7 +610,7 @@ function Plan({ d }: { d: any }) {
               <ReferenceLine x={minCover} stroke={C.purple} strokeDasharray="4 4" label={{ value: `${minCover} d`, fontSize: 10, fill: C.purple, position: 'top' }} />
               <Tooltip {...tipStyle} content={({ payload }: any) => {
                 const r = payload?.[0]?.payload; if (!r) return null
-                return <div className="bg-white border border-[#ECEEF3] rounded-lg px-2.5 py-1.5 text-[11px] shadow"><b>{r.sku}</b> {r.name}<br />On hand {fmt(r.on_hand)} · uses {r.per_day}/day · {r.real ?? 0} d cover<br />Runs out about {r.stockout || 'now'} · open demand {fmt(r.open_demand)}</div>
+                return <div className="bg-white border border-[#ECEEF3] rounded-lg px-2.5 py-1.5 text-[11px] shadow"><b>{r.sku}</b> {r.name}<br />On hand {fmt(r.on_hand)} · uses {r.per_day}/day · {r.out ? 'out of stock' : `${r.real} d cover`}<br />{r.out ? 'Count it or produce it now' : `Runs out about ${r.stockout}`} · open demand {fmt(r.open_demand)}</div>
               }} />
               <Bar dataKey="cover_days" radius={[0, 4, 4, 0]} onClick={(e: any) => { const s = (e?.payload || e)?.sku; if (s) window.location.href = `/sales/inventory?q=${encodeURIComponent(s)}` }} className="cursor-pointer">
                 {cover.slice(0, 25).map((r: any, i: number) => <Cell key={i} fill={n(r.real) < minCover ? C.red : n(r.real) < minCover * 2 ? C.orange : C.green} />)}
