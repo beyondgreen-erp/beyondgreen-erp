@@ -248,7 +248,6 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
                 >
                   <i className={`ti ${it.icon || 'ti-layout-board'} text-base w-5 text-center`} style={{ color: '#8A93A8' }} />
                   <span className="truncate flex-1">{it.label}</span>
-                  {it.is_custom && <span className="text-[9px] font-bold text-[#A25DDC]">BOARD</span>}
                 </Link>
               ))}
             </div>
@@ -287,7 +286,6 @@ export default function TopNav({ pageTitle, userEmail, userName, userInitials, a
                           >
                             <i className={`ti ${it.icon || 'ti-layout-board'} text-base w-5 text-center`} style={{ color: here ? '#00A84F' : '#8A93A8' }} />
                             <span className="truncate flex-1">{it.label}</span>
-                            {it.is_custom && <span className="text-[9px] font-bold text-[#A25DDC]">BOARD</span>}
                           </Link>
                         )
                       })}

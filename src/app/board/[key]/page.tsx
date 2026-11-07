@@ -9,6 +9,10 @@ import { Board, BoardColumn, BuilderConfig } from '@/lib/boards'
 import Comments from '@/components/Comments'
 import ItemHistory from '@/components/ItemHistory'
 import FileUpload from '@/components/FileUpload'
+import Link from 'next/link'
+import ComplianceBoardPanel from '@/components/ComplianceBoardPanel'
+import { RULE_BY_KEY, evaluateBoard, STATE_STYLE } from '@/lib/compliance'
+import { useEmployees, directoryHref, peopleOf } from '@/lib/useEmployees'
 
 interface Row { id: string; board_id: string; group_name: string | null; data: Record<string, any>; sort_order: number; created_at?: string }
 
@@ -37,6 +41,9 @@ export default function DynamicBoardPage() {
   const [grp, setGrp] = useState('')
   const [saving, setSaving] = useState(false)
   const [fileCounts, setFileCounts] = useState<Record<string, number>>({})
+  const [activeSites, setActiveSites] = useState<string[]>(['SNA'])
+  const employees = useEmployees()
+  const rule = RULE_BY_KEY[key]
 
   const cfg: BuilderConfig = useMemo(() => {
     const c = (board?.builder_config || {}) as BuilderConfig
@@ -61,6 +68,10 @@ export default function DynamicBoardPage() {
       if (!f || f.length < 1000) break
     }
     setFileCounts(counts)
+    if (RULE_BY_KEY[key]) {
+      const { data: c } = await sb.from('erp_config').select('value').eq('key', 'compliance_active_sites').maybeSingle()
+      if (c?.value) setActiveSites(String(c.value).split(',').map((x: string) => x.trim()).filter(Boolean))
+    }
     setLoading(false)
   }, [sb, key])
   useEffect(() => { if (key) load() }, [key, load])
@@ -77,7 +88,32 @@ export default function DynamicBoardPage() {
   }, [rows, search, cfg]) // eslint-disable-line
 
   function openEdit(r: Row) { setEditing(r); setForm({ ...(r.data || {}) }); setGrp(r.group_name || cfg.groups[0] || 'Items'); setOpen(true) }
-  function openAdd(g?: string) { setEditing(null); setForm({}); setGrp(g || cfg.groups[0] || 'Items'); setOpen(true) }
+  function openAdd(g?: string, prefill?: Record<string, any>) { setEditing(null); setForm({ ...(prefill || {}) }); setGrp(g || cfg.groups[0] || 'Items'); setOpen(true) }
+  function openById(id: string) { const r = rows.find(x => x.id === id); if (r) openEdit(r) }
+
+  // Deep links: ?item=<id> opens an entry, ?new=1 opens a blank one
+  const [deepDone, setDeepDone] = useState(false)
+  useEffect(() => {
+    if (deepDone || loading || !board) return
+    const p = new URLSearchParams(window.location.search)
+    const id = p.get('item'); if (id) openById(id)
+    if (p.get('new')) openAdd()
+    if (id || p.get('new')) window.history.replaceState({}, '', window.location.pathname)
+    setDeepDone(true)
+  }, [loading, board, deepDone]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Due status per entry for compliance boards
+  const dueById = useMemo(() => {
+    const m: Record<string, string> = {}
+    if (!rule) return m
+    evaluateBoard(rule, board?.label || '', rows, fileCounts, activeSites).rows.forEach(r => { if (r.itemId && rule.mode === 'entry') m[r.itemId] = r.state })
+    return m
+  }, [rule, board, rows, fileCounts, activeSites])
+  const statusOptions = useMemo(() => {
+    const m: Record<string, string[]> = {}
+    cfg.columns.filter(c => c.type === 'status').forEach(c => { m[c.key] = Array.from(new Set(rows.map(r => String(r.data?.[c.key] || '')).filter(Boolean))).sort() })
+    return m
+  }, [rows, cfg])
   function close() { setOpen(false); setTimeout(() => { setEditing(null); setForm({}) }, 150) }
 
   async function save() {
@@ -112,9 +148,10 @@ export default function DynamicBoardPage() {
     <div className="min-h-screen mon-page">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
-          <span className="mon-tag" style={{ background: accent + '1A', color: accent }}>{board?.label || 'Board'}</span>
+          {rule ? <Link href="/compliance" className="text-xs font-semibold text-emerald-700 hover:underline">&larr; Compliance Dashboard · {rule.program}</Link>
+            : <span className="mon-tag" style={{ background: accent + '1A', color: accent }}>{board?.label || 'Board'}</span>}
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">{board?.label || 'Board'}</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`} · Custom board</p>
+          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${rows.length} ${rows.length === 1 ? 'record' : 'records'}`}{rule ? ` · ${rule.task}` : ''}</p>
         </div>
         <button onClick={() => openAdd()} className="mon-btn self-start" style={{ background: accent, borderColor: accent }}>+ New Entry</button>
       </div>
@@ -123,6 +160,10 @@ export default function DynamicBoardPage() {
         <input placeholder="Search this board…" value={search} onChange={e => setSearch(e.target.value)}
           className="flex-1 min-w-[240px] max-w-md bg-white border border-[#E4E6EE] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#00A84F]/30" />
       </div>
+
+      {!loading && rule && board && (
+        <ComplianceBoardPanel rule={rule} label={board.label} rows={rows} fileCounts={fileCounts} activeSites={activeSites} onOpen={openById} onAdd={openAdd} />
+      )}
 
       {loading ? <p className="text-gray-400 text-sm">Loading…</p> : (
         <div className="space-y-2.5 mb-8">
@@ -143,11 +184,13 @@ export default function DynamicBoardPage() {
                     {items.map(it => (
                       <div key={it.id} onClick={() => openEdit(it)} className="flex items-center gap-3 px-4 py-2.5 mon-row cursor-pointer">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-[#1A1D2E] truncate">{String(it.data?.[primaryKey] ?? '(untitled)') || '(untitled)'}</p>
-                          <p className="text-xs text-gray-500 truncate">
+                          <p className="text-sm font-semibold text-[#1A1D2E] break-words">{String(it.data?.[primaryKey] ?? '(untitled)') || '(untitled)'}{it.data?.title && primaryKey !== 'title' ? <span className="font-normal text-gray-600"> · {String(it.data.title).slice(0, 120)}</span> : null}</p>
+                          <p className="text-xs text-gray-500 break-words">
                             {secondaryCols.map(col => it.data?.[col.key] ? `${col.label}: ${it.data[col.key]}` : '').filter(Boolean).join('  ·  ')}
                           </p>
                         </div>
+                        {rule && it.data?.site && !activeSites.includes(String(it.data.site)) ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: STATE_STYLE.archive.bg, color: STATE_STYLE.archive.fg }}>{String(it.data.site)} archive</span>
+                          : rule && dueById[it.id] && dueById[it.id] !== 'ok' ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: STATE_STYLE[dueById[it.id] as keyof typeof STATE_STYLE].bg, color: STATE_STYLE[dueById[it.id] as keyof typeof STATE_STYLE].fg }}>{STATE_STYLE[dueById[it.id] as keyof typeof STATE_STYLE].label}</span> : null}
                         {fileCounts[it.id] ? <span className="text-[11px] text-gray-500 shrink-0 flex items-center gap-0.5" title="Attached files"><i className="ti ti-paperclip" />{fileCounts[it.id]}</span> : null}
                         {cfg.columns.some(c => c.type === 'status') && (() => {
                           const sc = cfg.columns.find(c => c.type === 'status'); const val = sc ? it.data?.[sc.key] : ''
@@ -175,7 +218,8 @@ export default function DynamicBoardPage() {
               <button onClick={close} className="mon-modal-close" aria-label="Close">×</button>
             </div>
             <div className="mon-modal-body">
-              <div className="grid grid-cols-2 gap-3">
+              <datalist id="board-employees">{employees.map(e => <option key={e.id} value={e.name}>{e.job_description || e.department || ''}</option>)}</datalist>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Group</label>
                   <select value={grp} onChange={e => setGrp(e.target.value)} className={inp}>
@@ -183,10 +227,18 @@ export default function DynamicBoardPage() {
                   </select>
                 </div>
                 {cfg.columns.map(col => (
-                  <div key={col.key} className={col.type === 'longtext' ? 'col-span-2' : ''}>
+                  <div key={col.key} className={col.type === 'longtext' ? 'sm:col-span-2' : ''}>
                     <label className="block text-xs text-gray-500 mb-1">{col.label}</label>
                     {col.type === 'longtext'
                       ? <textarea rows={2} value={form[col.key] || ''} onChange={e => setForm(f => ({ ...f, [col.key]: e.target.value }))} className={inp + ' resize-none'} />
+                      : col.type === 'person' ? <>
+                          <input list="board-employees" placeholder="Pick from the Team Directory" value={form[col.key] || ''} onChange={e => setForm(f => ({ ...f, [col.key]: e.target.value }))} className={inp} />
+                          {peopleOf(form[col.key]).length > 0 && <div className="flex flex-wrap gap-x-2 mt-1">{peopleOf(form[col.key]).map(n => <Link key={n} href={directoryHref(n)} className="text-[11px] text-[#0B6E99] hover:underline">{n}</Link>)}</div>}
+                        </>
+                      : col.type === 'status' ? <>
+                          <input list={`status-${col.key}`} value={form[col.key] || ''} onChange={e => setForm(f => ({ ...f, [col.key]: e.target.value }))} className={inp} />
+                          <datalist id={`status-${col.key}`}>{(statusOptions[col.key] || []).map(o => <option key={o} value={o} />)}</datalist>
+                        </>
                       : <input type={col.type === 'number' ? 'number' : col.type === 'date' ? 'date' : 'text'} value={form[col.key] || ''} onChange={e => setForm(f => ({ ...f, [col.key]: e.target.value }))} className={inp} />}
                   </div>
                 ))}

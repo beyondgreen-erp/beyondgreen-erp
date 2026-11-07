@@ -51,6 +51,7 @@ export default function EmployeeDirectoryPage() {
   const [daysOff, setDaysOff] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
+  useEffect(() => { try { const v = new URLSearchParams(window.location.search).get('q'); if (v) setQ(v) } catch { /* ignore */ } }, [])
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [detail, setDetail] = useState<any | null>(null)
   const [editing, setEditing] = useState(false)
