@@ -11,7 +11,7 @@ import FileUpload from '@/components/FileUpload'
 import { generateQuotePDF, generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
 import { RfqSendModal, RfqResponses } from '@/components/RfqSupplierPanel'
 import { insertQuotationWithNumber } from '@/lib/quoteCreate'
-import SupplierQuotedItems from '@/components/SupplierQuotedItems'
+import SupplierQuotedItems, { SupplierItemPicker } from '@/components/SupplierQuotedItems'
 
 interface Quote {
   id: string
@@ -527,6 +527,16 @@ export default function QuotationsPage() {
 
   function addLine() {
     setLines(prev => [...prev, { sku: '', product_name: '', description: '', quantity: 1, unit_price: 0, line_total: 0, product_id: null }])
+  }
+
+  const [showSupplierPicker, setShowSupplierPicker] = useState(false)
+  function addSupplierItemLine(l: { product_name: string; description: string; quantity: number; unit_price: number; unit_of_measure: string | null }) {
+    const line = recalcLine({ sku: '', product_id: null, pcs_per_case: null, case_price: null, ...l }, 'unit_price') as QuoteLine
+    setLines(prev => {
+      const blank = prev.length === 1 && !prev[0].sku && !prev[0].product_name && !prev[0].description && !num(prev[0].unit_price)
+      return blank ? [line] : [...prev, line]
+    })
+    setShowSupplierPicker(false)
   }
 
   function removeLine(i: number) {
@@ -1507,6 +1517,7 @@ export default function QuotationsPage() {
               </div>
 
               <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={addLine}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border hover:bg-gray-50"
@@ -1515,6 +1526,17 @@ export default function QuotationsPage() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                   Add Line Item
                 </button>
+                {form.type !== 'rfq' && (
+                  <button
+                    onClick={() => setShowSupplierPicker(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border hover:bg-[#F7F5FF]"
+                    style={{ borderColor: '#DDD6FE', color: '#7C3AED' }}
+                  >
+                    + From Supplier Quoted Items
+                  </button>
+                )}
+                {showSupplierPicker && <SupplierItemPicker onClose={() => setShowSupplierPicker(false)} onPick={addSupplierItemLine} />}
+                </div>
                 <div className="flex items-center gap-3">
                   <label className="text-sm" style={{ color: '#6B7280' }}>Tax Rate (%)</label>
                   <input type="number" value={form.tax_rate} onChange={e => setForm(p => ({ ...p, tax_rate: e.target.value }))}
