@@ -274,6 +274,8 @@ export default function CustomersPage() {
   const [primaryContacts, setPrimaryContacts] = useState<Record<string,Contact>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  // Deep link: ?q=term pre-fills the search (used by Analytics drill-downs).
+  useEffect(() => { const v = new URLSearchParams(window.location.search).get('q'); if (v) setSearch(v) }, [])
   const [stageFilter, setStageFilter] = useState('all')
   const [showArchived, setShowArchived] = useState(false)
   const [formCopied, setFormCopied] = useState(false)
