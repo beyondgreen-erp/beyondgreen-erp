@@ -11,6 +11,7 @@ import FileUpload from '@/components/FileUpload'
 import { generateQuotePDF, generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
 import { RfqSendModal, RfqResponses } from '@/components/RfqSupplierPanel'
 import { insertQuotationWithNumber } from '@/lib/quoteCreate'
+import SupplierQuotedItems from '@/components/SupplierQuotedItems'
 
 interface Quote {
   id: string
@@ -211,7 +212,7 @@ export default function QuotationsPage() {
   // Record Board: collapsed state per status group
   const [rbCollapsedState, rbSetCollapsed] = useState<Record<string, boolean>>({ Rejected: true, Expired: true })
   // Tab: 'quote' or 'rfq'
-  const [activeTab, setActiveTab] = useState<'quote' | 'rfq'>('quote')
+  const [activeTab, setActiveTab] = useState<'quote' | 'rfq' | 'items'>('quote')
   // Customer typeahead
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerList, setShowCustomerList] = useState(false)
@@ -914,15 +915,15 @@ export default function QuotationsPage() {
         <div>
           <span className="mon-tag t-pink">💬 Sales</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Quotes &amp; RFQs</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${tabQuotes.length} ${activeTab === 'rfq' ? 'RFQ' : 'quote'}${tabQuotes.length !== 1 ? 's' : ''} · ${fmt$(tabPipeline)} pipeline`}</p>
+          <p className="text-gray-500 text-sm mt-0.5">{activeTab === 'items' ? 'Supplier prices received, grouped by product type' : loading ? 'Loading…' : `${tabQuotes.length} ${activeTab === 'rfq' ? 'RFQ' : 'quote'}${tabQuotes.length !== 1 ? 's' : ''} · ${fmt$(tabPipeline)} pipeline`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <input
+          {activeTab !== 'items' && <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder={`Search ${activeTab === 'rfq' ? 'RFQ' : 'quote'} # or customer…`}
             className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40"
-          />
+          />}
           {selected.size > 0 && (
             <button onClick={bulkDelete} disabled={deleting} className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -968,9 +969,18 @@ export default function QuotationsPage() {
             {quotes.filter(q => q.type === 'rfq').length}
           </span>
         </button>
+        <button
+          onClick={() => setActiveTab('items')}
+          className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-md transition-colors ${activeTab === 'items' ? 'bg-[#7C3AED] text-white' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5a1.99 1.99 0 011.41.59l7 7a2 2 0 010 2.82l-7 7a2 2 0 01-2.82 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" /></svg>
+          Supplier Quoted Items
+        </button>
       </div>
 
-      {loading ? (
+      {activeTab === 'items' ? (
+        <SupplierQuotedItems />
+      ) : loading ? (
         <div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20">
           <div className="w-6 h-6 border-2 border-[#3B6FE0]/30 border-t-[#3B6FE0] rounded-full animate-spin" />
         </div>
