@@ -57,7 +57,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const url = new URL(req.url)
 
   if (action === 'list') {
-    const res = NextResponse.json(await listTemplates(), { headers: { ...cors(req), 'Cache-Control': 's-maxage=60, stale-while-revalidate=600' } })
+    // Public, non-sensitive data: open CORS so the CDN can cache one copy for every origin.
+    const res = NextResponse.json(await listTemplates(), { headers: { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 's-maxage=60, stale-while-revalidate=600' } })
     return res
   }
   if (action === 'settings') {
