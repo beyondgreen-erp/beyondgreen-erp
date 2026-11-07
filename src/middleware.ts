@@ -45,7 +45,7 @@ function isProofPath(pathname: string): boolean {
 
 function isPortalPath(pathname: string): boolean {
   return pathname === '/portal' || pathname.startsWith('/portal/') ||
-    pathname.startsWith('/api/portal') || pathname.startsWith('/api/avatar') ||
+    pathname.startsWith('/api/portal') || pathname.startsWith('/api/avatar') || pathname.startsWith('/api/site/templates/') ||
     pathname.startsWith('/_next') || pathname === '/sw.js' || pathname === '/manifest.json' ||
     /\.(?:png|jpe?g|gif|svg|ico|webp|css|js|woff2?|ttf|otf|map)$/i.test(pathname)
 }
