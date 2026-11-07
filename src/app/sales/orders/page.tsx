@@ -1608,11 +1608,11 @@ function EditPanel({
             <div className="space-y-2">
               {editLines.map((line, i) => (
                 <div key={line._key} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); reorderLine(line._key) }} className={`rounded-lg p-3 border space-y-2 ${line.sku_flagged ? 'border-amber-500/30 bg-amber-950/10' : 'border-[#E4E6EE] bg-[#F9FAFB]/30'}`}>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                     <span draggable onDragStart={e => { e.dataTransfer.setData('text/plain', line._key); e.dataTransfer.effectAllowed = 'move'; dragLineKey.current = line._key }} onDragEnd={() => { setTimeout(() => { dragLineKey.current = null }, 0) }} className="text-gray-400 cursor-grab active:cursor-grabbing select-none shrink-0 text-xs" title="Drag to reorder line">&#8942;&#8942;</span>
                     <span className="text-xs text-gray-600 w-4 shrink-0">{i + 1}</span>
                     {/* SKU with typeahead */}
-                    <div className="relative flex-1">
+                    <div className="relative flex-1 min-w-[45%] sm:min-w-0">
                       <input value={skuDropdown === i ? skuQ : (line.sku || '')}
                         onFocus={() => { setSkuDropdown(i); setSkuQ(line.sku || '') }}
                         onBlur={() => setTimeout(() => setSkuDropdown(null), 200)}
@@ -1654,7 +1654,7 @@ function EditPanel({
                       )}
                     </div>
                     <input value={line.description} onChange={e => updateLine(line._key, { description: e.target.value })}
-                      placeholder="Description" className="flex-1 bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
+                      placeholder="Description" className="flex-1 min-w-0 order-last basis-full sm:order-none sm:basis-0 bg-white border border-[#E4E6EE] text-[#1A1D2E] placeholder-[#9CA3AF] rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition"/>
                     <button onClick={() => removeLine(line._key)} className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/10 transition-colors shrink-0">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
@@ -1744,7 +1744,7 @@ function EditPanel({
           {form.customer_id && <div className="pt-3"><LastInvoice customerId={form.customer_id} /></div>}
         </div>
 
-        <div className="shrink-0 px-6 py-4 border-t border-[#E4E6EE] space-y-3">
+        <div className="shrink-0 px-4 sm:px-6 py-4 border-t border-[#E4E6EE] space-y-3">
           {err && <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"><p className="text-red-400 text-xs">{err}</p></div>}
           {editing && (
             <div className="flex items-center gap-2 flex-wrap">
@@ -1753,7 +1753,7 @@ function EditPanel({
               <button type="button" onClick={onOpenSOConfirm} disabled={emailBusy !== null || !canSendSO} title={canSendSO ? 'Send the Sales Order Confirmation (with confirmation pop-up)' : 'Add a customer, both addresses, payment terms and a line item first'} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors">{emailBusy === 'so' ? 'Sending…' : '\uD83D\uDCE7 Send SO Confirmation'}</button>
             </div>
           )}
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             {editing && (
               <button onClick={onDelete} className="text-sm px-3 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Delete">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>

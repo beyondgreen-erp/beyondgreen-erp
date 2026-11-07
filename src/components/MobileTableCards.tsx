@@ -9,7 +9,8 @@
  * lays the cells out as a grid of label + value fields. Desktop (1024px and up) is
  * untouched: nothing runs unless the small-screen media query matches.
  *
- * Opt out for a specific table by putting data-keep-table on it or on a parent.
+ * It also wraps flex rows that run past the screen (rb-wrap) and widens inputs squeezed
+ * to a sliver (rb-minw). Opt out with data-keep-table (tables) or data-keep-row (rows).
  * Boards that already ship their own phone layout (e.g. Products, Quotes) hide the
  * desktop table below lg, so this never touches them (hidden tables are skipped by CSS).
  */
@@ -52,6 +53,50 @@ function apply(root: ParentNode) {
   })
 }
 
+// Rows that run past the screen: flex rows that don't wrap (header button rows, tab
+// bars, modal footers) get rb-wrap so they wrap onto a second line instead of
+// pushing buttons off the edge. Inputs squeezed to a sliver (e.g. a SKU box next to
+// a wide description) get rb-minw so the value stays readable.
+const SKIP = 'header, nav, [data-keep-row], table.rb-cards'
+// True when e should be left alone: inside an intended sideways scroller (a container
+// that really scrolls left/right), inside something animated (tickers, marquees), or
+// opted out. Checked up to <main>, which scrolls itself and must not count.
+function inSkip(e: HTMLElement) {
+  for (let p: HTMLElement | null = e; p && p.tagName !== 'MAIN' && p !== document.body; p = p.parentElement) {
+    if (p.matches(SKIP)) return true
+    const cs = getComputedStyle(p)
+    if (cs.animationName && cs.animationName !== 'none') return true
+    if (p !== e && (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && p.scrollWidth > p.clientWidth + 1) return true
+  }
+  return false
+}
+function fitRows() {
+  const edge = document.documentElement.clientWidth + 1
+  const els = document.querySelectorAll('main [class*="flex"], [class*="fixed"] [class*="flex"]')
+  els.forEach(node => {
+    const e = node as HTMLElement
+    if (e.classList.contains('rb-wrap')) return
+    // overflowing inside itself, or grown wider than the screen as a flex item
+    if (e.scrollWidth <= e.clientWidth + 1 && e.getBoundingClientRect().right <= edge) return
+    const cs = getComputedStyle(e)
+    if (!cs.display.includes('flex') || !cs.flexDirection.startsWith('row') || cs.flexWrap !== 'nowrap' || cs.overflowX !== 'visible') return
+    if (inSkip(e)) return
+    e.classList.add('rb-wrap')
+  })
+  document.querySelectorAll('main input, [class*="fixed"] input').forEach(node => {
+    const i = node as HTMLInputElement
+    if (i.classList.contains('rb-minw') || /checkbox|radio|file|hidden|range|color/.test(i.type)) return
+    if (i.clientWidth > 0 && i.clientWidth < 64 && i.value && i.scrollWidth > i.clientWidth + 2) {
+      i.classList.add('rb-minw')
+      const p = i.closest('[class*="flex"]') as HTMLElement | null
+      if (p && p.parentElement) {
+        const row = (p.parentElement.closest('[class*="flex"]') as HTMLElement | null)
+        ;[p, row].forEach(r => { if (r && getComputedStyle(r).display.includes('flex')) r.classList.add('rb-wrap') })
+      }
+    }
+  })
+}
+
 export default function MobileTableCards() {
   const pathname = usePathname()
   useEffect(() => {
@@ -59,8 +104,14 @@ export default function MobileTableCards() {
     const mq = window.matchMedia(MQ)
     let obs: MutationObserver | null = null
     let raf = 0
-    const run = () => { raf = 0; apply(document.body) }
-    const schedule = () => { if (!raf) raf = requestAnimationFrame(run) }
+    let last = 0, timer = 0
+    const run = () => { raf = 0; last = Date.now(); apply(document.body); fitRows() }
+    // At most a few passes a second: big boards re-render often.
+    const schedule = () => {
+      if (raf || timer) return
+      const wait = Math.max(0, 300 - (Date.now() - last))
+      timer = window.setTimeout(() => { timer = 0; raf = requestAnimationFrame(run) }, wait)
+    }
     const start = () => {
       if (obs) return
       run()
@@ -70,7 +121,10 @@ export default function MobileTableCards() {
     const stop = () => {
       obs?.disconnect(); obs = null
       if (raf) { cancelAnimationFrame(raf); raf = 0 }
+      if (timer) { clearTimeout(timer); timer = 0 }
       document.querySelectorAll('table.rb-cards').forEach(t => t.classList.remove('rb-cards'))
+      document.querySelectorAll('.rb-wrap').forEach(t => t.classList.remove('rb-wrap'))
+      document.querySelectorAll('.rb-minw').forEach(t => t.classList.remove('rb-minw'))
     }
     const onChange = () => (mq.matches ? start() : stop())
     onChange()

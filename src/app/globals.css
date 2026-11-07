@@ -345,6 +345,14 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
   table.rb-cards input[type="checkbox"] { width: 20px; height: 20px; }
   table.rb-cards tr:hover { background: #fff; }
 }
+@media (max-width: 1023px) {
+  /* rows that ran past the screen wrap onto a second line (MobileTableCards.fitRows) */
+  .rb-wrap { flex-wrap: wrap !important; row-gap: 6px; max-width: 100%; }
+  .rb-minw { min-width: 120px !important; flex: 1 1 120px; }
+  /* show full text instead of cutting it off with ... */
+  main .truncate { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  main .w-fit { max-width: 100%; }
+}
 @media (min-width: 640px) and (max-width: 1023px) {
   table.rb-cards > tbody > tr, table.rb-cards > tfoot > tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
