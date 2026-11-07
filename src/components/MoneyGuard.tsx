@@ -54,6 +54,33 @@ export default function MoneyGuard() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const pwRef = useRef<HTMLInputElement>(null)
+  const [canReset, setCanReset] = useState(false)
+  const [resetStep, setResetStep] = useState<0 | 1 | 2>(0)
+  const codeRef = useRef<HTMLInputElement>(null)
+  const newRef = useRef<HTMLInputElement>(null)
+  const new2Ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { sb.auth.getUser().then(({ data }) => setCanReset((data.user?.email || '').toLowerCase() === 'rudyp@beyondgreenbiotech.com')) }, [sb])
+  async function sendCode() {
+    setBusy(true); setMsg('')
+    const { data, error } = await sb.rpc('unlock_reset_request')
+    setBusy(false)
+    const r = data as { ok: boolean; msg: string } | null
+    if (error || !r?.ok) { setMsg(error?.message || r?.msg || 'Could not send the code.'); return }
+    setResetStep(2); setMsg(r.msg)
+  }
+  async function saveNew(e?: React.FormEvent) {
+    e?.preventDefault()
+    const code = codeRef.current?.value || '', a = newRef.current?.value || '', b = new2Ref.current?.value || ''
+    if (!code || !a) { setMsg('Enter the code and a new password.'); return }
+    if (a !== b) { setMsg('The two passwords do not match.'); return }
+    setBusy(true); setMsg('')
+    const { data, error } = await sb.rpc('unlock_reset_confirm', { p_code: code, p_new: a })
+    setBusy(false)
+    const r = data as { ok: boolean; msg: string } | null
+    if (error || !r?.ok) { setMsg(error?.message || r?.msg || 'Could not save.'); return }
+    ;[codeRef, newRef, new2Ref].forEach(x => { if (x.current) x.current.value = '' })
+    setResetStep(0); setMsg('New password saved. Enter it above to unlock.')
+  }
 
   // Initial state + auto relock when the 8 hours run out.
   useEffect(() => {
@@ -141,17 +168,46 @@ export default function MoneyGuard() {
 
       {ask && !unlocked && (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4" onClick={() => setAsk(false)}>
+          {resetStep === 0 ? (
           <form onSubmit={submit} onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-3">
             <div className="text-3xl">🔒</div>
             <h2 className="text-lg font-bold text-[#1A1D2E]">Request visibility</h2>
             <input ref={pwRef} type="password" autoComplete="off" defaultValue="" onChange={e => setPw(e.target.value)} placeholder="Password"
               className="h-11 rounded-lg border border-[#E4E6EE] px-3 text-base text-[#1A1D2E] focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-            {msg && <p className="text-xs text-red-600">{msg}</p>}
+            {msg && <p className={`text-xs ${msg.startsWith('New password saved') ? 'text-emerald-700' : 'text-red-600'}`}>{msg}</p>}
             <div className="flex gap-2">
               <button type="button" onClick={() => setAsk(false)} className="flex-1 h-11 rounded-lg border border-[#E4E6EE] text-sm text-gray-600">Cancel</button>
               <button type="submit" disabled={busy} className="flex-1 h-11 rounded-lg bg-emerald-600 text-white text-sm font-bold disabled:opacity-50">{busy ? 'Checking…' : 'Unlock'}</button>
             </div>
+            {canReset && <button type="button" onClick={() => { setMsg(''); setResetStep(1) }} className="text-xs text-[#0086C0] font-semibold hover:underline self-center">Forgot it? Set a new password</button>}
           </form>
+          ) : (
+          <form onSubmit={saveNew} onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-3">
+            <h2 className="text-lg font-bold text-[#1A1D2E]">Set a new password</h2>
+            {resetStep === 1 ? (
+              <>
+                <p className="text-sm text-gray-600">We will email a 6-digit code to your inbox. It expires in 10 minutes.</p>
+                {msg && <p className="text-xs text-red-600">{msg}</p>}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { setResetStep(0); setMsg('') }} className="flex-1 h-11 rounded-lg border border-[#E4E6EE] text-sm text-gray-600">Back</button>
+                  <button type="button" disabled={busy} onClick={sendCode} className="flex-1 h-11 rounded-lg bg-emerald-600 text-white text-sm font-bold disabled:opacity-50">{busy ? 'Sending…' : 'Email me a code'}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <input ref={codeRef} inputMode="numeric" autoComplete="one-time-code" placeholder="6-digit code from your email" className="h-11 rounded-lg border border-[#E4E6EE] px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <input ref={newRef} type="password" autoComplete="new-password" placeholder="New password (8+ characters)" className="h-11 rounded-lg border border-[#E4E6EE] px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <input ref={new2Ref} type="password" autoComplete="new-password" placeholder="Type it again" className="h-11 rounded-lg border border-[#E4E6EE] px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                {msg && <p className={`text-xs ${msg.startsWith('Code sent') ? 'text-emerald-700' : 'text-red-600'}`}>{msg}</p>}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { setResetStep(0); setMsg('') }} className="flex-1 h-11 rounded-lg border border-[#E4E6EE] text-sm text-gray-600">Cancel</button>
+                  <button type="submit" disabled={busy} className="flex-1 h-11 rounded-lg bg-emerald-600 text-white text-sm font-bold disabled:opacity-50">{busy ? 'Saving…' : 'Save new password'}</button>
+                </div>
+                <button type="button" disabled={busy} onClick={sendCode} className="text-xs text-[#0086C0] font-semibold hover:underline self-center">Send a new code</button>
+              </>
+            )}
+          </form>
+          )}
         </div>
       )}
     </div>
