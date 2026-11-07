@@ -8,6 +8,7 @@ import { accentColor, statusColor } from '@/lib/statusColors'
 import { Board, BoardColumn, BuilderConfig } from '@/lib/boards'
 import Comments from '@/components/Comments'
 import ItemHistory from '@/components/ItemHistory'
+import FileUpload from '@/components/FileUpload'
 
 interface Row { id: string; board_id: string; group_name: string | null; data: Record<string, any>; sort_order: number; created_at?: string }
 
@@ -35,6 +36,7 @@ export default function DynamicBoardPage() {
   const [form, setForm] = useState<Record<string, any>>({})
   const [grp, setGrp] = useState('')
   const [saving, setSaving] = useState(false)
+  const [fileCounts, setFileCounts] = useState<Record<string, number>>({})
 
   const cfg: BuilderConfig = useMemo(() => {
     const c = (board?.builder_config || {}) as BuilderConfig
@@ -51,6 +53,14 @@ export default function DynamicBoardPage() {
     setBoard(b as Board)
     const { data: r } = await sb.from('custom_board_items').select('*').eq('board_id', (b as Board).id).order('sort_order', { ascending: true }).order('created_at', { ascending: true })
     setRows((r as Row[]) || [])
+    // File counts per entry (paperclip badge). Paged so large boards are counted fully.
+    const counts: Record<string, number> = {}
+    for (let from = 0; ; from += 1000) {
+      const { data: f } = await sb.from('file_attachments').select('record_id').eq('record_type', `board:${key}`).range(from, from + 999)
+      ;(f || []).forEach((x: any) => { counts[x.record_id] = (counts[x.record_id] || 0) + 1 })
+      if (!f || f.length < 1000) break
+    }
+    setFileCounts(counts)
     setLoading(false)
   }, [sb, key])
   useEffect(() => { if (key) load() }, [key, load])
@@ -138,6 +148,7 @@ export default function DynamicBoardPage() {
                             {secondaryCols.map(col => it.data?.[col.key] ? `${col.label}: ${it.data[col.key]}` : '').filter(Boolean).join('  ·  ')}
                           </p>
                         </div>
+                        {fileCounts[it.id] ? <span className="text-[11px] text-gray-500 shrink-0 flex items-center gap-0.5" title="Attached files"><i className="ti ti-paperclip" />{fileCounts[it.id]}</span> : null}
                         {cfg.columns.some(c => c.type === 'status') && (() => {
                           const sc = cfg.columns.find(c => c.type === 'status'); const val = sc ? it.data?.[sc.key] : ''
                           if (!val) return null; const col = statusColor(String(val))
@@ -185,6 +196,13 @@ export default function DynamicBoardPage() {
                 <button onClick={close} className="ml-auto text-sm px-4 py-2 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-[#1A1D2E]">Cancel</button>
                 <button onClick={save} disabled={saving} className="mon-btn !py-2" style={{ background: accent, borderColor: accent }}>{saving ? 'Saving…' : (editing ? 'Save' : 'Create Entry')}</button>
               </div>
+              {editing?.id && (
+                <div className="mt-5 border-t border-gray-100 pt-4">
+                  <p className="text-xs font-semibold text-gray-500 mb-2">Files</p>
+                  <FileUpload supabase={sb} recordType={`board:${key}`} recordId={editing.id} currentUserEmail={userEmail} multiple />
+                </div>
+              )}
+              {!editing?.id && <p className="text-xs text-gray-400 mt-3">Save the entry first, then you can attach files to it.</p>}
               {editing?.id && (
                 <div className="mt-5 border-t border-gray-100 pt-4">
                   <Comments recordType={`board:${key}`} recordId={editing.id} currentUserEmail={userEmail} title="Comments & Activity" />
