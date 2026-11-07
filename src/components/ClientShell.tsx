@@ -15,6 +15,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import AuthWatcher from './AuthWatcher'
 import UpdateWatcher from './UpdateWatcher'
 import MoneyGuard from './MoneyGuard'
+import MobileTableCards from './MobileTableCards'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -201,6 +202,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
       <ChatAlerts />
       <MoneyGuard />
       <PresenceTracker />
+      <MobileTableCards />
       <div className="md:hidden">
         <MobileNav />
       </div>

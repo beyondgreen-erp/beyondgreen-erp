@@ -11,6 +11,7 @@ import FileUpload from '@/components/FileUpload'
 import { generateQuotePDF, generateRFQPDF, type PDFLine } from '@/lib/pdfHelpers'
 import { RfqSendModal, RfqResponses } from '@/components/RfqSupplierPanel'
 import { insertQuotationWithNumber } from '@/lib/quoteCreate'
+import BulkActionBar from '@/components/BulkActionBar'
 import SupplierQuotedItems, { SupplierItemPicker } from '@/components/SupplierQuotedItems'
 
 interface Quote {
@@ -934,12 +935,6 @@ export default function QuotationsPage() {
             placeholder={`Search ${activeTab === 'rfq' ? 'RFQ' : 'quote'} # or customer…`}
             className="bg-white border border-[#E4E6EE] rounded-lg px-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-[#3B6FE0]/40"
           />}
-          {selected.size > 0 && (
-            <button onClick={bulkDelete} disabled={deleting} className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              Delete {selected.size}
-            </button>
-          )}
           <button
             onClick={() => openNew('quote')}
             className="flex items-center gap-1.5 bg-[#3B6FE0] hover:bg-[#2E5CC7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm"
@@ -1008,8 +1003,8 @@ export default function QuotationsPage() {
                   <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: group.color + '26', color: group.color }}>{gr.length}</span>
                   {gr.length > 0 && <span className="ml-auto text-[11px] font-semibold text-gray-500">{fmt$(groupTotal)}</span>}
                 </div>
-                {!isCol && (
-                  <div>
+                {!isCol && (<>
+                  <div className="hidden lg:block">
                     <table className="w-full text-sm min-w-[900px]">
                       <thead className="sticky top-[47px] z-20 [&_th]:bg-[#FBFCFE]">
                         <tr className="text-[11px] uppercase text-gray-400 border-b border-[#EEF0F4]">
@@ -1040,7 +1035,7 @@ export default function QuotationsPage() {
                       </thead>
                       <tbody>
                         {gr.map((quote, i) => (
-                          <tr key={quote.id} className={`group cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openEdit(quote)}>
+                          <tr key={quote.id} className={`group cursor-pointer hover:bg-[#F2F6FF] ${selected.has(quote.id) ? 'bg-blue-50' : i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`} onClick={() => openEdit(quote)}>
                             <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                               <input
                                 type="checkbox"
@@ -1087,7 +1082,7 @@ export default function QuotationsPage() {
                             <td className="px-3 py-2.5 text-gray-600">{lineCounts[quote.id] ?? 0}</td>
                             <td className="px-3 py-2.5 text-right font-semibold text-[#1A1D2E]">{fmt$(quote.total)}</td>
                             <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                              <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                                 {quote.status === 'Accepted' && (
                                   <button
                                     onClick={() => { openEdit(quote); setConfirmConvert(quote.id); setConvertError(null) }}
@@ -1112,13 +1107,55 @@ export default function QuotationsPage() {
                       </tbody>
                     </table>
                   </div>
-                )}
+<div className="lg:hidden divide-y divide-[#EEF0F4]">
+{gr.map(quote => {
+const pr = quote.type === 'rfq' ? rfqProgress[quote.id] : undefined
+const d = (s: string | null) => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+const isSel = selected.has(quote.id)
+const nLines = lineCounts[quote.id] ?? 0
+return (
+<div key={quote.id} className={`px-3 py-3 cursor-pointer active:bg-[#F2F6FF] ${isSel ? 'bg-blue-50' : 'bg-white'}`} onClick={() => openEdit(quote)}>
+<div className="flex items-start gap-3">
+<label className="-m-2 p-2 shrink-0 cursor-pointer" onClick={e => e.stopPropagation()}>
+<input type="checkbox" checked={isSel} onChange={() => { const next = new Set(selected); if (next.has(quote.id)) next.delete(quote.id); else next.add(quote.id); setSelected(next) }} className="w-5 h-5 rounded cursor-pointer accent-blue-600 align-middle" aria-label={`Select ${quote.quote_number || 'quote'}`} />
+</label>
+<div className="flex-1 min-w-0">
+<div className="flex items-center gap-2">
+<span className="font-semibold text-[#3B6FE0] text-sm whitespace-nowrap">{quote.quote_number || '—'}</span>
+<span className="text-white text-[10px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap" style={{ background: rbStatusColor(quote.status) }}>{quote.status || 'Draft'}</span>
+<span className="ml-auto font-bold text-[#1A1D2E] text-sm whitespace-nowrap">{fmt$(quote.total)}</span>
+</div>
+<p className="text-[13px] font-medium text-[#1A1D2E] mt-0.5 truncate">{nameOf(quote.customer_id) || '—'}</p>
+<div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-gray-500">
+<span>Date <b className="text-gray-700 font-semibold">{d(quote.quote_date)}</b></span>
+<span>Expires <b className="text-gray-700 font-semibold">{d(quote.expiry_date)}</b></span>
+<span>{nLines} line{nLines === 1 ? '' : 's'}</span>
+</div>
+{pr && pr.asked ? (
+<div className="mt-1 text-[11px] font-semibold text-gray-500">{pr.got}/{pr.asked} supplier quotes in{pr.declined.length ? ` · ${pr.declined.length} rejected` : ''}{pr.won ? ` · Won by ${pr.won}` : ''}</div>
+) : null}
+</div>
+</div>
+<div className="mt-2 pl-8 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+<button onClick={() => openEdit(quote)} className="text-[11px] font-medium px-2.5 py-1 rounded bg-[#EEF0F4] text-gray-600">Open</button>
+{quote.status === 'Accepted' && (
+<button onClick={() => { openEdit(quote); setConfirmConvert(quote.id); setConvertError(null) }} className="text-[11px] font-medium px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">Convert to SO</button>
+)}
+<button onClick={() => handleDelete(quote.id)} className="text-[11px] font-medium px-2.5 py-1 rounded bg-[#FBE9E9] text-[#B3261E]">Delete</button>
+</div>
+</div>
+)
+})}
+{gr.length === 0 && <div className="px-4 py-6 text-center text-gray-400 text-sm">{search ? 'No matches.' : `No ${group.title.toLowerCase()} ${activeTab === 'rfq' ? 'RFQs' : 'quotes'}`}</div>}
+</div>
+                </>)}
               </div>
             )
           })}
         </div>
       )}
 
+<BulkActionBar count={selected.size} onDelete={bulkDelete} onClear={() => setSelected(new Set())} deleting={deleting} />
       {/* OVERLAY */}
       <div
         className="fixed inset-0 z-40 transition-opacity duration-200"
