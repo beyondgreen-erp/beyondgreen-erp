@@ -155,8 +155,21 @@ export async function GET() {
 
     // ---- next audit
     const audits = boardResults.find(b => b.key === 'compliance-audits')
-    const nextAudit = audits?.rows?.filter((r: DueRow) => r.next).sort((a: DueRow, b: DueRow) => a.next!.localeCompare(b.next!))[0] || null
-    const lastRecall = boardResults.find(b => b.key === 'compliance-traceability')?.rows?.[0]?.last || ''
+    const nextAudit = audits?.rows?.filter((r: DueRow) => r.next && r.cadence === 'Scheduled').sort((a: DueRow, b: DueRow) => a.next!.localeCompare(b.next!))[0] || null
+    // Latest mock audit and recall status, straight from the board records
+    const auditBoard = boards.find(b => b.board_key === 'compliance-audits')
+    const mockAudits = items.filter(i => i.board_id === auditBoard?.id && i.group_name === 'Mock / Internal Audits' && parseDate(i.data?.audit_date))
+      .sort((a, b) => String(b.data.audit_date).localeCompare(String(a.data.audit_date)))
+    const lastMock = mockAudits[0]?.data || null
+    const traceBoard = boards.find(b => b.board_key === 'compliance-traceability')
+    const lastMockRecall = items.filter(i => i.board_id === traceBoard?.id && i.group_name === 'Mock Recalls' && parseDate(i.data?.lot_date))
+      .sort((a, b) => String(b.data.lot_date).localeCompare(String(a.data.lot_date)))[0]?.data || null
+    const recallBoard = boards.find(b => b.board_key === 'compliance-recalls')
+    const recalls = items.filter(i => i.board_id === recallBoard?.id)
+    const openRecalls = recalls.filter(i => !/closed|complete|terminated/i.test(String(i.data?.status || '')))
+    const shippedR = openRecalls.reduce((a, i) => a + (Number(i.data?.qty_shipped) || 0), 0)
+    const recoveredR = openRecalls.reduce((a, i) => a + (Number(i.data?.qty_recovered) || 0), 0)
+    const lastRecall = lastMockRecall?.lot_date || boardResults.find(b => b.key === 'compliance-traceability')?.rows?.[0]?.last || ''
 
     return NextResponse.json({
       asOf: new Date().toISOString(), activeSites,
@@ -169,6 +182,10 @@ export async function GET() {
         holdsOpen: boardResults.find(b => b.key === 'compliance-hold')?.rows?.filter((r: DueRow) => r.cadence === 'Open').length || 0,
         repairsOpen: boardResults.find(b => b.key === 'compliance-corrective-maint')?.rows?.filter((r: DueRow) => r.cadence === 'Open').length || 0,
         lastRecall, daysSinceRecall: lastRecall ? daysBetween(parseDate(lastRecall)!, t) : null,
+        mockAuditScore: lastMock && lastMock.score !== undefined && lastMock.score !== '' ? Number(lastMock.score) : null,
+        mockAuditDate: lastMock?.audit_date || '', mockAuditFindings: lastMock ? (Number(lastMock.major_findings) || 0) + (Number(lastMock.minor_findings) || 0) : null,
+        mockRecallResult: lastMockRecall?.result || '', mockRecallMinutes: lastMockRecall?.trace_minutes ? Number(lastMockRecall.trace_minutes) : null, mockRecallPct: lastMockRecall?.pct_accounted ? Number(lastMockRecall.pct_accounted) : null,
+        recallsOpen: openRecalls.length, recallEffectiveness: shippedR ? recoveredR / shippedR : null,
         sdsCoverage: boardResults.find(b => b.key === 'compliance-chemicals')?.fileCoverage ?? null,
         overdue: actions.filter(a => a.state === 'overdue' || a.state === 'missing').length,
         dueSoon: actions.filter(a => a.state === 'soon').length,

@@ -46,6 +46,8 @@ export default function ComplianceBoardPanel({ rule, label, rows, fileCounts, ac
     return p
   }
   const doLog = (r: DueRow) => {
+    if (rule.key === 'compliance-audits') { window.location.href = '/compliance/mock-audit'; return }
+    if (rule.key === 'compliance-traceability') { window.location.href = '/compliance/lot-trace?mock=1'; return }
     if (rule.mode === 'scope') onAdd(undefined, { ...logPrefill(r), name: `${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}${r.scope && r.scope !== 'All' ? ' ' + r.scope : ''}` })
     else if (r.itemId) onOpen(r.itemId)
   }

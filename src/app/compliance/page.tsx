@@ -81,6 +81,9 @@ export default function ComplianceDashboard() {
               <Link href="/compliance/capa" className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg">+ Log CAPA</Link>
               <Link href="/compliance/complaints" className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg">+ Log complaint</Link>
               <Link href="/board/compliance-hold?new=1" className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg">+ Put product on HOLD</Link>
+              <Link href="/compliance/mock-audit" className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg">Run mock audit</Link>
+              <Link href="/compliance/lot-trace?mock=1" className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg">Run mock recall</Link>
+              <Link href="/compliance/lot-trace" className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg">Trace a lot</Link>
               <Link href="/board/compliance-audits?new=1" className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg">+ Schedule audit</Link>
               <button onClick={load} className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg"><i className="ti ti-refresh" /> Refresh</button>
             </div>
@@ -90,13 +93,15 @@ export default function ComplianceDashboard() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
         <Kpi icon="ti-alert-triangle" label="Open CAPAs" value={k.capaOpen} sub={`${k.capaOverdue} past target date`} tone={k.capaOverdue ? 'bad' : 'good'} href="/compliance/capa" />
         <Kpi icon="ti-clock" label="Avg days to close CAPA" value={k.capaAvgCloseDays ?? '-'} sub="Closed in last 12 months" tone={k.capaAvgCloseDays > 30 ? 'warn' : undefined} />
         <Kpi icon="ti-message-report" label="Complaints, 12 months" value={k.complaints12} sub={`${k.complaintsOpen} still open`} tone={k.complaintsOpen ? 'warn' : 'good'} href="/compliance/complaints" />
         <Kpi icon="ti-chart-dots-3" label="Complaints per million units" value={k.cpmu === null ? '-' : k.cpmu.toFixed(1)} sub={k.unitsShipped ? `${k.cpmuComplaints} complaints / ${Math.round(k.unitsShipped).toLocaleString()} packs shipped since ${fmtDate(k.unitsSince)}` : 'No shipments in the ERP yet'} />
         <Kpi icon="ti-hand-stop" label="Product on HOLD" value={k.holdsOpen} sub="Open holds" tone={k.holdsOpen ? 'warn' : 'good'} href="/board/compliance-hold" />
-        <Kpi icon="ti-route" label="Days since mock recall" value={k.daysSinceRecall ?? 'Never'} sub={k.lastRecall ? `Last ${fmtDate(k.lastRecall)}, due yearly` : 'Due yearly'} tone={k.daysSinceRecall === null || k.daysSinceRecall > 365 ? 'bad' : 'good'} href="/board/compliance-traceability" />
+        <Kpi icon="ti-route" label="Last mock recall" value={k.daysSinceRecall === null ? 'Never' : `${k.daysSinceRecall} days ago`} sub={k.lastRecall ? `${fmtDate(k.lastRecall)}${k.mockRecallResult ? ' · ' + k.mockRecallResult : ''}${k.mockRecallMinutes ? ' · ' + k.mockRecallMinutes + ' min' : ''}${k.mockRecallPct ? ' · ' + k.mockRecallPct + '%' : ''} · due every 6 months` : 'Due every 6 months'} tone={k.daysSinceRecall === null || k.daysSinceRecall > 182 || /fail/i.test(k.mockRecallResult || '') ? 'bad' : 'good'} href="/compliance/lot-trace?mock=1" />
+        <Kpi icon="ti-checklist" label="Last mock audit" value={k.mockAuditScore === null ? 'None yet' : `${k.mockAuditScore}%`} sub={k.mockAuditDate ? `${fmtDate(k.mockAuditDate)} · ${k.mockAuditFindings} findings · due quarterly` : 'Run one every quarter'} tone={k.mockAuditScore === null ? 'bad' : k.mockAuditScore >= 90 ? 'good' : 'warn'} href="/compliance/mock-audit" />
+        <Kpi icon="ti-alert-octagon" label="Open recalls" value={k.recallsOpen} sub={k.recallEffectiveness === null ? 'No product in the field' : `${Math.round(k.recallEffectiveness * 100)}% of shipped units recovered`} tone={k.recallsOpen ? 'bad' : 'good'} href="/board/compliance-recalls" />
         <Kpi icon="ti-rosette" label="Certifications" value={k.certExpired ? `${k.certExpired} expired` : 'Current'} sub={`${k.certExpiring} expiring in 90 days`} tone={k.certExpired ? 'bad' : k.certExpiring ? 'warn' : 'good'} href="/bizdev/certifications" />
         <Kpi icon="ti-flask-2" label="SDS on file" value={k.sdsCoverage === null ? '-' : `${Math.round(k.sdsCoverage * 100)}%`} sub="Chemicals with a current SDS" tone={k.sdsCoverage !== null && k.sdsCoverage < 1 ? 'warn' : 'good'} href="/board/compliance-chemicals" />
       </div>

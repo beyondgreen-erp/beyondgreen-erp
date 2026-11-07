@@ -20,6 +20,9 @@ export interface ComplianceBoardRule {
   openKey?: string            // status column that marks open work
   closedValues?: string[]
   openOverdueDays?: number    // open work older than this is overdue
+  onlyGroups?: string[]       // only entries in these groups count toward the cadence
+  scheduleKey?: string        // future scheduled date column, shown on the calendar
+  resultKey?: string          // a "Fail" in the latest record makes the stream overdue
   weight: number              // share of the audit readiness score
   task: string                // what "logging it" means, shown on prompts
 }
@@ -34,10 +37,11 @@ export const COMPLIANCE_RULES: ComplianceBoardRule[] = [
   { key: 'compliance-chemicals', short: 'Chemical List / SDS', program: 'Chemical Control', mode: 'none', requireFileGroups: ['Chemical'], weight: 5, task: 'Attach the current SDS' },
   { key: 'compliance-asl', short: 'Approved Suppliers', program: 'Supplier Approval', mode: 'none', requireFile: true, weight: 5, task: 'Attach the supplier score card / certificate' },
   { key: 'compliance-filings', short: 'Permits & Filings', program: 'Regulatory', mode: 'entry', dateKeys: ['submitted_date'], dueKey: 'due_date', cadenceDays: 365, cadenceKey: 'frequency', weight: 5, task: 'Renew and attach the new permit' },
-  { key: 'compliance-traceability', short: 'Mock Recall', program: 'Traceability & Recall', mode: 'scope', dateKeys: ['lot_date'], cadenceDays: 365, weight: 5, task: 'Run the annual mock recall and log the lot trace' },
+  { key: 'compliance-traceability', short: 'Mock Recall', program: 'Traceability & Recall', mode: 'scope', onlyGroups: ['Mock Recalls'], dateKeys: ['lot_date'], cadenceDays: 182, resultKey: 'result', weight: 5, task: 'Run a mock recall with Lot Trace (target: traced in 4 hours, 99%+ accounted for)' },
+  { key: 'compliance-recalls', short: 'Recalls', program: 'Traceability & Recall', mode: 'none', openKey: 'status', closedValues: ['closed', 'complete', 'completed', 'terminated'], openOverdueDays: 30, weight: 0, task: 'Recover product, run effectiveness checks and close the recall' },
   { key: 'compliance-hold', short: 'HOLD Log', program: 'Hold & Release', mode: 'none', openKey: 'status', closedValues: ['done', 'released', 'closed', 'complete', 'completed'], openOverdueDays: 14, weight: 0, task: 'Disposition the held product' },
   { key: 'compliance-corrective-maint', short: 'Corrective Maintenance', program: 'Maintenance & Sanitation', mode: 'none', openKey: 'status', closedValues: ['complete', 'completed', 'done', 'closed'], openOverdueDays: 7, weight: 0, task: 'Finish the repair and set Completion Date' },
-  { key: 'compliance-audits', short: 'Audits', program: 'Verification & Audits', mode: 'none', dueKey: 'scheduled_date', weight: 0, task: 'Prepare for the audit' },
+  { key: 'compliance-audits', short: 'Mock Audits', program: 'Verification & Audits', mode: 'scope', onlyGroups: ['Mock / Internal Audits'], dateKeys: ['audit_date'], cadenceDays: 91, scheduleKey: 'scheduled_date', weight: 5, task: 'Run the quarterly mock audit (Run a Mock Audit)' },
 ]
 
 export const RULE_BY_KEY: Record<string, ComplianceBoardRule> = Object.fromEntries(COMPLIANCE_RULES.map(r => [r.key, r]))
@@ -90,7 +94,7 @@ export function evaluateBoard(rule: ComplianceBoardRule, label: string, items: B
   const t = today()
   const isActive = (it: BoardItem) => { const s = String(it.data?.site || '').trim(); return !s || !activeSites.length || activeSites.includes(s) }
   const live = items.filter(isActive)
-  const owner = (d: any) => d.person || d.responsible || d.approved_by || d.owner || ''
+  const owner = (d: any) => d.person || d.responsible || d.auditor || d.conducted_by || d.coordinator || d.approved_by || d.owner || ''
   const lastOf = (d: any) => { for (const k of rule.dateKeys || []) { const p = parseDate(d[k]); if (p) return p } return null }
   const rows: DueRow[] = []
   const stateFor = (next: Date | null, last: Date | null, cad: number): { state: DueState; days?: number } => {
@@ -98,8 +102,9 @@ export function evaluateBoard(rule: ComplianceBoardRule, label: string, items: B
     const days = daysBetween(t, next)
     return { state: days < 0 ? 'overdue' : days <= 30 ? 'soon' : 'ok', days }
   }
+  const cadenceItems = rule.onlyGroups ? live.filter(it => rule.onlyGroups!.some(g => (it.group_name || '') === g)) : live
   if (rule.mode === 'entry') {
-    for (const it of live) {
+    for (const it of cadenceItems) {
       const d = it.data || {}
       const cad = rule.cadenceKey ? cadenceFromText(d[rule.cadenceKey], rule.cadenceDays || 365) : (rule.cadenceDays || 365)
       const last = lastOf(d)
@@ -110,21 +115,31 @@ export function evaluateBoard(rule: ComplianceBoardRule, label: string, items: B
     }
   } else if (rule.mode === 'scope') {
     const by: Record<string, BoardItem[]> = {}
-    for (const it of live) { const k = rule.scopeKey ? String(it.data?.[rule.scopeKey] || 'All') : 'All'; (by[k] ||= []).push(it) }
+    for (const it of cadenceItems) { const k = rule.scopeKey ? String(it.data?.[rule.scopeKey] || 'All') : 'All'; (by[k] ||= []).push(it) }
     if (!Object.keys(by).length) by['All'] = []
     for (const [scope, list] of Object.entries(by)) {
       let last: Date | null = null; let lastItem: BoardItem | null = null
       for (const it of list) { const p = lastOf(it.data || {}); if (p && (!last || p > last)) { last = p; lastItem = it } }
       const cad = rule.cadenceDays || 365
       const next = last ? addDays(last, cad) : null
-      const s = stateFor(next, last, cad)
-      rows.push({ boardKey: rule.key, board: label, program: rule.program, itemId: lastItem?.id, item: scope === 'All' ? label : `${label} · ${scope}`, scope, owner: lastItem ? owner(lastItem.data) : '', last: ymd(last), next: ymd(next), state: s.state, daysLeft: s.days, cadence: cadenceLabel(cad), task: rule.task })
+      let s = stateFor(next, last, cad)
+      const failed = !!(rule.resultKey && lastItem && /fail/i.test(String(lastItem.data?.[rule.resultKey] || '')))
+      if (failed) s = { state: 'overdue', days: 0 }
+      rows.push({ boardKey: rule.key, board: label, program: rule.program, itemId: lastItem?.id, item: (scope === 'All' ? label : `${label} · ${scope}`) + (failed ? ' (last one failed, repeat it)' : ''), scope, owner: lastItem ? owner(lastItem.data) : '', last: ymd(last), next: ymd(next), state: s.state, daysLeft: s.days, cadence: cadenceLabel(cad), task: rule.task })
     }
   } else if (rule.dueKey) {
     for (const it of live) {
       const next = parseDate(it.data?.[rule.dueKey]); if (!next) continue
       const days = daysBetween(t, next); if (days < 0) continue
       rows.push({ boardKey: rule.key, board: label, program: rule.program, itemId: it.id, item: String(it.data?.name || '(untitled)'), owner: owner(it.data), next: ymd(next), state: days <= 30 ? 'soon' : 'ok', daysLeft: days, cadence: 'Scheduled', task: rule.task })
+    }
+  }
+  // Scheduled events (audits) for the calendar
+  if (rule.scheduleKey) {
+    for (const it of live) {
+      const next = parseDate(it.data?.[rule.scheduleKey]); if (!next) continue
+      const days = daysBetween(t, next); if (days < 0) continue
+      rows.push({ boardKey: rule.key, board: label, program: rule.program, itemId: it.id, item: String(it.data?.name || '(untitled)'), owner: owner(it.data), next: ymd(next), state: days <= 30 ? 'soon' : 'ok', daysLeft: days, cadence: 'Scheduled', task: 'Prepare for the audit' })
     }
   }
   // Open work (holds, repairs) that has sat too long
