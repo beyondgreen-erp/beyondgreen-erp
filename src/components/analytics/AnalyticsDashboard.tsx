@@ -327,7 +327,9 @@ function Leaks({ d }: { d: any }) {
   const ontime = (l.on_time_monthly || []).map((r: any) => ({ ...r, label: monthLabel(r.m), pct: (100 * n(r.on_time)) / Math.max(1, n(r.on_time) + n(r.late)) }))
   const osd = (l.osd_monthly || []).map((r: any) => ({ ...r, label: monthLabel(r.m) }))
   const adj = (l.adjust_monthly || []).map((r: any) => ({ ...r, label: monthLabel(r.m), loss: n(r.loss), gain: n(r.gain) }))
-  const lastOT = ontime.length ? ontime[ontime.length - 1] : null
+  const thisMonth = new Date().toISOString().slice(0, 7)
+  const fullMonths = ontime.filter((r: any) => r.m !== thisMonth)
+  const lastOT = fullMonths.length ? fullMonths[fullMonths.length - 1] : null
   const fr90 = freight.slice(-3)
   const frCost = fr90.reduce((t: number, r: any) => t + n(r.cost), 0)
   const adjLoss90 = adj.slice(-3).reduce((t: number, r: any) => t + n(r.loss), 0)
@@ -339,7 +341,7 @@ function Leaks({ d }: { d: any }) {
         <Kpi icon="ti-box-off" label="Dead stock" value={usd(l.dead_total?.value)} sub={`${fmt(l.dead_total?.skus)} SKUs, no movement ${l.dead_days} d`} tone={n(l.dead_total?.value) > 0 ? 'bad' : 'good'} />
         <Kpi icon="ti-package-off" label="Short ships 90 d" value={usd(l.short_total_90)} sub="Ordered but not shipped" tone={n(l.short_total_90) > 0 ? 'warn' : 'good'} />
         <Kpi icon="ti-truck" label="Freight paid, 3 mo" value={usd(frCost)} sub="None logged as billed back" tone="warn" />
-        <Kpi icon="ti-clock-exclamation" label="On time last month" value={lastOT ? pct(lastOT.pct) : '—'} sub={`Target ${tgtOT}%`} tone={lastOT && lastOT.pct >= tgtOT ? 'good' : 'bad'} />
+        <Kpi icon="ti-clock-exclamation" label="On time last month" value={lastOT ? pct(lastOT.pct) : '—'} sub={`${lastOT ? monthLabel(lastOT.m) + ' · ' : ''}Target ${tgtOT}%`} tone={lastOT && lastOT.pct >= tgtOT ? 'good' : 'bad'} />
         <Kpi icon="ti-adjustments-alt" label="Count adjustments, 3 mo" value={usd(adjLoss90)} sub="Inventory written down" tone={adjLoss90 < 0 ? 'bad' : 'good'} />
         <Kpi icon="ti-receipt-off" label="Lines below cost" value={fmt((l.below_cost || []).length)} sub="Last 180 days" tone={(l.below_cost || []).length ? 'bad' : 'good'} />
       </div>
