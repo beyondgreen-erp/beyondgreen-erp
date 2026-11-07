@@ -22,6 +22,26 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
   const [err, setErr] = useState('')
   const [open, setOpen] = useState<string>('')
   const fields = useMemo(() => skuFields(kind, boardKey), [kind, boardKey])
+  // Operator training: is the chosen operator trained on this work order's production line?
+  const [train, setTrain] = useState<any>(null)
+  const opName = wo.operator ?? ''
+  useEffect(() => {
+    if (loading) return
+    if (!opName.trim()) { setTrain(null); return }
+    let live = true
+    const t = setTimeout(async () => {
+      const { data } = await sb.rpc('wo_training_check', { p_wo: woId, p_operator: opName })
+      if (live) setTrain(data || null)
+    }, 350)
+    return () => { live = false; clearTimeout(t) }
+  }, [sb, woId, opName, loading])
+  async function overrideTraining(name: string) {
+    const reason = window.prompt(`Supervisor override: assign ${name} even though they are not trained on ${train?.line_label || 'this line'}.\nReason (logged):`)
+    if (!reason || !reason.trim()) return
+    const { data, error } = await sb.rpc('wo_training_override', { p_wo: woId, p_operator: name, p_reason: reason })
+    if (error) { setErr(error.message); return }
+    setErr(''); setTrain(data || null)
+  }
 
   useEffect(() => {
     let live = true
@@ -104,6 +124,19 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
               <div className="grid grid-cols-2 gap-3">
                 {WO_FIELDS.map(f => input(f, wo[f.key] ?? '', v => setWo(x => ({ ...x, [f.key]: v })), undefined, f.key === 'operator' || f.key === 'supervisor' ? 'wo-staff' : undefined))}
               </div>
+              {train && (train.operators || []).length > 0 && (
+                <div className={`mt-3 rounded-lg border px-3 py-2 text-[12px] ${train.ok ? 'bg-emerald-50 border-emerald-200' : train.enforcing ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <p className="font-semibold text-[#1A1D2E] mb-1">Operator training · {train.line_label}</p>
+                  {(train.operators || []).map((o: any) => (
+                    <p key={o.name} className="flex flex-wrap items-center gap-2">
+                      <span>{o.trained ? '✅' : o.override ? '🟡' : train.enforcing ? '⛔' : '⚠️'}</span>
+                      <b>{o.name}</b>
+                      <span className="text-gray-600">{o.trained ? `trained through ${o.valid_through}` : o.override ? `override by ${o.override.by}: ${o.override.reason}` : !o.known ? 'not found in the employee list' : o.valid_through ? `training expired ${o.valid_through}` : 'not trained on this line'}</span>
+                      {!o.trained && !o.override && train.can_override && canEdit && <button type="button" onClick={() => overrideTraining(o.name)} className="text-[11px] font-semibold text-[#3B6FE0] underline">Supervisor override</button>}
+                    </p>))}
+                  {!train.ok && !train.enforcing && <p className="text-[11px] text-amber-800 mt-1">Allowed for now. From {train.enforce_from} this assignment will need training or a supervisor override.</p>}
+                  {!train.ok && train.enforcing && <p className="text-[11px] text-red-700 mt-1">This operator can&apos;t be saved on the work order until training is logged on the Operator Training board, or a supervisor overrides.</p>}
+                </div>)}
             </section>
             {lines.length === 0 && <p className="text-sm text-gray-400">This work order has no SKUs yet. Add targets first, then the specs show here.</p>}
             {lines.map(l => (
