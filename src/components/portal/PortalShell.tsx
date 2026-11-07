@@ -49,6 +49,7 @@ const NAV = [
   { href: '/portal/projects', label: 'Projects' },
   { href: '/portal/quotes', label: 'Quotes' },
   { href: '/portal/book', label: 'Book a call' },
+  { href: '/portal/reports', label: 'Reports' },
   { href: '/portal/documents', label: 'Documents' },
   { href: '/portal/account', label: 'Account' },
 ]

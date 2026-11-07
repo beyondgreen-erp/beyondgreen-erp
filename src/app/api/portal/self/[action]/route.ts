@@ -10,6 +10,7 @@ import {
   NOTIFY, NOTIFY_ORDERS, NOTIFY_PROJECTS, NOTIFY_SIGNUPS, PORTAL_URL, safeFileName, signedUpload,
   signedDownload, objectExists, BUCKET, likeExact, type PortalAccount,
 } from '@/lib/portalServer'
+import { familyOfProduct, FAMILY_MATERIAL, customerLines, piecesOf, packUrl, listFamilies } from '@/lib/compliancePacks'
 import {
   BOOKING_HOST, SLOT_MINUTES, BOOKING_TZ, candidateSlots, outlookBusy, freeSlots, createZoomMeeting,
   createOutlookEvent, cancelOutlookEvent, fmtSlot,
@@ -224,7 +225,72 @@ export async function GET(req: NextRequest, { params }: { params: { action: stri
     const { data } = await admin.from('portal_shared_documents').select('id, name, category, description, storage_path, url, sort').eq('is_active', true).order('sort', { ascending: true })
     const docs = []
     for (const d of (data || []) as any[]) docs.push({ id: d.id, name: d.name, category: d.category, description: d.description, url: d.url || (d.storage_path ? await signedDownload(d.storage_path, 900) : null) })
-    return J({ documents: docs })
+    // Compliance packs for every product family this customer has ordered
+    const packs: any[] = []
+    if (acct.customer_id) {
+      const fams = new Set<string>()
+      for (const l of await customerLines(acct.customer_id)) { const f = familyOfProduct(l.products || { sku: l.sku, product_name: l.description }); if (f) fams.add(f) }
+      if (fams.size) for (const f of await listFamilies(true)) if (fams.has(f.key)) packs.push({ key: f.key, name: f.name, covers: f.covers, note: f.note, documents: f.documents, on_request: f.on_request, url: `/api/portal/self/pack?family=${encodeURIComponent(f.key)}` })
+    }
+    return J({ documents: docs, packs })
+  }
+
+  if (action === 'pack') {
+    const family = str(new URL(req.url).searchParams.get('family'), 60)
+    const p = await packUrl(family)
+    if (!p) return bad('That pack is not available right now. Please message us.', 404)
+    await admin.from('site_compliance_downloads').insert({ family_key: family, portal_client_id: acct.id, email: acct.email, source: 'portal' })
+    return NextResponse.redirect(p.url, 302)
+  }
+
+  // Reports: stock we hold for this customer
+  if (action === 'stock-held') {
+    if (!acct.customer_id) return J({ rows: [] })
+    const { data: cust } = await admin.from('customers').select('email').eq('id', acct.customer_id).maybeSingle()
+    const emails = [acct.email, (cust as any)?.email].filter(Boolean).map((e: string) => e.toLowerCase())
+    const { data: heads } = await admin.from('private_label_stock').select('id, order_number, status, po_number, customer_id, customer_email, updated_at, notes').eq('status', 'Stocked in Warehouse')
+    const mine = ((heads || []) as any[]).filter(h => h.customer_id === acct.customer_id || (h.customer_email && emails.includes(String(h.customer_email).toLowerCase())))
+    const rows: any[] = []
+    if (mine.length) {
+      const { data: lines } = await admin.from('private_label_stock_lines').select('pls_id, sku, quantity, completed_qty, unit_of_measure, product_id, products(product_name)').in('pls_id', mine.map(h => h.id))
+      for (const l of (lines || []) as any[]) {
+        const h = mine.find(x => x.id === l.pls_id)
+        const onHand = Number(l.completed_qty) > 0 ? Number(l.completed_qty) : Number(l.quantity) || 0
+        if (onHand > 0) rows.push({ stock_id: l.pls_id, ref: h?.order_number || h?.po_number || '', sku: l.sku, name: l.products?.product_name || l.sku, on_hand: onHand, unit: l.unit_of_measure || 'Packs', updated_at: h?.updated_at })
+      }
+    }
+    return J({ rows })
+  }
+
+  // Reports: SB 54 / EPR data (units, material and weight per SKU for a date range)
+  if (action === 'epr' || action === 'impact') {
+    if (!acct.customer_id) return J({ rows: [], missing: [] })
+    const u = new URL(req.url).searchParams
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(u.get('from') || '') ? u.get('from') : null
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(u.get('to') || '') ? u.get('to') : null
+    const agg: Record<string, any> = {}
+    for (const l of await customerLines(acct.customer_id, from, to)) {
+      const p = l.products || null
+      const sku = p?.sku || l.sku || '(no SKU)'
+      const q = Number(l.quantity ?? l.qty) || 0
+      if (!q) continue
+      const fam = familyOfProduct(p || { sku: l.sku, product_name: l.description })
+      const a = agg[sku] ||= { sku, name: p?.product_name || l.description || sku, family: fam, ordered: {}, pieces: 0, pieces_known: true, grams_each: Number(p?.weight_per_unit_grams) || Number(p?.straw_weight_g) || null, material: p?.epr_material || (fam ? FAMILY_MATERIAL[fam] : null) || null, orders: new Set<string>() }
+      const uom = String(l.unit_of_measure || p?.unit_of_measure || 'units')
+      a.ordered[uom] = (a.ordered[uom] || 0) + q
+      const pc = piecesOf(q, l.unit_of_measure, p)
+      if (pc == null) a.pieces_known = false; else a.pieces += pc
+      if (l.order?.order_number) a.orders.add(l.order.order_number)
+    }
+    const rows = Object.values(agg).map((a: any) => ({ ...a, orders: Array.from(a.orders).length, ordered: Object.entries(a.ordered).map(([k, v]) => `${Number(v).toLocaleString('en-US')} ${k}`).join(', '), total_kg: a.pieces_known && a.grams_each ? Math.round(a.pieces * a.grams_each) / 1000 : null })).sort((x: any, y: any) => String(x.family || 'z').localeCompare(String(y.family || 'z')) || x.sku.localeCompare(y.sku))
+    const missing = rows.filter((r: any) => !r.grams_each || !r.material || !r.pieces_known).map((r: any) => ({ sku: r.sku, name: r.name, needs: [!r.grams_each && 'weight per unit', !r.material && 'material type', !r.pieces_known && 'pieces per pack or case'].filter(Boolean) }))
+    if (action === 'impact') {
+      const fams = await listFamilies(true)
+      const byFam: Record<string, any> = {}
+      for (const r of rows as any[]) { const k = r.family || 'other'; const b = byFam[k] ||= { key: k, name: fams.find(f => f.key === k)?.name || 'Other items', skus: 0, pieces: 0, pieces_known: true, certs: (fams.find(f => f.key === k)?.documents || []).filter((d: any) => d.kind === 'certificate' || d.kind === 'listing').map((d: any) => d.label) }; b.skus++; if (r.pieces_known) b.pieces += r.pieces; else b.pieces_known = false }
+      return J({ from, to, company, categories: Object.values(byFam), rows, missing })
+    }
+    return J({ from, to, company, rows, missing })
   }
 
   return bad('not found', 404)
@@ -426,6 +492,22 @@ export async function POST(req: NextRequest, { params }: { params: { action: str
       await notifyTeam({ to: NOTIFY_SIGNUPS, from: acct.email, subject: `Onboarding submitted: ${company}`, message: `${company} submitted their onboarding packet${approved ? '' : ' — review and approve to unlock ordering'}.`, html: `<p style="margin:0 0 6px;font-size:16px;font-weight:700">Onboarding packet submitted</p><p style="margin:0;font-size:14px;line-height:1.6"><strong>${esc(company)}</strong> (${esc(acct.email)}) submitted company, billing, shipping, tax and credit details${(merged.files || []).length ? ` with ${(merged.files || []).length} document(s)` : ''}. Files are attached to the customer card.</p>`, contextPath: '/bizdev/client-portals', replyTo: acct.email })
     }
     return J({ ok: true, submitted: submit })
+  }
+
+  // Release / ship request against stock we hold for the customer (goes to the order request queue)
+  if (action === 'stock-release') {
+    if (!approved) return bad('Your account is waiting for approval. Please message us to release stock.', 403)
+    const lines = (Array.isArray(body.lines) ? body.lines : []).slice(0, 40).map((l: any) => ({ sku: str(l.sku, 60) || null, description: str(l.name, 300) || null, quantity: num(l.quantity), unit: str(l.unit, 20) || null, stock_id: isUuid(l.stock_id) ? l.stock_id : null })).filter((l: any) => l.quantity > 0 && l.sku)
+    if (!lines.length) return bad('Choose at least one item and a quantity to release.')
+    const shipDate = /^\d{4}-\d{2}-\d{2}$/.test(str(body.requested_ship_date)) ? str(body.requested_ship_date) : null
+    const { data: ins, error } = await admin.from('portal_order_requests').insert({ portal_client_id: acct.id, customer_id: acct.customer_id, po_number: str(body.po_number, 80) || null, requested_ship_date: shipDate, ship_to: str(body.ship_to, 600) || null, delivery_notes: str(body.delivery_notes, 600) || null, lines, notes: `RELEASE FROM STOCK HELD FOR CUSTOMER (no new production). ${str(body.notes, 1500)}`.trim() }).select('id, request_number').single()
+    if (error || !ins) return bad('Could not send the release request. Please try again.', 500)
+    const r = ins as any
+    const rows = lines.map((l: any) => `<tr><td style="padding:4px 8px;border-bottom:1px solid #eee">${esc(l.sku || '')}</td><td style="padding:4px 8px;border-bottom:1px solid #eee">${esc(l.description || '')}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">${l.quantity.toLocaleString('en-US')} ${esc(l.unit || '')}</td></tr>`).join('')
+    const table = `<table style="border-collapse:collapse;font-size:13px;width:100%;margin:8px 0">${rows}</table>`
+    await notifyTeam({ to: NOTIFY_ORDERS, from: acct.email, subject: `Stock release request ${r.request_number}: ${company}`, message: `${company} asked to release held stock (${r.request_number}).`, html: `<p style="margin:0 0 6px;font-size:16px;font-weight:700">Release / ship request from held stock</p><p style="margin:0 0 8px;font-size:14px"><strong>${esc(company)}</strong> · ${esc(r.request_number)}${shipDate ? ' · ship by ' + esc(fmtDay(shipDate)) : ''}${body.po_number ? ' · PO ' + esc(str(body.po_number, 80)) : ''}</p>${table}${body.ship_to ? `<p style="margin:6px 0 0;font-size:13px;white-space:pre-wrap">Ship to: ${esc(str(body.ship_to, 600))}</p>` : ''}${body.notes ? `<p style="margin:6px 0 0;font-size:13px;white-space:pre-wrap">${esc(str(body.notes, 1500))}</p>` : ''}`, contextPath: '/bizdev/client-portals?tab=orders', replyTo: acct.email })
+    await emailClient(acct.email, `Release request ${r.request_number} received`, `<p style="margin:0 0 10px;font-size:17px;font-weight:700">Release request received</p><p style="margin:0 0 8px;font-size:14px;line-height:1.6">We received your request to ship stock we hold for you. Our team will confirm the ship date, usually within one business day.</p>${table}${button(`${PORTAL_URL}/portal/reports`, 'View your reports')}`)
+    return J({ ok: true, request_number: r.request_number })
   }
 
   if (action === 'order-request') {
