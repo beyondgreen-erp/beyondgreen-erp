@@ -38,7 +38,7 @@ export function slugify(s: string): string {
 // Only allow returning members to pages inside the template library.
 export function safeNext(n: unknown): string {
   const s = String(n || '')
-  return /^\/templates(\/[a-z0-9\-/]*)?(\?[a-z0-9=&%\-_.]*)?$/i.test(s) ? s : '/templates'
+  return /^\/(templates(\/[a-z0-9\-/]*)?|pricing|account)(\?[a-z0-9=&%\-_.]*)?$/i.test(s) ? s : '/templates'
 }
 
 export async function createSession(memberId: string): Promise<string> {
