@@ -13,6 +13,7 @@ import { RfqSendModal, RfqResponses } from '@/components/RfqSupplierPanel'
 import { insertQuotationWithNumber } from '@/lib/quoteCreate'
 import BulkActionBar from '@/components/BulkActionBar'
 import SupplierQuotedItems, { SupplierItemPicker } from '@/components/SupplierQuotedItems'
+import BidTracker from '@/components/BidTracker'
 
 interface Quote {
   id: string
@@ -213,7 +214,8 @@ export default function QuotationsPage() {
   // Record Board: collapsed state per status group
   const [rbCollapsedState, rbSetCollapsed] = useState<Record<string, boolean>>({ Rejected: true, Expired: true })
   // Tab: 'quote' or 'rfq'
-  const [activeTab, setActiveTab] = useState<'quote' | 'rfq' | 'items'>('quote')
+  const [activeTab, setActiveTab] = useState<'quote' | 'rfq' | 'items' | 'bids'>('quote')
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'bids' || t === 'items' || t === 'rfq') setActiveTab(t) }, [])
   // Customer typeahead
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerList, setShowCustomerList] = useState(false)
@@ -926,10 +928,10 @@ export default function QuotationsPage() {
         <div>
           <span className="mon-tag t-pink">💬 Sales</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Quotes &amp; RFQs</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{activeTab === 'items' ? 'Supplier prices received, grouped by product type' : loading ? 'Loading…' : `${tabQuotes.length} ${activeTab === 'rfq' ? 'RFQ' : 'quote'}${tabQuotes.length !== 1 ? 's' : ''} · ${fmt$(tabPipeline)} pipeline`}</p>
+          <p className="text-gray-500 text-sm mt-0.5">{activeTab === 'items' ? 'Supplier prices received, grouped by product type' : activeTab === 'bids' ? 'Multi-item bids: costing, supplier RFQs and profit split' : loading ? 'Loading…' : `${tabQuotes.length} ${activeTab === 'rfq' ? 'RFQ' : 'quote'}${tabQuotes.length !== 1 ? 's' : ''} · ${fmt$(tabPipeline)} pipeline`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {activeTab !== 'items' && <input
+          {activeTab !== 'items' && activeTab !== 'bids' && <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder={`Search ${activeTab === 'rfq' ? 'RFQ' : 'quote'} # or customer…`}
@@ -981,10 +983,19 @@ export default function QuotationsPage() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5a1.99 1.99 0 011.41.59l7 7a2 2 0 010 2.82l-7 7a2 2 0 01-2.82 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" /></svg>
           Supplier Quoted Items
         </button>
+        <button
+          onClick={() => setActiveTab('bids')}
+          className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-md transition-colors ${activeTab === 'bids' ? 'bg-[#0F766E] text-white' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          Bid Tracker
+        </button>
       </div>
 
       {activeTab === 'items' ? (
         <SupplierQuotedItems />
+      ) : activeTab === 'bids' ? (
+        <BidTracker />
       ) : loading ? (
         <div className="rounded-xl border border-[#E4E6EE] bg-white flex items-center justify-center py-20">
           <div className="w-6 h-6 border-2 border-[#3B6FE0]/30 border-t-[#3B6FE0] rounded-full animate-spin" />
