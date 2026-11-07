@@ -9,3 +9,9 @@
 - Learned: check the ERP for an existing SKU/TDS before assuming a bag style (first draft assumed SOS no-handle).
   device_commit_files can leave the old file when re-committing quickly; verify size with device_bash and use force.
   Template dieline source HTML is not kept anywhere; rebuild from the PDFs in /mnt/attach/outputs.
+
+## 12 x 7 x 17 (NK12717), same day
+- Same template, W/G/H = 12/7/17, 110 GSM, twisted handles (from products table: NK12717). No UPC found, so none shown.
+- Flat blank 38.75 x 22.75 in, safe 11 x 15.75 per panel. Scale ~1:7 (S=13.4 px/in), preview k=4.6.
+- ERP document 26635593-34fc-4ad5-8a51-2bf1502dbd1b (Drawings & Dielines). Script: scripts/dieline_paper_bag_12x7x17.py.
+- device_commit_files again wrote a stale version on first commit; always verify size and force-recommit.
