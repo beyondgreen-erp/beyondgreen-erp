@@ -29,7 +29,6 @@ const DONE_WINDOW_DAYS = 30
 const STATUS_COLORS: Record<string, string> = { Open: '#9699a6', Assigned: '#579bfc', 'In Progress': '#a25ddc', 'On Hold': '#fdab3d', Completed: '#00c875', Cancelled: '#c4c4c4' }
 const PRIORITY_COLORS: Record<string, string> = { Low: '#00c875', Medium: '#579bfc', High: '#fdab3d', Critical: '#e2445c' }
 const PRIORITY_RANK: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1 }
-const CATEGORY_ICON: Record<string, string> = { Mechanical: '⚙️', Electrical: '⚡', Facility: '🏭', Supplies: '🧻', Safety: '🦺', Plumbing: '🚰', 'IT / Network': '🖥️', Cleaning: '🧹', Other: '🔧' }
 const statusColor = (s: string | null | undefined) => (s && STATUS_COLORS[s]) || '#c4c4c4'
 const priorityColor = (p: string | null | undefined) => (p && PRIORITY_COLORS[p]) || '#c4c4c4'
 
@@ -117,7 +116,7 @@ function NewRequestModal({ open, onClose, onCreated, sb, team, machines, me, def
             <span className="text-sm"><b className={form.downtime ? 'text-red-700' : 'text-[#1A1D2E]'}>Equipment is down</b><span className="text-gray-500"> — production is stopped or blocked by this</span></span>
           </label>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block"><span className="text-xs font-medium text-gray-600">Category</span><select className={inp} value={form.category} onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}>{CATEGORIES.map(s => <option key={s} value={s}>{CATEGORY_ICON[s]} {s}</option>)}</select></label>
+            <label className="block"><span className="text-xs font-medium text-gray-600">Category</span><select className={inp} value={form.category} onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}>{CATEGORIES.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
             <label className="block"><span className="text-xs font-medium text-gray-600">Priority</span><select className={inp} value={form.priority} onChange={e => setForm((f: any) => ({ ...f, priority: e.target.value }))}>{PRIORITIES.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -316,17 +315,17 @@ export default function MaintenancePage() {
         onClick={() => openDetail(r)}
         className={`bg-white rounded-xl border p-3 hover:shadow-md transition-[border-color,box-shadow] select-none touch-manipulation ${r.downtime && !CLOSED.has(r.status) ? 'border-red-300' : 'border-[#E4E6EE] hover:border-[#C7CBE0]'} ${dragId === r.id ? 'opacity-30 border-dashed' : ''}`}>
         <div className="flex items-start gap-2">
-          <span className="text-base leading-none mt-0.5" title={r.category}>{CATEGORY_ICON[r.category] || '🔧'}</span>
-          <p className={`text-[13px] font-semibold leading-snug flex-1 ${CLOSED.has(r.status) ? 'text-gray-400 line-through' : 'text-[#1A1D2E]'}`}>{r.title}</p>
+                    <p className={`text-[13px] font-semibold leading-snug flex-1 ${CLOSED.has(r.status) ? 'text-gray-400 line-through' : 'text-[#1A1D2E]'}`}>{r.title}</p>
           {r.downtime && !CLOSED.has(r.status) && <Down small />}
         </div>
         {(r.asset_name || r.location) && <p className="text-[11px] text-gray-500 mt-1.5 truncate">{[r.asset_name, r.location].filter(Boolean).join(' · ')}</p>}
         <div className="flex items-center gap-2 mt-2.5">
           <span className="text-[11px] font-bold text-gray-400 tracking-wide">{r.request_number}</span>
+<span className="text-[11px] text-gray-400">{r.category}</span>
           <span className="w-2 h-2 rounded-full" title={r.priority} style={{ background: priorityColor(r.priority) }} />
-          {due && <span className={`text-[11px] font-semibold ${due.overdue ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-gray-400'}`}>{due.overdue ? '⚠ ' : ''}{due.str}</span>}
+          {due && <span className={`text-[11px] font-semibold ${due.overdue ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-gray-400'}`}>{due.overdue ? 'Overdue ' : ''}{due.str}</span>}
           <span className="ml-auto flex items-center gap-2 text-[11px] text-gray-400">
-            {nf > 0 && <span>📎{nf}</span>}{nc > 0 && <span>💬{nc}</span>}
+            {nf > 0 && <span>{nf} file{nf === 1 ? '' : 's'}</span>}{nc > 0 && <span>{nc} comment{nc === 1 ? '' : 's'}</span>}
             {r.assigned_to ? <Avatar name={r.assigned_to} member={m} size={22} /> : <span className="w-[22px] h-[22px] rounded-full border border-dashed border-gray-300 inline-block" title="Unassigned" />}
           </span>
         </div>
@@ -341,7 +340,7 @@ export default function MaintenancePage() {
     <div className="min-h-screen mon-page p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div>
-          <span className="mon-tag" style={{ background: ACCENT + '22', color: ACCENT }}>🛠 Maintenance</span>
+          <span className="mon-tag" style={{ background: ACCENT + '22', color: ACCENT }}>Maintenance</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Maintenance Requests</h1>
           <p className="text-gray-500 text-sm mt-0.5">{loading ? 'Loading…' : `${kpi.open} open${kpi.down ? ` · ${kpi.down} with equipment down` : ''} · the assignee is emailed the moment a request lands with them`}</p>
         </div>
@@ -355,7 +354,7 @@ export default function MaintenancePage() {
             </label>
           )}
           <div className="flex rounded-lg border border-[#E4E6EE] bg-white p-0.5">
-            {(['board', 'list'] as const).map(v => <button key={v} data-ro-ok onClick={() => setView(v)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${view === v ? 'text-white' : 'text-gray-500 hover:text-gray-800'}`} style={view === v ? { background: ACCENT } : undefined}>{v === 'board' ? '▦ Board' : '☰ List'}</button>)}
+            {(['board', 'list'] as const).map(v => <button key={v} data-ro-ok onClick={() => setView(v)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${view === v ? 'text-white' : 'text-gray-500 hover:text-gray-800'}`} style={view === v ? { background: ACCENT } : undefined}>{v === 'board' ? 'Board' : 'List'}</button>)}
           </div>
           <button onClick={() => setShowAdd(true)} className="text-white font-semibold rounded-lg px-4 py-2 text-sm shadow-sm hover:opacity-90" style={{ background: ACCENT }}>+ New Request</button>
         </div>
@@ -442,11 +441,11 @@ export default function MaintenancePage() {
                       <div className="flex items-center gap-2">{r.downtime && !CLOSED.has(r.status) && <Down small />}<span className={`font-semibold ${CLOSED.has(r.status) ? 'line-through text-gray-400' : 'text-[#1A1D2E]'}`}>{r.title}</span></div>
                       {(r.asset_name || r.location) && <span className="text-[11px] text-gray-400">{[r.asset_name, r.location].filter(Boolean).join(' · ')}</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-gray-600">{CATEGORY_ICON[r.category] || ''} {r.category}</td>
+                    <td className="px-3 py-2.5 text-xs text-gray-600">{r.category}</td>
                     <td className="px-3 py-2.5">{r.assigned_to ? <span className="flex items-center gap-1.5"><Avatar name={r.assigned_to} member={member(r.assigned_to)} size={22} /><span className="text-gray-600 text-xs truncate max-w-[110px]">{displayName(r.assigned_to)}</span></span> : <span className="text-gray-300">Unassigned</span>}</td>
                     <td className="px-3 py-2.5"><Pill text={r.priority} color={priorityColor(r.priority)} /></td>
                     <td className="px-3 py-2.5"><Pill text={r.status} color={statusColor(r.status)} /></td>
-                    <td className="px-3 py-2.5">{due ? <span className={`text-xs font-semibold ${due.overdue ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-gray-500'}`}>{due.overdue ? '⚠ ' : ''}{due.str}</span> : <span className="text-gray-300">—</span>}</td>
+                    <td className="px-3 py-2.5">{due ? <span className={`text-xs font-semibold ${due.overdue ? 'text-red-600' : due.today ? 'text-amber-600' : 'text-gray-500'}`}>{due.overdue ? 'Overdue ' : ''}{due.str}</span> : <span className="text-gray-300">—</span>}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-400">{ago(r.updated_at)}</td>
                   </tr>
                 )
@@ -490,6 +489,30 @@ function RequestWindow({ r, sb, team, machines, userEmail, me, member, isAdmin, 
   const closed = CLOSED.has(r.status)
   const due = dueMeta(r.due_date, r.status)
   const hdrBtn = 'text-xs font-semibold rounded-lg px-3 py-1.5 bg-white/15 hover:bg-white/25 transition-colors disabled:opacity-50'
+const [downloading, setDownloading] = useState(false)
+// Download this request as a PDF work sheet (details, resolution, updates, file list).
+async function download() {
+setDownloading(true)
+try {
+const [{ data: cm }, { data: fa }] = await Promise.all([
+sb.from('comments').select('author_email,content,created_at').eq('record_type', 'maintenance_request').eq('record_id', r.id).order('created_at'),
+sb.from('file_attachments').select('file_name').eq('record_type', 'maintenance_requests').eq('record_id', r.id).order('created_at'),
+])
+const plain = (s: string) => String(s || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\n{3,}/g, '\n\n').trim()
+const who = (e: string | null | undefined) => (e && (member(e)?.full_name || e)) || null
+const { generateMaintenanceRequestPDF } = await import('@/lib/pdfHelpers')
+await generateMaintenanceRequestPDF({
+number: r.request_number, title: r.title, status: r.status, priority: r.priority, category: r.category, downtime: !!r.downtime,
+asset: r.asset_name, location: r.location, requestedBy: who(r.requested_by), assignedTo: who(r.assigned_to),
+neededBy: r.due_date, filed: r.created_at, started: r.started_at, completed: r.completed_at,
+description: r.description, resolution: r.resolution, partsUsed: r.parts_used, cost: r.cost,
+updates: ((cm as any[]) || []).map(c => ({ by: who(c.author_email) || '-', at: c.created_at, text: plain(c.content) })).filter(u => u.text),
+files: ((fa as any[]) || []).map(f => f.file_name).filter(Boolean),
+})
+} catch (e: any) {
+alert('Could not build the PDF: ' + (e?.message || e))
+} finally { setDownloading(false) }
+}
 
   async function complete() {
     const ok = await onPatch({ status: 'Completed', resolution: res.resolution.trim() || null, parts_used: res.parts_used.trim() || null, cost: res.cost ? Number(res.cost) : null }, `${r.request_number} completed — requester notified`)
@@ -501,26 +524,27 @@ function RequestWindow({ r, sb, team, machines, userEmail, me, member, isAdmin, 
       <div className="relative w-full md:max-w-[1040px] max-h-[92vh] bg-white rounded-2xl border border-[#E4E6EE] shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 py-4 text-white" style={{ background: r.downtime && !closed ? '#B91C1C' : ACCENT }}>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-white/80 text-xs"><span className="font-bold tracking-wide">{r.request_number}</span><span>·</span><span>{CATEGORY_ICON[r.category]} {r.category}</span>{r.downtime && !closed && <><span>·</span><Down /></>}</div>
+            <div className="flex items-center gap-2 text-white/80 text-xs"><span className="font-bold tracking-wide">{r.request_number}</span><span>·</span><span>{r.category}</span>{r.downtime && !closed && <><span>·</span><Down /></>}</div>
             {editTitle ? (
               <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onBlur={async () => { setEditTitle(false); if (title.trim() && title.trim() !== r.title) await onPatch({ title: title.trim() }, 'Title saved') }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setTitle(r.title); setEditTitle(false) } }}
                 className="mt-1 w-full bg-white/15 border border-white/40 rounded-lg px-2 py-1 text-lg font-bold text-white focus:outline-none" />
             ) : (
-              <h2 className="text-xl font-bold leading-tight break-words mt-0.5 cursor-text group" onClick={() => setEditTitle(true)} title="Click to edit">{r.title} <span className="opacity-0 group-hover:opacity-70 text-sm font-normal">✎</span></h2>
+              <h2 className="text-xl font-bold leading-tight break-words mt-0.5 cursor-text group" onClick={() => setEditTitle(true)} title="Click to edit">{r.title}</h2>
             )}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <Pill text={r.status} color={statusColor(r.status)} />
               <span className="text-[11px] font-semibold rounded-full px-2.5 py-0.5" style={{ background: 'rgba(255,255,255,0.22)' }}>{r.priority}</span>
               {(r.asset_name || r.location) && <span className="text-[11px] font-semibold rounded-full px-2.5 py-0.5 bg-white/20">{[r.asset_name, r.location].filter(Boolean).join(' · ')}</span>}
-              {due && <span className={`text-[11px] font-semibold rounded-full px-2.5 py-0.5 ${due.overdue ? 'bg-black/30' : 'bg-white/20'}`}>{due.overdue ? '⚠ Overdue · ' : 'Needed by '}{due.str}</span>}
+              {due && <span className={`text-[11px] font-semibold rounded-full px-2.5 py-0.5 ${due.overdue ? 'bg-black/30' : 'bg-white/20'}`}>{due.overdue ? 'Overdue · ' : 'Needed by '}{due.str}</span>}
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-[46%]">
-            {(r.status === 'Open' || r.status === 'Assigned') && <button onClick={() => onStatus('In Progress')} className={hdrBtn}>▶ Start work</button>}
-            {!closed && <button onClick={() => setClosing(true)} className={hdrBtn + ' hover:bg-emerald-500'}>✓ Complete</button>}
-            {closed && <button onClick={() => onStatus('In Progress')} className={hdrBtn}>↩ Reopen</button>}
-            <ShareLink id={r.id} className={hdrBtn} />
-            {isAdmin && <button onClick={onDelete} className={hdrBtn + ' hover:bg-red-500'} title="Delete">🗑</button>}
+            {(r.status === 'Open' || r.status === 'Assigned') && <button onClick={() => onStatus('In Progress')} className={hdrBtn}>Start work</button>}
+            {!closed && <button onClick={() => setClosing(true)} className={hdrBtn + ' hover:bg-emerald-500'}>Complete</button>}
+            {closed && <button onClick={() => onStatus('In Progress')} className={hdrBtn}>Reopen</button>}
+            <button data-ro-ok onClick={download} disabled={downloading} className={hdrBtn} title="Download this request as a PDF">{downloading ? 'Preparing...' : 'Download'}</button>
+<ShareLink id={r.id} className={hdrBtn} />
+            {isAdmin && <button onClick={onDelete} className={hdrBtn + ' hover:bg-red-500'} title="Delete">Delete</button>}
             <button data-ro-ok onClick={onClose} className="text-white/80 hover:text-white text-2xl leading-none pl-1">&times;</button>
           </div>
         </div>
@@ -544,7 +568,7 @@ function RequestWindow({ r, sb, team, machines, userEmail, me, member, isAdmin, 
           <div className="grid md:grid-cols-[1fr_300px]">
             <div className="px-6 py-5 space-y-6 min-w-0">
               <section>
-                <div className="flex items-center justify-between mb-1.5"><p className="text-[11px] uppercase tracking-wide text-gray-400">Details</p>{!editDesc && <button onClick={() => setEditDesc(true)} className="text-xs text-gray-400 hover:text-gray-700">✎ Edit</button>}</div>
+                <div className="flex items-center justify-between mb-1.5"><p className="text-[11px] uppercase tracking-wide text-gray-400">Details</p>{!editDesc && <button onClick={() => setEditDesc(true)} className="text-xs text-gray-400 hover:text-gray-700">Edit</button>}</div>
                 {editDesc ? (
                   <div>
                     <textarea autoFocus rows={5} value={desc} onChange={e => setDesc(e.target.value)} className={inp} />
@@ -584,7 +608,7 @@ function RequestWindow({ r, sb, team, machines, userEmail, me, member, isAdmin, 
                   </select>
                 </div>
                 {me && assignee?.email !== me.email && <button onClick={() => onPatch({ assigned_to: me.email }, 'Assigned to you')} className="text-xs mt-1.5 font-semibold" style={{ color: ACCENT }}>Take this one</button>}
-                {r.last_email_status && <p className="text-[11px] text-gray-400 mt-1.5">✉ {r.last_email_status}{r.email_sent_at ? ` · ${fmtStamp(r.email_sent_at)}` : ''}</p>}
+                {r.last_email_status && <p className="text-[11px] text-gray-400 mt-1.5">Email: {r.last_email_status}{r.email_sent_at ? ` · ${fmtStamp(r.email_sent_at)}` : ''}</p>}
               </Field>
               <Field label="Requested by"><div className="flex items-center gap-2">{r.requested_by ? <><Avatar name={r.requested_by} member={requester} size={22} /><span className="text-gray-700 text-xs">{requester?.full_name || r.requested_by}</span></> : <span className="text-gray-300">—</span>}</div></Field>
               <div className="grid grid-cols-2 gap-3">
@@ -592,7 +616,7 @@ function RequestWindow({ r, sb, team, machines, userEmail, me, member, isAdmin, 
                 <Field label="Category"><select className={inpSm} value={r.category} onChange={e => onPatch({ category: e.target.value }, 'Category saved')}>{CATEGORIES.map(s => <option key={s}>{s}</option>)}</select></Field>
               </div>
               <Field label="Equipment down?">
-                <button onClick={() => onPatch({ downtime: !r.downtime }, r.downtime ? 'Marked as running' : 'Marked as DOWN')} className={`w-full text-left rounded-lg border px-3 py-2 text-sm font-semibold ${r.downtime ? 'border-red-300 bg-red-50 text-red-700' : 'border-[#E4E6EE] bg-white text-gray-600'}`}>{r.downtime ? '⛔ Yes — production impacted' : 'No — running'}</button>
+                <button onClick={() => onPatch({ downtime: !r.downtime }, r.downtime ? 'Marked as running' : 'Marked as DOWN')} className={`w-full text-left rounded-lg border px-3 py-2 text-sm font-semibold ${r.downtime ? 'border-red-300 bg-red-50 text-red-700' : 'border-[#E4E6EE] bg-white text-gray-600'}`}>{r.downtime ? 'Yes — production impacted' : 'No — running'}</button>
               </Field>
               <Field label="Machine / asset">
                 <select className={inpSm} value={r.machine_id || ''} onChange={e => { const m = machines.find(x => x.id === e.target.value); onPatch({ machine_id: e.target.value || null, asset_name: m?.name || null }, 'Asset saved') }}>

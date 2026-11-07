@@ -1105,3 +1105,111 @@ export async function generateSamplePackingList(info: SamplePackingInfo, items: 
   const file = (info.customerName || 'sample').replace(/[^\w.-]+/g, ' ').trim().replace(/\s+/g, '-')
   doc.save(`sample-packing-list-${file}.pdf`)
 }
+
+// ---------------------------------------------------------------------------
+// Maintenance request (download from the Maintenance board)
+// ---------------------------------------------------------------------------
+
+export interface MaintenanceRequestPDF {
+  number: string | null; title: string; status: string; priority: string; category: string; downtime: boolean
+  asset: string | null; location: string | null; requestedBy: string | null; assignedTo: string | null
+  neededBy: string | null; filed: string | null; started: string | null; completed: string | null
+  description: string | null; resolution: string | null; partsUsed: string | null; cost: number | null
+  updates: { by: string; at: string; text: string }[]; files: string[]
+}
+
+/** A one-request maintenance work sheet: header, details grid, description, resolution, updates and files. */
+export async function generateMaintenanceRequestPDF(m: MaintenanceRequestPDF) {
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight()
+  const L = 40, R = W - 40
+  const stamp = (d: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-'
+  const day = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'
+
+  const logo = await loadBrandLogo()
+  if (logo) { try { doc.addImage(logo, 'PNG', L, 28, 122, 48) } catch { /* skip */ } }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(...DARK)
+  doc.text('Maintenance Request', R, 52, { align: 'right' })
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(...GRAY)
+  doc.text(m.number || '', R, 70, { align: 'right' })
+  doc.setDrawColor(...GREEN); doc.setLineWidth(1.5); doc.line(L, 88, R, 88)
+
+  let y = 114
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...DARK)
+  const titleLines = doc.splitTextToSize(m.title || '-', R - L) as string[]
+  doc.text(titleLines, L, y); y += titleLines.length * 17
+  const closed = m.status === 'Completed' || m.status === 'Cancelled'
+  if (m.downtime && !closed) {
+    doc.setFillColor(220, 38, 38); doc.roundedRect(L, y - 4, 112, 18, 3, 3, 'F')
+    doc.setFontSize(9); doc.setTextColor(255, 255, 255); doc.text('EQUIPMENT DOWN', L + 56, y + 8.5, { align: 'center' })
+    y += 22
+  }
+  y += 6
+
+  const rows: string[][] = [
+    ['Status', m.status || '-', 'Priority', m.priority || '-'],
+    ['Category', m.category || '-', 'Equipment down', m.downtime ? 'Yes' : 'No'],
+    ['Machine / asset', m.asset || '-', 'Location / area', m.location || '-'],
+    ['Requested by', m.requestedBy || '-', 'Assigned to', m.assignedTo || 'Unassigned'],
+    ['Filed', stamp(m.filed), 'Needed by', day(m.neededBy)],
+    ['Work started', stamp(m.started), 'Completed', stamp(m.completed)],
+  ]
+  const labelCol = { fontStyle: 'bold' as const, fillColor: [246, 250, 247] as [number, number, number], textColor: [75, 85, 99] as [number, number, number], cellWidth: 92 }
+  autoTable(doc, {
+    startY: y, theme: 'grid', body: rows, margin: { left: L, right: W - R },
+    styles: { fontSize: 9.5, cellPadding: 5, lineColor: [228, 230, 238], lineWidth: 0.6, textColor: [26, 29, 46] },
+    columnStyles: { 0: labelCol, 2: labelCol },
+  })
+  y = (doc as any).lastAutoTable.finalY + 22
+
+  const ensure = (need: number) => { if (y + need > H - 50) { doc.addPage(); y = 50 } }
+  const heading = (t: string) => {
+    ensure(40)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...GREEN)
+    doc.text(t.toUpperCase(), L, y); y += 6
+    doc.setDrawColor(228, 230, 238); doc.setLineWidth(0.6); doc.line(L, y, R, y); y += 14
+  }
+  const para = (t: string) => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(26, 29, 46)
+    const lines = doc.splitTextToSize(t, R - L) as string[]
+    for (const ln of lines) { ensure(14); doc.text(ln, L, y); y += 13 }
+    y += 10
+  }
+
+  heading('Details')
+  para(m.description?.trim() || 'No details entered.')
+
+  if (m.resolution || m.partsUsed || m.cost != null) {
+    heading('Resolution')
+    if (m.resolution) para(m.resolution)
+    const extra = [m.partsUsed ? `Parts used: ${m.partsUsed}` : '', m.cost != null ? `Cost: $${Number(m.cost).toFixed(2)}` : ''].filter(Boolean).join('    ')
+    if (extra) para(extra)
+  }
+
+  heading('Updates & comments')
+  if (m.updates.length) {
+    autoTable(doc, {
+      startY: y, margin: { left: L, right: W - R },
+      head: [['Date', 'By', 'Update']],
+      body: m.updates.map(u => [stamp(u.at), u.by, u.text]),
+      headStyles: { fillColor: GREEN, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 9, valign: 'top' },
+      alternateRowStyles: { fillColor: [246, 250, 247] },
+      columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: 110 } },
+    })
+    y = (doc as any).lastAutoTable.finalY + 22
+  } else para('No updates yet.')
+
+  heading('Photos & files')
+  para(m.files.length ? m.files.map((f, i) => `${i + 1}. ${f}`).join('\n') : 'No files attached.')
+
+  const pages = doc.getNumberOfPages()
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRAY)
+    doc.text(`${COMPANY.name}  ·  Generated ${new Date().toLocaleString('en-US')}  ·  Page ${p} of ${pages}`, W / 2, H - 20, { align: 'center' })
+  }
+
+  const file = (m.number || 'maintenance-request').replace(/[^\w.-]+/g, '-')
+  doc.save(`Maintenance-Request-${file}.pdf`)
+}
