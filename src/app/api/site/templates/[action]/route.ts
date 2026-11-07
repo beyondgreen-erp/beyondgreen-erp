@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Website die line template library API (members-only downloads).
 // Public:  GET list, GET verify, GET settings
-// Members: POST signup | login | resend | forgot | reset | oauth | me | profile | logout | download | download-zip
+// Members: POST signup | login | resend | forgot | reset | oauth | me | profile | logout | download | download-zip | checkout | billing-portal
+// Shopify: POST shopify-webhook (orders/paid, refunds/create; HMAC signed)
 // Staff:   GET admin-data | admin-csv, POST admin-upload, admin-toggle (ERP session, staff domain)
 // Loader:  POST admin-upload with X-Sync-Key (key hash lives in portal_config)
 import { NextRequest, NextResponse } from 'next/server'
@@ -11,6 +12,7 @@ import {
   admin, cors, str, emailOk, sha, slugify, safeNext, createSession, memberFromReq, publicMember, anonClient,
   sendVerifyEmail, sendResetEmail, announceMember, downloadsLastHour, clientIp, syncKeyOk, buildZip,
   PDF_BUCKET, THUMB_BUCKET, SITE_PUBLIC, RATE_LIMIT_PER_HOUR, BUSINESS_TYPES, CATEGORY_ORDER,
+  RATE_LIMIT_PER_DAY, IP_LIMIT_PER_HOUR, PRO_BUCKET, getSettings, shopOn, proAccess, canPro, creditBalance, shopifyCheckout, proCartUrl, shopifySigOk, grantPurchase, SHOP_PUBLIC,
 } from '@/lib/siteTemplates'
 
 export const dynamic = 'force-dynamic'
@@ -60,11 +62,14 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   if (action === 'list') {
     // Public, non-sensitive data: open CORS so the CDN can cache one copy for every origin.
-    const res = NextResponse.json(await listTemplates(), { headers: { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 's-maxage=60, stale-while-revalidate=600' } })
+    const st = await getSettings()
+    const prices = { single: Number(st.price_single), pack: Number(st.price_pack), pro_month: Number(st.price_pro_month), pro_year: Number(st.price_pro_year), credit_months: Number(st.print_credit_months) }
+    const res = NextResponse.json({ ...(await listTemplates()), prices, checkout: !!st.checkout_enabled && shopOn() }, { headers: { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 's-maxage=60, stale-while-revalidate=600' } })
     return res
   }
   if (action === 'settings') {
-    return out(req, { google: await googleEnabled(), business_types: BUSINESS_TYPES, rate_limit_per_hour: RATE_LIMIT_PER_HOUR })
+    const st = await getSettings()
+    return out(req, { google: await googleEnabled(), business_types: BUSINESS_TYPES, rate_limit_per_hour: RATE_LIMIT_PER_HOUR, checkout: !!st.checkout_enabled && shopOn() })
   }
   if (action === 'verify') {
     const t = url.searchParams.get('t') || ''
@@ -87,6 +92,27 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const from = url.searchParams.get('from'), to = url.searchParams.get('to')
     const tpl = url.searchParams.get('template') || '', company = url.searchParams.get('company') || ''
     const kind = url.searchParams.get('kind') || 'downloads'
+    if (kind === 'settings') return NextResponse.json({ settings: await getSettings(), shopify: shopOn() })
+    if (kind === 'credits') {
+      const em = (url.searchParams.get('email') || '').toLowerCase().trim()
+      const { data: mem } = await admin.from('site_members').select('id, email, first_name, last_name, company').ilike('email', em || '__none__').maybeSingle()
+      if (!mem) return NextResponse.json({ member: null, credits: [] })
+      const { data: cr } = await admin.from('site_print_credits').select('*').eq('member_id', (mem as any).id).order('created_at', { ascending: false })
+      return NextResponse.json({ member: mem, credits: cr || [], balance: await creditBalance((mem as any).id) })
+    }
+    if (kind === 'purchases') {
+      let q = admin.from('site_template_purchases').select('*').order('created_at', { ascending: false }).limit(5000)
+      if (from) q = q.gte('created_at', from)
+      if (to) q = q.lte('created_at', to + 'T23:59:59')
+      if (company) q = q.ilike('company', `%${company}%`)
+      const { data } = await q
+      const rows = (data || []) as any[]
+      const { data: tn } = await admin.from('site_templates').select('id, item')
+      const names = Object.fromEntries(((tn || []) as any[]).map(t => [t.id, t.item]))
+      rows.forEach(r => { r.template_item = names[r.template_id] || null })
+      if (action === 'admin-csv') return csv('template_purchases', ['created_at', 'paid_at', 'email', 'company', 'kind', 'template_item', 'category_slug', 'amount', 'status', 'shopify_order_name'], rows)
+      return NextResponse.json({ rows })
+    }
     if (kind === 'members') {
       let q = admin.from('site_members').select('*').order('created_at', { ascending: false }).limit(5000)
       if (from) q = q.gte('created_at', from)
@@ -120,6 +146,27 @@ function csv(name: string, cols: string[], rows: any[]) {
 export async function POST(req: NextRequest, ctx: Ctx) {
   const { action } = await (ctx.params as any)
   if (action === 'admin-upload') return adminUpload(req)
+  if (action === 'shopify-webhook') return shopifyWebhook(req)
+  if (action === 'admin-settings' || action === 'admin-credit') {
+    const who = await staffEmail(); if (!who) return NextResponse.json({ error: 'Staff only' }, { status: 403 })
+    const b = await req.json().catch(() => ({}))
+    if (action === 'admin-settings') {
+      const allowed = ['price_single', 'price_pack', 'price_pro_month', 'price_pro_year', 'print_credit_months', 'checkout_enabled']
+      for (const k of allowed) if (b[k] !== undefined) {
+        const v = k === 'checkout_enabled' ? !!b[k] : Number(b[k])
+        if (k !== 'checkout_enabled' && !(Number.isFinite(v as number) && (v as number) >= 0)) return NextResponse.json({ error: `Bad value for ${k}` }, { status: 400 })
+        await admin.from('site_template_settings').upsert({ key: k, value: v, updated_at: new Date().toISOString(), updated_by: who })
+      }
+      return NextResponse.json({ ok: true, settings: await getSettings() })
+    }
+    if (action === 'admin-credit') {
+      const id = str(b.id, 60), used = Number(b.used_amount)
+      if (!id || !Number.isFinite(used) || used < 0) return NextResponse.json({ error: 'Bad request' }, { status: 400 })
+      await admin.from('site_print_credits').update({ used_amount: used, note: str(b.note, 300) || null }).eq('id', id)
+      return NextResponse.json({ ok: true })
+    }
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
   if (action === 'admin-toggle') {
     const who = await staffEmail(); if (!who) return NextResponse.json({ error: 'Staff only' }, { status: 403 })
     const b = await req.json().catch(() => ({}))
@@ -227,7 +274,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const ids = Array.from(new Set((dl || []).map((d: any) => d.template_id).filter(Boolean)))
     const { data: tpls } = ids.length ? await admin.from('site_templates').select('id, slug, category_slug, thumb_url, size').in('id', ids) : { data: [] as any[] }
     const map = Object.fromEntries((tpls || []).map((t: any) => [t.id, t]))
-    return out(req, { member: publicMember(m), downloads: (dl || []).map((d: any) => ({ ...d, path: map[d.template_id] ? `/templates/${map[d.template_id].category_slug}/${map[d.template_id].slug}` : null, thumb_url: map[d.template_id]?.thumb_url || null, size: map[d.template_id]?.size || null })) })
+    const acc = await proAccess(m.id)
+    const { data: pur } = await admin.from('site_template_purchases').select('id, kind, template_id, category_slug, amount, status, created_at, paid_at, current_period_end').eq('member_id', m.id).neq('status', 'pending').order('created_at', { ascending: false })
+    const pids = ((pur || []) as any[]).map(p => p.template_id).filter(Boolean)
+    const { data: ptpl } = pids.length ? await admin.from('site_templates').select('id, item, slug, category_slug').in('id', pids) : { data: [] as any[] }
+    const pmap = Object.fromEntries(((ptpl || []) as any[]).map(t => [t.id, t]))
+    const purchases = ((pur || []) as any[]).map(p => ({ ...p, template: pmap[p.template_id] || null }))
+    const { data: cr } = await admin.from('site_print_credits').select('amount, used_amount, expires_at, created_at').eq('member_id', m.id).order('created_at', { ascending: false })
+    return out(req, { access: { all: acc.all, packs: acc.packs, templates: acc.templates, sub: acc.sub ? { kind: acc.sub.kind, status: acc.sub.status, current_period_end: acc.sub.current_period_end } : null }, purchases, credits: cr || [], credit_balance: await creditBalance(m.id), member: publicMember(m), downloads: (dl || []).map((d: any) => ({ ...d, path: map[d.template_id] ? `/templates/${map[d.template_id].category_slug}/${map[d.template_id].slug}` : null, thumb_url: map[d.template_id]?.thumb_url || null, size: map[d.template_id]?.size || null })) })
   }
 
   if (action === 'profile') {
@@ -250,6 +304,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   if (action === 'download' || action === 'download-zip') {
     if (!m.profile_complete) return out(req, { error: 'Please finish your profile first.', code: 'profile' }, 403)
+    const tier = b.tier === 'pro' ? 'pro' : 'free'
     let tpls: any[] = []
     if (action === 'download') {
       const { data } = await admin.from('site_templates').select('*').eq('is_active', true).eq('category_slug', str(b.category, 80)).eq('slug', str(b.slug, 120)).maybeSingle()
@@ -259,28 +314,141 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       tpls = data || []
     }
     if (!tpls.length) return out(req, { error: 'Template not found.' }, 404)
+    if (tier === 'pro') {
+      const acc = await proAccess(m.id)
+      tpls = tpls.filter(t => canPro(acc, t))
+      if (!tpls.length) return out(req, { error: 'Unlock the editable file to download it.', code: 'locked' }, 402)
+      const missing = tpls.filter(t => !t.pro_pdf_path)
+      if (missing.length === tpls.length) return out(req, { error: 'The editable file is being prepared. We will email you as soon as it is ready.', code: 'pending' }, 409)
+      tpls = tpls.filter(t => t.pro_pdf_path)
+    }
+    const n = action === 'download' ? 1 : tpls.length
     const used = await downloadsLastHour(m.id)
-    if (used + (action === 'download' ? 1 : tpls.length) > RATE_LIMIT_PER_HOUR) return out(req, { error: `You have reached the limit of ${RATE_LIMIT_PER_HOUR} downloads per hour. Please try again a little later.`, code: 'rate' }, 429)
+    if (used + n > RATE_LIMIT_PER_HOUR) return out(req, { error: `You have reached the limit of ${RATE_LIMIT_PER_HOUR} downloads per hour. Please try again a little later.`, code: 'rate' }, 429)
+    const { count: day } = await admin.from('site_template_downloads').select('id', { count: 'exact', head: true }).eq('member_id', m.id).gte('created_at', new Date(Date.now() - 864e5).toISOString())
+    if ((day || 0) + n > RATE_LIMIT_PER_DAY) return out(req, { error: 'You have reached the daily download limit. Please try again tomorrow or call (866) 364-9466.', code: 'rate' }, 429)
     const ip = clientIp(req)
-    await admin.from('site_template_downloads').insert(tpls.map(t => ({ member_id: m.id, email: m.email, company: m.company, template_id: t.id, template_item: t.item, template_slug: t.slug, category: t.category, kind: action === 'download' ? 'single' : 'zip', ip })))
+    if (ip) {
+      const { count: ipc } = await admin.from('site_template_downloads').select('id', { count: 'exact', head: true }).eq('ip', ip).gte('created_at', new Date(Date.now() - 3600e3).toISOString())
+      if ((ipc || 0) + n > IP_LIMIT_PER_HOUR) return out(req, { error: 'Too many downloads from this network. Please try again later.', code: 'rate' }, 429)
+    }
+    const bucket = tier === 'pro' ? PRO_BUCKET : PDF_BUCKET
+    const pathOf = (t: any) => tier === 'pro' ? t.pro_pdf_path : t.pdf_path
+    await admin.from('site_template_downloads').insert(tpls.map(t => ({ member_id: m.id, email: m.email, company: m.company, template_id: t.id, template_item: t.item, template_slug: t.slug, category: t.category, kind: action === 'download' ? 'single' : 'zip', tier, ip })))
     if (action === 'download') {
       const t = tpls[0]
-      const fname = t.pdf_path.split('/').pop()
-      const { data: signed, error } = await admin.storage.from(PDF_BUCKET).createSignedUrl(t.pdf_path, 300, { download: fname })
+      const fname = pathOf(t).split('/').pop()
+      const { data: signed, error } = await admin.storage.from(bucket).createSignedUrl(pathOf(t), 300, { download: fname })
       if (error || !signed?.signedUrl) return out(req, { error: 'Download is not available right now. Please try again.' }, 500)
       return out(req, { ok: true, url: signed.signedUrl, filename: fname, expires_in: 300 })
     }
     const files: { name: string; data: Uint8Array }[] = []
     for (const t of tpls) {
-      const { data: blob } = await admin.storage.from(PDF_BUCKET).download(t.pdf_path)
-      if (blob) files.push({ name: t.pdf_path.split('/').pop(), data: new Uint8Array(await blob.arrayBuffer()) })
+      const { data: blob } = await admin.storage.from(bucket).download(pathOf(t))
+      if (blob) files.push({ name: pathOf(t).split('/').pop(), data: new Uint8Array(await blob.arrayBuffer()) })
     }
     const zip = buildZip(files)
-    const zname = `beyondGREEN_DieLines_${tpls[0].category.replace(/[^A-Za-z0-9]+/g, '_')}.zip`
+    const zname = `beyondGREEN_DieLines_${tpls[0].category.replace(/[^A-Za-z0-9]+/g, '_')}${tier === 'pro' ? '_Editable' : ''}.zip`
     return new NextResponse(zip as any, { headers: { ...cors(req), 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${zname}"`, 'Cache-Control': 'no-store' } })
   }
 
+  if (action === 'checkout') {
+    const st = await getSettings()
+    if (!st.checkout_enabled || !shopOn()) return out(req, { error: 'Editable files go on sale very soon. Call (866) 364-9466 and we can help today.', code: 'soon' }, 503)
+    if (!m.profile_complete) return out(req, { error: 'Please finish your profile first.', code: 'profile' }, 403)
+    const kind = ['single', 'pack', 'pro_month', 'pro_year'].includes(b.kind) ? b.kind : ''
+    if (!kind) return out(req, { error: 'Bad request' }, 400)
+    let t: any = null, cat = ''
+    if (kind === 'single') {
+      const { data } = await admin.from('site_templates').select('*').eq('is_active', true).eq('category_slug', str(b.category, 80)).eq('slug', str(b.slug, 120)).maybeSingle()
+      t = data; if (!t) return out(req, { error: 'Template not found.' }, 404); cat = t.category_slug
+    }
+    if (kind === 'pack') {
+      cat = str(b.category, 80)
+      const { count } = await admin.from('site_templates').select('id', { count: 'exact', head: true }).eq('is_active', true).eq('category_slug', cat)
+      if (!count) return out(req, { error: 'Category not found.' }, 404)
+    }
+    const acc = await proAccess(m.id)
+    if (acc.all || (kind === 'pack' && acc.packs.includes(cat)) || (kind === 'single' && t && canPro(acc, t))) return out(req, { error: 'You already have access to this. Download it from the template page.', code: 'owned' }, 409)
+    const amount = Number(kind === 'single' ? st.price_single : kind === 'pack' ? st.price_pack : kind === 'pro_month' ? st.price_pro_month : st.price_pro_year)
+    const { data: catRow } = cat ? await admin.from('site_templates').select('category').eq('category_slug', cat).limit(1).maybeSingle() : { data: null as any }
+    const name = kind === 'single' ? `Editable die line template: ${t.item}` : `Editable die line category pack: ${(catRow as any)?.category || cat}`
+    const { data: pur } = await admin.from('site_template_purchases').insert({ member_id: m.id, email: m.email, company: m.company, kind, template_id: t?.id || null, category_slug: cat || null, amount, status: 'pending' }).select('*').single()
+    const pid = (pur as any).id
+    try {
+      let url: string | null = null, draft: string | null = null
+      if (kind === 'pro_month' || kind === 'pro_year') {
+        url = proCartUrl(kind, m.email, pid)
+        if (!url) { await admin.from('site_template_purchases').update({ status: 'failed' }).eq('id', pid); return out(req, { error: 'Pro plans open very soon. Single templates and packs are available now.', code: 'soon' }, 503) }
+      } else {
+        const d = await shopifyCheckout({ email: m.email, title: name, price: amount, purchaseId: pid, note: `Website template purchase ${pid}. Includes a $${amount.toFixed(2)} print credit.`, tags: ['website-templates', kind] })
+        url = d.url; draft = d.id
+      }
+      await admin.from('site_template_purchases').update({ shopify_draft_id: draft, checkout_url: url }).eq('id', pid)
+      return out(req, { ok: true, url })
+    } catch {
+      await admin.from('site_template_purchases').update({ status: 'failed' }).eq('id', pid)
+      return out(req, { error: 'Checkout could not start. Please try again.' }, 500)
+    }
+  }
+
+  if (action === 'purchase-status') {
+    const { data: p } = await admin.from('site_template_purchases').select('id, kind, status, template_id, category_slug, amount').eq('id', str(b.id, 60)).eq('member_id', m.id).maybeSingle()
+    if (!p) return out(req, { error: 'Not found' }, 404)
+    let t: any = null
+    if ((p as any).template_id) { const { data } = await admin.from('site_templates').select('id, item, slug, category, category_slug, thumb_url, size, flat_size').eq('id', (p as any).template_id).maybeSingle(); t = data }
+    return out(req, { purchase: p, template: t })
+  }
+
+  if (action === 'billing-portal') {
+    // Shopify Subscriptions: customers manage or cancel their plan from their store account.
+    return out(req, { ok: true, url: `${SHOP_PUBLIC}/account` })
+  }
+
   return out(req, { error: 'Not found' }, 404)
+}
+
+async function shopifyWebhook(req: NextRequest) {
+  const raw = await req.text()
+  if (!shopifySigOk(raw, req.headers.get('x-shopify-hmac-sha256'))) return NextResponse.json({ error: 'Bad signature' }, { status: 401 })
+  const topic = req.headers.get('x-shopify-topic') || ''
+  const o = JSON.parse(raw)
+  const attr = (list: any[] | undefined, k: string) => (list || []).find((a: any) => a.name === k || a.key === k)?.value
+  if (topic === 'orders/paid') {
+    const orderId = String(o.admin_graphql_api_id || o.id || '')
+    const ids = new Set<string>()
+    const top = attr(o.note_attributes, 'purchase_id'); if (top) ids.add(String(top))
+    for (const li of o.line_items || []) { const v = attr(li.properties, 'purchase_id'); if (v) ids.add(String(v)) }
+    // Pro renewals arrive as new subscription orders without our id: match the member's Pro plan by email.
+    const isPro = (o.line_items || []).some((li: any) => [process.env.SHOPIFY_PRO_MONTH_VARIANT_ID, process.env.SHOPIFY_PRO_YEAR_VARIANT_ID].filter(Boolean).includes(String(li.variant_id)))
+    for (const pid of Array.from(ids)) {
+      const { data: p } = await admin.from('site_template_purchases').select('*').eq('id', pid).maybeSingle()
+      if (p) await grantPurchase(p, { order_id: orderId, order_name: o.name })
+      await admin.from('site_design_orders').update({ status: 'Paid', paid_at: new Date().toISOString(), shopify_order_id: orderId, shopify_order_name: o.name }).eq('id', pid).then(() => {}, () => {})
+    }
+    if (isPro && !ids.size && o.email) {
+      const { data: m } = await admin.from('site_members').select('id').eq('email', String(o.email).toLowerCase()).maybeSingle()
+      if (m) {
+        const { data: p } = await admin.from('site_template_purchases').select('*').eq('member_id', (m as any).id).in('kind', ['pro_month', 'pro_year']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+        if (p && (p as any).status === 'pending') await grantPurchase(p, { order_id: orderId, order_name: o.name })
+        else if (p) {
+          const days = (p as any).kind === 'pro_year' ? 366 : 31
+          await admin.from('site_template_purchases').update({ status: 'active', current_period_end: new Date(Date.now() + days * 864e5).toISOString(), updated_at: new Date().toISOString() }).eq('id', (p as any).id)
+          const st = await getSettings()
+          await admin.from('site_print_credits').insert({ member_id: (m as any).id, purchase_id: (p as any).id, amount: Number(o.total_price || 0), expires_at: new Date(Date.now() + (Number(st.print_credit_months) || 12) * 30.44 * 864e5).toISOString(), note: 'Print credit from Pro renewal' })
+        }
+      }
+    }
+  }
+  if (topic === 'refunds/create') {
+    const orderId = `gid://shopify/Order/${o.order_id}`
+    const { data: ps } = await admin.from('site_template_purchases').select('id').eq('shopify_order_id', orderId)
+    for (const p of (ps || []) as any[]) {
+      await admin.from('site_template_purchases').update({ status: 'refunded', updated_at: new Date().toISOString() }).eq('id', p.id)
+      await admin.from('site_print_credits').update({ expires_at: new Date().toISOString(), note: 'Voided by refund' }).eq('purchase_id', p.id)
+    }
+  }
+  return NextResponse.json({ received: true })
 }
 
 // Add or replace a template: PDF + thumbnail + its index fields. Staff (ERP session) or the bulk loader key.
@@ -292,7 +460,7 @@ async function adminUpload(req: NextRequest) {
   if (!category || !item) return NextResponse.json({ error: 'Category and item are required.' }, { status: 400 })
   const category_slug = slugify(category)
   const slug = str(fd.get('slug'), 120) || slugify(item)
-  const pdf = fd.get('pdf') as File | null, thumb = fd.get('thumb') as File | null
+  const pdf = fd.get('pdf') as File | null, thumb = fd.get('thumb') as File | null, pro = fd.get('pro_pdf') as File | null
   const { data: existing } = await admin.from('site_templates').select('*').eq('category_slug', category_slug).eq('slug', slug).maybeSingle()
   if (!existing && (!pdf || !pdf.size)) return NextResponse.json({ error: 'A PDF is required for a new template.' }, { status: 400 })
   let pdf_path = (existing as any)?.pdf_path || ''
@@ -304,6 +472,14 @@ async function adminUpload(req: NextRequest) {
     const { error } = await admin.storage.from(PDF_BUCKET).upload(pdf_path, Buffer.from(await pdf.arrayBuffer()), { contentType: 'application/pdf', upsert: true })
     if (error) return NextResponse.json({ error: 'PDF upload failed: ' + error.message }, { status: 500 })
   }
+  let pro_pdf_path = (existing as any)?.pro_pdf_path || null
+  if (pro && pro.size) {
+    if (!/pdf$/i.test(pro.type) && !/\.pdf$/i.test(pro.name)) return NextResponse.json({ error: 'The editable file must be a PDF.' }, { status: 400 })
+    const folder = category.replace(/[^A-Za-z0-9]+/g, '_')
+    pro_pdf_path = `${folder}/${(str(fd.get('pdf_name'), 160) || pro.name).replace(/[^A-Za-z0-9._-]+/g, '_')}`
+    const { error } = await admin.storage.from(PRO_BUCKET).upload(pro_pdf_path, Buffer.from(await pro.arrayBuffer()), { contentType: 'application/pdf', upsert: true })
+    if (error) return NextResponse.json({ error: 'Editable PDF upload failed: ' + error.message }, { status: 500 })
+  }
   let thumb_url = (existing as any)?.thumb_url || null
   if (thumb && thumb.size) {
     const ext = (thumb.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z]/g, '') || 'png'
@@ -312,7 +488,7 @@ async function adminUpload(req: NextRequest) {
     if (error) return NextResponse.json({ error: 'Thumbnail upload failed: ' + error.message }, { status: 500 })
     thumb_url = admin.storage.from(THUMB_BUCKET).getPublicUrl(tpath).data.publicUrl
   }
-  const rec: any = { slug, category, category_slug, item, size: str(fd.get('size'), 80) || (existing as any)?.size || null, flat_size: str(fd.get('flat_size'), 80) || (existing as any)?.flat_size || null, pdf_path, thumb_url, is_active: true, updated_at: new Date().toISOString() }
+  const rec: any = { slug, category, category_slug, item, size: str(fd.get('size'), 80) || (existing as any)?.size || null, flat_size: str(fd.get('flat_size'), 80) || (existing as any)?.flat_size || null, pdf_path, pro_pdf_path, thumb_url, is_active: true, updated_at: new Date().toISOString() }
   const so = Number(fd.get('sort_order')); if (Number.isFinite(so) && fd.get('sort_order') !== null) rec.sort_order = so
   if (existing) await admin.from('site_templates').update(rec).eq('id', (existing as any).id)
   else await admin.from('site_templates').insert(rec)

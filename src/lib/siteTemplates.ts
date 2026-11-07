@@ -14,8 +14,11 @@ export const SITE_PUBLIC = (process.env.SITE_PUBLIC_URL || 'https://beyondgreen-
 export const API_PUBLIC = (process.env.SITE_TEMPLATES_API_URL || 'https://byndgrn-portal.vercel.app').replace(/\/$/, '')
 export const SESSION_DAYS = 30
 export const RATE_LIMIT_PER_HOUR = 50
-export const BUSINESS_TYPES = ['Restaurant / QSR', 'Cafe / Coffee', 'Grocery / Retail', 'Distributor', 'Brand / CPG', 'Agency / Designer', 'Other']
-export const CATEGORY_ORDER = ['Paper Bags', 'SOS Paper Bags', 'Paper Cups', 'Food Trays', 'Clamshells', 'Film Bags', 'Straw Wrappers', 'Tuck End Boxes', 'Folding Boxes', 'Tray Boxes', 'Display Boxes', 'Shipping Boxes', 'Envelopes', 'Pouches']
+export const RATE_LIMIT_PER_DAY = 200
+export const IP_LIMIT_PER_HOUR = 120
+export const PRO_BUCKET = 'site-templates-pro'
+export const BUSINESS_TYPES = ['Restaurant / QSR', 'Cafe / Coffee', 'Grocery / Retail', 'Pet Brand', 'Distributor', 'Brand / CPG', 'Agency / Designer', 'Other']
+export const CATEGORY_ORDER = ['Pet Waste Bags', 'Grocery & Produce Bags', 'Trash & Kitchen Liners', 'Paper Bags', 'SOS Paper Bags', 'Paper Cups', 'Coffee Bags', 'Pouches', 'Straw Wrappers', 'Food Trays', 'Clamshells', 'Tuck End Boxes', 'Folding Boxes', 'Tray Boxes', 'Display Boxes', 'Shipping Boxes', 'Envelopes', 'Header Cards & Labels', 'Pet & Home Packaging', 'Film Bags']
 
 const SITE_ORIGINS = ['https://byndgrn.com', 'https://www.byndgrn.com', 'https://beyondgreenbiotech.com', 'https://www.beyondgreenbiotech.com', 'https://beyondgreen-site.vercel.app', 'http://localhost:3123']
 export function cors(req: NextRequest): Record<string, string> {
@@ -30,7 +33,7 @@ export const newToken = () => randomBytes(32).toString('base64url')
 export const str = (v: unknown, max = 300) => String(v ?? '').trim().slice(0, max)
 export const emailOk = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)
 export function slugify(s: string): string {
-  return String(s || '').toLowerCase().replace(/(\d)\.(\d)/g, '$1-$2').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90)
+  return String(s || '').toLowerCase().replace(/(\d)\s*x\s*(?=\d)/g, '$1x').replace(/(\d)\.(\d)/g, '$1-$2').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90)
 }
 // Only allow returning members to pages inside the template library.
 export function safeNext(n: unknown): string {
@@ -152,4 +155,100 @@ export function buildZip(files: { name: string; data: Uint8Array }[]): Uint8Arra
   const out = new Uint8Array(all.reduce((a, c) => a + c.length, 0)); let p = 0
   for (const c of all) { out.set(c, p); p += c.length }
   return out
+}
+
+// ── Settings (prices etc.) ──
+export async function getSettings(): Promise<Record<string, any>> {
+  const { data } = await admin.from('site_template_settings').select('key, value')
+  const o: Record<string, any> = { price_single: 4.99, price_pack: 19, price_pro_month: 9.99, price_pro_year: 59, print_credit_months: 12, checkout_enabled: true }
+  for (const r of (data || []) as any[]) o[r.key] = r.value
+  return o
+}
+export const shopOn = () => !!(process.env.SHOPIFY_STORE_DOMAIN && process.env.SHOPIFY_ADMIN_TOKEN)
+
+// ── Entitlements: what editable (Pro) files a member may download ──
+export async function proAccess(memberId: string): Promise<{ all: boolean; packs: string[]; templates: string[]; sub: any | null }> {
+  const { data } = await admin.from('site_template_purchases').select('*').eq('member_id', memberId).in('status', ['paid', 'active', 'canceled'])
+  const rows = (data || []) as any[]
+  const now = Date.now()
+  const sub = rows.filter(r => (r.kind === 'pro_month' || r.kind === 'pro_year')).sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))[0] || null
+  // A canceled plan keeps access until the paid period ends.
+  const all = rows.some(r => (r.kind === 'pro_month' || r.kind === 'pro_year') && (r.status === 'active' || r.status === 'canceled') && r.current_period_end && +new Date(r.current_period_end) > now)
+  return {
+    all,
+    packs: rows.filter(r => r.kind === 'pack' && r.status === 'paid').map(r => r.category_slug),
+    templates: rows.filter(r => r.kind === 'single' && r.status === 'paid').map(r => r.template_id),
+    sub,
+  }
+}
+export function canPro(acc: { all: boolean; packs: string[]; templates: string[] }, t: any): boolean {
+  return acc.all || acc.packs.includes(t.category_slug) || acc.templates.includes(t.id)
+}
+export async function creditBalance(memberId: string): Promise<number> {
+  const { data } = await admin.from('site_print_credits').select('amount, used_amount, expires_at').eq('member_id', memberId)
+  return ((data || []) as any[]).filter(c => +new Date(c.expires_at) > Date.now()).reduce((a, c) => a + Number(c.amount) - Number(c.used_amount), 0)
+}
+
+// ── Shopify (Admin GraphQL) ──
+export const SHOP_PUBLIC = (process.env.SHOPIFY_PUBLIC_URL || 'https://byndgrn.com').replace(/\/$/, '')
+export async function shopify(query: string, variables: Record<string, any> = {}): Promise<any> {
+  const r = await fetch(`https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_TOKEN || '', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+  })
+  const j = await r.json()
+  if (!r.ok || j.errors) throw new Error(JSON.stringify(j.errors || j).slice(0, 300))
+  return j.data
+}
+/** One-time checkout: a draft order at the exact price; returns Shopify's hosted checkout link. */
+export async function shopifyCheckout(o: { email: string; title: string; price: number; quantity?: number; purchaseId: string; note: string; tags: string[]; attrs?: Record<string, string> }) {
+  const d = await shopify(`mutation($input: DraftOrderInput!) { draftOrderCreate(input: $input) { draftOrder { id invoiceUrl } userErrors { field message } } }`, {
+    input: {
+      email: o.email, note: o.note, tags: o.tags,
+      customAttributes: [{ key: 'purchase_id', value: o.purchaseId }, ...Object.entries(o.attrs || {}).map(([key, value]) => ({ key, value }))],
+      lineItems: [{ title: o.title, originalUnitPrice: (Math.round(o.price * 100) / 100).toFixed(2), quantity: o.quantity || 1, requiresShipping: false, taxable: false, customAttributes: [{ key: 'purchase_id', value: o.purchaseId }] }],
+    },
+  })
+  const res = d.draftOrderCreate
+  if (res.userErrors?.length) throw new Error(res.userErrors[0].message)
+  return { id: res.draftOrder.id as string, url: res.draftOrder.invoiceUrl as string }
+}
+/** Pro plans run through the Shopify Subscriptions app: a product variant with a selling plan. */
+export function proCartUrl(kind: 'pro_month' | 'pro_year', email: string, purchaseId: string): string | null {
+  const v = kind === 'pro_year' ? process.env.SHOPIFY_PRO_YEAR_VARIANT_ID : process.env.SHOPIFY_PRO_MONTH_VARIANT_ID
+  const sp = kind === 'pro_year' ? process.env.SHOPIFY_PRO_YEAR_SELLING_PLAN_ID : process.env.SHOPIFY_PRO_MONTH_SELLING_PLAN_ID
+  if (!v || !sp) return null
+  const q = new URLSearchParams({ selling_plan: sp, 'checkout[email]': email, 'attributes[purchase_id]': purchaseId, note: `Template Pro ${purchaseId}` })
+  return `${SHOP_PUBLIC}/cart/${v}:1?${q.toString()}`
+}
+export function shopifySigOk(raw: string, header: string | null): boolean {
+  const secret = process.env.SHOPIFY_WEBHOOK_SECRET
+  if (!secret || !header) return false
+  const mac = require('crypto').createHmac('sha256', secret).update(raw, 'utf8').digest('base64')
+  try { return require('crypto').timingSafeEqual(Buffer.from(mac), Buffer.from(header)) } catch { return false }
+}
+
+export async function grantPurchase(p: any, info: { order_id?: string; order_name?: string; period_end?: number }) {
+  if (p.status === 'paid' || p.status === 'active') return
+  const sub = p.kind === 'pro_month' || p.kind === 'pro_year'
+  await admin.from('site_template_purchases').update({
+    status: sub ? 'active' : 'paid', paid_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    shopify_order_id: info.order_id || null, shopify_order_name: info.order_name || null,
+    current_period_end: info.period_end ? new Date(info.period_end * 1000).toISOString() : (sub ? new Date(Date.now() + (p.kind === 'pro_year' ? 366 : 31) * 864e5).toISOString() : null),
+  }).eq('id', p.id)
+  const settings = await getSettings()
+  const months = Number(settings.print_credit_months) || 12
+  await admin.from('site_print_credits').insert({ member_id: p.member_id, purchase_id: p.id, amount: p.amount, expires_at: new Date(Date.now() + months * 30.44 * 864e5).toISOString(), note: `Print credit from ${p.kind.replace('_', ' ')} purchase` })
+  // receipt
+  let what = 'All-access Pro'
+  let link = `${SITE_PUBLIC}/account`
+  if (p.kind === 'single' && p.template_id) {
+    const { data: t } = await admin.from('site_templates').select('item, slug, category_slug').eq('id', p.template_id).maybeSingle()
+    if (t) { what = `${(t as any).item} (editable)`; link = `${SITE_PUBLIC}/templates/${(t as any).category_slug}/${(t as any).slug}` }
+  } else if (p.kind === 'pack') { what = `${p.category_slug} category pack (editable)`; link = `${SITE_PUBLIC}/templates/${p.category_slug}` }
+  else what = p.kind === 'pro_year' ? 'All-access Pro, yearly' : 'All-access Pro, monthly'
+  if (p.email) await sendEmail({ to: [p.email], subject: `Your beyondGREEN receipt: ${what}`, html: `<p style="margin:0 0 12px">Thank you for your purchase.</p><p style="margin:0 0 12px"><b>${esc(what)}</b><br>Amount paid: $${Number(p.amount).toFixed(2)}</p><p style="margin:0 0 12px">You also received a <b>$${Number(p.amount).toFixed(2)} print credit</b>, good on a printed order from beyondGREEN for ${months} months.</p>${button(link, 'Download your files')}<p style="margin:0;font-size:13px;color:#6b7280">Downloads are available any time from your account. Questions? Call (866) 364-9466.</p>` })
+  const hook = process.env.SITE_SIGNUP_WEBHOOK_URL
+  if (hook) { try { await fetch(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'template_purchase.paid', purchase: { kind: p.kind, amount: p.amount, email: p.email, company: p.company, category: p.category_slug } }) }) } catch { /* optional */ } }
 }
