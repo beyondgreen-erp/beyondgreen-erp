@@ -1978,6 +1978,8 @@ export default function OrdersPage() {
   const [inventoryCheckOrder, setInventoryCheckOrder] = useState<SalesOrder | null>(null)
   const ms = useMultiSelect<SalesOrder>()
   const [search, setSearch] = useState('')
+  // Deep link: ?q=term pre-fills the search (used by Analytics drill-downs).
+  useEffect(() => { const v = new URLSearchParams(window.location.search).get('q'); if (v) setSearch(v) }, [])
   const [sectionTab, setSectionTab] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
