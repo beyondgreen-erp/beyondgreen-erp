@@ -12,7 +12,7 @@ export default function BulkActionBar({ count, onDelete, onClear, deleting, extr
   if (count === 0) return null
 
   return (
-    <div className="fixed bottom-[calc(72px+env(safe-area-inset-bottom))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-24px)] flex-wrap justify-center bg-white border border-[#E4E6EE] rounded-2xl shadow-xl flex items-center gap-3 px-5 py-3.5">
+    <div className="fixed bottom-[calc(72px+env(safe-area-inset-bottom))] md:bottom-6 left-3 right-3 md:left-1/2 md:right-auto md:-translate-x-1/2 z-50 flex-wrap justify-center bg-white border border-[#E4E6EE] rounded-2xl shadow-xl flex items-center gap-3 px-5 py-3.5">
       <span className="font-medium text-sm" style={{color:'#1A1D2E'}}>{count} selected</span>
       <div className="w-px h-5" style={{background:'#E4E6EE'}} />
       {extraActions}

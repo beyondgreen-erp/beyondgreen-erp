@@ -953,7 +953,7 @@ export default function QuotationsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-4 bg-white border border-[#E4E6EE] rounded-lg p-1 w-fit">
+      <div className="flex items-center gap-1 mb-4 bg-white border border-[#E4E6EE] rounded-lg p-1 w-fit max-w-full overflow-x-auto [scrollbar-width:none] [&>button]:shrink-0 [&>button]:whitespace-nowrap">
         <button
           onClick={() => setActiveTab('quote')}
           className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-md transition-colors ${activeTab === 'quote' ? 'bg-[#3B6FE0] text-white' : 'text-gray-500 hover:text-gray-700'}`}
