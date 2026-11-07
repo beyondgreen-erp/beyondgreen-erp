@@ -755,6 +755,8 @@ export default function InventoryPage() {
   const [allocMap, setAllocMap] = useState<Record<string, { qty: number; orders: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  // Deep link: ?q=term pre-fills the search (used by Analytics drill-downs).
+  useEffect(() => { const v = new URLSearchParams(window.location.search).get('q'); if (v) setSearch(v) }, [])
   const [tabFilter, setTabFilter] = useState('All')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [activeClass, setActiveClass] = useState<string>('All')
