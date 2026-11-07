@@ -31,6 +31,8 @@ const PUBLIC_COLS = 'id, slug, category, category_slug, item, size, flat_size, t
 async function listTemplates() {
   const { data } = await admin.from('site_templates').select(PUBLIC_COLS).eq('is_active', true).order('sort_order').order('item')
   const rows = (data || []) as any[]
+  const ci = (c: string) => { const i = CATEGORY_ORDER.indexOf(c); return i < 0 ? 99 : i }
+  rows.sort((a, b) => ci(a.category) - ci(b.category) || a.category.localeCompare(b.category) || (a.sort_order - b.sort_order))
   const cats = Array.from(new Set(rows.map(r => r.category)))
   cats.sort((a, b) => { const ia = CATEGORY_ORDER.indexOf(a), ib = CATEGORY_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b) })
   return { templates: rows, categories: cats.map(c => ({ name: c, slug: rows.find(r => r.category === c).category_slug, count: rows.filter(r => r.category === c).length })) }
