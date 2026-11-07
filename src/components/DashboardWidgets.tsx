@@ -9,7 +9,6 @@ import TeamPresenceStrip from './TeamPresenceStrip'
 import RawMaterialsPanel from './RawMaterialsPanel'
 import InventoryLinkGaps from './InventoryLinkGaps'
 import ActivityFeedCard from './ActivityFeedCard'
-import ProfitPulseWidget from './analytics/ProfitPulseWidget'
 import RevealGate from './RevealGate'
 import { HiddenUnreadProbe } from './TeamChat'
 
@@ -699,7 +698,6 @@ export const CATALOG: Record<string, CatalogEntry> = {
   notes: { label: 'My Notes', icon: '📝', defaultSize: 'md', category: 'Personal', description: 'Private scratchpad, auto-saved.', render: () => <NotesInline /> },
   quick_links: { label: 'Quick Links', icon: '🔗', defaultSize: 'sm', category: 'Personal', description: 'Bookmark tools & sites.', configurable: true, render: (w, o) => <QuickLinksWidget w={w} onCfg={o} /> },
 
-  profit_pulse: { label: 'Profit Pulse', icon: '📈', defaultSize: 'xl', category: 'KPIs', description: 'Shipped today, month to date, 30-day margin and backlog with a sparkline and alerts. Opens Analytics.', render: () => <ProfitPulseWidget /> },
   kpi_open_orders: { label: 'Open Orders', icon: '📦', defaultSize: 'sm', category: 'KPIs', description: 'Count of open sales orders.', render: () => <KpiOpenOrders /> },
   kpi_orders_per_day: { label: 'Orders / Day', icon: '📈', defaultSize: 'sm', category: 'KPIs', description: 'Average orders per day over the trailing 7 days.', render: () => <KpiOrdersPerDay /> },
   kpi_revenue_mtd: { label: 'Revenue MTD', icon: '💰', defaultSize: 'sm', category: 'KPIs', description: 'Shipped/closed order revenue this month.', render: () => <span data-money-hide><KpiRevenueMTD /></span> },
@@ -736,7 +734,6 @@ function NotesInline() {
    DEFAULT LAYOUT — a nice starter set of widgets
    ============================================================ */
 const DEFAULT_LAYOUT: { type: string; size: WidgetSize; config?: any }[] = [
-  { type: 'profit_pulse', size: 'xl' },
   { type: 'kpi_open_orders', size: 'sm' },
   { type: 'kpi_orders_per_day', size: 'sm' },
   { type: 'kpi_revenue_mtd', size: 'sm' },
