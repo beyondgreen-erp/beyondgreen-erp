@@ -504,7 +504,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
                           {c.attachments.map((a, ai) => (
                             <a key={ai} href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] bg-white border rounded-md px-2 py-1 hover:bg-gray-50" style={{ borderColor: '#E4E6EE', color: '#374151' }}>
-                              <span>📎</span><span className="truncate max-w-[200px]">{a.name}</span>
+                              <span className="truncate max-w-[200px]">{a.name}</span>
                             </a>
                           ))}
                         </div>
@@ -516,7 +516,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
                           style={{ color: (likes[c.id] || []).includes(currentUserEmail) ? '#3B6FE0' : '#9CA3AF' }}
                           title={(likes[c.id] || []).includes(currentUserEmail) ? 'Remove your like' : 'Like / acknowledge this comment'}
                         >
-                          {(likes[c.id] || []).includes(currentUserEmail) ? '👍 Liked' : '👍 Like'}{(likes[c.id]?.length || 0) > 0 ? ' · ' + likes[c.id].length : ''}
+                          {(likes[c.id] || []).includes(currentUserEmail) ? 'Liked' : 'Like'}{(likes[c.id]?.length || 0) > 0 ? ' · ' + likes[c.id].length : ''}
                         </button>
                         {!c.parent_id && (
                           <button
@@ -612,7 +612,7 @@ export default function Comments({ recordId, recordType, currentUserEmail, title
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => { const fs = Array.from(e.target.files || []); setPendingFiles(pf => [...pf, ...fs]); if (e.target) e.target.value = '' }} />
-                <button onClick={() => fileInputRef.current?.click()} className="text-[11px] flex items-center gap-1 transition-colors" style={{ color: '#6B7280' }}>📎 Attach</button>
+                <button onClick={() => fileInputRef.current?.click()} className="text-[11px] flex items-center gap-1 transition-colors" style={{ color: '#6B7280' }}>Attach</button>
                 <p className="text-[10px]" style={{ color: '#9CA3AF' }}>@ to mention · ⌘↵ to post</p>
               </div>
               <button
