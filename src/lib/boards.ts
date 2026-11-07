@@ -63,6 +63,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/bizdev/documents', label: 'Document Repository', icon: 'ti-folder', nav_group: 'Business Development', href: '/bizdev/documents', sort_order: 2 },
   { board_key: '/bizdev/business-reports', label: 'Business Reports', icon: 'ti-report-analytics', nav_group: 'Business Development', href: '/bizdev/business-reports', sort_order: 3 },
   { board_key: '/marketing/templates', label: 'Die Line Templates', icon: 'ti-template', nav_group: 'Business Development', href: '/marketing/templates', sort_order: 21 },
+  { board_key: '/marketing/design-center', label: 'Design Center', icon: 'ti-palette', nav_group: 'Business Development', href: '/marketing/design-center', sort_order: 22 },
   { board_key: '/bizdev/vault', label: 'Vault', icon: 'ti-lock', nav_group: 'Business Development', href: '/bizdev/vault', sort_order: 4 },
   { board_key: '/bizdev/university', label: 'beyondGREEN University', icon: 'ti-school', nav_group: 'Business Development', href: '/bizdev/university', sort_order: 5 },
   { board_key: '/beyondworld', label: 'beyondWorld', icon: 'ti-device-gamepad-2', nav_group: 'Business Development', href: '/beyondworld', sort_order: 6 },

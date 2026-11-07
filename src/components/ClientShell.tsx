@@ -56,6 +56,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/bizdev/certifications': 'Certifications',
   '/bizdev/documents': 'Documents',
   '/marketing/templates': 'Die Line Templates',
+  '/marketing/design-center': 'Design Center',
   '/settings': 'Settings',
   '/settings/profile': 'My Profile',
   '/settings/team': 'Team',
