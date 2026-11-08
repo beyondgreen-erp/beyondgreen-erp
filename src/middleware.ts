@@ -120,6 +120,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/portal') ||
     pathname.startsWith('/ship-docs') ||
     pathname.startsWith('/forms') ||
+    pathname.startsWith('/outlook-addin/') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/offline') ||
