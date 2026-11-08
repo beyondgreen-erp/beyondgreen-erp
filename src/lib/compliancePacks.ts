@@ -85,7 +85,7 @@ function coverPdf(f: any, included: any[], onRequest: string[]): Uint8Array {
 }
 
 // Build (or reuse today's) pack ZIP and return a short-lived download link.
-export async function packUrl(familyKey: string): Promise<{ url: string; name: string } | null> {
+export async function packUrl(familyKey: string, ttl = 300): Promise<{ url: string; name: string } | null> {
   const { data: f } = await admin.from('site_compliance_families').select('*').eq('key', familyKey).eq('is_active', true).maybeSingle()
   if (!f) return null
   const { data: rows } = await admin.from('site_compliance_docs').select('document_id, label, kind, covers, expires, sort, documents(title, source_file_path, updated_at, is_active)').eq('family_key', familyKey).eq('is_active', true).order('sort')
@@ -113,7 +113,7 @@ export async function packUrl(familyKey: string): Promise<{ url: string; name: s
     const up = await admin.storage.from(PACK_BUCKET).upload(path, zip, { contentType: 'application/zip', upsert: true })
     if (up.error) return null
   }
-  const { data: s } = await admin.storage.from(PACK_BUCKET).createSignedUrl(path, 300, { download: zipName })
+  const { data: s } = await admin.storage.from(PACK_BUCKET).createSignedUrl(path, ttl, { download: zipName })
   return s?.signedUrl ? { url: s.signedUrl, name: zipName } : null
 }
 
