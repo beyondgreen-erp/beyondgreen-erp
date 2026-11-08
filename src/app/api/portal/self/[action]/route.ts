@@ -309,7 +309,7 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 const TOPIC_ROUTE: Record<string, string[]> = {}
-const SALES_TOPICS = ['Buy for my business', 'Contract manufacturing', 'Private label', 'Custom printing', 'Order support', 'Samples', 'Distributor or reseller', 'Spec sheet request', 'Spork pre-order']
+const SALES_TOPICS = ['Buy for my business', 'Contract manufacturing', 'Private label', 'Custom printing', 'Order support', 'Samples', 'Distributor or reseller', 'Spec sheet request', 'Spork pre-order', 'US cup pre-launch']
 
 async function websiteForm(req: NextRequest, body: any): Promise<NextResponse> {
   const h = corsHeaders(req)
@@ -337,7 +337,7 @@ async function websiteForm(req: NextRequest, body: any): Promise<NextResponse> {
   if (num(body.t) && Date.now() - num(body.t) < 2500) return out({ ok: true })
   const name = str(body.name, 120), email = str(body.email, 200).toLowerCase(), company = str(body.company, 200)
   const topic = str(body.topic, 80) || str(body.kind, 40) || 'General'
-  const message = str(body.message, 5000) || (topic === 'Spork pre-order' ? `Joined the spork launch list (Q1 2027).${str(body.volume) ? ' Estimated volume: ' + str(body.volume, 80) + '.' : ''}` : '')
+  const message = str(body.message, 5000) || (topic === 'Spork pre-order' ? `Joined the spork launch list (Q1 2027).${str(body.volume) ? ' Estimated volume: ' + str(body.volume, 80) + '.' : ''}` : topic === 'US cup pre-launch' ? `Joined the US cup pre-launch list (Q1 2027).${str(body.item) ? ' Sizes: ' + str(body.item, 80) + '.' : ''}${str(body.volume) ? ' Volume: ' + str(body.volume, 80) + '.' : ''}` : '')
   if (!name) return out({ error: 'Please enter your name.' }, 400)
   if (!EMAIL_RE.test(email)) return out({ error: 'Please enter a valid email.' }, 400)
   if (!message && body.kind !== 'careers') return out({ error: 'Please add a short message.' }, 400)
