@@ -34,7 +34,12 @@ const bounced = (r: Row) => r.status === 'bounced'
 const opens = (r: Row) => r.open_count || 0
 const clicks = (r: Row) => r.click_count || 0
 const isHot = (r: Row) => !replied(r) && !bounced(r) && (clicks(r) > 0 || opens(r) >= 2)
-const company = (r: Row) => r.customers?.company_name || (r.subject || '').replace(/^.*kits for /, '').replace(/, samples on us$/, '') || r.to_email || ''
+const company = (r: Row) => {
+  if (r.customers?.company_name) return r.customers.company_name
+  const s = r.subject || ''
+  if (/^Made in Santa Ana:/.test(s)) return s.replace(/^.*kits for /, '').replace(/, samples on us$/, '')
+  return (r.to_email || '').split('@')[1] || r.to_email || ''
+}
 
 function deviceLabel(ua?: string | null) {
   const u = ua || ''
@@ -165,7 +170,7 @@ export default function EmailTrackingPage() {
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold">CRM</p>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1">Email Tracking</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Opens, clicks and replies for every tracked email sent from rudy@beyondgreenbiotech.com.</p>
+          <p className="text-gray-500 text-sm mt-0.5">Opens, clicks and replies for every tracked email sent from rudy@beyondgreenbiotech.com, including emails sent by hand through the Outlook tracking add-in.</p>
         </div>
         <button onClick={load} className="px-3 py-2 rounded-lg border border-[#E4E6EE] bg-white text-sm font-semibold text-gray-700">↻ Refresh</button>
       </div>
@@ -272,7 +277,7 @@ function FragmentRow({ r, i, isOpen, onToggle, detail }: { r: Row; i: number; is
   return (
     <>
       <tr onClick={onToggle} className={`cursor-pointer hover:bg-[#F2F6FF] ${i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}`}>
-        <td className="px-3 py-2 font-semibold text-[#1A1D2E]">{isHot(r) && <span title="Hot lead">🔥 </span>}{company(r)}</td>
+        <td className="px-3 py-2 font-semibold text-[#1A1D2E]">{isHot(r) && <span title="Hot lead">🔥 </span>}{company(r)}<p className="text-[10px] font-normal text-gray-400 truncate max-w-[280px]" title={r.subject || ''}>{r.subject}</p></td>
         <td className="px-3 py-2 text-gray-600">{r.customers?.contact_name || ''} <a href={`mailto:${r.to_email}`} onClick={e => e.stopPropagation()} className="text-[#3B6FE0] break-all">{r.to_email}</a></td>
         <td className="px-3 py-2 text-gray-500">{fmtDT(r.sent_at)}</td>
         <td className="px-3 py-2"><StatusPill r={r} /></td>
