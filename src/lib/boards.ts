@@ -33,6 +33,7 @@ export const BUILTIN_BOARDS: Board[] = [
   { board_key: '/sales/customers', label: 'Customer/Leads', icon: 'ti-users', nav_group: 'CRM', href: '/sales/customers', sort_order: 0 },
   { board_key: '/sales/leads', label: 'Scraped Repository', icon: 'ti-database-search', nav_group: 'CRM', href: '/sales/leads', sort_order: 1 },
   { board_key: '/operations/samples', label: 'Sample Submissions', icon: 'ti-flask', nav_group: 'CRM', href: '/operations/samples', sort_order: 2 },
+  { board_key: '/sales/email-tracking', label: 'Email Tracking', icon: 'ti-mail-opened', nav_group: 'CRM', href: '/sales/email-tracking', sort_order: 3 },
   { board_key: '/sales/quotes', label: 'Quotes & Costing', icon: 'ti-file-invoice', nav_group: 'Sales', href: '/sales/quotes', sort_order: 0 },
   { board_key: '/sales/orders', label: 'Order Pipeline', icon: 'ti-shopping-cart', nav_group: 'Sales', href: '/sales/orders', sort_order: 2 },
   { board_key: '/production/shipping-queue', label: 'Shipping Queue', icon: 'ti-truck', nav_group: 'Sales', href: '/production/shipping-queue', sort_order: 3 },
