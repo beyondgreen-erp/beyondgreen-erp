@@ -667,7 +667,7 @@ function DigitalWo({ sb, wo, rows, pos, steps, stock, canEdit, busy, onClose, on
                 <thead><tr className="text-left text-[10px] uppercase tracking-wide text-gray-400">
                   <th className="px-2 py-1.5">SKU</th>
                   {steps.length > 1 && steps.slice(0, -1).map(g => <th key={g} className="px-2 py-1.5 text-right">{cap(g)} pcs</th>)}
-                  <th className="px-2 py-1.5 text-right">{steps.length > 1 ? cap(steps[steps.length - 1]) + ' · cases' : 'Cases made'}</th>
+                  <th className="px-2 py-1.5 text-right">{steps.length > 1 ? (steps[steps.length - 1] === 'wrapping' && rows.some(r => isUnwrapped(r.sku, r.product_name)) ? (rows.every(r => isUnwrapped(r.sku, r.product_name)) ? 'Packed' : 'Wrapped / packed') : cap(steps[steps.length - 1])) + ' · cases' : 'Cases made'}</th>
                   <th className="px-2 py-1.5 text-right">Target</th><th className="px-2 py-1.5 text-right">Left</th><th className="px-2 py-1.5 text-right">Free stock</th></tr></thead>
                 <tbody>{rows.map(r => {
                   const k = kOf(r.std_pcs, r.pack_pcs), st = stock.find(x => x.sku === r.sku)
