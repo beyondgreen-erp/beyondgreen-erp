@@ -53,6 +53,8 @@ const STAGE_LABEL: Record<string, string> = { extrusion: 'Extrusion', bending: '
 const ALL_STEPS = ['extrusion', 'bending', 'wrapping']
 /** best guess from the straws on the order: extrusion always, bending for bent/flex, wrapping for wrapped */
 const isUnwrapped = (sku: string, name?: string | null) => /unwrap/i.test(name || '') || /-UW/i.test(sku)
+/** step name for one straw: unwrapped straws are not wrapped, so their last step is packing into cases */
+const stepLabel = (g: string, sku?: string | null, name?: string | null) => (g === 'wrapping' && sku && isUnwrapped(sku, name) ? 'Pack into cases' : STAGE_LABEL[g] || (g.charAt(0).toUpperCase() + g.slice(1)))
 /** unwrapped straws are extrusion only */
 const allUnwrapped = (lines: { sku: string; product_name?: string | null }[]) => lines.length > 0 && lines.every(l => isUnwrapped(l.sku, l.product_name))
 function suggestSteps(lines: { sku: string; product_name?: string | null }[]): string[] {
@@ -379,7 +381,7 @@ export default function StrawProductionPage() {
                                 {i > 0 && <span className="text-gray-300">→</span>}
                                 <span className={`text-[11px] font-semibold px-2 py-1 rounded-lg border ${last ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-[#E4E6EE] bg-[#FAFBFD] text-[#3A4A6B]'}`}
                                   title={i === 0 ? 'Resin, color and additives come out of inventory here. Straws are not in inventory yet.' : last ? 'Final step: packaging comes out and finished cases go into inventory.' : 'No materials taken, nothing added to inventory.'}>
-                                  {i + 1}. {STAGE_LABEL[g] || g} · {last ? `${fmtN(made)} cases` : `${fmtN(pcs)} pcs`}{i === 0 ? ' · takes resin' : ''}{last ? ' · to inventory' : ''}
+                                  {i + 1}. {g === 'wrapping' && (rows || []).some((r: any) => isUnwrapped(r.sku, r.product_name)) ? 'Wrap / pack' : STAGE_LABEL[g] || g} · {last ? `${fmtN(made)} cases` : `${fmtN(pcs)} pcs`}{i === 0 ? ' · takes resin' : ''}{last ? ' · to inventory' : ''}
                                 </span>
                               </span>)
                           })}
@@ -623,8 +625,8 @@ function DigitalWo({ sb, wo, rows, pos, steps, stock, canEdit, busy, onClose, on
   const cap = (g: string) => g.charAt(0).toUpperCase() + g.slice(1)
   const liveProd = prodE.filter(e => !e.voided_at)
   const log = [
-    ...liveProd.map(e => ({ key: 'p' + e.id, at: e.created_at, date: e.production_date, step: steps.length > 1 ? cap(steps[steps.length - 1]) : 'Production', sku: e.sku, qty: `${fmtN(e.qty)} case(s)`, who: e.entered_by, note: e.note, inv: true, undo: () => onUndoEntry(e.id, `${fmtN(e.qty)} case(s) of ${e.sku}`) })),
-    ...stageE.map(e => ({ key: 's' + e.id, at: e.created_at, date: e.production_date, step: cap(e.stage), sku: e.sku, qty: `${fmtN(e.pcs)} pcs`, who: e.entered_by, note: e.note, inv: false, undo: () => onUndoStage(e) })),
+    ...liveProd.map(e => ({ key: 'p' + e.id, at: e.created_at, date: e.production_date, step: steps.length > 1 ? stepLabel(steps[steps.length - 1], e.sku, rows.find(r => r.sku === e.sku)?.product_name) : 'Production', sku: e.sku, qty: `${fmtN(e.qty)} case(s)`, who: e.entered_by, note: e.note, inv: true, undo: () => onUndoEntry(e.id, `${fmtN(e.qty)} case(s) of ${e.sku}`) })),
+    ...stageE.map(e => ({ key: 's' + e.id, at: e.created_at, date: e.production_date, step: stepLabel(e.stage, e.sku, rows.find(r => r.sku === e.sku)?.product_name), sku: e.sku, qty: `${fmtN(e.pcs)} pcs`, who: e.entered_by, note: e.note, inv: false, undo: () => onUndoStage(e) })),
   ].sort((a, b) => String(b.at).localeCompare(String(a.at)))
   const w = det?.wo || {}
   const info: [string, string][] = [
@@ -772,7 +774,7 @@ function LogSheet({ sb, stock, wos, prog, today, stagesBy, onClose, onSaved }: {
       const { data, error } = pk
         ? await sb.rpc('straw_record_production_pack', { p_sku: r.sku, p_packs: c, p_pack_pcs: pk, p_date: date, p_wo: woId || null, p_note: nt })
         : await sb.rpc('straw_record_production', { p_sku: r.sku, p_qty: c, p_date: date, p_wo: woId || null, p_note: nt })
-      if (error) bad.push(`${r.sku}: ${error.message}`); else { ok.push(`${multi ? cap(finalStep) + ' ' : ''}${fmtN(c)} case(s)${inPcs ? ` (${fmtN(q)} pcs)` : ''} ${r.sku}`); if ((data as any)?.id) ids.push((data as any).id) }
+      if (error) bad.push(`${r.sku}: ${error.message}`); else { ok.push(`${multi ? stepLabel(finalStep, r.sku, stock.find(s => s.sku === r.sku)?.product_name) + ' ' : ''}${fmtN(c)} case(s)${inPcs ? ` (${fmtN(q)} pcs)` : ''} ${r.sku}`); if ((data as any)?.id) ids.push((data as any).id) }
     }
     setBusy(false)
     if (bad.length) { setErr((ok.length ? `Saved: ${ok.join(', ')}. ` : '') + 'Not saved — ' + bad.join(' · ')); return }
@@ -823,7 +825,7 @@ function LogSheet({ sb, stock, wos, prog, today, stagesBy, onClose, onSaved }: {
                   return (
                     <div key={g}>
                       <label className="flex items-center gap-2">
-                        <span className={`w-28 shrink-0 text-xs font-semibold ${last ? 'text-emerald-800' : 'text-[#3A4A6B]'}`}>{si + 1}. {cap(g)}</span>
+                        <span className={`w-28 shrink-0 text-xs font-semibold ${last ? 'text-emerald-800' : 'text-[#3A4A6B]'}`}>{si + 1}. {stepLabel(g, r.sku, stock.find(s => s.sku === r.sku)?.product_name)}</span>
                         <input inputMode="decimal" value={r.sq[g] || ''} onChange={e => setStep(i, g, e.target.value.replace(/[^0-9.]/g, ''))}
                           placeholder={last ? (inPcs ? 'Straws (pcs) → cases' : 'Cases') : 'Straws (pcs)'} className={inp} />
                       </label>
