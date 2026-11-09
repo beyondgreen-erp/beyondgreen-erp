@@ -94,6 +94,37 @@ function NumInput({ value, onCommit, min = 0, className }: { value: number; onCo
     onBlur={() => { focused.current = false; if (txt === '') setTxt(String(value ?? '')) }} />
 }
 
+// Case quantities for one SKU line: a one-line summary ("6 x 500 + 1 x 600") and, on demand,
+// one box per case so an uneven split can be entered. Shipped follows what is in the cases.
+function CaseSplit({ boxes, upc, uom, onUnits, onRemove, onAdd }: { boxes: BoxSpec[]; upc: number; uom?: string; onUnits: (bi: number, n: number) => void; onRemove: (bi: number) => void; onAdd: () => void }) {
+  const [open, setOpen] = useState(false)
+  const groups: { units: number; n: number }[] = []
+  for (const b of boxes) { const g = groups[groups.length - 1]; if (g && g.units === b.units) g.n++; else groups.push({ units: b.units, n: 1 }) }
+  const summary = groups.map(g => `${g.n} \u00d7 ${g.units.toLocaleString('en-US')}`).join(' + ')
+  const uneven = groups.length > 1
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center gap-2 text-[11px]">
+        <span className="text-gray-500">Cases: <b className={uneven ? 'text-[#1A1D2E]' : 'text-gray-600'}>{summary}</b> {uom || ''}</span>
+        <button type="button" onClick={() => setOpen(o => !o)} className="text-[#0086C0] font-semibold hover:underline">{open ? 'Done' : 'Edit case quantities'}</button>
+      </div>
+      {open && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {boxes.map((b, bi) => (
+            <span key={bi} className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[11px]">
+              <span className="text-gray-400">#{bi + 1}</span>
+              <NumInput min={0} value={b.units} onCommit={n => onUnits(bi, n)} className="w-14 text-right rounded border border-gray-300 px-1 py-0.5" />
+              {boxes.length > 1 && <button type="button" onClick={() => onRemove(bi)} title="Remove this case" className="text-gray-300 hover:text-red-500">\u2715</button>}
+            </span>
+          ))}
+          <button type="button" onClick={onAdd} className="text-[11px] font-semibold text-[#00A84F] hover:underline">+ Add case</button>
+          <span className="text-[10.5px] text-gray-400 w-full">Change a case&apos;s quantity or remove a case for an uneven split, for example 6 cases of {upc.toLocaleString('en-US')} and 1 case of {(upc + 100).toLocaleString('en-US')}. Labels, packing list and BOL follow these cases.</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function makeBoxes(shipped: number, upc: number, prev: BoxSpec[] | undefined, defWt = 0): BoxSpec[] {
   const per = Math.max(1, upc || 1)
   const s = Math.max(0, Math.round(shipped || 0))
@@ -599,7 +630,8 @@ export default function ShippingQueuePage() {
       const upc = r.unitsPerCase || 1
       const shipped = Math.max(1, v || 1) * upc   // boxes the user asks for; overage allowed
       const boxes = makeBoxes(shipped, upc, r.boxes, r.caseWeightLb)
-      return { ...r, shippedUnits: sumBoxUnits(boxes), cases: boxes.length }
+      // The box list has to change with the count, or labels and the packing list keep the old split.
+      return { ...r, boxes, shippedUnits: sumBoxUnits(boxes), cases: boxes.length }
     }))
     invalidateBol()
   }
@@ -651,6 +683,24 @@ export default function ShippingQueuePage() {
       const boxes = r.boxes.map((b, k) => k === bi ? { ...b, units: Math.max(0, v || 0) } : b)
       const shipped = sumBoxUnits(boxes)   // overage allowed — actual boxed quantity
       return { ...r, boxes, shippedUnits: shipped }
+    }))
+    invalidateBol()
+  }
+  // Uneven cases (e.g. 6 x 500 + 1 x 600): remove or add a single case; shipped = what is boxed.
+  function removeBox(i: number, bi: number) {
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i || r.boxes.length <= 1) return r
+      const boxes = r.boxes.filter((_, k) => k !== bi)
+      return { ...r, boxes, shippedUnits: sumBoxUnits(boxes), cases: boxes.length }
+    }))
+    invalidateBol()
+  }
+  function addBox(i: number) {
+    setPlan(p => p.map((r, idx) => {
+      if (idx !== i) return r
+      const last = r.boxes[r.boxes.length - 1]
+      const boxes = [...r.boxes, { units: r.unitsPerCase || 1, lengthIn: last?.lengthIn || 0, widthIn: last?.widthIn || 0, heightIn: last?.heightIn || 0, weightLb: last?.weightLb ?? r.caseWeightLb }]
+      return { ...r, boxes, shippedUnits: sumBoxUnits(boxes), cases: boxes.length }
     }))
     invalidateBol()
   }
@@ -1048,13 +1098,16 @@ export default function ShippingQueuePage() {
     // balance) — one label per case in the whole order. Everything else (recorded
     // shipped qty, invoice, ship report, pallet allocation) still uses the actual
     // shipped amount; only the printed labels reflect the order total.
-    const orderCasesFor = (r: PlanRow) => Math.max(r.cases || 0, Math.ceil((r.units || 0) / (r.unitsPerCase || 1)))
+    // A custom split (a case holding more than the standard case qty, e.g. 6 x 500 + 1 x 600)
+    // prints exactly the cases entered, each with its own quantity.
+    const customSplit = (r: PlanRow) => r.boxes.some(b => (b.units || 0) > (r.unitsPerCase || 1))
+    const orderCasesFor = (r: PlanRow) => customSplit(r) ? r.boxes.length : Math.max(r.cases || 0, Math.ceil((r.units || 0) / (r.unitsPerCase || 1)))
     // Number cases per SKU: each SKU restarts at 1 and shows its own order total
     // (e.g. "Case 1 of 2242" for the fork), not a combined grand total.
     for (const r of plan) { const orderCases = orderCasesFor(r); for (let n = 1; n <= orderCases; n++) { cases.push({
       sku: r.sku, description: r.description, upcGtin: r.upc,
       gtinImageDataUrl: r.gtinImageUrl ? map[r.gtinImageUrl] || null : null,
-      customerPartNumber: r.customerPart, vendorPartNumber: r.sku, caseNumber: n, totalCases: orderCases, unitsInCase: r.unitsPerCase,
+      customerPartNumber: r.customerPart, vendorPartNumber: r.sku, caseNumber: n, totalCases: orderCases, unitsInCase: (customSplit(r) ? r.boxes[n - 1]?.units : undefined) ?? r.unitsPerCase,
     }) } }
     const miss = missingUpcSkus(cases)
     if (miss.length) { setMissing(miss); setBusy(''); return }
@@ -1997,6 +2050,8 @@ export default function ShippingQueuePage() {
                                     <div className="text-center w-[64px]"><label className={lbl}>Total Cases</label><div className="text-sm font-semibold text-[#1A1D2E] py-1">{r.boxes.length}</div></div>
                                     <button onClick={() => removeLine(i)} className="ml-auto text-gray-300 hover:text-red-500 text-sm self-start" title="Remove this SKU from the shipment">✕</button>
                                   </div>
+                                  <CaseSplit boxes={r.boxes} upc={r.unitsPerCase || 1} uom={r.uom}
+                                    onUnits={(bi, n) => setBoxUnits(i, bi, n)} onRemove={bi => removeBox(i, bi)} onAdd={() => addBox(i)} />
                                   {over && <div className="text-[11px] text-amber-700 mt-1">Overage — shipping {(r.shippedUnits - r.units).toLocaleString('en-US')} {r.uom || 'ea'} more than ordered. Billing &amp; docs will reflect the shipped quantity; the order quantity stays {r.units.toLocaleString('en-US')}.</div>}
                                   {parcel && boxConfigs.length === 0 && (
                                   <div className="mt-2 border-t border-gray-200 pt-2">
