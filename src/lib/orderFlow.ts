@@ -885,24 +885,17 @@ export async function shipOrder(
     }
   }
 
-  // 3. Partial invoice for the shipped value only
-  const invNum = 'INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5)
-  const { data: invoice, error: invErr } = await sb.from('invoices').insert({
-    invoice_number: invNum, invoice_number_display: invNum, invoice_type: 'invoice',
-    customer_id: (order as any)?.customer_id ?? null, sales_order_id: orderId,
-    invoice_date: today, due_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-    status: 'pending', subtotal: shippedValue, total_amount: shippedValue, balance_due: shippedValue,
-    amount_paid: 0, payment_terms: 'Net 30', po_number: orderRef,
-    notes: `Auto-created for shipment on ${shipDate}: ${shippedSummary}`,
-  }).select('id').maybeSingle()
-  if (invErr) console.error('invoice insert error:', invErr.message)
-  if ((invoice as any)?.id) {
-    const rows = toShip.map(l => ({
-      invoice_id: (invoice as any).id, sku: l.sku ?? null, description: l.description ?? '',
-      quantity: l.qtyToShip, unit_price: l.unit_price ?? 0, uom: l.unit_of_measure ?? null,
-      line_total: l.qtyToShip * (l.unit_price ?? 0),
-    }))
-    if (rows.length) await sb.from('invoice_line_items').insert(rows)
+  // 3. Invoice for the shipped value only.
+  //
+  // Uses the same database billing routine the shipment trigger uses (numbering, invoice
+  // lines from the shipment lines above, link back to the shipment, finance alert). The
+  // old direct insert wrote text into the numeric invoice number, failed every time, and
+  // left shipments from this flow with no invoice.
+  let invoice: { id: string } | null = null
+  if (shipmentId) {
+    const { data: invId, error: invErr } = await sb.rpc('create_bill_for_shipment', { p_shipment_id: shipmentId })
+    if (invErr) console.error('invoice create error:', invErr.message)
+    if (invId) invoice = { id: invId as string }
   }
 
   // 4. Fully vs partially shipped (re-read all lines)
@@ -925,7 +918,7 @@ export async function shipOrder(
 
   // 5. Log + notify
   try {
-    await sb.from('comments').insert({ record_type: 'sales_order', record_id: orderId, author_email: 'system', content: `${fullyShipped ? 'Shipped' : 'Partially shipped'}: ${shippedSummary} · Invoice ${invNum}` })
+    await sb.from('comments').insert({ record_type: 'sales_order', record_id: orderId, author_email: 'system', content: `${fullyShipped ? 'Shipped' : 'Partially shipped'}: ${shippedSummary}${(invoice as any)?.id ? ' · Draft invoice created' : ' · Invoice NOT created, please check Invoices'}` })
     for (const r of ['rudyp@beyondgreenbiotech.com', 'accounting@byndgrn.com']) {
       await sb.from('notifications').insert({ recipient_email: r, sender_email: 'system', message: `Order ${orderRef}${customerName ? ` (${customerName})` : ''} ${fullyShipped ? 'shipped' : 'partially shipped'}: ${shippedSummary}`, page: 'Shipping Queue', is_read: false, context_url: `/sales/orders?item=${orderId}` })
     }
@@ -935,7 +928,7 @@ export async function shipOrder(
 
   return {
     success: true,
-    message: fullyShipped ? `Shipped ✓  Invoice ${invNum} created` : `Partial shipment ✓  Invoice ${invNum} · order stays in queue`,
+    message: fullyShipped ? `Shipped ✓  Draft invoice created` : `Partial shipment ✓  Draft invoice created · order stays in queue`,
     undoData: { action: 'undo_ship', orderId, prevStatus: ((order as any)?.status ?? 'Ready to Ship'), invoiceId: (invoice as any)?.id, shipmentId: (shipment as any)?.id, inventoryChanges, shippedLines: toShip.map(l => ({ id: l.id, qty: l.qtyToShip })) },
   }
 }
