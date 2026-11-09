@@ -114,7 +114,7 @@ function CaseSplit({ boxes, upc, uom, onUnits, onRemove, onAdd }: { boxes: BoxSp
             <span key={bi} className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[11px]">
               <span className="text-gray-400">#{bi + 1}</span>
               <NumInput min={0} value={b.units} onCommit={n => onUnits(bi, n)} className="w-14 text-right rounded border border-gray-300 px-1 py-0.5" />
-              {boxes.length > 1 && <button type="button" onClick={() => onRemove(bi)} title="Remove this case" className="text-gray-300 hover:text-red-500">\u2715</button>}
+              {boxes.length > 1 && <button type="button" onClick={() => onRemove(bi)} title="Remove this case" className="text-gray-300 hover:text-red-500">{"\u2715"}</button>}
             </span>
           ))}
           <button type="button" onClick={onAdd} className="text-[11px] font-semibold text-[#00A84F] hover:underline">+ Add case</button>
