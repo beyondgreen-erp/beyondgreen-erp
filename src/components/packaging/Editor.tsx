@@ -107,6 +107,8 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
 
   // history
   const histRef = useRef<{ stack: string[]; idx: number; lock: boolean }>({ stack: [], idx: -1, lock: false })
+  // commits that are not artwork edits (import itself, loading a version) do not mark the original as edited
+  const noEditMark = useRef(false)
   const saveTimer = useRef<any>(null)
   const savingRef = useRef<{ busy: boolean; again: boolean }>({ busy: false, again: false })
   const clipboardRef = useRef<any[] | null>(null)
@@ -268,6 +270,8 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     h.stack = h.stack.slice(0, h.idx + 1); h.stack.push(s)
     if (h.stack.length > 60) h.stack.shift()
     h.idx = h.stack.length - 1
+    const src = (docRef.current as any).source
+    if (src && !noEditMark.current && !src.edited) src.edited = true
     setObjList(n => n + 1)
     scheduleSave()
   }, [scheduleSave])
@@ -1022,6 +1026,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       const res = await importFile(file, s => setImporting(s), { text: o.text })
       const isVector = !(res.kind === 'png' || res.kind === 'jpg')
       const empty = !(fc.getObjects() as any[]).some(x => !x.isHelper)
+      let newSource = false
       // keep the uploaded file byte-for-byte: printers always get exactly what we uploaded
       if (isVector && (o.target === 'replace' || empty)) {
         setImporting('Storing the original file…')
@@ -1030,7 +1035,8 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
         const path = `designs/${design.id}/source/${sha.slice(0, 16)}-${safeFileName(file.name)}`
         const up = await sb.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream', cacheControl: '31536000' })
         if (up.error && !/exists/i.test(up.error.message)) throw new Error('Could not store the original file: ' + up.error.message)
-        docRef.current.source = { path, name: file.name, size: file.size, sha256: sha, uploaded_at: new Date().toISOString(), uploaded_by: user.email, text: o.text }
+        docRef.current.source = { path, name: file.name, size: file.size, sha256: sha, uploaded_at: new Date().toISOString(), uploaded_by: user.email, text: o.text, edited: false, import_warnings: res.warnings || [] }
+        newSource = true
         try { docRef.current.spec = await extractSpec(new Uint8Array(bytes), file.name, sha, s => setImporting(s)) } catch (e: any) { console.warn('spec', e) }
         logActivity(sb, design.id, user, o.target === 'replace' ? 'artwork_replaced' : 'original_uploaded', { file: file.name, size: file.size, sha256: sha })
       }
@@ -1087,7 +1093,9 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       for (const obj of placed) { obj.setCoords(); addObject(obj, { layerId, select: false }) }
       histRef.current.lock = false
       syncGroupInteractivity(); setObjList(n => n + 1)
+      noEditMark.current = newSource
       commit()
+      noEditMark.current = false
       if (!layer?.locked && placed.length) {
         fc.discardActiveObject()
         fc.setActiveObject(placed.length === 1 ? placed[0] : new fabric.ActiveSelection(placed, { canvas: fc }))
@@ -1164,7 +1172,7 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
       await restore(fc, doc, async (path) => { const { data } = await sb.storage.from(BUCKET).download(path); return URL.createObjectURL(data!) })
       applyLayerStates(); syncLayersState(); setSwatches(doc.swatches || [])
       setArtboard({ w: doc.width, h: doc.height, unit: doc.unit })
-      histRef.current.lock = false; commit(); fitToScreen()
+      histRef.current.lock = false; noEditMark.current = true; commit(); noEditMark.current = false; fitToScreen()
     },
     focusComment,
     getProofInfo: () => { if (fcRef.current) rebuildProof(); return docRef.current.proof || null },

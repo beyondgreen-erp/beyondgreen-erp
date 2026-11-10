@@ -6,6 +6,7 @@ import { BUCKET, safeFileName, type DesignRow } from '@/lib/packaging/doc'
 import { FORMATS, DEFAULT_EXPORT, exportDesign, exportProofSheet, zipFiles, downloadBlob, type ExportFormat, type ExportOptions } from '@/lib/packaging/exporters'
 import type { EditorHandle } from './Editor'
 import { logActivity } from '@/lib/packaging/activity'
+import { ghostscriptToPdf, ghostscriptPdfToEps, renderPdfPage } from '@/lib/packaging/importers'
 
 interface FileRow { id: string; design_id: string; version_id: string | null; format: string; file_name: string; file_path: string; size_bytes: number | null; options: any; created_by: string | null; created_at: string }
 
@@ -25,6 +26,23 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
   const [warnings, setWarnings] = useState<string[]>([])
   const [files, setFiles] = useState<FileRow[]>([])
   const [msg, setMsg] = useState('')
+  // The uploaded original (byte-for-byte). When it has not been edited in the editor, printer files
+  // are made from it directly, so no part of the artwork or its colors is redrawn.
+  const [src, setSrc] = useState<any>(null)
+  const [fromOriginal, setFromOriginal] = useState<boolean | null>(null)
+  useEffect(() => {
+    let n = 0
+    const t = setInterval(() => {
+      const d: any = editor.current?.getDoc()
+      if (d || ++n > 40) {
+        clearInterval(t)
+        const s0 = d?.source || null
+        setSrc(s0)
+        setFromOriginal(f => f ?? !!(s0?.path && !s0.edited))
+      }
+    }, 500)
+    return () => clearInterval(t)
+  }, [editor])
 
   const load = useCallback(async () => {
     const { data } = await sb.from('packaging_design_files').select('*').eq('design_id', design.id).order('created_at', { ascending: false })
@@ -41,18 +59,55 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
     const doc = ed.getExportDoc()
     const out: { name: string; blob: Blob; fmt: string }[] = []
     const warn = new Set<string>()
+    const source: any = (ed.getDoc() as any)?.source || null
+    let origBytes: Uint8Array | null = null
+    const readOriginal = async () => {
+      if (origBytes) return origBytes
+      const { data: blob, error } = await sb.storage.from(BUCKET).download(source.path)
+      if (error || !blob) throw new Error('Could not read the stored original file')
+      origBytes = new Uint8Array(await blob.arrayBuffer())
+      return origBytes
+    }
+    const useOrig = !!(fromOriginal && source?.path)
+    let origPdf: Uint8Array | null = null, origKind = ''
+    if (useOrig) {
+      setBusy('Reading the original file…')
+      const b = await readOriginal()
+      const head = new TextDecoder('latin1').decode(b.slice(0, 1024))
+      origKind = head.includes('%PDF') ? 'pdf' : head.startsWith('%!PS-Adobe') && head.includes('EPSF') ? 'eps' : head.startsWith('%!') ? 'ps' : (b[0] === 0xc5 && b[1] === 0xd0) ? 'eps' : ''
+      if (origKind === 'pdf') origPdf = b
+      else if (origKind) { setBusy('Converting the original to PDF (no redraw)…'); origPdf = await ghostscriptToPdf(b, origKind as any, false) }
+    }
+    if (useOrig && !origPdf) warn.add('The original file is not a PDF, AI or EPS, so the files below were redrawn by the editor. Check colors and artwork before sending to a printer.')
+    let redrawn = false
     for (const fmt of FORMATS.map(f => f.key).filter(k => formats.includes(k))) {
+      if (origPdf && (fmt === 'pdf' || fmt === 'ai' || fmt === 'eps' || fmt === 'png' || fmt === 'jpg')) {
+        setBusy(`Making ${fmt.toUpperCase()} from the original…`)
+        if (fmt === 'pdf' || fmt === 'ai') out.push({ name: `${base}.${fmt}`, blob: new Blob([origPdf as BlobPart], { type: fmt === 'pdf' ? 'application/pdf' : 'application/postscript' }), fmt })
+        else if (fmt === 'eps') {
+          const eps = origKind === 'eps' ? origBytes! : await ghostscriptPdfToEps(origPdf)
+          out.push({ name: `${base}.eps`, blob: new Blob([eps as BlobPart], { type: 'application/postscript' }), fmt })
+        } else {
+          const r = await renderPdfPage(origPdf, opts.dpi, fmt, opts.jpgQuality)
+          r.warnings.forEach(w => warn.add(w))
+          out.push({ name: `${base}.${fmt}`, blob: r.blob, fmt })
+        }
+        continue
+      }
       setBusy(`Rendering ${fmt.toUpperCase()}…`)
       const r = await exportDesign(canvas, doc, fmt, opts)
       r.warnings.forEach(w => warn.add(w))
       out.push({ name: `${base}.${fmt}`, blob: r.blob, fmt })
+      redrawn = true
     }
-    const src = withOriginal ? (ed.getDoc() as any)?.source : null
-    if (src?.path) {
+    if (redrawn && source?.path) {
+      warn.add('Some files were redrawn by the editor from the imported artwork. Colors are converted to approximate CMYK, and gradients, patterns or some images from the original can be missing. Check them before sending to a printer, or send the original file.')
+      for (const w of (source.import_warnings || [])) warn.add('When this artwork was imported: ' + w)
+    }
+    if (withOriginal && source?.path) {
       setBusy('Adding the original file (unaltered)…')
-      const { data: blob, error } = await sb.storage.from(BUCKET).download(src.path)
-      if (error || !blob) throw new Error('Could not read the stored original file')
-      out.push({ name: src.name, blob, fmt: 'original' })
+      const b = await readOriginal()
+      out.push({ name: source.name, blob: new Blob([b as BlobPart]), fmt: 'original' })
     }
     const info = withProof ? ed.getProofInfo() : null
     if (info) {
@@ -137,6 +192,20 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
             <h2 className="text-lg font-bold text-gray-900">Export final files</h2>
             <p className="text-sm text-gray-500">Vector formats keep every path editable, convert text to outlines and carry CMYK &amp; spot colors. All formats open in CorelDRAW (File ▸ Import) and Adobe Illustrator.</p>
           </div>
+          {src?.path && (
+            <div className={`rounded-xl border p-3 text-sm ${fromOriginal ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
+              <label className="flex items-start gap-2">
+                <input type="checkbox" className="mt-1" checked={!!fromOriginal} onChange={e => setFromOriginal(e.target.checked)} />
+                <span>
+                  <b>Make printer files from the original upload</b> ({src.name})
+                  <span className="block text-xs text-gray-600 mt-0.5">PDF and AI are the original file exactly. EPS, PNG and JPG are made straight from it, so every part and color stays the same. Dieline and CMYK options do not apply. SVG and PS are still redrawn by the editor.</span>
+                  {src.edited && fromOriginal && <span className="block text-xs font-semibold text-red-700 mt-1">The artwork was changed in the editor after upload. These files will NOT include those changes. Turn this off to export the edited version.</span>}
+                  {src.edited === undefined && fromOriginal && <span className="block text-xs text-amber-800 mt-1">If you changed the artwork in the editor after uploading, turn this off so the changes are included.</span>}
+                  {!fromOriginal && <span className="block text-xs font-semibold text-amber-800 mt-1">Files will be redrawn by the editor: colors become approximate CMYK and gradients, patterns or some images can be missing. Check them before sending to a printer.</span>}
+                </span>
+              </label>
+            </div>
+          )}
           <div className="grid sm:grid-cols-2 gap-2">
             {FORMATS.map(f => (
               <label key={f.key} className={`flex gap-3 p-3 rounded-xl border cursor-pointer ${formats.includes(f.key) ? 'border-[#3B6FE0] bg-blue-50/50' : 'border-gray-200 hover:border-gray-300'}`}>
