@@ -789,6 +789,8 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
                 </span>
               </div>
 
+              <StrawSpecs sb={sb} sku={product.sku} onSaved={m => { flash(m); if (onUpdate) onUpdate() }} />
+
               {/* Warnings */}
               {anyPct && Math.abs(totalPct - 100) > 0.1 && (
                 <div className="text-[11px] rounded-lg px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800">
@@ -1078,4 +1080,101 @@ export default function BomEditor({ product, onClose, onUpdate }: Props) {
       )}
     </>
   )
+}
+
+
+/**
+ * Work order specs for straws: the values every straw work order starts with (color, wrapper,
+ * print, size, case, pallet, UPC). Saved on the product; a work order can still override any of
+ * them for one job. Blank fields fall back to what the BOM implies (shown as the placeholder).
+ */
+const SPEC_FIELDS: { key: string; label: string; def?: string; num?: boolean; wide?: boolean }[] = [
+  { key: 'product_color', label: 'Straw color' },
+  { key: 'wrapper_print', label: 'Wrapper print', def: 'wrapper_print' },
+  { key: 'print_color', label: 'Print color' },
+  { key: 'print_plate', label: 'Print plate', def: 'print_plate' },
+  { key: 'inner_diameter_mm', label: 'Inner diameter (mm)', num: true },
+  { key: 'wall_thickness_mm', label: 'Wall thickness (mm)', num: true, def: 'wall' },
+  { key: 'straw_length_in', label: 'Straw length (in)', num: true, def: 'len' },
+  { key: 'case_size', label: 'Case size', def: 'case_box' },
+  { key: 'case_weight', label: 'Case weight (lb)' },
+  { key: 'cases_per_pallet', label: 'Cases per pallet', num: true },
+  { key: 'customer_part_number', label: 'Customer part #' },
+  { key: 'upc_gtin', label: 'UPC / GTIN' },
+  { key: 'special_instructions', label: 'Special instructions', wide: true },
+]
+
+function StrawSpecs({ sb, sku, onSaved }: { sb: any; sku: string; onSaved: (msg: string) => void }) {
+  const [isStraw, setIsStraw] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [base, setBase] = useState<Record<string, string>>({})
+  const [vals, setVals] = useState<Record<string, string>>({})
+  const [defs, setDefs] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    let live = true
+    ;(async () => {
+      const { data: p } = await sb.from('products').select(['production_line', ...SPEC_FIELDS.map(f => f.key)].join(',')).eq('sku', sku).maybeSingle()
+      if (!live || !p) return
+      const straw = p.production_line === 'straw'
+      setIsStraw(straw)
+      if (!straw) return
+      const b = Object.fromEntries(SPEC_FIELDS.map(f => [f.key, p[f.key] == null ? '' : String(p[f.key])]))
+      setBase(b); setVals(b)
+      const { data: d } = await sb.rpc('straw_spec_defaults', { p_sku: sku })
+      const r = Array.isArray(d) ? d[0] : d
+      if (live && r) setDefs(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v == null ? '' : String(v)])))
+    })()
+    return () => { live = false }
+  }, [sb, sku])
+  if (!isStraw) return null
+  const dirty = SPEC_FIELDS.some(f => (vals[f.key] ?? '').trim() !== (base[f.key] ?? ''))
+  const filled = SPEC_FIELDS.filter(f => (vals[f.key] ?? '').trim() || (f.def && defs[f.def])).length
+  async function save() {
+    setErr(''); setBusy(true)
+    const patch: Record<string, any> = {}
+    for (const f of SPEC_FIELDS) {
+      const v = (vals[f.key] ?? '').trim()
+      if (v === (base[f.key] ?? '')) continue
+      if (f.num && v !== '' && isNaN(Number(v))) { setErr(`${f.label} must be a number`); setBusy(false); return }
+      patch[f.key] = v === '' ? null : f.num ? Number(v) : v
+    }
+    const { error } = await sb.from('products').update(patch).eq('sku', sku)
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    setBase(Object.fromEntries(SPEC_FIELDS.map(f => [f.key, (vals[f.key] ?? '').trim()])))
+    onSaved('Work order specs saved. New straw work orders start with these values.')
+  }
+  return (
+    <div className="rounded-xl border border-[#E4E6EE] bg-white">
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-3 py-2 text-left">
+        <span>
+          <span className="text-xs font-semibold text-[#1A1D2E]">Work order specs</span>
+          <span className="text-[11px] text-gray-500 ml-2">{filled} of {SPEC_FIELDS.length} set · fill every new straw work order (a work order can override)</span>
+        </span>
+        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {SPEC_FIELDS.map(f => {
+              const ph = f.def && defs[f.def] ? `From BOM: ${defs[f.def]}` : ''
+              const ch = (vals[f.key] ?? '').trim() !== (base[f.key] ?? '')
+              return (
+                <label key={f.key} className={f.wide ? 'col-span-2 sm:col-span-3 block' : 'block'}>
+                  <span className="text-[11px] text-gray-500">{f.label}</span>
+                  {f.wide
+                    ? <textarea rows={2} value={vals[f.key] ?? ''} onChange={e => setVals(v => ({ ...v, [f.key]: e.target.value }))} className={inp + ' w-full' + (ch ? ' border-amber-400 bg-amber-50' : '')} />
+                    : <input value={vals[f.key] ?? ''} placeholder={ph} inputMode={f.num ? 'decimal' : undefined} onChange={e => setVals(v => ({ ...v, [f.key]: e.target.value }))} className={inp + ' w-full' + (ch ? ' border-amber-400 bg-amber-50' : '')} />}
+                </label>)
+            })}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-2">Straw weight comes from Unit weight (g) above. Wrapped / unwrapped comes from the product name. Blank fields use what the BOM shows in grey.</p>
+          {err && <p className="text-xs text-red-600 mt-1">{err}</p>}
+          <div className="flex justify-end mt-2">
+            <button type="button" onClick={save} disabled={busy || !dirty} className="text-xs px-3 py-1.5 rounded-lg bg-[#00863F] text-white font-semibold disabled:opacity-50">{busy ? 'Saving…' : 'Save specs'}</button>
+          </div>
+        </div>)}
+    </div>)
 }
