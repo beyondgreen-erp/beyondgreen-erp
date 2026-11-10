@@ -21,6 +21,8 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [open, setOpen] = useState<string>('')
+  // fields filled from the product/BOM start locked; the Override button unlocks one for this work order
+  const [unlocked, setUnlocked] = useState<Set<string>>(new Set())
   const fields = useMemo(() => skuFields(kind, boardKey), [kind, boardKey])
 
   useEffect(() => {
@@ -71,12 +73,22 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
   }
 
   const inp = 'h-10 border border-[#E4E6EE] rounded-lg px-3 text-sm w-full disabled:bg-[#F7F8FA]'
-  const input = (f: WoField, val: string, set: (v: string) => void, def?: string, list?: string) => {
+  const input = (f: WoField, val: string, set: (v: string) => void, def?: string, list?: string, lockKey?: string) => {
     const changed = def !== undefined && val.trim() !== def
+    const locked = !!lockKey && !!def && !changed && !unlocked.has(lockKey)
     const cls = inp + (changed ? ' border-amber-400 bg-amber-50' : '')
+    if (locked) return (
+      <div key={f.key} className={f.wide ? 'col-span-2' : ''}>
+        <span className="text-[11px] text-gray-500">{f.label} <span className="text-emerald-700 font-semibold">· from BOM / product</span></span>
+        <div className="flex items-center gap-2">
+          <div className="h-10 flex-1 min-w-0 rounded-lg border border-[#E4E6EE] bg-[#F7F8FA] px-3 text-sm flex items-center truncate" title={def}>{def}</div>
+          {canEdit && <button type="button" onClick={() => setUnlocked(u => new Set(u).add(lockKey!))} className="h-10 px-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-xs font-bold whitespace-nowrap hover:bg-amber-100">✎ Override</button>}
+        </div>
+      </div>)
     return (
       <label key={f.key} className={f.wide ? 'col-span-2 block' : 'block'}>
-        <span className="text-[11px] text-gray-500">{f.label}{changed ? <span className="text-amber-700 font-semibold"> · this WO only</span> : null}</span>
+        <span className="text-[11px] text-gray-500">{f.label}{changed ? <span className="text-amber-700 font-semibold"> · this WO only</span> : null}
+          {lockKey && def && canEdit && (changed || unlocked.has(lockKey)) ? <button type="button" onClick={e => { e.preventDefault(); set(def); setUnlocked(u => { const n = new Set(u); n.delete(lockKey); return n }) }} className="ml-2 text-[11px] font-semibold text-emerald-700 hover:underline">↺ Use default</button> : null}</span>
         {f.type === 'select' ? <select value={val} disabled={!canEdit} onChange={e => set(e.target.value)} className={cls}>{(f.options || []).map(o => <option key={o} value={o}>{o || '—'}</option>)}</select>
           : f.type === 'textarea' ? <textarea value={val} disabled={!canEdit} onChange={e => set(e.target.value)} rows={2} className={cls.replace('h-10', 'min-h-[60px] py-2')} />
             : <input type={f.type === 'number' ? 'text' : f.type || 'text'} inputMode={f.type === 'number' ? 'decimal' : undefined} list={list} value={val} disabled={!canEdit}
@@ -92,7 +104,7 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
           <div>
             <p className="text-[11px] uppercase tracking-wide text-gray-400">{isNew ? 'New work order · step 2' : 'Work order details'}</p>
             <h2 className="text-lg font-bold text-[#1A1D2E]">{woCode || 'Work order'}</h2>
-            <p className="text-xs text-gray-500">Filled in from each product. Change anything for this job; it prints on the work order and case labels.</p>
+            <p className="text-xs text-gray-500">Filled in from each product and its BOM. Click Override to change a value for this job only; it prints on the work order and case labels.</p>
           </div>
           <button onClick={onClose} disabled={busy} className="text-gray-400 text-3xl leading-none px-2" aria-label="Close">&times;</button>
         </div>
@@ -113,7 +125,7 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
                   <span className="text-gray-400 text-sm">{open === l.sku ? '▲' : '▼'}</span>
                 </button>
                 {open === l.sku && <div className="grid grid-cols-2 gap-3 px-3 pb-3">
-                  {fields.map(f => input(f, skus[l.sku]?.[f.key] ?? '', v => setSkus(x => ({ ...x, [l.sku]: { ...x[l.sku], [f.key]: v } })), defaultOf(kind, l, f.key)))}
+                  {fields.map(f => input(f, skus[l.sku]?.[f.key] ?? '', v => setSkus(x => ({ ...x, [l.sku]: { ...x[l.sku], [f.key]: v } })), defaultOf(kind, l, f.key), undefined, `${l.sku}:${f.key}`))}
                 </div>}
               </section>))}
           </>}
