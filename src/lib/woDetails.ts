@@ -87,7 +87,15 @@ export function applyWoDetails<T extends { wo: any; lines: any[] }>(print: T, de
   for (const l of print.lines || []) {
     const o = s[String(l.sku).toUpperCase()] || s[l.sku]
     if (!o) continue
-    for (const k of Object.keys(o)) { const v = clean(k, o[k]); if (v !== undefined) l[k] = v }
+    for (const k of Object.keys(o)) {
+      if (k === 'bom') {
+        // per work order material values: replace the qty on the matching BOM rows
+        const ov = (o as any).bom || {}
+        if (Array.isArray(l.bom)) l.bom = l.bom.map((b: any) => { const v = ov[String(b.component || '').toUpperCase()]; return v === undefined || v === '' ? b : { ...b, qty: Number(v), override: true } })
+        continue
+      }
+      const v = clean(k, o[k]); if (v !== undefined) l[k] = v
+    }
   }
   return print
 }
