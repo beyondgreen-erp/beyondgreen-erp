@@ -98,6 +98,43 @@ export async function ghostscriptToPdf(input: Uint8Array, kind: 'pdf' | 'eps' | 
   return p
 }
 
+/** Ghostscript (WASM): first page of a PDF → EPS, same vectors and colors (no redraw). */
+export async function ghostscriptPdfToEps(input: Uint8Array): Promise<Uint8Array> {
+  const run = async () => {
+    const factory = await loadScript(`${GS}/gs.js`, 'Module')
+    const errs: string[] = []
+    const gs = await factory({ locateFile: (p: string) => `${GS}/${p}`, print: () => {}, printErr: (s: string) => errs.push(s), noInitialRun: true })
+    gs.FS.writeFile('/input.pdf', input)
+    const code = gs.callMain(['-dSAFER', '-dBATCH', '-dNOPAUSE', '-dQUIET', '-sDEVICE=eps2write', '-dFirstPage=1', '-dLastPage=1', '-sOutputFile=/output.eps', '/input.pdf'])
+    let out: Uint8Array | null = null
+    try { out = gs.FS.readFile('/output.eps') } catch { /* none */ }
+    if (!out || !out.length) throw new Error('Ghostscript could not make an EPS' + (errs.length ? ': ' + errs.slice(-3).join(' ') : ` (code ${code})`))
+    return out
+  }
+  const p = gsQueue.then(run, run)
+  gsQueue = p.catch(() => undefined)
+  return p
+}
+
+/** Render page 1 of a PDF to PNG/JPG with pdf.js (the original artwork, not the editor copy). */
+export async function renderPdfPage(bytes: Uint8Array, dpi: number, fmt: 'png' | 'jpg', quality = 0.92): Promise<{ blob: Blob; warnings: string[] }> {
+  const warnings: string[] = []
+  const pdfjs = await getPdfjs()
+  const doc = await pdfjs.getDocument({ data: bytes.slice(), isOffscreenCanvasSupported: false }).promise
+  const page = await doc.getPage(1)
+  const base = page.getViewport({ scale: 1 })
+  let scale = dpi / 72
+  const cap = Math.min(16000 / (base.width * scale), 16000 / (base.height * scale), Math.sqrt(180e6 / (base.width * scale * base.height * scale)), 1)
+  if (cap < 1) { scale *= cap; warnings.push(`Artwork is very large — ${fmt.toUpperCase()} rendered at ${Math.floor(scale * 72)} dpi (browser limit).`) }
+  const vp = page.getViewport({ scale })
+  const c = document.createElement('canvas'); c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height)
+  const ctx = c.getContext('2d')!
+  if (fmt === 'jpg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height) }
+  await page.render({ canvasContext: ctx, viewport: vp, background: fmt === 'jpg' ? 'rgb(255,255,255)' : 'rgba(0,0,0,0)' }).promise
+  const blob: Blob = await new Promise((r, j) => c.toBlob(b => b ? r(b) : j(new Error('Could not render the image')), fmt === 'jpg' ? 'image/jpeg' : 'image/png', quality))
+  return { blob, warnings }
+}
+
 export interface ImportResult { width: number; height: number; objects: fabric.FabricObject[]; warnings: string[]; kind: string }
 
 function extOf(name: string) { return (name.split('.').pop() || '').toLowerCase() }

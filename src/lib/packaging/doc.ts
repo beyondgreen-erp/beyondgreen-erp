@@ -24,7 +24,7 @@ export interface DesignDoc {
   objects: any[]   // fabric object JSON
   proof?: ProofInfo // official approval-proof sheet data (ERP snapshot)
   /** The uploaded original, stored byte-for-byte (never modified) */
-  source?: { path: string; name: string; size: number; sha256: string; uploaded_at: string; uploaded_by?: string; text?: 'live' | 'outline' }
+  source?: { path: string; name: string; size: number; sha256: string; uploaded_at: string; uploaded_by?: string; text?: 'live' | 'outline'; edited?: boolean; import_warnings?: string[] }
   /** exact color builds, plates and dieline dimensions read from the original file */
   spec?: DesignSpec
 }
