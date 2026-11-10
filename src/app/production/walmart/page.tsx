@@ -85,9 +85,15 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
     if (!gm.has(key)) gm.set(key, { key, load: ln ? (loadBy.get(ln) || { id: '', load_number: ln, pickup_date: null, priority: null, status: 'Open', notes: null }) : null, rank: 0, orders: [], bySku: {}, orderSku: {} })
     gm.get(key)!.orders.push(o)
   }
+  // A load whose POs have all left the build step (ready for shipment / shipped) is finished:
+  // it keeps no P number, so the next load still to build is always P1.
+  const OPEN_GROUPS = ['Walmart Orders', 'Building Order']
+  const finished = (g: PlanGroup) => g.orders.length > 0 && g.orders.every(o => !OPEN_GROUPS.includes(o.group_name || 'Walmart Orders'))
   const groups = Array.from(gm.values()).sort((a, b) => {
     if (!a.load) return 1
     if (!b.load) return -1
+    const fa = finished(a), fb = finished(b)
+    if (fa !== fb) return fa ? 1 : -1
     const da = a.load.pickup_date || '9999-12-31', db = b.load.pickup_date || '9999-12-31'
     if (da !== db) return da < db ? -1 : 1
     const pa = a.load.priority ?? 999, pb = b.load.priority ?? 999
@@ -96,7 +102,7 @@ function buildPlan(woOrders: WoOrder[], loads: Load[], woRel: WoRel[], progBySku
   })
   let r = 0
   for (const g of groups) {
-    g.rank = g.load ? ++r : 0
+    g.rank = g.load && !finished(g) ? ++r : 0
     g.orders.sort((a, b) => (a.po_number || '').localeCompare(b.po_number || ''))
     for (const o of g.orders) {
       const built = !['Walmart Orders', 'Building Order'].includes(o.group_name || 'Walmart Orders')   // past the build step = done
@@ -319,7 +325,7 @@ export default function WalmartProductionPage() {
   const plan = useMemo(() => buildPlan(woOrders, loads, woRel, progBySku), [woOrders, loads, woRel, progBySku])
   const rankByOrder = useMemo(() => {
     const m: Record<string, { rank: number; label: string }> = {}
-    for (const g of plan) for (const o of g.orders) m[o.id] = { rank: g.rank, label: g.load ? `P${g.rank} · ${g.load.pickup_date ? 'PU ' + fmtShort(g.load.pickup_date) + ' · ' : ''}Load ${g.load.load_number}` : 'No load' }
+    for (const g of plan) for (const o of g.orders) m[o.id] = { rank: g.rank, label: g.load ? `${g.rank ? 'P' + g.rank : 'Done'} · ${g.load.pickup_date ? 'PU ' + fmtShort(g.load.pickup_date) + ' · ' : ''}Load ${g.load.load_number}` : 'No load' }
     return m
   }, [plan])
   const totalTarget = prog.reduce((s, p) => s + num(p.target_qty), 0)
@@ -474,7 +480,7 @@ export default function WalmartProductionPage() {
                           return (
                             <div key={g.key} className="text-[11px] leading-tight">
                               <div className="flex items-center gap-1 min-w-0">
-                                <span className="shrink-0 font-bold text-white rounded px-1" style={{ background: prioColor(g.rank) }}>{g.rank ? 'P' + g.rank : '—'}</span>
+                                <span className="shrink-0 font-bold text-white rounded px-1" style={{ background: prioColor(g.rank) }}>{g.rank ? 'P' + g.rank : g.load ? '✓' : '—'}</span>
                                 <span className="truncate text-gray-600">{g.load ? `${g.load.pickup_date ? fmtShort(g.load.pickup_date) + ' · ' : ''}${g.load.load_number}` : 'No load yet'}</span>
                               </div>
                               <div className="flex justify-between gap-1 mt-0.5">
@@ -1359,7 +1365,7 @@ function LoadsModal({ sb, loads, orders, rankByOrder, onClose, onChanged }: {
                 const r = rankByOrder[o.id]
                 return (
                   <div key={o.id} className="px-3 py-2 flex flex-wrap items-center gap-2">
-                    <span className="shrink-0 text-[11px] font-bold text-white rounded px-1.5 py-0.5" style={{ background: prioColor(r?.rank || 0) }}>{r?.rank ? 'P' + r.rank : '—'}</span>
+                    <span className="shrink-0 text-[11px] font-bold text-white rounded px-1.5 py-0.5" style={{ background: prioColor(r?.rank || 0) }}>{r?.rank ? 'P' + r.rank : r?.label?.startsWith('Done') ? '✓' : '—'}</span>
                     <span className="font-mono text-sm">{o.po_number}</span>
                     <span className="text-[11px] text-gray-500 flex-1 min-w-[140px] truncate">{fmtN(srpOf(o))} SRP · {(o.walmart_board_lines || []).filter(l => num(l.qty) > 0 && SKU_SET.has(normSku(l.part_number))).map(l => meta(normSku(l.part_number)).short).join(', ')}{(o.group_name || 'Walmart Orders') !== 'Walmart Orders' ? ` · ${o.group_name}` : ''}</span>
                     <select value={loadIdOf(o)} disabled={busy === o.id || o.status === 'Shipped'} onChange={e => assign(o, e.target.value)} className={inp + ' min-w-[170px]'}>
