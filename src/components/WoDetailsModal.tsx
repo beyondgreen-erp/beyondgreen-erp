@@ -23,6 +23,8 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
   const [open, setOpen] = useState<string>('')
   // fields filled from the product/BOM start locked; the Override button unlocks one for this work order
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set())
+  // per work order material values (component -> % or qty), keyed by SKU; blank = use the BOM
+  const [bomOv, setBomOv] = useState<Record<string, Record<string, string>>>({})
   const fields = useMemo(() => skuFields(kind, boardKey), [kind, boardKey])
 
   useEffect(() => {
@@ -50,6 +52,12 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
         const ov = saved?.skus?.[String(l.sku).toUpperCase()] || {}
         s[l.sku] = Object.fromEntries(fields.map(f => [f.key, ov[f.key] != null && ov[f.key] !== '' ? String(ov[f.key]) : defaultOf(kind, l, f.key)]))
       }
+      const bo: Record<string, Record<string, string>> = {}
+      for (const l of ls) {
+        const ov = (saved?.skus?.[String(l.sku).toUpperCase()] as any)?.bom || {}
+        bo[l.sku] = Object.fromEntries(((l.bom || []) as any[]).map(b => { const k = String(b.component).toUpperCase(); return [k, ov[k] != null && ov[k] !== '' ? String(ov[k]) : String(b.qty ?? '')] }))
+      }
+      setBomOv(bo)
       setSkus(s); setLoading(false)
     })()
     return () => { live = false }
@@ -58,11 +66,19 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
   async function save() {
     setErr(''); setBusy(true)
     // keep only what differs from the product default, so later product changes still flow through
-    const outSkus: Record<string, Record<string, string>> = {}
+    const outSkus: Record<string, Record<string, any>> = {}
     for (const l of lines) {
       const diff: Record<string, string> = {}
       for (const f of fields) { const v = (skus[l.sku]?.[f.key] ?? '').trim(); if (v !== defaultOf(kind, l, f.key)) diff[f.key] = v }
-      if (Object.keys(diff).length) outSkus[String(l.sku).toUpperCase()] = diff
+      const bdiff: Record<string, string> = {}
+      for (const b of (l.bom || []) as any[]) {
+        const k = String(b.component).toUpperCase(); const v = (bomOv[l.sku]?.[k] ?? '').trim()
+        if (v !== '' && isNaN(Number(v))) { setErr(`${b.component} must be a number`); setBusy(false); return }
+        if (v !== '' && Number(v) !== Number(b.qty ?? 0)) bdiff[k] = v
+      }
+      const out: Record<string, any> = { ...diff }
+      if (Object.keys(bdiff).length) out.bom = bdiff
+      if (Object.keys(out).length) outSkus[String(l.sku).toUpperCase()] = out
     }
     const outWo: Record<string, string> = {}
     for (const f of WO_FIELDS) outWo[f.key] = (wo[f.key] ?? '').trim()
@@ -127,6 +143,36 @@ export default function WoDetailsModal({ sb, kind, boardKey, woId, woCode, accen
                 {open === l.sku && <div className="grid grid-cols-2 gap-3 px-3 pb-3">
                   {fields.map(f => input(f, skus[l.sku]?.[f.key] ?? '', v => setSkus(x => ({ ...x, [l.sku]: { ...x[l.sku], [f.key]: v } })), defaultOf(kind, l, f.key), undefined, `${l.sku}:${f.key}`))}
                 </div>}
+                {open === l.sku && ((l.bom || []) as any[]).length > 0 && (() => {
+                  const rows = (l.bom || []) as any[]
+                  const pctTotal = rows.filter(b => b.uom_type === 'percentage').reduce((t, b) => t + (Number(bomOv[l.sku]?.[String(b.component).toUpperCase()]) || 0), 0)
+                  const hasPct = rows.some(b => b.uom_type === 'percentage')
+                  return (
+                    <div className="px-3 pb-3">
+                      <p className="text-xs font-bold text-[#1A1D2E] mb-1">Materials <span className="font-normal text-gray-500">· from the BOM. Override changes what this work order takes out of inventory.</span></p>
+                      <div className="rounded-lg border border-[#ECEEF3] divide-y divide-[#F0F2F6]">
+                        {rows.map(b => {
+                          const k = String(b.component).toUpperCase(); const lk = `${l.sku}:bom:${k}`
+                          const def = String(b.qty ?? ''); const val = bomOv[l.sku]?.[k] ?? def
+                          const changed = val.trim() !== '' && Number(val) !== Number(def)
+                          const locked = !changed && !unlocked.has(lk)
+                          const unit = b.uom_type === 'percentage' ? '%' : String(b.uom_type || '').replace('pcs_', 'per ').replace('pcs', 'per unit')
+                          const setV = (v: string) => setBomOv(x => ({ ...x, [l.sku]: { ...x[l.sku], [k]: v } }))
+                          return (
+                            <div key={k} className="flex items-center gap-2 px-2.5 py-1.5">
+                              <span className="flex-1 min-w-0"><span className="font-mono text-[12px] font-semibold text-[#1A1D2E]">{b.component}</span><span className="block text-[11px] text-gray-500 truncate">{b.name || ''}{b.role ? ` · ${b.role}` : ''}</span></span>
+                              {locked
+                                ? <span className="w-24 text-right text-sm font-semibold text-[#1A1D2E]">{def} <span className="text-[11px] text-gray-400">{unit}</span></span>
+                                : <span className="flex items-center gap-1"><input inputMode="decimal" value={val} onChange={e => setV(e.target.value.replace(/[^0-9.]/g, ''))} className={'h-9 w-20 border rounded-lg px-2 text-sm text-right ' + (changed ? 'border-amber-400 bg-amber-50' : 'border-[#E4E6EE]')} /><span className="text-[11px] text-gray-400 w-12">{unit}</span></span>}
+                              {canEdit && (locked
+                                ? <button type="button" onClick={() => setUnlocked(u => new Set(u).add(lk))} className="h-8 px-2.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-[11px] font-bold whitespace-nowrap">✎ Override</button>
+                                : <button type="button" onClick={() => { setV(def); setUnlocked(u => { const n = new Set(u); n.delete(lk); return n }) }} className="h-8 px-2.5 text-[11px] font-semibold text-emerald-700 hover:underline whitespace-nowrap">↺ Use BOM</button>)}
+                            </div>)
+                        })}
+                      </div>
+                      {hasPct && Math.abs(pctTotal - 100) > 0.01 && <p className="text-[11px] text-amber-700 mt-1">Percent materials add up to {Math.round(pctTotal * 100) / 100}%. They should add up to 100%.</p>}
+                    </div>)
+                })()}
               </section>))}
           </>}
           {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>}
