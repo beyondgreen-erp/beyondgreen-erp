@@ -112,7 +112,7 @@ export default function FinalFilesTab({ design, editor, user, onDesign }: {
     const info = withProof ? ed.getProofInfo() : null
     if (info) {
       setBusy('Building approval proof sheet…')
-      const r = await exportProofSheet(canvas, doc, info, opts)
+      const r = await exportProofSheet(canvas, doc, info, opts, origPdf)
       r.warnings.forEach(w => warn.add(w))
       out.push({ name: `${base}_PROOF${info.proofNo ? '_' + info.proofNo : ''}.pdf`, blob: r.blob, fmt: 'proof' })
     }

@@ -15,6 +15,7 @@ import CommentsPanel, { type PkgComment } from './CommentsPanel'
 import ProofPanel from './ProofPanel'
 import { buildProofObjects, collectInks, specInks, customerFromRow, productFromRow, loadBrandLogo, sheetLayout, drawProof, CUSTOMER_COLS, PRODUCT_COLS, type ProofInfo } from '@/lib/packaging/proofTemplate'
 import { exportProofSheet, downloadBlob } from '@/lib/packaging/exporters'
+import { originalAsPdf } from '@/lib/packaging/importers'
 
 type Tool = 'select' | 'direct' | 'pen' | 'rect' | 'ellipse' | 'line' | 'text' | 'hand' | 'zoom' | 'eyedropper' | 'comment'
 const TOOLS: { key: Tool; icon: string; label: string; kbd: string }[] = [
@@ -252,7 +253,16 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
     try {
       rebuildProof()
       const d = docRef.current
-      const r = await exportProofSheet(fc, { width: d.width, height: d.height, title: design.name, layers: d.layers }, d.proof!)
+      // use the original upload (no redraw) unless the artwork was changed in the editor
+      let orig: Uint8Array | null = null
+      const src: any = (d as any).source
+      if (src?.path && !src.edited) {
+        try {
+          const { data: blob } = await sb.storage.from(BUCKET).download(src.path)
+          if (blob) orig = await originalAsPdf(new Uint8Array(await blob.arrayBuffer()))
+        } catch { orig = null }
+      }
+      const r = await exportProofSheet(fc, { width: d.width, height: d.height, title: design.name, layers: d.layers }, d.proof!, undefined, orig)
       downloadBlob(r.blob, `${(design.name || 'design').replace(/[^\w\-]+/g, '_')}_PROOF_${d.proof?.proofNo || ''}_V${d.proof?.version || 1}.pdf`)
     } catch (e: any) { flash('Proof PDF failed: ' + (e?.message || e)) } finally { setProofBusy(false) }
   }

@@ -8,6 +8,7 @@ import { restore } from '@/lib/packaging/canvasIO'
 import { buildProofObjects, loadBrandLogo, sheetLayout, drawProof } from '@/lib/packaging/proofTemplate'
 import { loadFamily } from '@/lib/packaging/fonts'
 import { exportDesign, exportProofSheet, downloadBlob, DEFAULT_EXPORT, type ExportFormat } from '@/lib/packaging/exporters'
+import { originalAsPdf } from '@/lib/packaging/importers'
 import { fmtUnit, safeFileName, type DesignDoc } from '@/lib/packaging/doc'
 import CommentsPanel, { type PkgComment } from './CommentsPanel'
 import SpecSheet from './SpecSheet'
@@ -263,7 +264,14 @@ export default function ProofPortal() {
     const fc = fcRef.current, d = docRef.current; if (!fc || !d || !data || !d.proof) return
     setBusy('PROOF')
     try {
-      const r = await exportProofSheet(fc, { width: d.width, height: d.height, title: data.design.name, layers: d.layers }, d.proof)
+      let orig: Uint8Array | null = null
+      if (data.source?.url && !(d as any).source?.edited) {
+        try {
+          const res = await fetch(data.source.url)
+          if (res.ok) orig = await originalAsPdf(new Uint8Array(await res.arrayBuffer()))
+        } catch { orig = null }
+      }
+      const r = await exportProofSheet(fc, { width: d.width, height: d.height, title: data.design.name, layers: d.layers }, d.proof, undefined, orig)
       downloadBlob(r.blob, `${safeFileName(data.design.name)}_APPROVAL_PROOF.pdf`)
     } catch (e: any) { alert(e?.message || 'Export failed') } finally { setBusy(null) }
   }
