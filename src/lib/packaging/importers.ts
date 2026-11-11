@@ -135,6 +135,29 @@ export async function renderPdfPage(bytes: Uint8Array, dpi: number, fmt: 'png' |
   return { blob, warnings }
 }
 
+/** Renders page 1 of a PDF to raw RGBA pixels (transparent background), capped at maxSide px. */
+export async function renderPdfPageRgba(bytes: Uint8Array, maxSide = 4800): Promise<{ w: number; h: number; rgba: Uint8ClampedArray; pageW: number; pageH: number }> {
+  const pdfjs = await getPdfjs()
+  const doc = await pdfjs.getDocument({ data: bytes.slice(), isOffscreenCanvasSupported: false }).promise
+  const page = await doc.getPage(1)
+  const base = page.getViewport({ scale: 1 })
+  const scale = Math.min(300 / 72, maxSide / Math.max(base.width, base.height))
+  const vp = page.getViewport({ scale })
+  const c = document.createElement('canvas'); c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height)
+  const ctx = c.getContext('2d')!
+  await page.render({ canvasContext: ctx, viewport: vp, background: 'rgba(0,0,0,0)' }).promise
+  return { w: c.width, h: c.height, rgba: ctx.getImageData(0, 0, c.width, c.height).data, pageW: base.width, pageH: base.height }
+}
+
+/** The stored original upload as PDF bytes (AI/PDF as-is, EPS/PS converted without redrawing), or null. */
+export async function originalAsPdf(b: Uint8Array): Promise<Uint8Array | null> {
+  const head = new TextDecoder('latin1').decode(b.slice(0, 1024))
+  if (head.includes('%PDF')) return b
+  const kind = head.startsWith('%!PS-Adobe') && head.includes('EPSF') ? 'eps' : head.startsWith('%!') ? 'ps' : (b[0] === 0xc5 && b[1] === 0xd0) ? 'eps' : ''
+  if (!kind) return null
+  return ghostscriptToPdf(b, kind as any, false)
+}
+
 export interface ImportResult { width: number; height: number; objects: fabric.FabricObject[]; warnings: string[]; kind: string }
 
 function extOf(name: string) { return (name.split('.').pop() || '').toLowerCase() }

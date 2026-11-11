@@ -101,7 +101,16 @@ export function downloadBlob(blob: Blob, name: string) {
 
 // ── Proof sheet: artwork placed on the official approval template, one vector PDF ──
 
-export async function exportProofSheet(canvas: fabric.Canvas | fabric.StaticCanvas, doc: ExportDoc, info: ProofInfo, o: ExportOptions = DEFAULT_EXPORT): Promise<{ blob: Blob; warnings: string[] }> {
+/** Artwork for the proof sheet rendered straight from the original upload (no redraw), when its page matches the artboard. */
+export async function originalArtItems(originalPdf: Uint8Array, doc: { width: number; height: number }): Promise<ImageItem[] | null> {
+  const { renderPdfPageRgba } = await import('./importers')
+  const r = await renderPdfPageRgba(originalPdf)
+  const same = Math.abs(r.pageW - doc.width) <= Math.max(1, doc.width * 0.01) && Math.abs(r.pageH - doc.height) <= Math.max(1, doc.height * 0.01)
+  if (!same) return null
+  return [{ kind: 'image', m: [doc.width / r.w, 0, 0, doc.height / r.h, 0, 0], w: r.w, h: r.h, rgba: r.rgba, opacity: 1 } as ImageItem]
+}
+
+export async function exportProofSheet(canvas: fabric.Canvas | fabric.StaticCanvas, doc: ExportDoc, info: ProofInfo, o: ExportOptions = DEFAULT_EXPORT, originalPdf?: Uint8Array | null): Promise<{ blob: Blob; warnings: string[] }> {
   const L = sheetLayout(doc.width, doc.height)
   const shift: [number, number, number, number, number, number] = [1, 0, 0, 1, -L.x, -L.y]
   const move = (it: SceneItem, extraClip?: any): SceneItem => {
@@ -120,12 +129,22 @@ export async function exportProofSheet(canvas: fabric.Canvas | fabric.StaticCanv
   const t = await fabricToScene(sc, { ...doc, layers: [tplLayer] })
   sc.dispose()
   // 2) artwork, clipped to the artboard
-  const a = await fabricToScene(canvas, doc, { layerFilter: l => o.includeDieline || l.kind !== 'dieline' })
+  // The original upload is used as-is when available: the editor's redraw can drop gradients,
+  // patterns and masked images (for example the bear in the Made in California logo).
+  let a = await fabricToScene(canvas, doc, { layerFilter: l => o.includeDieline || l.kind !== 'dieline' })
+  const origWarn: string[] = []
+  if (originalPdf) {
+    try {
+      const art = await originalArtItems(originalPdf, doc)
+      if (art) a = { scene: { ...a.scene, layers: [{ name: 'Artwork (original upload)', visible: true, items: art }] }, warnings: [] }
+      else origWarn.push('The original file is a different size than the artboard, so the proof artwork was redrawn by the editor.')
+    } catch { origWarn.push('The original file could not be rendered, so the proof artwork was redrawn by the editor.') }
+  }
   const artClip = { segs: transformSegs(rectSegs(0, 0, doc.width, doc.height), shift), rule: 'nonzero' as const }
   const layers = [
     ...t.scene.layers.map(l => ({ ...l, items: l.items.map(i => move(i)) })),
     ...a.scene.layers.map(l => ({ ...l, items: l.items.map(i => move(i, artClip)) })),
   ]
   const scene = { width: L.w, height: L.h, title: `${doc.title} — proof ${info.proofNo || ''}`.trim(), layers }
-  return { blob: new Blob([writePdf(scene, { flattenToCmyk: false }) as any], { type: 'application/pdf' }), warnings: [...t.warnings, ...a.warnings] }
+  return { blob: new Blob([writePdf(scene, { flattenToCmyk: false }) as any], { type: 'application/pdf' }), warnings: [...t.warnings, ...a.warnings, ...origWarn] }
 }
