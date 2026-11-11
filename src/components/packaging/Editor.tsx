@@ -1031,7 +1031,16 @@ const Editor = forwardRef<EditorHandle, Props>(function Editor({ design, initial
   type ImportOpts = { target: 'dieline' | 'active' | 'new' | 'replace'; fit: boolean; ungroup: boolean; text: 'live' | 'outline' }
   const doImport = async (file: File, override?: Partial<ImportOpts>) => {
     const o: ImportOpts = { target: importTarget, fit: fitArtboard, ungroup: importUngroup, text: importText, ...override }
-    const fc = fcRef.current!; setImporting('Reading file…'); setImportMsg([]); setPanel('import')
+    const fc = fcRef.current!
+    // A new version dropped onto an existing design used to be stacked on top of the old artwork.
+    // Ask, and default to replacing, so the two versions never overlap.
+    const looksVector = !/\.(png|jpe?g)$/i.test(file.name) && !/image\/(png|jpeg)/.test(file.type)
+    const hasArt = (fc.getObjects() as any[]).some(x => !x.isHelper)
+    if (looksVector && hasArt && !override?.target && o.target === 'active') {
+      const ok = window.confirm(`This design already has artwork.\n\nOK = replace it with "${file.name}" (use this for a new version of the file).\nCancel = add the file on top of the current artwork.`)
+      if (ok) { o.target = 'replace'; o.text = 'outline' }
+    }
+    setImporting('Reading file…'); setImportMsg([]); setPanel('import')
     try {
       const res = await importFile(file, s => setImporting(s), { text: o.text })
       const isVector = !(res.kind === 'png' || res.kind === 'jpg')
