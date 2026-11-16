@@ -568,7 +568,7 @@ export default function WalmartProductionPage() {
                           <p className="text-[10px] text-gray-400">SRP · {fmtN(num(r.qty) * 6)} packs</p>
                         </div>
                       </button>
-                      {canEdit && !r.voided_at && (perms.is_admin || ((r.entered_by || '').toLowerCase() === me.toLowerCase() && Date.now() - new Date(r.created_at).getTime() < 48 * 3600_000))
+                      {canEdit && !r.voided_at && (perms.is_admin || Date.now() - new Date(r.created_at).getTime() < 14 * 86400_000)
                         ? <button onClick={() => undoEntries([r.id], `${fmtN(r.qty)} ${m.short} (${fmtTime(r.created_at)})`)} disabled={undoing} title="Undo this entry" className="mr-3 shrink-0 h-9 px-3 rounded-lg border border-[#ECEEF3] text-xs font-semibold text-gray-500 hover:text-red-600 hover:border-red-200 bg-white disabled:opacity-50">↩ Undo</button>
                         : <span className="w-3 shrink-0" />}
                       </div>
@@ -1037,8 +1037,27 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const own = (entry.entered_by || '').toLowerCase() === me.toLowerCase() && Date.now() - new Date(entry.created_at).getTime() < 48 * 3600_000
-  const canVoid = canEdit && !entry.voided_at && (isAdmin || own)
+  const recent = Date.now() - new Date(entry.created_at).getTime() < 14 * 86400_000
+  const canVoid = canEdit && !entry.voided_at && (isAdmin || recent)
+  // move a log that went to the wrong week onto the right work order
+  const [moving, setMoving] = useState(false)
+  const [weekWos, setWeekWos] = useState<{ id: string; wo_code: string | null; wo_number: number; start_date: string; status: string | null }[]>([])
+  const [moveTo, setMoveTo] = useState('')
+  useEffect(() => {
+    if (!moving || weekWos.length) return
+    sb.from('work_orders').select('id,wo_code,wo_number,start_date,status').eq('form_type', 'walmart_weekly').neq('status', 'Cancelled')
+      .order('start_date', { ascending: false }).limit(8).then(({ data }: any) => setWeekWos((data || []).filter((w: any) => w.id !== entry.work_order_id)))
+  }, [moving]) // eslint-disable-line
+  async function doMove() {
+    setErr('')
+    if (!moveTo) { setErr('Pick the week this entry belongs to.'); return }
+    setBusy(true)
+    const { error } = await sb.rpc('walmart_move_entry_week', { p_id: entry.id, p_wo: moveTo, p_reason: reason.trim() || 'Logged in the wrong week' })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    const t = weekWos.find(w => w.id === moveTo)
+    onChanged(`Moved ${fmtN(entry.qty)} ${m.short} to ${t?.wo_code || 'the other week'}.`)
+  }
   const posted = moves.filter(x => x.ref_table === 'walmart_production_entries').sort((a, b) => num(b.qty) - num(a.qty))
 
   async function doVoid() {
@@ -1086,7 +1105,26 @@ function EntryDetail({ sb, entry, wo, moves, itemName, me, canEdit, isAdmin, onC
               </tbody>
             </table>
           </div>
-          {canVoid && !voiding && <button onClick={() => setVoiding(true)} className="text-sm font-semibold text-red-600">Remove this entry…</button>}
+          {canVoid && !voiding && !moving && (
+            <div className="flex flex-wrap gap-4">
+              <button onClick={() => setVoiding(true)} className="text-sm font-semibold text-red-600">↩ Undo / remove this entry…</button>
+              <button onClick={() => { setMoving(true); setErr('') }} className="text-sm font-semibold text-[#0071ce]">⇄ Move to another week…</button>
+            </div>
+          )}
+          {moving && (
+            <div className="rounded-xl border border-[#B9D4F3] bg-[#F2F7FD] p-3 space-y-2">
+              <p className="text-sm text-[#1A1D2E]">Logged on the wrong week? Move it to the right work order. Nothing is removed from inventory.</p>
+              <select value={moveTo} onChange={e => setMoveTo(e.target.value)} className="w-full h-11 rounded-lg border border-[#D6DCE6] px-3 text-base bg-white">
+                <option value="">Pick the week…</option>
+                {weekWos.map(w => <option key={w.id} value={w.id}>{w.wo_code || 'WO ' + w.wo_number} · week of {fmtShort(w.start_date)}{w.status ? ' · ' + w.status : ''}</option>)}
+              </select>
+              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (optional)" className="w-full h-11 rounded-lg border border-[#D6DCE6] px-3 text-base bg-white" />
+              <div className="flex gap-2">
+                <button onClick={() => setMoving(false)} className="flex-1 h-11 rounded-lg border border-[#E4E6EE] bg-white text-sm">Cancel</button>
+                <button onClick={doMove} disabled={busy} className="flex-1 h-11 rounded-lg bg-[#0071ce] text-white text-sm font-bold disabled:opacity-50">{busy ? 'Moving…' : 'Move entry'}</button>
+              </div>
+            </div>
+          )}
           {voiding && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-3 space-y-2">
               <p className="text-sm text-red-800">This takes the {fmtN(entry.qty)} SRP back out of inventory and returns the parts.</p>
@@ -1129,6 +1167,13 @@ function BuildTeam({ sb, releases, canEdit, onDone }: {
     if (error) { setErr(error.message); return }
     onDone(`✓ PO ${po} claimed — moved to Building Order; its SKUs show Completed on the Order Pipeline.`)
   }
+  async function unclaim(r: Release) {
+    const reason = window.prompt(`Undo the claim on ${fmtN(r.qty)} ${meta(r.sku).short}?\n\nIt goes back to Released, so you can undo it or move it to the right PO.\n\nWhy?`, 'Claimed by mistake'); if (!reason) return
+    setErr('')
+    const { error } = await sb.rpc('walmart_unclaim', { p_release: r.id, p_reason: reason })
+    if (error) { setErr(error.message); return }
+    onDone('↩ Claim undone. It is back in Ready to claim.')
+  }
   async function undo(r: Release) {
     const reason = window.prompt('Why undo this release?'); if (!reason) return
     const { error } = await sb.rpc('walmart_unrelease', { p_release: r.id, p_reason: reason })
@@ -1154,6 +1199,7 @@ function BuildTeam({ sb, releases, canEdit, onDone }: {
               <span className="font-bold">{fmtN(r.qty)} SRP</span>
               {canEdit && <button onClick={() => setMoveRel(r)} className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-[#E4E6EE] text-[#0071ce] hover:bg-[#F2F7FD]">Change PO</button>}
               {!claimed && canEdit && <button onClick={() => undo(r)} className="text-[11px] text-gray-400 hover:text-red-600">Undo</button>}
+              {claimed && canEdit && <button onClick={() => unclaim(r)} className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-[#E4E6EE] text-gray-500 hover:text-red-600 hover:border-red-200">↩ Undo claim</button>}
             </div>))}
         </div>
       </div>)
