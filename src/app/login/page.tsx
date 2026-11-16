@@ -35,6 +35,17 @@ export default function LoginPage() {
     if (h.get('error_description')) { setError(decodeURIComponent(h.get('error_description') || '').replace(/\+/g, ' ') + ' Ask Rudy to send a new invite.'); return }
     if (!type || !['invite', 'recovery', 'signup', 'magiclink'].includes(type)) return
     setLinkBusy(true)
+    // Links made by the server (password reset, invites) carry the session in the URL hash.
+    // The browser client runs the PKCE flow and ignores those tokens, so store them here.
+    const at = h.get('access_token'), rt = h.get('refresh_token')
+    if (at && rt) {
+      sb.auth.setSession({ access_token: at, refresh_token: rt }).then(({ error: se }) => {
+        if (se) { setLinkBusy(false); setError('That link has expired or was already used. Use "Forgot password" below to get a new one.'); return }
+        history.replaceState(null, '', window.location.pathname + window.location.search)
+        window.location.replace(type === 'magiclink' ? safeNext() : '/auth/update-password')
+      })
+      return
+    }
     let tries = 0
     const go = async () => {
       const { data } = await sb.auth.getSession()
