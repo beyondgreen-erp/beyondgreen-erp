@@ -3,7 +3,7 @@
 // Walks pdf.js's operator list and rebuilds every path, color, stroke, clip and image in
 // document space. Text is either already outlined by Ghostscript (text: 'outline') or rebuilt
 // as live, retypable text runs (text: 'live') with the original font size, color and position.
-import { type Mat, type Seg, type PathItem, type ImageItem, type SceneItem, type Clip, multiply, transformSegs } from './scene'
+import { type Mat, type Seg, type PathItem, type ImageItem, type SceneItem, type Clip, multiply, transformSegs, segsBounds } from './scene'
 
 /** A run of live text: `m` maps the run's local plane (x → along the baseline, y down, baseline at y = 0) to document space. */
 export interface TextRunItem {
@@ -37,6 +37,8 @@ interface GState {
   clips: Clip[]
   groupAlpha: number
   softMask: SoftMask | null
+  fillPattern: boolean // fill is a gradient / pattern (rendered as an image)
+  strokePattern: boolean
   // text state (part of the graphics state in PDF)
   font: any
   fontSize: number
@@ -76,7 +78,7 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
   let st: GState = {
     ctm: viewport.transform.slice(0, 6) as Mat,
     fill: [0, 0, 0], stroke: [0, 0, 0], fillAlpha: 1, strokeAlpha: 1,
-    lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], clips: [], groupAlpha: 1, softMask: null,
+    lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], clips: [], groupAlpha: 1, softMask: null, fillPattern: false, strokePattern: false,
     font: null, fontSize: 0, charSpacing: 0, wordSpacing: 0, hscale: 1, leading: 0, rise: 0, renderMode: 0,
   }
   // text object state (not saved by q/Q)
@@ -123,6 +125,22 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
     }
     tx += x * st.hscale
   }
+  // Gradients / patterns: pdf.js gives no editable geometry for them, so each painted area is kept as
+  // an image at print resolution, cut from pdf.js's own render of the page and clipped to the exact shape.
+  interface Spot { item: ImageItem; b: { x0: number; y0: number; x1: number; y1: number } }
+  const spots: Spot[] = []
+  function addRasterSpot(clips: Clip[]) {
+    let b = { x0: 0, y0: 0, x1: viewport.width, y1: viewport.height }
+    for (const c of clips) {
+      const cb = segsBounds(c.segs)
+      if (!cb) return
+      b = { x0: Math.max(b.x0, cb.x0), y0: Math.max(b.y0, cb.y0), x1: Math.min(b.x1, cb.x1), y1: Math.min(b.y1, cb.y1) }
+    }
+    if (b.x1 - b.x0 < 0.01 || b.y1 - b.y0 < 0.01) return
+    const item: ImageItem = { kind: 'image', m: [1, 0, 0, 1, b.x0, b.y0], w: 0, h: 0, rgba: new Uint8ClampedArray(0), opacity: 1, clips: clips.length ? clips : undefined }
+    out.push(item)
+    spots.push({ item, b })
+  }
   const stack: GState[] = []
   let path: Seg[] = []
   let pendingClip: 'nonzero' | 'evenodd' | null = null
@@ -156,6 +174,10 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
 
   function finishPath(fill: boolean, stroke: boolean, rule: 'nonzero' | 'evenodd', close = false) {
     if (close) path.push(['Z'])
+    if (path.length && fill && st.fillPattern && out === items) {
+      addRasterSpot([...st.clips, { segs: transformSegs(path, st.ctm), rule }])
+      fill = false
+    }
     if (path.length && (fill || stroke)) {
       out.push({
         kind: 'path', m: st.ctm.slice() as Mat, segs: path,
@@ -274,11 +296,14 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
           else if (k === 'SMask') st.softMask = v ? pendingMask : null
         }
         break
-      case OPS.setFillRGBColor: st.fill = [a[0] / 255, a[1] / 255, a[2] / 255]; break
-      case OPS.setStrokeRGBColor: st.stroke = [a[0] / 255, a[1] / 255, a[2] / 255]; break
-      case OPS.setFillColorN: case OPS.setStrokeColorN:
-        warnings.add('Pattern / gradient fills were replaced by a flat color.'); break
-      case OPS.shadingFill: warnings.add('Gradient (shading) areas were skipped.'); break
+      case OPS.setFillRGBColor: st.fill = [a[0] / 255, a[1] / 255, a[2] / 255]; st.fillPattern = false; break
+      case OPS.setStrokeRGBColor: st.stroke = [a[0] / 255, a[1] / 255, a[2] / 255]; st.strokePattern = false; break
+      case OPS.setFillColorN: st.fillPattern = true; break
+      case OPS.setStrokeColorN: st.strokePattern = true; warnings.add('Gradient / pattern strokes were replaced by a flat color.'); break
+      case OPS.shadingFill:
+        if (out === items) addRasterSpot(st.clips.slice())
+        else if (!maskedVectorsWarned) { warnings.add('A vector opacity mask was approximated.'); maskedVectorsWarned = true }
+        break
       case OPS.constructPath: construct(a[0], a[1]); break
       case OPS.moveTo: case OPS.lineTo: case OPS.curveTo: case OPS.curveTo2: case OPS.curveTo3: case OPS.rectangle: case OPS.closePath:
         construct([fn], a || []); break
@@ -351,6 +376,35 @@ export async function importPdfPage(pdfjs: any, page: any, opts: { text?: 'outli
       case OPS.nextLineSetSpacingShowText: st.wordSpacing = a[0]; st.charSpacing = a[1]; moveText(0, st.leading); showText(a[2]); break
     }
   }
+  if (spots.length) {
+    try {
+      const u = spots.reduce((acc, sp) => ({ x0: Math.min(acc.x0, sp.b.x0), y0: Math.min(acc.y0, sp.b.y0), x1: Math.max(acc.x1, sp.b.x1), y1: Math.max(acc.y1, sp.b.y1) }),
+        { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity })
+      const uw = u.x1 - u.x0, uh = u.y1 - u.y0
+      // 300 dpi, capped so very large areas stay within browser canvas limits
+      const sc = Math.max(0.5, Math.min(300 / 72, 8000 / Math.max(uw, uh), Math.sqrt(24e6 / (uw * uh))))
+      const cv = document.createElement('canvas')
+      cv.width = Math.max(1, Math.ceil(uw * sc)); cv.height = Math.max(1, Math.ceil(uh * sc))
+      const ctx = cv.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D
+      await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: sc }), transform: [1, 0, 0, 1, -u.x0 * sc, -u.y0 * sc], background: 'rgba(0,0,0,0)' }).promise
+      for (const sp of spots) {
+        const px0 = Math.max(0, Math.floor((sp.b.x0 - u.x0) * sc)), py0 = Math.max(0, Math.floor((sp.b.y0 - u.y0) * sc))
+        const px1 = Math.min(cv.width, Math.ceil((sp.b.x1 - u.x0) * sc)), py1 = Math.min(cv.height, Math.ceil((sp.b.y1 - u.y0) * sc))
+        const w = px1 - px0, h = py1 - py0
+        if (w < 1 || h < 1) continue
+        sp.item.w = w; sp.item.h = h
+        sp.item.rgba = ctx.getImageData(px0, py0, w, h).data
+        sp.item.m = [1 / sc, 0, 0, 1 / sc, u.x0 + px0 / sc, u.y0 + py0 / sc]
+      }
+      const dpi = Math.round(sc * 72)
+      warnings.add(`Gradient areas (${spots.length}) were kept as ${dpi} dpi images so they match the original artwork.`)
+    } catch {
+      warnings.add('Gradient areas could not be rendered and were skipped.')
+    }
+    const empty = new Set<ImportItem>(spots.filter(sp => !sp.item.w).map(sp => sp.item))
+    if (empty.size) for (let k = items.length - 1; k >= 0; k--) if (empty.has(items[k])) items.splice(k, 1)
+  }
+
 
   // Drop degenerate full-page white backgrounds some exporters add.
   return { width: viewport.width, height: viewport.height, items, warnings: Array.from(warnings) }
