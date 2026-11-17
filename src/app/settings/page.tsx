@@ -88,6 +88,18 @@ const cards = [
     border: 'hover:border-emerald-500/40',
   },
   {
+    href: '/settings/connectors',
+    title: 'Claude Connector',
+    description: 'Connect Claude to the ERP with your own login. See and disconnect connections',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+      </svg>
+    ),
+    color: 'text-orange-500',
+    border: 'hover:border-orange-500/40',
+  },
+  {
     href: '/settings/dev-center',
     title: 'Dev Center',
     description: 'Password-protected. Add new boards and manage the ERP structure — build it like Monday.com',
