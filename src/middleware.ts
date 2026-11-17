@@ -122,6 +122,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/forms') ||
     pathname.startsWith('/outlook-addin/') ||
     pathname.startsWith('/api/') ||
+    pathname.startsWith('/.well-known/') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/offline') ||
     pathname === '/sw.js' ||
