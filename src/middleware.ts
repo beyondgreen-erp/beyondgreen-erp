@@ -72,6 +72,16 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const host = (request.headers.get('host') || '').toLowerCase().split(':')[0]
 
+  // Claude connector OAuth discovery documents (served by /api/oauth/metadata).
+  if (pathname.startsWith('/.well-known/oauth-authorization-server') || pathname.startsWith('/.well-known/openid-configuration')) {
+    const u = request.nextUrl.clone(); u.pathname = '/api/oauth/metadata'; u.search = '?kind=as'
+    return NextResponse.rewrite(u)
+  }
+  if (pathname.startsWith('/.well-known/oauth-protected-resource')) {
+    const u = request.nextUrl.clone(); u.pathname = '/api/oauth/metadata'; u.search = '?kind=pr'
+    return NextResponse.rewrite(u)
+  }
+
   // Dedicated supplier-RFQ host: only the quote form is reachable.
   if (RFQ_HOSTS.includes(host)) {
     if (isRfqHostPath(pathname)) {
