@@ -53,12 +53,20 @@ export default function CivilDoodyOrders({ embedded = false }: { embedded?: bool
   const [carrier, setCarrier] = useState('USPS')
   const [tracking, setTracking] = useState('')
   const [qty, setQty] = useState<Record<number, string>>({})
+  const [run, setRun] = useState<any>(null)
+  const [settings, setSettings] = useState<any>(null)
+  const [showReport, setShowReport] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data, error } = await sb.from('odoo_orders').select('*').eq('target', target).order('scheduled_date', { ascending: true }).limit(2000)
     if (error) setMsg({ kind: 'err', text: error.message })
     setRows((data || []) as Order[])
+    const [{ data: r }, { data: st }] = await Promise.all([
+      sb.from('odoo_sync_runs').select('*').eq('target', target).order('ran_at', { ascending: false }).limit(1).maybeSingle(),
+      sb.from('odoo_sync_settings').select('*').eq('id', 1).maybeSingle(),
+    ])
+    setRun(r || null); setSettings(st || null)
     setLoading(false)
   }, [sb, target])
   useEffect(() => { load() }, [load])
@@ -72,6 +80,21 @@ export default function CivilDoodyOrders({ embedded = false }: { embedded?: bool
     const j = await api({ action: 'pull', target })
     if (j.ok) setMsg({ kind: 'ok', text: `Pulled from Odoo: ${j.open_in_odoo} open orders, ${j.added} new, ${j.updated} refreshed, ${j.closed_or_cancelled} closed or cancelled.` })
     else setMsg({ kind: 'err', text: j.error || 'Pull failed' })
+    setBusy(''); load()
+  }
+  async function syncNow(preview: boolean) {
+    setBusy(preview ? 'preview' : 'sync'); setMsg(null)
+    const j = await fetch('/api/odoo/sync' + (preview ? '?preview=1' : '')).then(r => r.json()).catch(() => ({ error: 'The ERP did not answer. Please try again.' }))
+    const t = j.targets?.[target]
+    if (j.error || t?.error) setMsg({ kind: 'err', text: j.error || t.error })
+    else if (preview) setMsg({ kind: 'ok', text: t?.email ? `Report ${t.email}.` : `The report email follows the ${settings?.report_target === 'live' ? 'Live' : 'Testing'} database. Switch to that view to preview it.` })
+    else setMsg({ kind: 'ok', text: `Synced with Odoo: ${t?.new_orders ?? 0} new orders, ${t?.shipments ?? 0} shipments sent back, ${t?.problems ?? 0} needing attention.` })
+    setBusy(''); load()
+  }
+  async function setReport(patch: any) {
+    setBusy('setting'); setMsg(null)
+    const j = await api({ action: 'report_setting', ...patch })
+    if (j.error) setMsg({ kind: 'err', text: j.error })
     setBusy(''); load()
   }
   async function setStatus(o: Order, status: string) {
@@ -115,7 +138,7 @@ export default function CivilDoodyOrders({ embedded = false }: { embedded?: bool
           {!embedded && <><span className="mon-tag t-blue">Civil Doody</span>
           <h1 className="text-2xl font-bold text-gray-900 mt-2">Civil Doody Orders</h1></>}
           <p className="text-sm text-gray-500 mt-1">Consumer orders from the Civil Doody store in Odoo. Pack the box, enter the carrier and tracking number, and the shipment is sent back to Odoo.</p>
-          {lastPull && <p className="text-xs text-gray-400 mt-1">Last pulled from Odoo: {fmtDT(lastPull)}</p>}
+          <p className="text-xs text-gray-400 mt-1">Syncs with Odoo automatically every day at 6:00 AM Pacific: new orders are pulled in and any shipment Odoo has not received is sent again.{lastPull ? ` Last pulled: ${fmtDT(lastPull)}.` : ''}</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm font-semibold">
@@ -130,6 +153,39 @@ export default function CivilDoodyOrders({ embedded = false }: { embedded?: bool
       {target === 'test' && <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm px-4 py-2">Testing database. These are test orders, not real customers. Shipping one here updates the Odoo testing copy only.</div>}
       {target === 'live' && <div className="rounded-lg bg-green-50 border border-green-200 text-green-900 text-sm px-4 py-2">Live Civil Doody store. Orders can be pulled and packed here. Sending shipments back to live Odoo stays off until go-live is switched on.</div>}
       {msg && <div className={`rounded-lg text-sm px-4 py-2 border ${msg.kind === 'ok' ? 'bg-green-50 border-green-200 text-green-900' : 'bg-red-50 border-red-200 text-red-900'}`}>{msg.text}</div>}
+
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-gray-900">Last pull and push report</p>
+            {run ? (
+              <p className="text-sm text-gray-600 mt-1">
+                {fmtDT(run.ran_at)} ({run.trigger === 'daily' ? 'automatic' : 'run by hand'}): pulled {run.pulled?.open_in_odoo ?? 0} open orders from Odoo, <b>{run.new_orders?.length || 0}</b> new, <b>{run.shipments?.length || 0}</b> shipments sent back to Odoo, <b>{run.problems?.length || 0}</b> needing attention.
+              </p>
+            ) : <p className="text-sm text-gray-400 mt-1">No report yet. It is written each morning by the automatic sync, or click Sync now.</p>}
+            <p className="text-xs text-gray-500 mt-1">
+              Report email: <b>{settings?.report_enabled ? 'On' : 'Off'}</b>
+              {settings ? ` · ${settings.report_target === 'live' ? 'Live' : 'Testing'} database · to ${settings.report_to}, cc ${settings.report_cc}` : ''}
+              {run?.email_status ? ` · last email: ${run.email_status}${run.emailed_at ? ' ' + fmtDT(run.emailed_at) : ''}` : ''}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">The email is a plain report. It has no link or login to the ERP.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {run && <button className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold" onClick={() => setShowReport(v => !v)}>{showReport ? 'Hide details' : 'View details'}</button>}
+            <button className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold" disabled={busy === 'sync'} onClick={() => syncNow(false)}>{busy === 'sync' ? 'Syncing...' : 'Sync now'}</button>
+            <button className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold" disabled={busy === 'preview'} onClick={() => syncNow(true)}>{busy === 'preview' ? 'Sending...' : 'Email me a preview'}</button>
+            {settings && <button className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold" disabled={busy === 'setting'} onClick={() => setReport({ report_enabled: !settings.report_enabled })}>{settings.report_enabled ? 'Turn report email off' : 'Turn report email on'}</button>}
+            {settings && settings.report_target !== target && <button className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold" disabled={busy === 'setting'} onClick={() => setReport({ report_target: target })}>Email this database instead</button>}
+          </div>
+        </div>
+        {showReport && run && (
+          <div className="mt-3 grid md:grid-cols-3 gap-4 text-xs text-gray-700">
+            <div><p className="font-bold mb-1">New orders ({run.new_orders?.length || 0})</p>{(run.new_orders || []).slice(0, 40).map((o: any, i: number) => <div key={i}>{o.order} · {o.items}</div>)}{!(run.new_orders || []).length && <span className="text-gray-400">None</span>}</div>
+            <div><p className="font-bold mb-1">Shipments sent to Odoo ({run.shipments?.length || 0})</p>{(run.shipments || []).map((o: any, i: number) => <div key={i}>{o.order} · {o.carrier} {o.tracking}{o.partial ? ' (partial)' : ''}</div>)}{!(run.shipments || []).length && <span className="text-gray-400">None</span>}</div>
+            <div><p className="font-bold mb-1">Needs attention ({run.problems?.length || 0})</p>{(run.problems || []).map((o: any, i: number) => <div key={i}>{o.what}: {o.detail}</div>)}{!(run.problems || []).length && <span className="text-gray-400">Nothing</span>}</div>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Stat label="To pack" value={counts.todo || 0} c="#0086C0" />
