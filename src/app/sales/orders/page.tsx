@@ -15,6 +15,7 @@ import { onStatusChange, undoFlow, logActivity, shipOrder, type OrderStatus, typ
 import UndoToast from '@/components/UndoToast'
 import Comments from '@/components/Comments'
 import FileUpload from '@/components/FileUpload'
+import CustomerProofPanel from '@/components/CustomerProofPanel'
 import InventoryCheckModal from '@/components/InventoryCheckModal'
 import { statusColor } from '@/lib/statusColors'
 import { generateOrderPDF, generateAcknowledgementPDF, generatePackingSlip, type PDFLine, type PDFOrder, type PDFCustomer } from '@/lib/pdfHelpers'
@@ -1739,6 +1740,11 @@ function EditPanel({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+          {editing && (
+            <div className="pt-4 border-t border-[#E4E6EE]">
+              <CustomerProofPanel supabase={sb} orderId={editing.id} defaultEmail={form.customer_email} defaultTitle={form.notes} />
             </div>
           )}
           {editing && <VersionHistory orderId={editing.id} />}
