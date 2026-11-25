@@ -15,6 +15,10 @@
     {
       "path": "/api/whatsapp/hourly",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/odoo/sync",
+      "schedule": "0 14 * * *"
     }
   ]
 }

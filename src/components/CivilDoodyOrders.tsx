@@ -115,7 +115,7 @@ export default function CivilDoodyOrders({ embedded = false }: { embedded?: bool
           {!embedded && <><span className="mon-tag t-blue">Civil Doody</span>
           <h1 className="text-2xl font-bold text-gray-900 mt-2">Civil Doody Orders</h1></>}
           <p className="text-sm text-gray-500 mt-1">Consumer orders from the Civil Doody store in Odoo. Pack the box, enter the carrier and tracking number, and the shipment is sent back to Odoo.</p>
-          {lastPull && <p className="text-xs text-gray-400 mt-1">Last pulled from Odoo: {fmtDT(lastPull)}</p>}
+          <p className="text-xs text-gray-400 mt-1">Syncs with Odoo automatically every day at 6:00 AM Pacific: new orders are pulled in and any shipment Odoo has not received is sent again.{lastPull ? ` Last pulled: ${fmtDT(lastPull)}.` : ''}</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm font-semibold">
