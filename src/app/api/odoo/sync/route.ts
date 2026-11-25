@@ -6,6 +6,7 @@
  * When the report email is switched on (odoo_sync_settings), the report for the chosen database is
  * emailed once per day to the customer with Rudy on cc.
  *   ?preview=1   signed-in staff only: email the report to yourself and nobody else.
+ *   ?test=1      Rudy only: email the report to the customer (cc Rudy) marked clearly as a test.
  * Safe to run any number of times. The cron has no staff session, so an unauthenticated call can
  * only do the idempotent sync; the once-a-day rule keeps it from ever mailing the customer twice.
  */
@@ -37,6 +38,9 @@ export async function GET(req: NextRequest) {
   if (!staff && !isCron(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   const preview = req.nextUrl.searchParams.get('preview') === '1'
   if (preview && !staff) return NextResponse.json({ error: 'Sign in to send a preview' }, { status: 401 })
+  const test = req.nextUrl.searchParams.get('test') === '1'
+  if (test && staff !== 'rudyp@beyondgreenbiotech.com') return NextResponse.json({ error: 'Only Rudy can send a test to the customer' }, { status: 403 })
+  const split = (s: string) => String(s || '').split(',').map(x => x.trim()).filter(Boolean)
   const admin = createSupabaseAdminClient()
   const { data: settings } = await admin.from('odoo_sync_settings').select('*').eq('id', 1).maybeSingle()
   const out: any = { ok: true, targets: {} }
@@ -49,13 +53,15 @@ export async function GET(req: NextRequest) {
         if (preview) {
           const res = await sendReport(admin, run, [staff!], [], { preview: true })
           r.email = res.ok ? `preview sent to ${staff}` : `preview failed: ${res.error}`
+        } else if (test) {
+          const res = await sendReport(admin, run, split(settings.report_to), split(settings.report_cc), { test: true })
+          r.email = res.ok ? `test sent to ${settings.report_to}, cc ${settings.report_cc}` : `test failed: ${res.error}`
         } else if (settings.report_enabled) {
           // One customer email per database per day (Pacific time), no matter how often this runs.
           const { data: mailed } = await admin.from('odoo_sync_runs').select('emailed_at').eq('target', target).not('emailed_at', 'is', null).order('emailed_at', { ascending: false }).limit(1).maybeSingle()
           const pt = (d: string | Date) => new Date(d).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
           if (mailed?.emailed_at && pt(mailed.emailed_at) === pt(new Date())) r.email = 'already sent today'
           else {
-            const split = (s: string) => String(s || '').split(',').map(x => x.trim()).filter(Boolean)
             const res = await sendReport(admin, run, split(settings.report_to), split(settings.report_cc))
             r.email = res.ok ? 'sent' : `failed: ${res.error}`
           }
