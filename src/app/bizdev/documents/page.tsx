@@ -81,16 +81,29 @@ export default function DocumentsPage() {
   const [histFilter, setHistFilter] = useState<'all' | 'upload' | 'view' | 'download'>('all')
   const [histSearch, setHistSearch] = useState('')
 
+  // The database returns at most 1,000 rows per request, so a big table has to be read in pages.
+  // Without this the repository silently showed only the first 1,000 documents by title.
+  async function fetchAll(build: (from: number, to: number) => any): Promise<{ data: any[] }> {
+    const out: any[] = []
+    for (let from = 0; from < 50000; from += 1000) {
+      const { data, error } = await build(from, from + 999)
+      if (error || !data || !data.length) break
+      out.push(...data)
+      if (data.length < 1000) break
+    }
+    return { data: out }
+  }
+
   async function load() {
     setLoading(true)
     const [{ data: docs }, { data: fl }, { data: c }, { data: v }, { data: o }, { data: ce }, { data: atts }, { data: dc }] = await Promise.all([
-      sb.from('documents').select('id,title,category,version,effective_date,review_date,status,owner,customer_id,vendor_id,order_id,certification_id,source_file_path,notes,is_active,ai_summary,folder_id,updated_at,created_at,ai_processed_at').order('title', { ascending: true }),
+      fetchAll((from, to) => sb.from('documents').select('id,title,category,version,effective_date,review_date,status,owner,customer_id,vendor_id,order_id,certification_id,source_file_path,notes,is_active,ai_summary,folder_id,updated_at,created_at,ai_processed_at').order('title', { ascending: true }).order('id', { ascending: true }).range(from, to)),
       sb.from('document_folders').select('id,name,parent_id,sort_order,icon,system_key'),
       sb.from('customers').select('id,company_name').eq('is_active', true).eq('board', 'customer').order('company_name').limit(2000),
       sb.from('vendors').select('id,company_name').eq('is_active', true).order('company_name'),
       sb.from('sales_orders').select('id,order_number').order('created_at', { ascending: false }).limit(800),
       sb.from('certifications').select('id,cert_name').eq('is_active', true).order('cert_name'),
-      sb.from('file_attachments').select('record_id,storage_path,file_name,created_at').eq('record_type', 'documents').order('created_at', { ascending: false }),
+      fetchAll((from, to) => sb.from('file_attachments').select('record_id,storage_path,file_name,created_at').eq('record_type', 'documents').order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, to)),
       sb.from('document_categories').select('name,sort_order').order('sort_order').order('name'),
     ])
     setRows((docs as Doc[]) || []); setFolders((fl as Folder[]) || [])
