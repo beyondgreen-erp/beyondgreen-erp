@@ -5,6 +5,7 @@
  * POST { action: 'pull', target }                         pull Civil Doody delivery orders into odoo_orders
  * POST { action: 'ship', id, carrier, tracking_number, lines: [{ move_id, qty }] }   mark shipped + tell Odoo
  * POST { action: 'retry', id }                            resend a shipment Odoo did not accept
+ * POST { action: 'report_setting', report_enabled, report_target }   daily report email on/off (Rudy only)
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase'
@@ -89,6 +90,16 @@ export async function POST(req: NextRequest) {
     if (b.action === 'retry') {
       if (!b.id) return json({ error: 'id is required' }, 400)
       return json(await pushShipment(admin, b.id))
+    }
+    if (b.action === 'report_setting') {
+      // Switching the customer email on or off is Rudy's call only.
+      if (email !== 'rudyp@beyondgreenbiotech.com') return json({ error: 'Only Rudy can change the report email' }, 403)
+      const patch: any = { updated_by: email, updated_at: new Date().toISOString() }
+      if (typeof b.report_enabled === 'boolean') patch.report_enabled = b.report_enabled
+      if (b.report_target === 'test' || b.report_target === 'live') patch.report_target = b.report_target
+      const { error } = await admin.from('odoo_sync_settings').update(patch).eq('id', 1)
+      if (error) return json({ error: error.message }, 500)
+      return json({ ok: true })
     }
     return json({ error: 'unknown action' }, 400)
   } catch (e: any) {
