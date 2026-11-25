@@ -43,6 +43,4 @@ do $$ begin
     with check (split_part(lower(auth.jwt() ->> 'email'), '@', 2) in ('beyondgreenbiotech.com', 'byndgrn.com'));
 exception when duplicate_object then null; end $$;
 
-insert into public.boards (board_key, label, icon, nav_group, href, sort_order, is_hidden, is_custom)
-select '/sales/civil-doody', 'Civil Doody Orders', 'ti-dog', 'Sales', '/sales/civil-doody', 6, false, false
-where not exists (select 1 from public.boards where board_key = '/sales/civil-doody');
+-- No nav entry: the board is the Civil Doody Orders tab on Sales Orders (/sales/orders?view=civildoody).

@@ -1,8 +1,6 @@
-'use client'
-export const dynamic = 'force-dynamic'
-// Standalone link to the Civil Doody Orders board. The same board is a tab on Sales Orders.
-import CivilDoodyOrders from '@/components/CivilDoodyOrders'
+// The Civil Doody Orders board lives as a tab on Sales Orders. Old links land there.
+import { redirect } from 'next/navigation'
 
-export default function CivilDoodyOrdersPage() {
-  return <CivilDoodyOrders />
+export default function CivilDoodyOrdersRedirect() {
+  redirect('/sales/orders?view=civildoody')
 }
