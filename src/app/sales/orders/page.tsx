@@ -358,7 +358,10 @@ interface Customer { id: string; company_name: string }
 // ── Constants ──────────────────────────────────────────────────────────────
 const SECTIONS = ['Make To Stock','Private Label','Straw Orders','Customer DropShip','Injection Molding','Paper Products','Outsourced']
 const SECTION_TABS = ['All', ...SECTIONS]
-const SECTION_COLORS: Record<string,string> = { 'Walmart':'#0071CE','Chewy':'#1C49C2','Make To Stock':'#037f4c','Private Label':'#784bd1','Straw Orders':'#ff6d3b','Customer DropShip':'#216edf','Injection Molding':'#bb3354','Paper Products':'#cab641','Outsourced':'#7e3b8a' }
+// Custom printed bag orders placed online (byndgrn.com Shopify). They live on their own
+// "Online Custom Bags" tab, like Chewy, and are kept off All Orders.
+const ONLINE_CUSTOM_SECTION = 'Online Custom Bags'
+const SECTION_COLORS: Record<string,string> = { 'Walmart':'#0071CE','Chewy':'#1C49C2','Online Custom Bags':'#0E7490','Make To Stock':'#037f4c','Private Label':'#784bd1','Straw Orders':'#ff6d3b','Customer DropShip':'#216edf','Injection Molding':'#bb3354','Paper Products':'#cab641','Outsourced':'#7e3b8a' }
 const STATUSES = [
   'Pending','Pending Lead Time','Confirmed','Awaiting BOM Components',
   'Production Queue','In Production','QC','Ready for Packing List',
@@ -432,6 +435,9 @@ function isChewyOrder(o: SalesOrder): boolean {
   const sec = o.order_section ?? ''
   const cust = (o.customer?.company_name ?? '').trim().toLowerCase()
   return sec === 'Chewy' || cust === 'chewy'
+}
+function isOnlineCustomOrder(o: SalesOrder): boolean {
+  return (o.order_section ?? '') === ONLINE_CUSTOM_SECTION
 }
 function orderCustomerName(o: SalesOrder): string {
   const typed = (o.notes ?? '').trim()
@@ -1383,7 +1389,7 @@ function EditPanel({
                   <label className="block text-xs text-gray-400 mb-1.5">Section</label>
                   <select value={form.order_section} onChange={e => setForm(p => ({ ...p, order_section: e.target.value }))} className={inp + ' cursor-pointer'}>
                     <option value="">— None —</option>
-                    {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    {[...SECTIONS, ONLINE_CUSTOM_SECTION].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
@@ -1832,10 +1838,10 @@ export default function OrdersPage() {
   // ?view=walmart|chewy opens the right tab. A mention on a Walmart order links here,
   // and without this the pipeline opens on Sales Orders — that board never renders the
   // Walmart row, so its own deep link cannot find it and the reader sees a bare list.
-  const [view, setView] = useState<'board'|'table'|'walmart'|'chewy'|'civildoody'>(() => {
+  const [view, setView] = useState<'board'|'table'|'walmart'|'chewy'|'civildoody'|'online'>(() => {
     if (typeof window === 'undefined') return 'board'
     const v = new URLSearchParams(window.location.search).get('view')
-    return (v === 'walmart' || v === 'chewy' || v === 'civildoody' || v === 'table') ? v : 'board'
+    return (v === 'walmart' || v === 'chewy' || v === 'civildoody' || v === 'online' || v === 'table') ? v : 'board'
   })
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
@@ -2948,6 +2954,7 @@ export default function OrdersPage() {
           <button onClick={() => setView('walmart')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'walmart' ? { background: '#0071CE', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#E1EFFB', color: '#0071CE' }}>Walmart Orders</button>
           <button onClick={() => setView('chewy')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'chewy' ? { background: '#1C49C2', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#E5EAF9', color: '#1C49C2' }}>Chewy Orders</button>
           <button onClick={() => setView('civildoody')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'civildoody' ? { background: '#7A4B1E', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#F3E7DA', color: '#7A4B1E' }}>Civil Doody Orders</button>
+          <button onClick={() => setView('online')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'online' ? { background: '#0E7490', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#DDF1F6', color: '#0E7490' }}>Online Custom Bags</button>
         </div>
         {view === 'board' && (
           <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
@@ -2973,12 +2980,15 @@ export default function OrdersPage() {
       {view === 'walmart' && <WalmartBoard />}
       {view === 'civildoody' && <CivilDoodyOrders embedded />}
 
-      {(view === 'board' || view === 'chewy') && (() => {
+      {(view === 'board' || view === 'chewy' || view === 'online') && (() => {
         // Chewy orders have no separate board table, so the Chewy Orders tab renders them here
         // (grouped by status) in the same format as All Orders; All Orders excludes them.
         const chewyView = view === 'chewy'
-        const gb = chewyView ? 'status' : groupBy
-        const src = chewyView ? orders.filter(isChewyOrder) : orders.filter(o => !isChewyOrder(o))
+        const onlineView = view === 'online'
+        const gb = chewyView || onlineView ? 'status' : groupBy
+        const src = chewyView ? orders.filter(isChewyOrder)
+          : onlineView ? orders.filter(isOnlineCustomOrder)
+          : orders.filter(o => !isChewyOrder(o) && !isOnlineCustomOrder(o))
         // Include any status present on active orders that isn't in the canonical list,
         // so no order can ever hide from the status board (defensive against stray statuses).
         const extraStatuses = gb === 'status'
