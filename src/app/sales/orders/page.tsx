@@ -21,6 +21,7 @@ import { generateOrderPDF, generateAcknowledgementPDF, generatePackingSlip, type
 import BomEditor from '@/app/sales/inventory/BomEditor'
 import PoExtractUpload from '@/components/PoExtractUpload'
 import WalmartBoard from '@/components/WalmartBoard'
+import CivilDoodyOrders from '@/components/CivilDoodyOrders'
 import { orderDisplayName } from '@/lib/orderName'
 import { conversionFactor, normalizeUom, uomOptions } from '@/lib/uom'
 import ItemHistory from '@/components/ItemHistory'
@@ -1825,10 +1826,10 @@ export default function OrdersPage() {
   // ?view=walmart|chewy opens the right tab. A mention on a Walmart order links here,
   // and without this the pipeline opens on Sales Orders — that board never renders the
   // Walmart row, so its own deep link cannot find it and the reader sees a bare list.
-  const [view, setView] = useState<'board'|'table'|'walmart'|'chewy'>(() => {
+  const [view, setView] = useState<'board'|'table'|'walmart'|'chewy'|'civildoody'>(() => {
     if (typeof window === 'undefined') return 'board'
     const v = new URLSearchParams(window.location.search).get('view')
-    return (v === 'walmart' || v === 'chewy' || v === 'table') ? v : 'board'
+    return (v === 'walmart' || v === 'chewy' || v === 'civildoody' || v === 'table') ? v : 'board'
   })
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showEmpty, setShowEmpty] = useState(false)
@@ -2888,7 +2889,7 @@ export default function OrdersPage() {
       {inlineErr && (
         <div className="fixed bottom-5 right-5 z-[130] rounded-lg bg-[#E2445C] text-white text-sm font-semibold px-4 py-2.5 shadow-lg">{inlineErr}</div>
       )}
-      {!loading && view !== 'walmart' && view !== 'chewy' && (<>
+      {!loading && view !== 'walmart' && view !== 'chewy' && view !== 'civildoody' && (<>
         <style>{`@keyframes soBlink{0%,100%{opacity:1}50%{opacity:.4}} .so-blink{animation:soBlink 1s ease-in-out infinite}`}</style>
         {(() => {
           const overdue = orders.filter(o => !isCompleted(o) && orderMatches(o) && shipUrgency(o)?.level === 'overdue')
@@ -2915,7 +2916,7 @@ export default function OrdersPage() {
       </>)}
 
       {/* Search + status filter — applies to both Board and Table */}
-      {view !== 'walmart' && view !== 'chewy' && (
+      {view !== 'walmart' && view !== 'chewy' && view !== 'civildoody' && (
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -2940,6 +2941,7 @@ export default function OrdersPage() {
           <button onClick={() => setView('board')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'board' ? { background: '#0F7A4E', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#DDF3E8', color: '#0F7A4E' }}>All Orders</button>
           <button onClick={() => setView('walmart')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'walmart' ? { background: '#0071CE', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#E1EFFB', color: '#0071CE' }}>Walmart Orders</button>
           <button onClick={() => setView('chewy')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'chewy' ? { background: '#1C49C2', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#E5EAF9', color: '#1C49C2' }}>Chewy Orders</button>
+          <button onClick={() => setView('civildoody')} className="px-5 py-2.5 rounded-lg text-sm font-bold transition-colors" style={view === 'civildoody' ? { background: '#7A4B1E', color: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' } : { background: '#F3E7DA', color: '#7A4B1E' }}>Civil Doody Orders</button>
         </div>
         {view === 'board' && (
           <div className="flex items-center gap-1 bg-[#F0F2F7] rounded-lg p-1 w-fit">
@@ -2963,6 +2965,7 @@ export default function OrdersPage() {
       </div>
 
       {view === 'walmart' && <WalmartBoard />}
+      {view === 'civildoody' && <CivilDoodyOrders embedded />}
 
       {(view === 'board' || view === 'chewy') && (() => {
         // Chewy orders have no separate board table, so the Chewy Orders tab renders them here
