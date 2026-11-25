@@ -31,6 +31,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/sales/inventory': 'Products',
   '/sales/shipments': 'Shipments',
   '/sales/shipping-queue': 'Shipping Queue',
+  '/sales/civil-doody': 'Civil Doody Orders',
   '/production': 'Work Orders',
   '/production/qc': 'Quality Control',
   '/production/walmart': 'Walmart Production',

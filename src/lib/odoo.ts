@@ -14,8 +14,19 @@ const T = {
 }
 export const ODOO_LOGIN = process.env.ODOO_LOGIN || 'rudyp@beyondgreenbiotech.com'
 export const odooTarget = (t?: string | null): OdooTarget => (t === 'live' ? 'live' : (process.env.ODOO_DEFAULT_TARGET === 'live' && !t ? 'live' : 'test'))
-export const odooInfo = (t: OdooTarget) => ({ target: t, url: T[t].url, db: T[t].db, hasKey: !!(process.env[T[t].keyEnv] || (t === 'test' && process.env.ODOO_API_KEY)), writes: odooWritesOn(t) ? 'ON' : 'blocked' })
+export const odooInfo = (t: OdooTarget) => ({ target: t, url: T[t].url, db: T[t].db, hasKey: !!odooKey(t), writes: odooWritesOn(t) ? 'ON' : 'blocked' })
 export const odooWritesOn = (t: OdooTarget) => t === 'test' || process.env.ODOO_WRITE_ENABLED === '1'
+// Each database has its own key (a copy of live does NOT keep live's keys). The value is cleaned to one
+// token so a key pasted with spaces or blank lines still works, and it is never echoed in an error.
+function odooKey(t: OdooTarget): string | undefined {
+  const raw = process.env[T[t].keyEnv] || (t === 'test' ? process.env.ODOO_API_KEY : undefined)
+  return (raw || '').trim().split(/\s+/)[0] || undefined
+}
+const redact = (msg: string, key?: string) => {
+  let m = String(msg || '')
+  if (key) m = m.split(key).join('[key hidden]')
+  return m.replace(/[0-9a-f]{32,}/gi, '[key hidden]')
+}
 const READ = new Set(['search_read', 'read', 'search', 'search_count', 'fields_get', 'context_get', 'name_search', 'read_group', 'web_search_read', 'formatted_read_group'])
 
 const rpcUid: Record<string, number> = {}
@@ -31,10 +42,17 @@ async function jsonRpc(url: string, service: string, method: string, args: any[]
 
 export async function odooCall(target: OdooTarget, model: string, method: string, kwargs: Record<string, any> = {}, ids?: number[]): Promise<any> {
   const cfg = T[target]
-  // The testing database is a copy of live, so the live key works there when no separate test key is set.
-  const key = process.env[cfg.keyEnv] || (target === 'test' ? process.env.ODOO_API_KEY : undefined)
+  const key = odooKey(target)
   if (!key) throw new Error(`${cfg.keyEnv} is not set`)
   if (!READ.has(method) && !odooWritesOn(target)) throw new Error(`Odoo write "${model}.${method}" blocked on ${target} (read-only mode)`)
+  try {
+    return await odooCallRaw(cfg, key, target, model, method, kwargs, ids)
+  } catch (e: any) {
+    throw new Error(redact(e?.message || String(e), key))
+  }
+}
+
+async function odooCallRaw(cfg: { url: string; db: string; keyEnv: string }, key: string, target: OdooTarget, model: string, method: string, kwargs: Record<string, any>, ids?: number[]): Promise<any> {
   const body: any = { ...kwargs }
   if (ids) body.ids = ids
   const r = await fetch(`${cfg.url}/json/2/${model}/${method}`, {
