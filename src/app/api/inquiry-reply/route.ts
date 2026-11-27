@@ -18,6 +18,8 @@ const READER = 'claude-haiku-4-5-20251001'
 // Phrases from the old template replies and the usual AI tells. Any hit triggers one rewrite pass.
 const BANNED: [RegExp, string][] = [
   [/exactly the kind of/i, '"exactly the kind of ..."'],
+  [/\bgenuinely\b/i, '"genuinely"'],
+  [/here is everything you asked/i, '"Here is everything you asked about"'],
   [/rather than a guess/i, '"rather than a guess"'],
   [/thank you for reaching out/i, '"Thank you for reaching out"'],
   [/interest in our private label/i, '"interest in our private label ... program"'],
@@ -45,6 +47,8 @@ Hard rules:
 - Never write a dollar amount yourself. Where the pricing belongs, write the exact token {{PRICING_TABLE}} on its own line, once. Prices in the facts (plate charge, dispenser price, mold cost) may be quoted exactly as given.
 - Answer every one of their questions, in the order they asked them, in plain words. If they asked for something we cannot do (for example a BPI certificate for pet waste bags), say so directly and offer what we do have.
 - Custom shapes and new items: when tooling is in the facts, explain in one or two plain sentences that it needs its own tooling (name the type), give the one-time cost and minimum run exactly as given or say they will be quoted separately. If requested_quantity_below_minimum_run is true, say kindly and honestly that their quantity is below the minimum run for custom tooling, and offer alternative_we_can_offer (if given) as a way to start now and move to the custom item as they grow. Never promise a custom item we have not confirmed.
+- If prices_in_table_are_for names our stock option, say plainly before or right after the table that those prices are for the stock option, not the custom item, and that custom item pricing comes with the tooling quote.
+- Do not name other companies or brands, even if the customer mentions one.
 - If pricing_status says there are no prices yet, do not write a pricing section with numbers: say what we will send and when.
 - Open with one or two sentences that only this customer could receive: use their brand name, what they are launching, where they will sell it (for Amazon, mention FBA-ready cartons), their timing, or a specific detail from their message. Do not open by thanking them for reaching out.
 - Be warm and direct. Short paragraphs. Vary sentence length. Plain verbs (is, are, has).

@@ -326,7 +326,7 @@ export default function InquiryReplyBuilder() {
           </>) : (<>
             {CATALOG.some(c => c.type === f.productType) && (
               <Field label="Start from one of our stock items (optional, fills cost and specs)" className="mb-3">
-                <select className={inp} value="" onChange={e => { const c = CATALOG.find(x => x.label === e.target.value); if (c) setF(p => ({ ...p, costEach: c.cost, unitLabel: c.unit, specs: p.specs.trim() ? p.specs : c.specs, alternative: p.tooling.needed && !p.alternative ? c.label : p.alternative })) }}>
+                <select className={inp} value="" onChange={e => { const c = CATALOG.find(x => x.label === e.target.value); if (c) setF(p => ({ ...p, costEach: c.cost, unitLabel: c.unit, specs: p.specs.trim() ? p.specs : c.specs, alternative: p.tooling.needed && !p.alternative ? c.label : p.alternative, pricesFor: p.tooling.needed ? 'alternative' : 'item' })) }}>
                   <option value="">Choose a stock item…</option>{CATALOG.filter(c => c.type === f.productType).map(c => <option key={c.label} value={c.label}>{c.label} ({money4(c.cost)} cost)</option>)}
                 </select>
               </Field>
@@ -410,6 +410,7 @@ export default function InquiryReplyBuilder() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Field label={`Our cost per ${un}`}><input className={inp} type="number" step="0.0001" value={f.costEach ?? ''} placeholder="Enter or pick a stock item" onChange={e => set('costEach', numOrNull(e.target.value))} /></Field>
               <Field label="Price basis"><select className={inp} value={f.basis} onChange={e => set('basis', e.target.value as any)}><option>FOB Santa Ana, CA</option><option>Delivered (DDP)</option></select></Field>
+              {f.alternative.trim() && <Field label="These prices are for" className="col-span-2"><select className={inp} value={f.pricesFor || 'item'} onChange={e => set('pricesFor', e.target.value as any)}><option value="item">The item they asked for</option><option value="alternative">Our stock option: {f.alternative.slice(0, 40)}</option></select></Field>}
             </div>
             <p className="text-[11px] text-gray-400 mt-1.5">Blank prices use our cost at 20% margin (SKU pricing sheet rule). Leave cost and price blank if we cannot price it yet; the reply will say pricing follows.</p>
             <div className="mt-3 overflow-x-auto">

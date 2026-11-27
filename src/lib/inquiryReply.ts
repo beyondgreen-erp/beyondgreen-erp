@@ -74,6 +74,7 @@ export interface InquiryForm {
   genTiers: GenTier[]
   tooling: Tooling
   alternative: string
+  pricesFor: 'item' | 'alternative'
   // certifications to list
   certs: string[]
   // anything Dhanush wants said, his way
@@ -144,7 +145,7 @@ export function tierMarkup(bags: number): number { return bags >= 1_000_000 ? 0 
 
 export const emptyForm = (preparedBy = ''): InquiryForm => ({
   productType: 'Pet waste bags', productDesc: '', specs: '', unitLabel: 'piece', material: '', madeInSantaAna: true, printNote: '', costEach: null,
-  genTiers: [{ qty: 5000, price: null }], tooling: { needed: false, kind: 'Extrusion die', cost: null, moq: '', leadTime: '', note: '' }, alternative: '',
+  genTiers: [{ qty: 5000, price: null }], tooling: { needed: false, kind: 'Extrusion die', cost: null, moq: '', leadTime: '', note: '' }, alternative: '', pricesFor: 'item',
   contactFirst: '', contactFull: '', company: '', brand: '', email: '', phone: '', location: '', channel: 'Amazon', source: 'Website contact form', launch: '',
   inquiryText: '', questions: '',
   format: 'Folded rolls (leash dispenser refills)', widthIn: 9, lengthIn: 13, micron: 20, bagsPerRoll: 15, rollsPerUnit: 20, color: 'Green (our standard)', scent: 'Unscented', bagPrint: 'None',
@@ -231,6 +232,7 @@ export function quoteSummary(f: InquiryForm): { units: number; total: number; ma
   return isBags(f) ? tierRows(f).map(r => ({ units: r.units, total: r.total, marginPct: r.marginPct }))
     : genRows(f).map(r => ({ units: r.qty, total: r.total || 0, marginPct: r.marginPct }))
 }
+export const pricesForAlt = (f: InquiryForm) => !isBags(f) && f.pricesFor === 'alternative' && !!f.alternative.trim()
 export function toolingLine(f: InquiryForm): string | null {
   const t = f.tooling
   if (isBags(f) || !t?.needed) return null
@@ -277,7 +279,8 @@ function genTableHtml(f: InquiryForm): string {
   const body = rows.map(r => `<tr><td style="${td}">${int(r.qty)} ${plural(un, r.qty)}</td><td style="${td}">${money4(r.price!)}</td><td style="${td}">${money(r.total!)}</td></tr>`).join('')
   const t = f.tooling
   const tool = t?.needed && n(t.cost) > 0 ? `<tr><td style="${td}">${t.kind || 'Tooling'} (one time)</td><td style="${td}"></td><td style="${td}">${money(n(t.cost), 0)}</td></tr>` : ''
-  return `<table style="border-collapse:collapse;margin:6px 0 10px 0"><tr><th style="${th}">Quantity</th><th style="${th}">Price per ${un}</th><th style="${th}">Total</th></tr>${body}${tool}</table>`
+  const cap = pricesForAlt(f) ? `<tr><td colspan="3" style="${td};background:#f7f7f7"><b>Stock option:</b> ${f.alternative.trim()}</td></tr>` : ''
+  return `<table style="border-collapse:collapse;margin:6px 0 10px 0"><tr><th style="${th}">Quantity</th><th style="${th}">Price per ${un}</th><th style="${th}">Total</th></tr>${cap}${body}${tool}</table>`
 }
 
 export function pricingTableHtml(f: InquiryForm): string {
@@ -375,6 +378,7 @@ export function factsForWriter(f: InquiryForm) {
       quantities: rows.map(r => ({ quantity: r.qty, priced: r.price != null })),
       pricing_table_placeholder: rows.some(r => r.price != null) ? '{{PRICING_TABLE}}' : null,
       pricing_status: rows.some(r => r.price != null) ? 'priced in the table' : 'no prices yet: say we will send pricing, and when (follow the lead time and notes)',
+      prices_in_table_are_for: pricesForAlt(f) ? `OUR STOCK OPTION (${f.alternative.trim()}), NOT the custom item they asked for. Say so clearly. Pricing for the custom item comes with the tooling quote.` : 'the item they asked for',
       tooling: t?.needed ? { type: t.kind, one_time_cost: n(t.cost) > 0 ? money(n(t.cost), 0) : 'to be quoted separately', minimum_run: t.moq || 'to be confirmed', tooling_lead_time: t.leadTime || 'to be confirmed', note: t.note || null } : null,
       requested_quantity_below_minimum_run: !!(t?.needed && t.moq && rows.length && rows.every(r => r.qty < Number(String(t.moq).replace(/[^0-9.]/g, '')) )),
       alternative_we_can_offer: f.alternative || null,
