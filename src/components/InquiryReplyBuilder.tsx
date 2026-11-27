@@ -427,10 +427,9 @@ export default function InquiryReplyBuilder() {
             </div>
           )}
           {packagingMoqApplies(f) && (
-            <div className={`mt-3 text-[11px] rounded-md px-3 py-2 ${f.tiers.some(t => belowPackagingMoq(f, Number(t.units))) ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+            <div className={`mt-3 text-[11px] rounded-md px-3 py-2 ${f.tiers.some(t => belowPackagingMoq(f, Number(t.units))) ? 'bg-amber-50 text-amber-800' : 'bg-gray-50 text-gray-600'}`}>
               Packaging minimum: {int(PACKAGING_MOQ)} {plural(un, 2)} per design. {f.tiers.some(t => belowPackagingMoq(f, Number(t.units)))
-                ? <>Quantities below it are left out of the price table, and the reply tells the customer the minimum.{' '}
-                  {!f.tiers.some(t => Number(t.units) >= PACKAGING_MOQ) && <button onClick={() => setF(p => ({ ...p, tiers: [...p.tiers.filter(t => !belowPackagingMoq(p, Number(t.units))), { units: PACKAGING_MOQ, pricePerBag: null, packagingEach: null, dispenserQty: null }] }))} className="font-semibold underline">Price at {int(PACKAGING_MOQ)} instead</button>}</>
+                ? <>Smaller quantities are still quoted, but the packaging is billed at {int(PACKAGING_MOQ)} {plural(un, 2)} and the reply and price table tell the customer they buy {int(PACKAGING_MOQ)} printed {plural(un, 2)} regardless.</>
                 : 'Every quantity in the table meets it.'}
             </div>
           )}
@@ -446,7 +445,7 @@ export default function InquiryReplyBuilder() {
                   const r = rows.find(x => x.units === Number(t.units))
                   return (
                     <tr key={i} className="border-t border-[#F0F2F7]">
-                      <td className="py-1.5 pr-2 w-24"><input className={`${inp} ${belowPackagingMoq(f, Number(t.units)) ? 'border-red-300 text-red-700' : ''}`} type="number" value={t.units || ''} onChange={e => setTier(i, { units: Number(e.target.value) })} />{belowPackagingMoq(f, Number(t.units)) && <div className="text-[10px] text-red-600 mt-0.5">Below {int(PACKAGING_MOQ)} minimum</div>}</td>
+                      <td className="py-1.5 pr-2 w-24"><input className={`${inp} ${belowPackagingMoq(f, Number(t.units)) ? 'border-amber-300' : ''}`} type="number" value={t.units || ''} onChange={e => setTier(i, { units: Number(e.target.value) })} />{belowPackagingMoq(f, Number(t.units)) && <div className="text-[10px] text-amber-700 mt-0.5">Packaging billed at {int(PACKAGING_MOQ)}</div>}</td>
                       <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.0001" value={t.pricePerBag ?? ''} placeholder={t.units ? String(suggestedPrice(f, Number(t.units))) : ''} onChange={e => setTier(i, { pricePerBag: numOrNull(e.target.value) })} /></td>
                       <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.01" value={t.packagingEach ?? ''} placeholder="TBC" onChange={e => setTier(i, { packagingEach: numOrNull(e.target.value) })} /></td>
                       {f.dispenser !== 'None' && <td className="py-1.5 pr-2 w-24"><input className={inp} type="number" value={t.dispenserQty ?? ''} onChange={e => setTier(i, { dispenserQty: numOrNull(e.target.value) })} /></td>}
