@@ -9,6 +9,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import {
   type InquiryForm, type Tier, CHANNELS, FORMATS, PACKAGINGS, DISPENSERS, CERTS, emptyForm, tierRows, suggestedCost, suggestedPrice,
   bagsPerUnit, unitName, plural, money, money4, int, pricingTableHtml, pricingTableText, factsForWriter, buildSteps,
+  PACKAGING_MOQ, packagingMoqApplies, belowPackagingMoq,
   type ProductType, PRODUCT_TYPES, TOOLING_KINDS, CATALOG, defaultCerts, defaultMaterial, isBags, genRows, genSuggestedPrice, quoteSummary,
 } from '@/lib/inquiryReply'
 import { generateInquiryStepsPDF, stepsPdfName } from '@/lib/generateInquiryStepsPDF'
@@ -43,6 +44,18 @@ export default function InquiryReplyBuilder() {
   const [aiHtml, setAiHtml] = useState('')
   const [past, setPast] = useState<{ brand: string; when: string; form: any }[]>([])
   const editor = useRef<HTMLDivElement>(null)
+  const [pastCosts, setPastCosts] = useState<any[]>([])
+  const [pastOpen, setPastOpen] = useState(true)
+
+  // Costs we already know: our own SKUs on the inventory board and what similar private label rolls sold for.
+  useEffect(() => {
+    if (!isBags(f)) { setPastCosts([]); return }
+    const t = setTimeout(async () => {
+      const { data } = await sb.rpc('inquiry_past_costs', { p_width: f.widthIn, p_length: f.lengthIn, p_micron: f.micron, p_format: f.format })
+      setPastCosts(((data as any[]) || []).filter(r => Number(r.match) >= 4))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [f.productType, f.widthIn, f.lengthIn, f.micron, f.format]) // eslint-disable-line
 
   const set = <K extends keyof InquiryForm>(k: K, v: InquiryForm[K]) => setF(p => ({ ...p, [k]: v }))
   const setTool = (patch: Partial<InquiryForm['tooling']>) => setF(p => ({ ...p, tooling: { ...p.tooling, ...patch } }))
@@ -379,6 +392,49 @@ export default function InquiryReplyBuilder() {
           </div>
           <p className="text-[11px] text-gray-400 mt-1.5">Blank cost uses {money4(sugCost)} per bag: the 9 x 12 in, 18 micron folded roll cost scaled by size and thickness. Blank prices use cost at 20% margin plus the private label volume markup (Pricing Calculator rules). Overwrite anything.</p>
 
+          {pastCosts.length > 0 && (
+            <div className="mt-3 rounded-lg border border-[#E4E6EE] bg-[#F8FAF9]">
+              <button onClick={() => setPastOpen(o => !o)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-[#1A1D2E]">
+                <span>From our records: similar bags we already make or sold ({pastCosts.length})</span><span className="text-gray-400">{pastOpen ? 'Hide' : 'Show'}</span>
+              </button>
+              {pastOpen && (
+                <div className="overflow-x-auto px-3 pb-3">
+                  <table className="w-full text-xs min-w-[640px]">
+                    <thead><tr className="text-[10px] text-gray-500 text-left">
+                      <th className="py-1 pr-2">Item</th><th className="py-1 pr-2">Size</th><th className="py-1 pr-2">Source</th>
+                      <th className="py-1 pr-2 text-right">Per bag</th><th className="py-1 pr-2 text-right">Scaled to this bag</th><th />
+                    </tr></thead>
+                    <tbody>
+                      {pastCosts.map((r, i) => (
+                        <tr key={i} className="border-t border-[#E9ECF2]">
+                          <td className="py-1.5 pr-2"><div className="font-medium text-[#1A1D2E]">{r.sku}</div><div className="text-[10px] text-gray-500 truncate max-w-[260px]">{r.name}</div></td>
+                          <td className="py-1.5 pr-2 whitespace-nowrap">{r.size || '?'}{r.micron ? `, ${Number(r.micron)} mic` : ''}</td>
+                          <td className="py-1.5 pr-2">{r.kind === 'cost'
+                            ? <span>Inventory cost {money4(Number(r.per_unit))} per {r.unit_label} of {int(Number(r.bags_per_unit))} bags</span>
+                            : <span>Sold at {money4(Number(r.per_unit))} per roll of {int(Number(r.bags_per_unit))}{r.customer ? ` to ${r.customer}` : ''}{r.last_date ? `, ${new Date(r.last_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}</span>}</td>
+                          <td className="py-1.5 pr-2 text-right whitespace-nowrap">{money4(Number(r.per_bag))}</td>
+                          <td className="py-1.5 pr-2 text-right whitespace-nowrap font-medium">{money4(Number(r.scaled_per_bag))}</td>
+                          <td className="py-1.5 text-right whitespace-nowrap">{r.kind === 'cost'
+                            ? <button onClick={() => set('costPerBag', Number(r.scaled_per_bag))} className="text-[11px] font-semibold text-[#0F766E] hover:underline">Use as cost</button>
+                            : <span className="text-[10px] text-gray-400">price reference</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-gray-400 mt-1.5">Inventory cost is the unit cost on the Inventory board divided by bags per pack, so it can include our own retail box. Scaled to this bag adjusts for size and thickness. Sold prices are what private label customers paid, for reference only.</p>
+                </div>
+              )}
+            </div>
+          )}
+          {packagingMoqApplies(f) && (
+            <div className={`mt-3 text-[11px] rounded-md px-3 py-2 ${f.tiers.some(t => belowPackagingMoq(f, Number(t.units))) ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+              Packaging minimum: {int(PACKAGING_MOQ)} {plural(un, 2)} per design. {f.tiers.some(t => belowPackagingMoq(f, Number(t.units)))
+                ? <>Quantities below it are left out of the price table, and the reply tells the customer the minimum.{' '}
+                  {!f.tiers.some(t => Number(t.units) >= PACKAGING_MOQ) && <button onClick={() => setF(p => ({ ...p, tiers: [...p.tiers.filter(t => !belowPackagingMoq(p, Number(t.units))), { units: PACKAGING_MOQ, pricePerBag: null, packagingEach: null, dispenserQty: null }] }))} className="font-semibold underline">Price at {int(PACKAGING_MOQ)} instead</button>}</>
+                : 'Every quantity in the table meets it.'}
+            </div>
+          )}
+
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead><tr className="text-[11px] text-gray-500 text-left">
@@ -390,7 +446,7 @@ export default function InquiryReplyBuilder() {
                   const r = rows.find(x => x.units === Number(t.units))
                   return (
                     <tr key={i} className="border-t border-[#F0F2F7]">
-                      <td className="py-1.5 pr-2 w-24"><input className={inp} type="number" value={t.units || ''} onChange={e => setTier(i, { units: Number(e.target.value) })} /></td>
+                      <td className="py-1.5 pr-2 w-24"><input className={`${inp} ${belowPackagingMoq(f, Number(t.units)) ? 'border-red-300 text-red-700' : ''}`} type="number" value={t.units || ''} onChange={e => setTier(i, { units: Number(e.target.value) })} />{belowPackagingMoq(f, Number(t.units)) && <div className="text-[10px] text-red-600 mt-0.5">Below {int(PACKAGING_MOQ)} minimum</div>}</td>
                       <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.0001" value={t.pricePerBag ?? ''} placeholder={t.units ? String(suggestedPrice(f, Number(t.units))) : ''} onChange={e => setTier(i, { pricePerBag: numOrNull(e.target.value) })} /></td>
                       <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.01" value={t.packagingEach ?? ''} placeholder="TBC" onChange={e => setTier(i, { packagingEach: numOrNull(e.target.value) })} /></td>
                       {f.dispenser !== 'None' && <td className="py-1.5 pr-2 w-24"><input className={inp} type="number" value={t.dispenserQty ?? ''} onChange={e => setTier(i, { dispenserQty: numOrNull(e.target.value) })} /></td>}
