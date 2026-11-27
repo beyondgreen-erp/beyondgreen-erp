@@ -159,7 +159,7 @@ export default function InquiryReplyBuilder() {
         quote_costing_id: (qc as any).id, line_number: i + 1, sort_order: i,
         description: `${f.format}, ${f.widthIn} x ${f.lengthIn} in, ${f.micron} mic, ${f.bagsPerRoll} bags per roll, ${f.rollsPerUnit} rolls per ${un}`,
         product_type: 'Pet waste bags', specs: `${bpu} bags per ${un}. ${f.bagPrint !== 'None' ? 'Bag print: ' + f.bagPrint + '. ' : ''}Packaging: ${f.packaging}.`,
-        country_of_origin: 'USA', freight_method: 'DOMESTIC', uom: 'bag', moq_qty: 0, order_qty: Number(t.units) * bpu, packing_per_case: bpu,
+        country_of_origin: 'USA', freight_method: 'DOMESTIC', uom: un, moq_qty: 0, order_qty: Number(t.units), packing_per_case: bpu,
         exw_cost_per_case: Math.round(costPerBag(f) * bpu * 10000) / 10000, freight_cost_per_case: 0, mpf: 0, hmf: 0,
         packaging_cost_per_case: n0(t.packagingEach), markup_pct: 25, has_retail_packaging: packagingMoqApplies(f), retail_packaging_desc: f.packaging,
         needs_freight_disclaimer: true,
@@ -169,7 +169,7 @@ export default function InquiryReplyBuilder() {
         moq_qty: 0, order_qty: Number(t.qty), packing_per_case: 1, exw_cost_per_case: n0(f.costEach), freight_cost_per_case: 0, mpf: 0, hmf: 0, packaging_cost_per_case: 0,
         markup_pct: 25, has_retail_packaging: false, needs_freight_disclaimer: true,
       }))
-      if (lines.length) { const { error: le } = await sb.from('quote_costing_lines').insert(lines); if (le) throw new Error(le.message) }
+      if (lines.length) { const { error: le } = await sb.from('quote_costing_lines').insert(lines); if (le) { await sb.from('quote_costing').delete().eq('id', (qc as any).id); throw new Error(le.message) } }
       set('costingId', (qc as any).id)
       setCostMsg(`Costing ${num} created in the Costing table. Work the cost there, save it, then press "Use cost from Costing table".`)
       window.open(`/sales/costing?item=${(qc as any).id}`, '_blank')
