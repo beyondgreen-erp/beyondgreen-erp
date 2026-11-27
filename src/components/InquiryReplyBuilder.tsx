@@ -9,6 +9,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import {
   type InquiryForm, type Tier, CHANNELS, FORMATS, PACKAGINGS, DISPENSERS, CERTS, emptyForm, tierRows, suggestedCost, suggestedPrice,
   bagsPerUnit, unitName, plural, money, money4, int, pricingTableHtml, pricingTableText, factsForWriter, buildSteps,
+  type ProductType, PRODUCT_TYPES, TOOLING_KINDS, CATALOG, defaultCerts, defaultMaterial, isBags, genRows, genSuggestedPrice, quoteSummary,
 } from '@/lib/inquiryReply'
 import { generateInquiryStepsPDF, stepsPdfName } from '@/lib/generateInquiryStepsPDF'
 
@@ -39,9 +40,17 @@ export default function InquiryReplyBuilder() {
   const [err, setErr] = useState('')
   const [list, setList] = useState<Saved[]>([])
   const [pdfUrl, setPdfUrl] = useState('')
+  const [aiHtml, setAiHtml] = useState('')
+  const [past, setPast] = useState<{ brand: string; when: string; form: any }[]>([])
   const editor = useRef<HTMLDivElement>(null)
 
   const set = <K extends keyof InquiryForm>(k: K, v: InquiryForm[K]) => setF(p => ({ ...p, [k]: v }))
+  const setTool = (patch: Partial<InquiryForm['tooling']>) => setF(p => ({ ...p, tooling: { ...p.tooling, ...patch } }))
+  const setGen = (i: number, patch: Partial<{ qty: number; price: number | null }>) => setF(p => ({ ...p, genTiers: p.genTiers.map((t, j) => (j === i ? { ...t, ...patch } : t)) }))
+  function changeType(t: ProductType) {
+    const d = defaultMaterial(t)
+    setF(p => ({ ...p, productType: t, certs: defaultCerts(t), material: d.material, madeInSantaAna: d.santaAna, unitLabel: p.productType === t ? p.unitLabel : d.unit }))
+  }
   const setTier = (i: number, patch: Partial<Tier>) => setF(p => ({ ...p, tiers: p.tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)) }))
 
   useEffect(() => {
@@ -64,6 +73,13 @@ export default function InquiryReplyBuilder() {
     setList((data as unknown as Saved[]) || [])
   }
   useEffect(() => { if (editor.current && editor.current.innerHTML !== html) editor.current.innerHTML = html }, [html])
+  useEffect(() => {
+    (async () => {
+      const t = f.productType || 'Pet waste bags'
+      const { data } = await sb.from('inquiry_replies').select('id,brand,company,sent_at,form').eq('status', 'Sent').eq('product_type', t).order('sent_at', { ascending: false }).limit(5)
+      setPast(((data as any[]) || []).filter(r => r.id !== savedId).map(r => ({ brand: r.brand || r.company || 'a customer', when: new Date(r.sent_at).toLocaleDateString('en-US'), form: r.form || {} })))
+    })()
+  }, [f.productType, savedId]) // eslint-disable-line
 
   const rows = tierRows(f)
   const un = unitName(f)
@@ -87,6 +103,19 @@ export default function InquiryReplyBuilder() {
         if (['None', '1 color print', 'Not decided yet'].includes(d.bagPrint)) q.bagPrint = d.bagPrint
         for (const k of ['logoReceived', 'artworkReceived', 'dielineReceived', 'samplesRequested']) if (typeof d[k] === 'boolean') q[k] = d[k]
         if (Array.isArray(d.questions) && d.questions.length) q.questions = d.questions.join('\n')
+        if (PRODUCT_TYPES.includes(d.productType)) {
+          const t = d.productType as ProductType, dm = defaultMaterial(t)
+          q.productType = t; q.certs = defaultCerts(t); q.material = dm.material; q.madeInSantaAna = dm.santaAna; q.unitLabel = d.unitLabel ? String(d.unitLabel) : dm.unit
+        }
+        if (q.productType && q.productType !== 'Pet waste bags') {
+          if (d.productDesc) q.productDesc = String(d.productDesc)
+          if (Array.isArray(d.specs) && d.specs.length) q.specs = d.specs.map(String).join('\n')
+          if (d.printNote) q.printNote = String(d.printNote)
+          const qs = Array.isArray(d.quantities) ? d.quantities.map(Number).filter((x: number) => x > 0) : []
+          if (qs.length) q.genTiers = qs.slice(0, 5).map((x: number) => ({ qty: x, price: null }))
+          const need = d.toolingNeeded === true || d.toolingNeeded === 'true'
+          q.tooling = { ...p.tooling, needed: need, kind: TOOLING_KINDS.includes(d.toolingKind) ? d.toolingKind : p.tooling.kind }
+        }
         const units = Array.isArray(d.units) ? d.units.map(Number).filter((x: number) => x > 0) : []
         if (units.length) q.tiers = units.slice(0, 5).map((u: number) => ({ units: u, pricePerBag: null, packagingEach: null, dispenserQty: d.dispenserQty ? Number(d.dispenserQty) : null }))
         else if (d.dispenserQty) q.tiers = p.tiers.map(t => ({ ...t, dispenserQty: Number(d.dispenserQty) }))
@@ -102,10 +131,10 @@ export default function InquiryReplyBuilder() {
       if (!f.contactFirst.trim()) throw new Error('Add the contact first name.')
       const table = pricingTableHtml(f)
       const allowed = [table, money(Number(f.plateCharge) || 0), money(Number(f.dispenserEach) || 0), money(Number(f.moldCost) || 0, 0), pricingTableText(f)].join(' ')
-      const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'write', facts: factsForWriter(f), tableHtml: table, allowedMoney: allowed, guidance }) })
+      const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'write', facts: factsForWriter(f), tableHtml: table, allowedMoney: allowed, guidance, replyId: savedId }) })
       const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'The writer did not answer.')
-      setSubject(j.data.subject || ''); setHtml(j.data.html || ''); setWarnings(j.data.warnings || [])
-      setMsg('Reply written. Read it, edit anything right in the box, then copy it into Outlook.')
+      setSubject(j.data.subject || ''); setHtml(j.data.html || ''); setAiHtml(j.data.html || ''); setWarnings(j.data.warnings || [])
+      setMsg(`Reply written${j.data.learnedFrom ? `, using ${j.data.learnedFrom} past ${j.data.learnedFrom === 1 ? 'reply' : 'replies'} for this kind of product as a guide` : ''}. Read it, edit anything right in the box, then copy it into Outlook.`)
     } catch (e: any) { setErr(e.message) } finally { setBusy('') }
   }
 
@@ -142,16 +171,18 @@ export default function InquiryReplyBuilder() {
     }
     if (hit) { const r = { id: hit.id, name: hit.company_name, isNew: false }; setLead(r); return r }
     const [city, state] = (f.location || '').split(',').map(s => s.trim())
-    const top = rows.reduce((m, r) => Math.max(m, r.total), 0)
+    const top = quoteSummary(f).reduce((m, r) => Math.max(m, r.total), 0)
     const name = f.company.trim() || f.brand.trim() || f.contactFull.trim() || f.contactFirst.trim()
     if (!name) throw new Error('Add the company or brand name first.')
     const follow = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10)
     const { data, error } = await sb.from('customers').insert({
       company_name: name, contact_name: f.contactFull || f.contactFirst || null, email: email || null, phone: f.phone || null,
       city: city || null, state: state || null, board: 'Leads', account_type: 'lead', customer_status: 'Lead', pipeline_stage: 'Contacted',
-      lead_source: 'Website inquiry', industry: 'Pet products', priority: 'medium', deal_value: Math.round(top), payment_terms: f.paymentTerms || null,
+      lead_source: 'Website inquiry', industry: isBags(f) ? 'Pet products' : (f.productType || null), priority: 'medium', deal_value: Math.round(top), payment_terms: f.paymentTerms || null,
       contacted_at: new Date().toISOString(), next_follow_up: follow,
-      notes: `Private label inquiry${f.brand ? ` for ${f.brand}` : ''} (${f.channel}). ${f.widthIn} x ${f.lengthIn} in, ${f.micron} micron, ${f.bagsPerRoll} bags per roll, ${f.rollsPerUnit} rolls per ${un}. Quantities: ${rows.map(r => `${int(r.units)} ${plural(un, r.units)}`).join(', ')}.`,
+      notes: isBags(f)
+        ? `Private label inquiry${f.brand ? ` for ${f.brand}` : ''} (${f.channel}). ${f.widthIn} x ${f.lengthIn} in, ${f.micron} micron, ${f.bagsPerRoll} bags per roll, ${f.rollsPerUnit} rolls per ${un}. Quantities: ${rows.map(r => `${int(r.units)} ${plural(un, r.units)}`).join(', ')}.`
+        : `${f.productType} inquiry${f.brand ? ` for ${f.brand}` : ''}: ${f.productDesc || 'see the reply'}. Quantities: ${genRows(f).map(r => `${int(r.qty)} ${plural(un, r.qty)}`).join(', ')}.${f.tooling.needed ? ` Needs ${f.tooling.kind.toLowerCase()}.` : ''}`,
     }).select('id,company_name').single()
     if (error) throw error
     const r = { id: (data as any).id, name: (data as any).company_name, isNew: true }; setLead(r); return r
@@ -164,7 +195,7 @@ export default function InquiryReplyBuilder() {
     if (!(cur as any)?.conversation_id) {
       const text = (editor.current?.innerText || '').slice(0, 8000)
       const { data: conv } = await sb.from('customer_conversations').insert({
-        customer_id: c.id, logged_by: me.email || 'erp', conversation_type: 'email', subject: subject || 'Private label inquiry reply',
+        customer_id: c.id, logged_by: me.email || 'erp', conversation_type: 'email', subject: subject || `${f.productType || 'Product'} inquiry reply`,
         content: text, contact_name: f.contactFull || f.contactFirst || null, outcome: 'Reply sent with pricing and next steps PDF',
         follow_up_date: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10), follow_up_notes: 'Check they received the pricing and next steps PDF.',
       }).select('id').single()
@@ -186,7 +217,8 @@ export default function InquiryReplyBuilder() {
   async function save(sent = false, customerId?: string): Promise<string> {
     setErr(''); if (!sent) setBusy('save')
     try {
-      const row: any = { company: f.company || null, brand: f.brand || null, contact_name: f.contactFull || f.contactFirst || null, contact_email: f.email || null, form: f as any, subject, email_html: editor.current?.innerHTML || html, created_by: me.email || null, updated_at: new Date().toISOString() }
+      const row: any = { company: f.company || null, brand: f.brand || null, contact_name: f.contactFull || f.contactFirst || null, contact_email: f.email || null, form: f as any, subject, email_html: editor.current?.innerHTML || html, product_type: f.productType || 'Pet waste bags', created_by: me.email || null, updated_at: new Date().toISOString() }
+      if (aiHtml) row.ai_html = aiHtml
       if (customerId || lead?.id) row.customer_id = customerId || lead?.id
       if (sent) { row.status = 'Sent'; row.sent_at = new Date().toISOString(); row.sent_by = me.email || null }
       let id = savedId
@@ -200,12 +232,43 @@ export default function InquiryReplyBuilder() {
   async function open(id: string) {
     const { data } = await sb.from('inquiry_replies').select('*').eq('id', id).single()
     if (!data) return
-    setF({ ...emptyForm(me.name), ...(data as any).form }); setSubject((data as any).subject || ''); setHtml((data as any).email_html || ''); setSavedId(id); setLead((data as any).customer_id ? { id: (data as any).customer_id, name: (data as any).company || '', isNew: false } : null); setWarnings([]); setMsg('Opened a saved reply.')
+    setF({ ...emptyForm(me.name), ...(data as any).form }); setSubject((data as any).subject || ''); setHtml((data as any).email_html || ''); setAiHtml((data as any).ai_html || ''); setSavedId(id); setLead((data as any).customer_id ? { id: (data as any).customer_id, name: (data as any).company || '', isNew: false } : null); setWarnings([]); setMsg('Opened a saved reply.')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
-  function reset() { setF(emptyForm(me.name)); setSubject(''); setHtml(''); setSavedId(null); setLead(null); setWarnings([]); setMsg(''); setErr('') }
+  function reset() { setF(emptyForm(me.name)); setSubject(''); setHtml(''); setAiHtml(''); setSavedId(null); setLead(null); setWarnings([]); setMsg(''); setErr('') }
 
   const sugCost = suggestedCost(f)
+  const lastNums = (pf: any) => {
+    const bits: string[] = []
+    const u = pf.unitLabel || 'piece'
+    if (pf.productType && pf.productType !== 'Pet waste bags') {
+      if (pf.costEach) bits.push(`cost ${money4(Number(pf.costEach))}/${u}`)
+      const pr = (pf.genTiers || []).filter((t: any) => t.price).map((t: any) => `${int(Number(t.qty))} at ${money4(Number(t.price))}`)
+      if (pr.length) bits.push(`priced ${pr.join(', ')}`)
+      if (pf.tooling?.needed) bits.push(`${pf.tooling.kind}${pf.tooling.cost ? ` ${money(Number(pf.tooling.cost), 0)}` : ''}${pf.tooling.moq ? `, min ${pf.tooling.moq}` : ''}${pf.tooling.leadTime ? `, ${pf.tooling.leadTime}` : ''}`)
+    } else {
+      if (pf.costPerBag) bits.push(`cost ${money4(Number(pf.costPerBag))}/bag`)
+      const pr = (pf.tiers || []).filter((t: any) => t.pricePerBag).map((t: any) => `${int(Number(t.units))} at ${money4(Number(t.pricePerBag))}/bag`)
+      if (pr.length) bits.push(`priced ${pr.join(', ')}`)
+    }
+    if (pf.leadTime) bits.push(`lead time ${pf.leadTime}`)
+    return bits.join(' · ')
+  }
+  const applyLast = (pf: any) => setF(p => isBags(p)
+    ? { ...p, costPerBag: pf.costPerBag ?? p.costPerBag, leadTime: pf.leadTime || p.leadTime, paymentTerms: pf.paymentTerms || p.paymentTerms }
+    : { ...p, costEach: pf.costEach ?? p.costEach, leadTime: pf.leadTime || p.leadTime, paymentTerms: pf.paymentTerms || p.paymentTerms,
+        tooling: pf.tooling?.needed && p.tooling.needed ? { ...p.tooling, kind: pf.tooling.kind || p.tooling.kind, cost: pf.tooling.cost ?? p.tooling.cost, moq: pf.tooling.moq || p.tooling.moq, leadTime: pf.tooling.leadTime || p.tooling.leadTime } : p.tooling })
+  const pastHint = past.filter(x => lastNums(x.form)).length ? (
+    <div className="mb-3 rounded-lg bg-sky-50 border border-sky-100 p-2.5">
+      <div className="text-[11px] font-semibold text-sky-800 mb-1">Last time for {f.productType || 'Pet waste bags'} (from replies we sent)</div>
+      {past.filter(x => lastNums(x.form)).slice(0, 3).map((x, i) => (
+        <div key={i} className="flex items-center justify-between gap-2 text-[11px] text-sky-900 py-0.5">
+          <span className="min-w-0"><b>{x.brand}</b>, {x.when}: {lastNums(x.form)}</span>
+          <button onClick={() => applyLast(x.form)} className="shrink-0 px-2 py-0.5 rounded border border-sky-200 bg-white text-sky-800 hover:bg-sky-100">Use these</button>
+        </div>
+      ))}
+    </div>
+  ) : null
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
@@ -243,6 +306,8 @@ export default function InquiryReplyBuilder() {
 
         <div className={card}>
           <h3 className="text-sm font-semibold text-[#1A1D2E] mb-3">3. The product</h3>
+          <Field label="What is the inquiry about?" className="mb-3"><select className={inp} value={f.productType || 'Pet waste bags'} onChange={e => changeType(e.target.value as ProductType)}>{PRODUCT_TYPES.map(c => <option key={c}>{c}</option>)}</select></Field>
+          {isBags(f) ? (<>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <Field label="Format" className="col-span-2 md:col-span-1"><select className={inp} value={f.format} onChange={e => set('format', e.target.value as any)}>{FORMATS.map(c => <option key={c}>{c}</option>)}</select></Field>
             <Field label="Width (in)"><input className={inp} type="number" value={f.widthIn ?? ''} onChange={e => set('widthIn', numOrNull(e.target.value))} /></Field>
@@ -258,6 +323,38 @@ export default function InquiryReplyBuilder() {
             {f.dispenser !== 'None' && <Field label="Logo on dispenser"><select className={inp} value={f.dispenserLogo} onChange={e => set('dispenserLogo', e.target.value as any)}>{['None', 'Printed', 'Embossed (needs a mold)', 'Not decided yet'].map(c => <option key={c}>{c}</option>)}</select></Field>}
           </div>
           <div className="mt-3 text-xs text-gray-500">{int(bagsPerUnit(f))} bags per {un}.</div>
+          </>) : (<>
+            {CATALOG.some(c => c.type === f.productType) && (
+              <Field label="Start from one of our stock items (optional, fills cost and specs)" className="mb-3">
+                <select className={inp} value="" onChange={e => { const c = CATALOG.find(x => x.label === e.target.value); if (c) setF(p => ({ ...p, costEach: c.cost, unitLabel: c.unit, specs: p.specs.trim() ? p.specs : c.specs, alternative: p.tooling.needed && !p.alternative ? c.label : p.alternative })) }}>
+                  <option value="">Choose a stock item…</option>{CATALOG.filter(c => c.type === f.productType).map(c => <option key={c.label} value={c.label}>{c.label} ({money4(c.cost)} cost)</option>)}
+                </select>
+              </Field>
+            )}
+            <Field label="What they want, in one sentence"><textarea className={inp} rows={2} value={f.productDesc} onChange={e => set('productDesc', e.target.value)} placeholder="Solid green straw with a three-leaf shamrock-shaped opening the whole length" /></Field>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+              <Field label="Specs, one per line (Label: value)" className="md:col-span-2"><textarea className={inp} rows={4} value={f.specs} onChange={e => set('specs', e.target.value)} placeholder={'Color: solid green\nShape: three-leaf shamrock opening\nLength: 7.75 in'} /></Field>
+              <div className="space-y-3">
+                <Field label="They count in (singular)"><input className={inp} value={f.unitLabel} onChange={e => set('unitLabel', e.target.value)} placeholder="straw, fork, cup, case" /></Field>
+                <Field label="Printing or branding"><input className={inp} value={f.printNote} onChange={e => set('printNote', e.target.value)} placeholder="Logo on the wrapper…" /></Field>
+              </div>
+              <Field label="Material (shown to the customer)" className="md:col-span-2"><input className={inp} value={f.material} onChange={e => set('material', e.target.value)} /></Field>
+              <label className="flex items-center gap-1.5 text-sm text-gray-700 mt-5"><input type="checkbox" checked={f.madeInSantaAna} onChange={e => set('madeInSantaAna', e.target.checked)} />Made at our Santa Ana facility</label>
+            </div>
+            <div className="mt-3 rounded-lg border border-[#E4E6EE] p-3">
+              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-800"><input type="checkbox" checked={f.tooling.needed} onChange={e => setTool({ needed: e.target.checked })} />Needs new tooling (custom shape, size or new item)</label>
+              {f.tooling.needed && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                  <Field label="Tooling type"><select className={inp} value={f.tooling.kind} onChange={e => setTool({ kind: e.target.value })}>{TOOLING_KINDS.map(c => <option key={c}>{c}</option>)}</select></Field>
+                  <Field label="One-time cost (blank = quoted later)"><input className={inp} type="number" value={f.tooling.cost ?? ''} onChange={e => setTool({ cost: numOrNull(e.target.value) })} /></Field>
+                  <Field label="Minimum run"><input className={inp} value={f.tooling.moq} onChange={e => setTool({ moq: e.target.value })} placeholder="250,000 straws" /></Field>
+                  <Field label="Tooling lead time"><input className={inp} value={f.tooling.leadTime} onChange={e => setTool({ leadTime: e.target.value })} placeholder="6 to 8 weeks" /></Field>
+                  <Field label="Note on the tooling (optional)" className="col-span-2 md:col-span-4"><input className={inp} value={f.tooling.note} onChange={e => setTool({ note: e.target.value })} placeholder="The die is theirs; we keep it on file for reorders…" /></Field>
+                  <Field label="What we can offer now instead (optional)" className="col-span-2 md:col-span-4"><input className={inp} value={f.alternative} onChange={e => set('alternative', e.target.value)} placeholder="Our stock solid green 7.75 in jumbo straw, in stock now" /></Field>
+                </div>
+              )}
+            </div>
+          </>)}
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             {([['logoReceived', 'We have their logo'], ['artworkReceived', 'We have final artwork'], ['dielineReceived', 'They have a dieline'], ['samplesRequested', 'Send samples']] as const).map(([k, t]) => (
               <label key={k} className="flex items-center gap-1.5 text-gray-700"><input type="checkbox" checked={!!(f as any)[k]} onChange={e => set(k as any, e.target.checked as any)} />{t}</label>
@@ -271,6 +368,8 @@ export default function InquiryReplyBuilder() {
             <h3 className="text-sm font-semibold text-[#1A1D2E]">4. Costing</h3>
             <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Cost and margin are internal only</span>
           </div>
+          {pastHint}
+          {isBags(f) ? (<>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Our cost per bag"><input className={inp} type="number" step="0.0001" value={f.costPerBag ?? ''} placeholder={String(sugCost)} onChange={e => set('costPerBag', numOrNull(e.target.value))} /></Field>
             <Field label="Price basis"><select className={inp} value={f.basis} onChange={e => set('basis', e.target.value as any)}><option>FOB Santa Ana, CA</option><option>Delivered (DDP)</option></select></Field>
@@ -306,6 +405,36 @@ export default function InquiryReplyBuilder() {
             </table>
             {f.tiers.length < 5 && <button onClick={() => setF(p => ({ ...p, tiers: [...p.tiers, { units: 0, pricePerBag: null, packagingEach: null, dispenserQty: null }] }))} className="mt-2 text-xs font-medium text-[#0F766E]">+ Add a quantity</button>}
           </div>
+
+          </>) : (<>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Field label={`Our cost per ${un}`}><input className={inp} type="number" step="0.0001" value={f.costEach ?? ''} placeholder="Enter or pick a stock item" onChange={e => set('costEach', numOrNull(e.target.value))} /></Field>
+              <Field label="Price basis"><select className={inp} value={f.basis} onChange={e => set('basis', e.target.value as any)}><option>FOB Santa Ana, CA</option><option>Delivered (DDP)</option></select></Field>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">Blank prices use our cost at 20% margin (SKU pricing sheet rule). Leave cost and price blank if we cannot price it yet; the reply will say pricing follows.</p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm min-w-[480px]">
+                <thead><tr className="text-[11px] text-gray-500 text-left"><th className="py-1 pr-2">Quantity ({plural(un, 2)})</th><th className="py-1 pr-2">Price per {un}</th><th className="py-1 pr-2 text-right">Total</th><th className="py-1 text-right">Margin</th><th /></tr></thead>
+                <tbody>
+                  {f.genTiers.map((t, i) => {
+                    const r = genRows(f).find(x => x.qty === Number(t.qty))
+                    const sp = genSuggestedPrice(f)
+                    return (
+                      <tr key={i} className="border-t border-[#F0F2F7]">
+                        <td className="py-1.5 pr-2 w-32"><input className={inp} type="number" value={t.qty || ''} onChange={e => setGen(i, { qty: Number(e.target.value) })} /></td>
+                        <td className="py-1.5 pr-2 w-32"><input className={inp} type="number" step="0.0001" value={t.price ?? ''} placeholder={sp != null ? String(sp) : 'TBC'} onChange={e => setGen(i, { price: numOrNull(e.target.value) })} /></td>
+                        <td className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">{r?.total != null ? money(r.total) : 'TBC'}</td>
+                        <td className={`py-1.5 text-right text-xs whitespace-nowrap ${r && r.marginPct != null && r.marginPct < 0.15 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{r && r.marginPct != null ? `${Math.round(r.marginPct * 100)}%` : ''}</td>
+                        <td className="py-1.5 pl-2 text-right">{f.genTiers.length > 1 && <button onClick={() => setF(p => ({ ...p, genTiers: p.genTiers.filter((_, j) => j !== i) }))} className="text-gray-300 hover:text-red-500 text-xs">✕</button>}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {f.genTiers.length < 5 && <button onClick={() => setF(p => ({ ...p, genTiers: [...p.genTiers, { qty: 0, price: null }] }))} className="mt-2 text-xs font-medium text-[#0F766E]">+ Add a quantity</button>}
+              {f.tooling.needed && <div className="mt-2 text-xs text-gray-600">{f.tooling.kind}: {f.tooling.cost ? money(Number(f.tooling.cost), 0) + ' one time' : 'quoted later'}{f.tooling.moq ? `, minimum run ${f.tooling.moq}` : ''}</div>}
+            </div>
+          </>)}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
             <Field label="Payment terms"><input className={inp} value={f.paymentTerms} onChange={e => set('paymentTerms', e.target.value)} /></Field>
