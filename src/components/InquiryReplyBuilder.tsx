@@ -21,13 +21,15 @@ function Field({ label, children, className = '' }: { label: string; children: R
 }
 const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v))
 
-interface Saved { id: string; company: string | null; brand: string | null; contact_name: string | null; subject: string | null; status: string; created_by: string | null; created_at: string }
+interface Saved { id: string; company: string | null; brand: string | null; contact_name: string | null; subject: string | null; status: string; created_by: string | null; created_at: string; sent_at: string | null; customer_id: string | null; customers?: { company_name: string; pipeline_stage: string | null } | null }
 
 export default function InquiryReplyBuilder() {
   const sb = useMemo(() => createSupabaseBrowserClient(), [])
   const [me, setMe] = useState<{ email: string; name: string }>({ email: '', name: '' })
   const [f, setF] = useState<InquiryForm>(emptyForm())
   const [savedId, setSavedId] = useState<string | null>(null)
+  const [lead, setLead] = useState<{ id: string; name: string; isNew: boolean } | null>(null)
+  const [filter, setFilter] = useState<'All' | 'Sent' | 'Draft'>('All')
   const [subject, setSubject] = useState('')
   const [html, setHtml] = useState('')
   const [warnings, setWarnings] = useState<string[]>([])
@@ -58,8 +60,8 @@ export default function InquiryReplyBuilder() {
   }, []) // eslint-disable-line
 
   async function loadList() {
-    const { data } = await sb.from('inquiry_replies').select('id,company,brand,contact_name,subject,status,created_by,created_at').order('created_at', { ascending: false }).limit(30)
-    setList((data as Saved[]) || [])
+    const { data } = await sb.from('inquiry_replies').select('id,company,brand,contact_name,subject,status,created_by,created_at,sent_at,customer_id,customers(company_name,pipeline_stage)').order('created_at', { ascending: false }).limit(200)
+    setList((data as unknown as Saved[]) || [])
   }
   useEffect(() => { if (editor.current && editor.current.innerHTML !== html) editor.current.innerHTML = html }, [html])
 
@@ -115,7 +117,62 @@ export default function InquiryReplyBuilder() {
     } catch {
       const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s?.removeAllRanges(); s?.addRange(r); document.execCommand('copy'); s?.removeAllRanges()
     }
-    setMsg('Email copied. Paste it into your Outlook reply (your signature stays as is).')
+    try {
+      const r = await recordSent()
+      setMsg(`Email copied and logged as sent. ${r.isNew ? 'New lead added' : 'Linked to'} "${r.name}" on the Customers board. Paste it into your Outlook reply.`)
+    } catch (e: any) {
+      setMsg('Email copied. Paste it into your Outlook reply.'); setErr(`It was not logged: ${e.message || e}. Press Save to try again.`)
+    }
+  }
+
+  // Find the customer by email, then by company or brand name. If none, add them to the Leads board.
+  async function findOrCreateLead(): Promise<{ id: string; name: string; isNew: boolean }> {
+    if (lead) return lead
+    const email = f.email.trim()
+    const names = [f.company, f.brand].map(x => (x || '').trim()).filter(Boolean)
+    let hit: any = null
+    if (email) {
+      const { data } = await sb.from('customers').select('id,company_name').ilike('email', email).not('is_merged', 'is', true).limit(1)
+      hit = data?.[0]
+    }
+    for (const n of names) {
+      if (hit) break
+      const { data } = await sb.from('customers').select('id,company_name').ilike('company_name', n).not('is_merged', 'is', true).limit(1)
+      hit = data?.[0]
+    }
+    if (hit) { const r = { id: hit.id, name: hit.company_name, isNew: false }; setLead(r); return r }
+    const [city, state] = (f.location || '').split(',').map(s => s.trim())
+    const top = rows.reduce((m, r) => Math.max(m, r.total), 0)
+    const name = f.company.trim() || f.brand.trim() || f.contactFull.trim() || f.contactFirst.trim()
+    if (!name) throw new Error('Add the company or brand name first.')
+    const follow = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10)
+    const { data, error } = await sb.from('customers').insert({
+      company_name: name, contact_name: f.contactFull || f.contactFirst || null, email: email || null, phone: f.phone || null,
+      city: city || null, state: state || null, board: 'Leads', account_type: 'lead', customer_status: 'Lead', pipeline_stage: 'Contacted',
+      lead_source: 'Website inquiry', industry: 'Pet products', priority: 'medium', deal_value: Math.round(top), payment_terms: f.paymentTerms || null,
+      contacted_at: new Date().toISOString(), next_follow_up: follow,
+      notes: `Private label inquiry${f.brand ? ` for ${f.brand}` : ''} (${f.channel}). ${f.widthIn} x ${f.lengthIn} in, ${f.micron} micron, ${f.bagsPerRoll} bags per roll, ${f.rollsPerUnit} rolls per ${un}. Quantities: ${rows.map(r => `${int(r.units)} ${plural(un, r.units)}`).join(', ')}.`,
+    }).select('id,company_name').single()
+    if (error) throw error
+    const r = { id: (data as any).id, name: (data as any).company_name, isNew: true }; setLead(r); return r
+  }
+
+  async function recordSent() {
+    const c = await findOrCreateLead()
+    const id = await save(true, c.id)
+    const { data: cur } = await sb.from('inquiry_replies').select('conversation_id').eq('id', id).single()
+    if (!(cur as any)?.conversation_id) {
+      const text = (editor.current?.innerText || '').slice(0, 8000)
+      const { data: conv } = await sb.from('customer_conversations').insert({
+        customer_id: c.id, logged_by: me.email || 'erp', conversation_type: 'email', subject: subject || 'Private label inquiry reply',
+        content: text, contact_name: f.contactFull || f.contactFirst || null, outcome: 'Reply sent with pricing and next steps PDF',
+        follow_up_date: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10), follow_up_notes: 'Check they received the pricing and next steps PDF.',
+      }).select('id').single()
+      await sb.from('inquiry_replies').update({ conversation_id: (conv as any)?.id || null }).eq('id', id)
+      if (!c.isNew) await sb.from('customers').update({ contacted_at: new Date().toISOString() }).eq('id', c.id)
+    }
+    loadList()
+    return c
   }
 
   async function pdf(download: boolean) {
@@ -126,23 +183,27 @@ export default function InquiryReplyBuilder() {
     } catch (e: any) { setErr(e.message || 'Could not build the PDF.') } finally { setBusy('') }
   }
 
-  async function save() {
-    setErr(''); setBusy('save')
+  async function save(sent = false, customerId?: string): Promise<string> {
+    setErr(''); if (!sent) setBusy('save')
     try {
-      const row = { company: f.company || null, brand: f.brand || null, contact_name: f.contactFull || f.contactFirst || null, contact_email: f.email || null, form: f as any, subject, email_html: editor.current?.innerHTML || html, created_by: me.email || null, updated_at: new Date().toISOString() }
-      if (savedId) { const { error } = await sb.from('inquiry_replies').update(row).eq('id', savedId); if (error) throw error }
-      else { const { data, error } = await sb.from('inquiry_replies').insert(row).select('id').single(); if (error) throw error; setSavedId((data as any).id) }
-      setMsg('Saved.'); loadList()
-    } catch (e: any) { setErr(e.message || 'Could not save.') } finally { setBusy('') }
+      const row: any = { company: f.company || null, brand: f.brand || null, contact_name: f.contactFull || f.contactFirst || null, contact_email: f.email || null, form: f as any, subject, email_html: editor.current?.innerHTML || html, created_by: me.email || null, updated_at: new Date().toISOString() }
+      if (customerId || lead?.id) row.customer_id = customerId || lead?.id
+      if (sent) { row.status = 'Sent'; row.sent_at = new Date().toISOString(); row.sent_by = me.email || null }
+      let id = savedId
+      if (id) { const { error } = await sb.from('inquiry_replies').update(row).eq('id', id); if (error) throw error }
+      else { const { data, error } = await sb.from('inquiry_replies').insert(row).select('id').single(); if (error) throw error; id = (data as any).id; setSavedId(id) }
+      if (!sent) { setMsg('Saved as a draft.'); loadList() }
+      return id as string
+    } catch (e: any) { if (sent) throw e; setErr(e.message || 'Could not save.'); return '' } finally { if (!sent) setBusy('') }
   }
 
   async function open(id: string) {
     const { data } = await sb.from('inquiry_replies').select('*').eq('id', id).single()
     if (!data) return
-    setF({ ...emptyForm(me.name), ...(data as any).form }); setSubject((data as any).subject || ''); setHtml((data as any).email_html || ''); setSavedId(id); setWarnings([]); setMsg('Opened a saved reply.')
+    setF({ ...emptyForm(me.name), ...(data as any).form }); setSubject((data as any).subject || ''); setHtml((data as any).email_html || ''); setSavedId(id); setLead((data as any).customer_id ? { id: (data as any).customer_id, name: (data as any).company || '', isNew: false } : null); setWarnings([]); setMsg('Opened a saved reply.')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
-  function reset() { setF(emptyForm(me.name)); setSubject(''); setHtml(''); setSavedId(null); setWarnings([]); setMsg(''); setErr('') }
+  function reset() { setF(emptyForm(me.name)); setSubject(''); setHtml(''); setSavedId(null); setLead(null); setWarnings([]); setMsg(''); setErr('') }
 
   const sugCost = suggestedCost(f)
 
@@ -282,8 +343,8 @@ export default function InquiryReplyBuilder() {
             <h3 className="text-sm font-semibold text-[#1A1D2E]">Email reply</h3>
             <div className="flex gap-2 flex-wrap">
               <button onClick={() => { navigator.clipboard.writeText(subject); setMsg('Subject copied.') }} disabled={!subject} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-[#E4E6EE] text-gray-700 disabled:opacity-40">Copy subject</button>
-              <button onClick={copyEmail} disabled={!html} className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-[#0F766E] text-white disabled:opacity-40">Copy email</button>
-              <button onClick={save} disabled={!!busy} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-[#E4E6EE] text-gray-700 disabled:opacity-40">{busy === 'save' ? 'Saving…' : savedId ? 'Save changes' : 'Save'}</button>
+              <button onClick={copyEmail} disabled={!html} className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-[#0F766E] text-white disabled:opacity-40">Copy email + log as sent</button>
+              <button onClick={() => save()} disabled={!!busy} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-[#E4E6EE] text-gray-700 disabled:opacity-40">{busy === 'save' ? 'Saving…' : savedId ? 'Save changes' : 'Save'}</button>
             </div>
           </div>
           <Field label="Subject"><input className={inp} value={subject} onChange={e => setSubject(e.target.value)} placeholder="Written with the reply" /></Field>
@@ -314,14 +375,27 @@ export default function InquiryReplyBuilder() {
         </div>
 
         <div className={card}>
-          <h3 className="text-sm font-semibold text-[#1A1D2E] mb-2">Saved replies</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-[#1A1D2E]">Inquiry log <span className="text-gray-400 font-normal">({list.filter(x => x.status === 'Sent').length} sent)</span></h3>
+            <div className="flex gap-1">{(['All', 'Sent', 'Draft'] as const).map(k => (
+              <button key={k} onClick={() => setFilter(k)} className={`text-[11px] px-2 py-0.5 rounded-full border ${filter === k ? 'bg-[#0F766E] text-white border-[#0F766E]' : 'border-[#E4E6EE] text-gray-500'}`}>{k}</button>
+            ))}</div>
+          </div>
+          <p className="text-[11px] text-gray-400 mb-2">Copying an email logs it here as sent, adds the customer to the Leads board (or links the existing record) and logs the email in their conversations.</p>
           {list.length === 0 ? <p className="text-xs text-gray-400">Nothing saved yet.</p> : (
             <div className="divide-y divide-[#F0F2F7]">
-              {list.map(s => (
-                <button key={s.id} onClick={() => open(s.id)} className={`w-full text-left py-2 flex items-center justify-between gap-2 hover:bg-gray-50 px-1 rounded ${s.id === savedId ? 'bg-emerald-50' : ''}`}>
-                  <span className="min-w-0"><span className="text-sm font-medium text-[#1A1D2E] truncate block">{s.brand || s.company || 'Untitled'}{s.contact_name ? ` · ${s.contact_name}` : ''}</span><span className="text-xs text-gray-400 truncate block">{s.subject || 'No reply written yet'}</span></span>
-                  <span className="text-[11px] text-gray-400 whitespace-nowrap">{new Date(s.created_at).toLocaleDateString('en-US')}<br />{(s.created_by || '').split('@')[0]}</span>
-                </button>
+              {list.filter(s => filter === 'All' || (filter === 'Sent' ? s.status === 'Sent' : s.status !== 'Sent')).map(s => (
+                <div key={s.id} className={`py-2 flex items-center justify-between gap-2 px-1 rounded ${s.id === savedId ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}>
+                  <button onClick={() => open(s.id)} className="min-w-0 text-left flex-1">
+                    <span className="text-sm font-medium text-[#1A1D2E] truncate block">{s.brand || s.company || 'Untitled'}{s.contact_name ? ` · ${s.contact_name}` : ''}</span>
+                    <span className="text-xs text-gray-400 truncate block">{s.subject || 'No reply written yet'}</span>
+                    {s.customer_id && <a href={`/sales/customers?item=${s.customer_id}`} onClick={e => e.stopPropagation()} className="text-[11px] text-[#0F766E] underline">{s.customers?.company_name || 'Customer record'}{s.customers?.pipeline_stage ? ` (${s.customers.pipeline_stage})` : ''}</a>}
+                  </button>
+                  <span className="text-[11px] text-right whitespace-nowrap">
+                    <span className={`inline-block px-1.5 py-0.5 rounded font-semibold ${s.status === 'Sent' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>{s.status === 'Sent' ? 'Sent' : 'Draft'}</span><br />
+                    <span className="text-gray-400">{new Date(s.sent_at || s.created_at).toLocaleDateString('en-US')} · {(s.created_by || '').split('@')[0]}</span>
+                  </span>
+                </div>
               ))}
             </div>
           )}
