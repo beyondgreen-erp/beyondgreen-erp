@@ -4,7 +4,7 @@
 import jsPDF from 'jspdf'
 import '@/lib/pdfSafeText'
 import autoTable from 'jspdf-autotable'
-import { type InquiryForm, CERTS, BPI_NOTE, buildSteps, specLines, tierRows, genRows, isBags, unitName, plural, money, money4, int } from './inquiryReply'
+import { type InquiryForm, CERTS, BPI_NOTE, buildSteps, specLines, tierRows, genRows, isBags, pricesForAlt, unitName, plural, money, money4, int } from './inquiryReply'
 
 const GREEN: [number, number, number] = [27, 138, 58]
 const INK: [number, number, number] = [31, 41, 55]
@@ -92,7 +92,7 @@ export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?:
     if (gen.length) {
       autoTable(doc, {
         startY: y, margin: { left: L, right: L }, theme: 'grid', head: [['Quantity', `Price per ${un}`, 'Total']],
-        body: [...gen.map(r => [`${int(r.qty)} ${plural(un, r.qty)}`, money4(r.price!), money(r.total!)]),
+        body: [...(pricesForAlt(f) ? [[{ content: `Stock option: ${f.alternative.trim()}`, colSpan: 3, styles: { fontStyle: 'bold', fillColor: [247, 247, 247] } }]] : []), ...gen.map(r => [`${int(r.qty)} ${plural(un, r.qty)}`, money4(r.price!), money(r.total!)]),
           ...(t?.needed && Number(t.cost) > 0 ? [[`${t.kind || 'Tooling'} (one time)`, '', money(Number(t.cost), 0)]] : [])],
         styles: { fontSize: 9, cellPadding: 4, textColor: INK, lineColor: [225, 229, 234] },
         headStyles: { fillColor: GREEN, textColor: 255, fontStyle: 'bold' },
@@ -102,7 +102,8 @@ export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?:
     doc.setFontSize(8.5); doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal')
     const notes = [gen.length ? `Prices are ${f.basis}. ${f.freightNote}` : `Pricing follows once the details are confirmed. ${f.freightNote}`]
     if (t?.needed) notes.push(`${t.kind || 'Tooling'}: ${Number(t.cost) > 0 ? `${money(Number(t.cost), 0)} one time` : 'quoted separately'}${t.moq ? `, minimum run ${t.moq}` : ''}${t.leadTime ? `, about ${t.leadTime} to make` : ''}.`)
-    if (f.alternative.trim()) notes.push(`Also available now: ${f.alternative.trim()}.`)
+    if (pricesForAlt(f)) notes.push('The prices above are for our stock option. Pricing for your custom item comes with the tooling quote.')
+    else if (f.alternative.trim()) notes.push(`Also available now: ${f.alternative.trim()}.`)
     const wrapped = doc.splitTextToSize(notes.join(' '), R - L)
     doc.text(wrapped, L, y); y += wrapped.length * 11 + 14
   }
