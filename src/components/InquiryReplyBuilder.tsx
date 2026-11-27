@@ -9,7 +9,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import {
   type InquiryForm, type Tier, CHANNELS, FORMATS, PACKAGINGS, DISPENSERS, CERTS, emptyForm, tierRows, suggestedCost, suggestedPrice,
   bagsPerUnit, unitName, plural, money, money4, int, pricingTableHtml, pricingTableText, factsForWriter, buildSteps,
-  PACKAGING_MOQ, packagingMoqApplies, belowPackagingMoq,
+  PACKAGING_MOQ, packagingMoqApplies, belowPackagingMoq, costPerBag,
   type ProductType, PRODUCT_TYPES, TOOLING_KINDS, CATALOG, defaultCerts, defaultMaterial, isBags, genRows, genSuggestedPrice, quoteSummary,
 } from '@/lib/inquiryReply'
 import { generateInquiryStepsPDF, stepsPdfName } from '@/lib/generateInquiryStepsPDF'
@@ -22,6 +22,7 @@ function Field({ label, children, className = '' }: { label: string; children: R
   return <div className={className}><label className={lbl}>{label}</label>{children}</div>
 }
 const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v))
+const n0 = (v: any) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 
 interface Saved { id: string; company: string | null; brand: string | null; contact_name: string | null; subject: string | null; status: string; created_by: string | null; created_at: string; sent_at: string | null; customer_id: string | null; customers?: { company_name: string; pipeline_stage: string | null } | null }
 
@@ -46,6 +47,155 @@ export default function InquiryReplyBuilder() {
   const editor = useRef<HTMLDivElement>(null)
   const [pastCosts, setPastCosts] = useState<any[]>([])
   const [pastOpen, setPastOpen] = useState(true)
+  const [deals, setDeals] = useState<any[]>([])
+  const [dealsInfo, setDealsInfo] = useState<{ outlook: string; erp: number; email: number } | null>(null)
+  const [fillNotes, setFillNotes] = useState<{ ok: string[]; missing: string[] }>({ ok: [], missing: [] })
+  const [tierSrc, setTierSrc] = useState<Record<number, string>>({})
+  const [busySimilar, setBusySimilar] = useState(false)
+  const [costMsg, setCostMsg] = useState('')
+
+  /** Bags in one priced unit of a past deal. */
+  function bagsPer(d: any, form: InquiryForm): number | null {
+    const b = Number(d.bags_per_unit)
+    if (b > 0) return b
+    const u = String(d.unit || '').toLowerCase()
+    if (u === 'bag' || u === 'piece') return 1
+    if (u === 'roll' && Number(form.bagsPerRoll) > 0) return Number(form.bagsPerRoll)
+    return null
+  }
+
+  /** Find similar past quotes, orders and sent emails, then fill the empty prices and terms from them. */
+  async function findSimilar(form: InquiryForm = f, apply = true) {
+    setBusySimilar(true)
+    try {
+      const spec = {
+        productType: form.productType, format: form.format, widthIn: form.widthIn, lengthIn: form.lengthIn, micron: form.micron,
+        bagsPerRoll: form.bagsPerRoll, rollsPerUnit: form.rollsPerUnit, packaging: form.packaging, bagPrint: form.bagPrint,
+        quantities: (form.tiers || []).map(t => t.units), productDesc: form.productDesc, specs: form.specs, message: (form.inquiryText || '').slice(0, 1500),
+      }
+      const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'similar', spec }) })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'Could not look up past deals.')
+      const list: any[] = j.data?.deals || []
+      setDeals(list)
+      setDealsInfo({ outlook: j.data?.outlook || '?', erp: j.data?.searched?.erp || 0, email: j.data?.searched?.email || 0 })
+      let costs: any[] = []
+      if (isBags(form)) { const { data } = await sb.rpc('inquiry_past_costs', { p_width: form.widthIn, p_length: form.lengthIn, p_micron: form.micron, p_format: form.format }); costs = ((data as any[]) || []).filter(x => Number(x.match) >= 4) }
+      if (apply) applyDeals(list, form, j.data?.outlook || '', costs)
+    } catch (e: any) { setFillNotes({ ok: [], missing: [`Past deals could not be loaded: ${e.message}`] }) } finally { setBusySimilar(false) }
+  }
+
+  function applyDeals(list: any[], form: InquiryForm, outlook: string, costs: any[] = []) {
+    const ok: string[] = [], missing: string[] = []
+    const label = (d: any) => `${d.source === 'email' ? 'email' : d.source} ${d.source === 'email' ? `to ${(d.to || [])[0] || d.customer || ''}` : `${d.ref}${d.customer ? `, ${d.customer}` : ''}`}${d.date ? ` (${String(d.date).slice(0, 7)})` : ''}`
+    const good = list.filter(d => Number(d.relevance) >= 6)
+    if (!isBags(form)) {
+      if (good.length) ok.push(`${good.length} similar past deals found below. Automatic price fill is only built for pet waste bags so far, so please enter prices from them.`)
+      else missing.push('No similar past deals found for this product. Price it from cost.')
+    } else {
+      const bpu = bagsPerUnit(form)
+      const points: { bags: number; perBag: number; src: string }[] = []
+      for (const d of good) {
+        const per = bagsPer(d, form)
+        if (!per) continue
+        for (const t of (d.tiers || [])) {
+          const q = Number(t.qty), pr = Number(t.price)
+          if (q > 0 && pr > 0) points.push({ bags: q * per, perBag: Math.round((pr / per) * 10000) / 10000, src: label(d) })
+        }
+      }
+      const srcs: Record<number, string> = {}
+      const tiers = form.tiers.map((t, i) => {
+        if (n0(t.pricePerBag) > 0 || !(Number(t.units) > 0) || !points.length) return t
+        const vol = Number(t.units) * bpu
+        const best = points.slice().sort((a, b) => Math.abs(Math.log(a.bags / vol)) - Math.abs(Math.log(b.bags / vol)))[0]
+        srcs[i] = `${best.perBag.toFixed(4)}/bag from ${best.src} at ${Math.round(best.bags).toLocaleString('en-US')} bags`
+        return { ...t, pricePerBag: best.perBag }
+      })
+      if (points.length) ok.push(`Prices per bag filled from ${new Set(Object.values(srcs).map(x => x.split(' from ')[1]?.split(' at ')[0])).size} past deal(s). Hover a price to see where it came from.`)
+      else missing.push('No past price for a similar bag was found. Prices use our cost plus the margin rules.')
+      const pk = good.find(d => Number(d.packaging_price_per_box) > 0)
+      const pkg = pk ? Number(pk.packaging_price_per_box) : null
+      if (pkg && packagingMoqApplies(form)) ok.push(`Packaging ${pkg.toFixed(2)}/box from ${label(pk)}.`)
+      else if (packagingMoqApplies(form)) missing.push('Packaging price per box was not in any past deal. Please enter it (or cost it in the Costing table).')
+      const lt = good.find(d => d.lead_time)
+      const fee = good.find(d => Number(d.setup_or_plate_fee) > 0)
+      setTierSrc(srcs)
+      setF(p => ({
+        ...p,
+        tiers: tiers.map(t => (pkg && packagingMoqApplies(form) && !(n0(t.packagingEach) > 0) ? { ...t, packagingEach: pkg } : t)),
+        leadTime: lt && p.leadTime === emptyForm().leadTime ? String(lt.lead_time) : p.leadTime,
+        plateCharge: fee && p.bagPrint === '1 color print' ? Number(fee.setup_or_plate_fee) : p.plateCharge,
+      }))
+      if (lt) ok.push(`Lead time "${lt.lead_time}" from ${label(lt)}.`)
+      if (!(n0(form.costPerBag) > 0)) {
+        const c = costs.find(r => r.kind === 'cost')
+        if (c) { set('costPerBag', Number(c.scaled_per_bag)); ok.push(`Cost ${Number(c.scaled_per_bag).toFixed(4)}/bag from inventory item ${c.sku}, scaled to this bag.`) }
+      }
+    }
+    if (outlook !== 'searched') missing.push(`Your sent emails were not searched (Outlook ${outlook || 'unavailable'}). Connect Outlook in Settings so past emails count too.`)
+    ok.push('Payment terms stay at our standard 40% deposit unless you change them.')
+    setFillNotes({ ok, missing })
+  }
+
+  /** Send this inquiry to the Costing table (Quick Quote) as a draft, then open it there. */
+  async function openCosting() {
+    setCostMsg('')
+    try {
+      if (f.costingId) { window.open(`/sales/costing?item=${f.costingId}`, '_blank'); return }
+      const { data: { user } } = await sb.auth.getUser()
+      const yr = new Date().getFullYear()
+      const { data: last } = await sb.from('quote_costing').select('quote_number').like('quote_number', `QC-${yr}-%`).order('quote_number', { ascending: false }).limit(1)
+      const lastN = Number(String((last as any)?.[0]?.quote_number || '').split('-')[2] || 0)
+      const num = `QC-${yr}-${String(lastN + 1).padStart(3, '0')}`
+      const bpu = bagsPerUnit(f)
+      const name = f.company || f.brand || f.contactFull || f.contactFirst || 'Inquiry'
+      const { data: qc, error } = await sb.from('quote_costing').insert({
+        quote_number: num, customer_name: name, quote_date: new Date().toISOString().slice(0, 10), prepared_by: f.preparedBy || me.name || null,
+        status: 'Draft', default_markup_pct: 25, default_duty_pct: 0, freight_method: 'DOMESTIC', include_freight_disclaimer: true,
+        notes: `From Inquiry Replies: ${f.inquiryText.slice(0, 300)}`, internal_notes: 'Costed from an inquiry. Use "Use cost from Costing table" in Inquiry Replies to bring the cost back.',
+        created_by: user?.email || null, total_exw_cost: 0, total_landed_cost: 0, total_selling_price: 0, total_profit: 0, avg_margin_pct: 0,
+      }).select('id').single()
+      if (error || !qc) throw new Error(error?.message || 'Could not create the costing.')
+      const lines = (isBags(f) ? f.tiers.filter(t => Number(t.units) > 0) : f.genTiers.filter(t => Number(t.qty) > 0)).map((t: any, i: number) => isBags(f) ? ({
+        quote_costing_id: (qc as any).id, line_number: i + 1, sort_order: i,
+        description: `${f.format}, ${f.widthIn} x ${f.lengthIn} in, ${f.micron} mic, ${f.bagsPerRoll} bags per roll, ${f.rollsPerUnit} rolls per ${un}`,
+        product_type: 'Pet waste bags', specs: `${bpu} bags per ${un}. ${f.bagPrint !== 'None' ? 'Bag print: ' + f.bagPrint + '. ' : ''}Packaging: ${f.packaging}.`,
+        country_of_origin: 'USA', freight_method: 'DOMESTIC', uom: 'bag', moq_qty: 0, order_qty: Number(t.units) * bpu, packing_per_case: bpu,
+        exw_cost_per_case: Math.round(costPerBag(f) * bpu * 10000) / 10000, freight_cost_per_case: 0, mpf: 0, hmf: 0,
+        packaging_cost_per_case: n0(t.packagingEach), markup_pct: 25, has_retail_packaging: packagingMoqApplies(f), retail_packaging_desc: f.packaging,
+        needs_freight_disclaimer: true,
+      }) : ({
+        quote_costing_id: (qc as any).id, line_number: i + 1, sort_order: i, description: f.productDesc || f.productType, product_type: f.productType,
+        specs: f.specs || null, country_of_origin: f.madeInSantaAna ? 'USA' : 'CHINA', freight_method: f.madeInSantaAna ? 'DOMESTIC' : 'OCEAN', uom: f.unitLabel || 'piece',
+        moq_qty: 0, order_qty: Number(t.qty), packing_per_case: 1, exw_cost_per_case: n0(f.costEach), freight_cost_per_case: 0, mpf: 0, hmf: 0, packaging_cost_per_case: 0,
+        markup_pct: 25, has_retail_packaging: false, needs_freight_disclaimer: true,
+      }))
+      if (lines.length) { const { error: le } = await sb.from('quote_costing_lines').insert(lines); if (le) throw new Error(le.message) }
+      set('costingId', (qc as any).id)
+      setCostMsg(`Costing ${num} created in the Costing table. Work the cost there, save it, then press "Use cost from Costing table".`)
+      window.open(`/sales/costing?item=${(qc as any).id}`, '_blank')
+    } catch (e: any) { setCostMsg(`Could not open the Costing table: ${e.message}`) }
+  }
+
+  /** Bring the cost per bag (and packaging) back from the linked Costing table record. */
+  async function pullCosting() {
+    setCostMsg('')
+    if (!f.costingId) return
+    const { data, error } = await sb.from('quote_costing_lines').select('*').eq('quote_costing_id', f.costingId).order('line_number')
+    if (error || !data?.length) { setCostMsg('No lines found on that costing yet. Save it in the Costing table first.'); return }
+    const l: any = data[0]
+    const per = Number(l.packing_per_case) || 1
+    const goods = (Number(l.exw_cost_per_case) || 0) + (Number(l.freight_cost_per_case) || 0) + (Number(l.other_cost_1_amount) || 0) + (Number(l.other_cost_2_amount) || 0) + (Number(l.broker_inv_amount) || 0)
+    if (isBags(f)) {
+      const cpb = Math.round((goods / per) * 10000) / 10000
+      const pkg = Number(l.packaging_cost_per_case) || 0
+      setF(p => ({ ...p, costPerBag: cpb, tiers: p.tiers.map(t => (pkg > 0 ? { ...t, packagingEach: pkg } : t)) }))
+      setCostMsg(`Cost ${cpb.toFixed(4)}/bag${pkg > 0 ? ` and packaging ${pkg.toFixed(2)}/${un}` : ''} brought back from the Costing table.`)
+    } else {
+      const each = Math.round(((goods + (Number(l.packaging_cost_per_case) || 0)) / per) * 10000) / 10000
+      set('costEach', each)
+      setCostMsg(`Cost ${each.toFixed(4)} each brought back from the Costing table.`)
+    }
+  }
 
   // Costs we already know: our own SKUs on the inventory board and what similar private label rolls sold for.
   useEffect(() => {
@@ -104,7 +254,8 @@ export default function InquiryReplyBuilder() {
       const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'extract', text: f.inquiryText }) })
       const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'Could not read the message.')
       const d = j.data || {}
-      setF(p => {
+      {
+        const p = f
         const q: any = { ...p }
         for (const k of ['contactFirst', 'contactFull', 'company', 'brand', 'email', 'phone', 'location', 'launch', 'color', 'scent', 'sampleAddress']) if (d[k]) q[k] = String(d[k])
         for (const k of ['widthIn', 'lengthIn', 'micron', 'bagsPerRoll', 'rollsPerUnit']) if (d[k] != null && Number(d[k]) > 0) q[k] = Number(d[k])
@@ -132,9 +283,10 @@ export default function InquiryReplyBuilder() {
         const units = Array.isArray(d.units) ? d.units.map(Number).filter((x: number) => x > 0) : []
         if (units.length) q.tiers = units.slice(0, 5).map((u: number) => ({ units: u, pricePerBag: null, packagingEach: null, dispenserQty: d.dispenserQty ? Number(d.dispenserQty) : null }))
         else if (d.dispenserQty) q.tiers = p.tiers.map(t => ({ ...t, dispenserQty: Number(d.dispenserQty) }))
-        return q
-      })
-      setMsg('Form filled from the message. Please check every field before writing the reply.')
+        setF(q)
+        setMsg('Form filled from the message. Looking up similar past deals...')
+        await findSimilar(q, true)
+      }
     } catch (e: any) { setErr(e.message) } finally { setBusy('') }
   }
 
@@ -144,7 +296,7 @@ export default function InquiryReplyBuilder() {
       if (!f.contactFirst.trim()) throw new Error('Add the contact first name.')
       const table = pricingTableHtml(f)
       const allowed = [table, money(Number(f.plateCharge) || 0), money(Number(f.dispenserEach) || 0), money(Number(f.moldCost) || 0, 0), pricingTableText(f)].join(' ')
-      const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'write', facts: factsForWriter(f), tableHtml: table, allowedMoney: allowed, guidance, replyId: savedId }) })
+      const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'write', facts: factsForWriter(f), tableHtml: table, allowedMoney: allowed, guidance, replyId: savedId, emailExamples: deals.filter(d => d.source === 'email' && Number(d.relevance) >= 6).slice(0, 3).map(d => ({ subject: d.ref, text: d.text })) }) })
       const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'The writer did not answer.')
       setSubject(j.data.subject || ''); setHtml(j.data.html || ''); setAiHtml(j.data.html || ''); setWarnings(j.data.warnings || [])
       setMsg(`Reply written${j.data.learnedFrom ? `, using ${j.data.learnedFrom} past ${j.data.learnedFrom === 1 ? 'reply' : 'replies'} for this kind of product as a guide` : ''}. Read it, edit anything right in the box, then copy it into Outlook.`)
@@ -382,6 +534,45 @@ export default function InquiryReplyBuilder() {
             <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Cost and margin are internal only</span>
           </div>
           {pastHint}
+          <div className="mb-3 rounded-lg border border-[#CFE3DA] bg-[#F3FAF6] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-[#1A1D2E]">Similar past deals {dealsInfo ? <span className="font-normal text-gray-500">({dealsInfo.erp} ERP quotes and orders, {dealsInfo.email} sent emails searched)</span> : null}</div>
+              <div className="flex gap-2">
+                <button onClick={() => findSimilar(f, true)} disabled={busySimilar} className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-white border border-[#CFE3DA] text-[#0F766E] disabled:opacity-50">{busySimilar ? 'Searching...' : deals.length ? 'Search again and refill' : 'Find similar deals and fill'}</button>
+                <button onClick={openCosting} className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-[#0F766E] text-white">{f.costingId ? 'Open in Costing table' : 'Cost it in the Costing table'}</button>
+                {f.costingId && <button onClick={pullCosting} className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-white border border-[#CFE3DA] text-[#0F766E]">Use cost from Costing table</button>}
+              </div>
+            </div>
+            {costMsg && <div className="mt-2 text-[11px] text-[#0F766E]">{costMsg}</div>}
+            {(fillNotes.ok.length > 0 || fillNotes.missing.length > 0) && (
+              <ul className="mt-2 space-y-0.5 text-[11px]">
+                {fillNotes.ok.map((x, i) => <li key={'o' + i} className="text-gray-700">✓ {x}</li>)}
+                {fillNotes.missing.map((x, i) => <li key={'m' + i} className="text-amber-800 font-medium">⚠ {x}</li>)}
+              </ul>
+            )}
+            {deals.length > 0 && (
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-[11px] min-w-[640px]">
+                  <thead><tr className="text-[10px] text-gray-500 text-left"><th className="py-1 pr-2">Match</th><th className="py-1 pr-2">Source</th><th className="py-1 pr-2">Customer / product</th><th className="py-1 pr-2">Prices then</th><th className="py-1 pr-2">Other</th></tr></thead>
+                  <tbody>
+                    {deals.map((d, i) => {
+                      const per = bagsPer(d, f)
+                      const href = d.source === 'email' ? d.link : d.recordId ? `${d.source === 'quote' ? '/sales/quotations' : '/sales/orders'}?item=${d.recordId}` : null
+                      return (
+                        <tr key={i} className="border-t border-[#DCEBE3] align-top">
+                          <td className="py-1.5 pr-2 whitespace-nowrap">{Number(d.relevance) >= 8 ? 'Close' : Number(d.relevance) >= 6 ? 'Similar' : 'Loose'}</td>
+                          <td className="py-1.5 pr-2">{href ? <a href={href} target="_blank" rel="noreferrer" className="text-[#0F766E] underline">{d.source === 'email' ? 'Sent email' : `${d.source === 'quote' ? 'Quote' : 'Order'} ${d.ref}`}</a> : d.ref}<div className="text-[10px] text-gray-400">{String(d.date || '').slice(0, 10)}</div></td>
+                          <td className="py-1.5 pr-2"><div className="font-medium text-[#1A1D2E]">{d.customer || (d.to || [])[0] || ''}</div><div className="text-gray-500 max-w-[260px]">{d.product || (d.source === 'email' ? d.ref : '')}</div></td>
+                          <td className="py-1.5 pr-2 whitespace-nowrap">{(d.tiers || []).slice(0, 4).map((t: any, k: number) => <div key={k}>{Number(t.qty).toLocaleString('en-US')} {d.unit || ''} at {money4(Number(t.price))}{per ? <span className="text-gray-400"> ({money4(Number(t.price) / per)}/bag)</span> : null}</div>)}</td>
+                          <td className="py-1.5 pr-2 text-gray-600">{[d.packaging_price_per_box ? `packaging ${money(Number(d.packaging_price_per_box))}/box` : '', d.setup_or_plate_fee ? `setup ${money(Number(d.setup_or_plate_fee))}` : '', d.lead_time ? `lead ${d.lead_time}` : '', d.payment_terms || d.terms ? `terms ${d.payment_terms || d.terms}` : '', d.moq ? `MOQ ${d.moq}` : ''].filter(Boolean).join(' · ')}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
           {isBags(f) ? (<>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Our cost per bag"><input className={inp} type="number" step="0.0001" value={f.costPerBag ?? ''} placeholder={String(sugCost)} onChange={e => set('costPerBag', numOrNull(e.target.value))} /></Field>
@@ -446,7 +637,7 @@ export default function InquiryReplyBuilder() {
                   return (
                     <tr key={i} className="border-t border-[#F0F2F7]">
                       <td className="py-1.5 pr-2 w-24"><input className={`${inp} ${belowPackagingMoq(f, Number(t.units)) ? 'border-amber-300' : ''}`} type="number" value={t.units || ''} onChange={e => setTier(i, { units: Number(e.target.value) })} />{belowPackagingMoq(f, Number(t.units)) && <div className="text-[10px] text-amber-700 mt-0.5">Packaging billed at {int(PACKAGING_MOQ)}</div>}</td>
-                      <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.0001" value={t.pricePerBag ?? ''} placeholder={t.units ? String(suggestedPrice(f, Number(t.units))) : ''} onChange={e => setTier(i, { pricePerBag: numOrNull(e.target.value) })} /></td>
+                      <td className="py-1.5 pr-2 w-28" title={tierSrc[i] || ''}><input className={`${inp} ${tierSrc[i] && t.pricePerBag != null ? 'bg-[#F3FAF6]' : ''}`} type="number" step="0.0001" value={t.pricePerBag ?? ''} placeholder={t.units ? String(suggestedPrice(f, Number(t.units))) : ''} onChange={e => setTier(i, { pricePerBag: numOrNull(e.target.value) })} /></td>
                       <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.01" value={t.packagingEach ?? ''} placeholder="TBC" onChange={e => setTier(i, { packagingEach: numOrNull(e.target.value) })} /></td>
                       {f.dispenser !== 'None' && <td className="py-1.5 pr-2 w-24"><input className={inp} type="number" value={t.dispenserQty ?? ''} onChange={e => setTier(i, { dispenserQty: numOrNull(e.target.value) })} /></td>}
                       <td className="py-1.5 pr-2 text-right whitespace-nowrap">{r ? money(r.pricePerUnit) : ''}{r?.pricePerRoll != null && <div className="text-[10px] text-gray-400">{money4(r.pricePerRoll)}/roll</div>}</td>
