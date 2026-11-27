@@ -92,7 +92,7 @@ export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?:
     if (gen.length) {
       autoTable(doc, {
         startY: y, margin: { left: L, right: L }, theme: 'grid', head: [['Quantity', `Price per ${un}`, 'Total']],
-        body: [...(pricesForAlt(f) ? [[{ content: `Stock option: ${f.alternative.trim()}`, colSpan: 3, styles: { fontStyle: 'bold', fillColor: [247, 247, 247] } }]] : []), ...gen.map(r => [`${int(r.qty)} ${plural(un, r.qty)}`, money4(r.price!), money(r.total!)]),
+        body: [...(pricesForAlt(f) ? [[{ content: `Stock option: ${f.alternative.trim()}`, colSpan: 3, styles: { fontStyle: 'bold', fillColor: [247, 247, 247] } } as any]] : []), ...gen.map(r => [`${int(r.qty)} ${plural(un, r.qty)}`, money4(r.price!), money(r.total!)]),
           ...(t?.needed && Number(t.cost) > 0 ? [[`${t.kind || 'Tooling'} (one time)`, '', money(Number(t.cost), 0)]] : [])],
         styles: { fontSize: 9, cellPadding: 4, textColor: INK, lineColor: [225, 229, 234] },
         headStyles: { fillColor: GREEN, textColor: 255, fontStyle: 'bold' },
