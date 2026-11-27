@@ -18,7 +18,13 @@ async function whiteLogo(): Promise<{ data: string; w: number; h: number } | nul
     const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight
     const g = c.getContext('2d')!; g.drawImage(img, 0, 0)
     const d = g.getImageData(0, 0, c.width, c.height)
-    for (let i = 0; i < d.data.length; i += 4) { d.data[i] = 255; d.data[i + 1] = 255; d.data[i + 2] = 255 }
+    // Colored and black parts become white; the white "b" inside the green circle becomes see-through,
+    // so the green header shows through it and the mark keeps its shape (a flat recolor made a solid white disc).
+    for (let i = 0; i < d.data.length; i += 4) {
+      const m = Math.min(d.data[i], d.data[i + 1], d.data[i + 2])
+      const white = Math.max(0, (m - 150) / 105)
+      d.data[i] = 255; d.data[i + 1] = 255; d.data[i + 2] = 255; d.data[i + 3] = Math.round(d.data[i + 3] * (1 - white))
+    }
     g.putImageData(d, 0, 0)
     return { data: c.toDataURL('image/png'), w: c.width, h: c.height }
   } catch { return null }
