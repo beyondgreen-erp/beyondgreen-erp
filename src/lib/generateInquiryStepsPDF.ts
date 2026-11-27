@@ -4,7 +4,7 @@
 import jsPDF from 'jspdf'
 import '@/lib/pdfSafeText'
 import autoTable from 'jspdf-autotable'
-import { type InquiryForm, CERTS, BPI_NOTE, buildSteps, specLines, tierRows, unitName, plural, money, money4, int } from './inquiryReply'
+import { type InquiryForm, CERTS, BPI_NOTE, buildSteps, specLines, tierRows, genRows, isBags, unitName, plural, money, money4, int } from './inquiryReply'
 
 const GREEN: [number, number, number] = [27, 138, 58]
 const INK: [number, number, number] = [31, 41, 55]
@@ -32,7 +32,7 @@ async function whiteLogo(): Promise<{ data: string; w: number; h: number } | nul
 
 export function stepsPdfName(f: InquiryForm) {
   const who = (f.brand || f.company || 'Customer').replace(/[^A-Za-z0-9 ]+/g, '').trim().replace(/\s+/g, ' ')
-  return `${who} - Private Label Next Steps - beyondGREEN.pdf`
+  return `${who} - ${isBags(f) ? 'Private Label Next Steps' : 'Project Next Steps'} - beyondGREEN.pdf`
 }
 
 export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?: boolean } = {}): Promise<Blob> {
@@ -46,7 +46,7 @@ export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?:
     const logo = await whiteLogo()
     if (logo) doc.addImage(logo.data, 'PNG', L, 18, 42 * (logo.w / logo.h), 42)
     doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(17)
-    doc.text('YOUR PRIVATE LABEL PROGRAM', R, 38, { align: 'right' })
+    doc.text(isBags(f) ? 'YOUR PRIVATE LABEL PROGRAM' : 'YOUR PROJECT WITH US', R, 38, { align: 'right' })
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
     doc.text(`Next steps to launch  |  ${today}`, R, 56, { align: 'right' })
   }
@@ -85,7 +85,28 @@ export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?:
   y = (doc as any).lastAutoTable.finalY + 20
 
   // Pricing
-  const rows = tierRows(f)
+  const gen = !isBags(f) ? genRows(f).filter(r => r.price != null) : []
+  if (!isBags(f)) {
+    y = section('Pricing', y)
+    const t = f.tooling
+    if (gen.length) {
+      autoTable(doc, {
+        startY: y, margin: { left: L, right: L }, theme: 'grid', head: [['Quantity', `Price per ${un}`, 'Total']],
+        body: [...gen.map(r => [`${int(r.qty)} ${plural(un, r.qty)}`, money4(r.price!), money(r.total!)]),
+          ...(t?.needed && Number(t.cost) > 0 ? [[`${t.kind || 'Tooling'} (one time)`, '', money(Number(t.cost), 0)]] : [])],
+        styles: { fontSize: 9, cellPadding: 4, textColor: INK, lineColor: [225, 229, 234] },
+        headStyles: { fillColor: GREEN, textColor: 255, fontStyle: 'bold' },
+      })
+      y = (doc as any).lastAutoTable.finalY + 12
+    }
+    doc.setFontSize(8.5); doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal')
+    const notes = [gen.length ? `Prices are ${f.basis}. ${f.freightNote}` : `Pricing follows once the details are confirmed. ${f.freightNote}`]
+    if (t?.needed) notes.push(`${t.kind || 'Tooling'}: ${Number(t.cost) > 0 ? `${money(Number(t.cost), 0)} one time` : 'quoted separately'}${t.moq ? `, minimum run ${t.moq}` : ''}${t.leadTime ? `, about ${t.leadTime} to make` : ''}.`)
+    if (f.alternative.trim()) notes.push(`Also available now: ${f.alternative.trim()}.`)
+    const wrapped = doc.splitTextToSize(notes.join(' '), R - L)
+    doc.text(wrapped, L, y); y += wrapped.length * 11 + 14
+  }
+  const rows = isBags(f) ? tierRows(f) : []
   if (rows.length) {
     y = section('Pricing', y)
     const showRoll = rows.some(r => r.pricePerRoll != null), showPkg = rows.some(r => r.packagingEach != null), showDisp = rows.some(r => r.dispenserQty > 0)
@@ -135,12 +156,14 @@ export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?:
   const certs = CERTS.filter(c => f.certs.includes(c.key))
   if (certs.length) {
     if (y > H - 150) { doc.addPage(); await header(); y = 104 }
-    y = section('Certifications', y)
+    y = section(isBags(f) ? 'Certifications' : 'Certifications and documents', y)
     doc.setFontSize(9); doc.setTextColor(...INK); doc.setFont('helvetica', 'normal')
     for (const c of certs) { doc.setFont('helvetica', 'bold'); doc.text(c.label, L, y + 4); doc.setFont('helvetica', 'normal'); doc.text(c.detail, L + 200, y + 4); y += 14 }
     doc.setFontSize(8.5); doc.setTextColor(...GRAY)
-    const t = doc.splitTextToSize(`${BPI_NOTE} Compostability claims on your packaging are covered by our Private Label Environmental Compliance Agreement.`, R - L)
-    doc.text(t, L, y + 8); y += t.length * 11 + 14
+    if (isBags(f)) {
+      const t = doc.splitTextToSize(`${BPI_NOTE} Compostability claims on your packaging are covered by our Private Label Environmental Compliance Agreement.`, R - L)
+      doc.text(t, L, y + 8); y += t.length * 11 + 14
+    } else y += 8
   }
 
   // Contact

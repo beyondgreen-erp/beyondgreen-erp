@@ -1,13 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Inquiry Reply builder: the data behind the "Inquiry Replies" tab on Quotes & RFQs.
-// The form captures what a private label / pet waste bag prospect asked for, the costing is worked
-// here (never by the AI), and the email and the next-steps PDF are built from this one object.
+// The form captures what a prospect asked for (pet waste bags have a full bag form; every other product
+// uses the general form with manual costing and tooling), the costing is worked here (never by the AI),
+// and the email and the next-steps PDF are built from this one object.
 
 export type Channel = 'Amazon' | 'Online store' | 'Retail stores' | 'Wholesale / distribution' | 'Municipality / HOA' | 'Pet business' | 'Other'
 export type BagFormat = 'Folded rolls (leash dispenser refills)' | 'Rolls on core' | 'Lay-flat single pull' | 'Cat litter bags (gusseted handle)' | 'Kitchen / food waste bags' | 'Other'
 export type Packaging = 'Custom printed retail box' | 'Standard retail box with their logo' | 'Plain retail box' | 'Bulk case (no retail packaging)' | 'Poly bag / pouch' | 'Not decided yet'
 export type Dispenser = 'None' | 'Recycled plastic leash dispenser' | 'Compostable leash dispenser' | 'Silicone leash dispenser' | 'Custom molded dispenser (new mold)'
 export type StepStatus = 'done' | 'next' | 'later'
+export type ProductType = 'Pet waste bags' | 'Straws' | 'Cutlery' | 'Cups and lids' | 'Film bags (retail, produce, kitchen)' | 'Paper bags' | 'Containers and packaging' | 'Other or new product'
+export const PRODUCT_TYPES: ProductType[] = ['Pet waste bags', 'Straws', 'Cutlery', 'Cups and lids', 'Film bags (retail, produce, kitchen)', 'Paper bags', 'Containers and packaging', 'Other or new product']
+export const TOOLING_KINDS = ['Extrusion die', 'Injection mold', 'Thermoforming mold', 'Print plates', 'Cutting die', 'Other tooling'] as const
+export interface GenTier { qty: number; price: number | null }
+export interface Tooling { needed: boolean; kind: string; cost: number | null; moq: string; leadTime: string; note: string }
 
 export interface Tier { units: number; pricePerBag: number | null; packagingEach: number | null; dispenserQty: number | null }
 
@@ -56,6 +62,18 @@ export interface InquiryForm {
   paymentTerms: string
   leadTime: string
   quoteNumber: string
+  // any product other than pet waste bags
+  productType: ProductType
+  productDesc: string
+  specs: string
+  unitLabel: string
+  material: string
+  madeInSantaAna: boolean
+  printNote: string
+  costEach: number | null
+  genTiers: GenTier[]
+  tooling: Tooling
+  alternative: string
   // certifications to list
   certs: string[]
   // anything Dhanush wants said, his way
@@ -70,6 +88,8 @@ export const DISPENSERS: Dispenser[] = ['None', 'Recycled plastic leash dispense
 
 // Certifications as stated in the team's replies (Nov 2026). BPI does not certify pet waste bags.
 export const CERTS: { key: string; label: string; detail: string }[] = [
+  { key: 'bpi', label: 'BPI Certified Compostable', detail: 'For our listed stock items; a new custom item is certified separately' },
+  { key: 'food', label: 'Food contact compliance', detail: 'Resin supplier food contact compliance documentation' },
   { key: 'astm', label: 'ASTM D6400', detail: 'Industrial compostability (US standard)' },
   { key: 'en', label: 'EN 13432', detail: 'Industrial compostability (EU standard)' },
   { key: 'okhome', label: 'TUV AUSTRIA OK compost HOME', detail: 'Certificate TA8011601456 (S560)' },
@@ -77,6 +97,42 @@ export const CERTS: { key: string; label: string; detail: string }[] = [
   { key: 'usda', label: 'USDA Certified Biobased', detail: 'Biobased content certification' },
 ]
 export const BPI_NOTE = 'BPI does not certify pet waste bags, so there is no BPI certificate for this product.'
+export const BAG_CERTS = ['astm', 'en', 'okhome', 'okind', 'usda']
+export function defaultCerts(t: ProductType): string[] {
+  if (t === 'Pet waste bags') return BAG_CERTS
+  if (t === 'Straws' || t === 'Cutlery') return ['bpi', 'food', 'astm']
+  if (t === 'Film bags (retail, produce, kitchen)') return ['bpi', 'astm']
+  if (t === 'Other or new product') return ['food']
+  return []
+}
+/** Material and where it is made, per product line (resins from the production notes). Editable on the form. */
+export function defaultMaterial(t: ProductType): { material: string; santaAna: boolean; unit: string } {
+  switch (t) {
+    case 'Straws': return { material: 'Certified compostable biopolymer (BASF ecovio), profile extruded in Santa Ana, CA', santaAna: true, unit: 'straw' }
+    case 'Cutlery': return { material: 'Certified compostable biopolymer (BASF ecovio), injection molded in Santa Ana, CA', santaAna: true, unit: 'piece' }
+    case 'Film bags (retail, produce, kitchen)': return { material: 'Certified compostable PBAT and PLA blend (BASF ecovio), made in Santa Ana, CA', santaAna: true, unit: 'bag' }
+    case 'Cups and lids': return { material: '', santaAna: false, unit: 'cup' }
+    case 'Paper bags': return { material: '', santaAna: false, unit: 'bag' }
+    default: return { material: '', santaAna: false, unit: 'piece' }
+  }
+}
+/** Stock items to start from (cost per piece, FOB Santa Ana, from the SKU pricing sheet). */
+export const CATALOG: { type: ProductType; label: string; unit: string; cost: number; specs: string }[] = [
+  { type: 'Straws', label: '7.75 in jumbo straw, 6 mm, unwrapped (white)', unit: 'straw', cost: 0.013, specs: 'Length: 7.75 in\nDiameter: 6 mm\nWrap: unwrapped\nCase: 2,500' },
+  { type: 'Straws', label: '7.75 in jumbo straw, 6 mm, unwrapped (green)', unit: 'straw', cost: 0.015, specs: 'Length: 7.75 in\nDiameter: 6 mm\nColor: green\nWrap: unwrapped\nCase: 2,500' },
+  { type: 'Straws', label: '7.75 in jumbo straw, 6 mm, paper wrapped (green)', unit: 'straw', cost: 0.021, specs: 'Length: 7.75 in\nDiameter: 6 mm\nColor: green\nWrap: paper wrapped\nCase: 2,500' },
+  { type: 'Straws', label: '8.25 in bendy straw, 6 mm, unwrapped', unit: 'straw', cost: 0.025, specs: 'Length: 8.25 in\nDiameter: 6 mm\nStyle: flexible (bendy)\nCase: 2,500' },
+  { type: 'Straws', label: '10.25 in giant straw, unwrapped', unit: 'straw', cost: 0.018, specs: 'Length: 10.25 in\nCase: 1,850' },
+  { type: 'Straws', label: '10.5 in smoothie straw, 9.25 mm, wrapped', unit: 'straw', cost: 0.025, specs: 'Length: 10.5 in\nDiameter: 9.25 mm\nWrap: wrapped\nCase: 1,500' },
+  { type: 'Straws', label: '5.75 in cocktail straw, 5.75 mm', unit: 'straw', cost: 0.010, specs: 'Length: 5.75 in\nDiameter: 5.75 mm\nCase: 2,500' },
+  { type: 'Cutlery', label: 'Fork (bulk)', unit: 'piece', cost: 0.037, specs: 'Item: fork' },
+  { type: 'Cutlery', label: 'Knife (bulk)', unit: 'piece', cost: 0.036, specs: 'Item: knife' },
+  { type: 'Cutlery', label: 'Spoon (bulk)', unit: 'piece', cost: 0.035, specs: 'Item: spoon' },
+  { type: 'Cutlery', label: 'Fork, individually film wrapped', unit: 'piece', cost: 0.067, specs: 'Item: fork\nWrap: individually film wrapped' },
+  { type: 'Cups and lids', label: '12 oz printed double wall paper cup', unit: 'cup', cost: 0.07, specs: 'Size: 12 oz\nWall: double wall, aqueous coated\nCase: 500' },
+  { type: 'Cups and lids', label: '16 oz printed double wall paper cup', unit: 'cup', cost: 0.08, specs: 'Size: 16 oz\nWall: double wall, aqueous coated\nCase: 500' },
+  { type: 'Cups and lids', label: '90 mm hot cup sipper lid', unit: 'lid', cost: 0.055, specs: 'Fits: 12 and 16 oz hot cups\nCase: 1,000' },
+]
 export const MATERIAL_NOTE = 'Certified compostable biopolymer film, a blend of PBAT and PLA (BASF ecovio), made at our facility in Santa Ana, California.'
 
 // Reference costs from the products board (9 x 12 in, 18 micron folded rolls, cost per bag). Used to scale a
@@ -87,6 +143,8 @@ export const BASE_GPM = 0.2
 export function tierMarkup(bags: number): number { return bags >= 1_000_000 ? 0 : bags >= 500_000 ? 0.15 : 0.35 }
 
 export const emptyForm = (preparedBy = ''): InquiryForm => ({
+  productType: 'Pet waste bags', productDesc: '', specs: '', unitLabel: 'piece', material: '', madeInSantaAna: true, printNote: '', costEach: null,
+  genTiers: [{ qty: 5000, price: null }], tooling: { needed: false, kind: 'Extrusion die', cost: null, moq: '', leadTime: '', note: '' }, alternative: '',
   contactFirst: '', contactFull: '', company: '', brand: '', email: '', phone: '', location: '', channel: 'Amazon', source: 'Website contact form', launch: '',
   inquiryText: '', questions: '',
   format: 'Folded rolls (leash dispenser refills)', widthIn: 9, lengthIn: 13, micron: 20, bagsPerRoll: 15, rollsPerUnit: 20, color: 'Green (our standard)', scent: 'Unscented', bagPrint: 'None',
@@ -151,11 +209,51 @@ export function tierRows(f: InquiryForm): TierRow[] {
 
 export const plural = (word: string, count: number) => count === 1 ? word : /(x|ch|sh|s)$/.test(word) ? word + 'es' : word + 's'
 
+export const isBags = (f: InquiryForm) => !f.productType || f.productType === 'Pet waste bags'
+
 export const unitName = (f: InquiryForm) =>
-  f.packaging === 'Bulk case (no retail packaging)' ? 'case' : f.packaging === 'Poly bag / pouch' ? 'pouch' : 'retail box'
+  !isBags(f) ? ((f.unitLabel || 'piece').trim() || 'piece')
+    : f.packaging === 'Bulk case (no retail packaging)' ? 'case' : f.packaging === 'Poly bag / pouch' ? 'pouch' : 'retail box'
+
+/** General products: price per unit is typed in, or cost at 20% margin (resale rule on the SKU pricing sheet). */
+export const genSuggestedPrice = (f: InquiryForm) => (n(f.costEach) > 0 ? Math.round((n(f.costEach) / (1 - BASE_GPM)) * 10000) / 10000 : null)
+export interface GenRow { qty: number; price: number | null; total: number | null; costTotal: number | null; marginPct: number | null }
+export function genRows(f: InquiryForm): GenRow[] {
+  return (f.genTiers || []).filter(t => n(t.qty) > 0).map(t => {
+    const price = n(t.price) > 0 ? n(t.price) : genSuggestedPrice(f)
+    const total = price != null ? price * n(t.qty) : null
+    const costTotal = n(f.costEach) > 0 ? n(f.costEach) * n(t.qty) : null
+    return { qty: n(t.qty), price, total, costTotal, marginPct: total && costTotal != null ? (total - costTotal) / total : null }
+  })
+}
+/** One view of the quote for any product: quantity, order total and margin (used for leads and the log). */
+export function quoteSummary(f: InquiryForm): { units: number; total: number; marginPct: number | null }[] {
+  return isBags(f) ? tierRows(f).map(r => ({ units: r.units, total: r.total, marginPct: r.marginPct }))
+    : genRows(f).map(r => ({ units: r.qty, total: r.total || 0, marginPct: r.marginPct }))
+}
+export function toolingLine(f: InquiryForm): string | null {
+  const t = f.tooling
+  if (isBags(f) || !t?.needed) return null
+  const parts = [`${t.kind || 'Tooling'}: ${n(t.cost) > 0 ? `${money(n(t.cost), 0)} one time` : 'quoted separately'}`]
+  if (t.moq) parts.push(`minimum run ${t.moq}`)
+  if (t.leadTime) parts.push(`tooling lead time ${t.leadTime}`)
+  return parts.join(', ')
+}
 
 export function specLines(f: InquiryForm): [string, string][] {
   const rows: [string, string][] = []
+  if (!isBags(f)) {
+    rows.push(['Product', f.productType])
+    if (f.productDesc.trim()) rows.push(['What you asked for', f.productDesc.trim()])
+    for (const line of (f.specs || '').split('\n').map(x => x.trim()).filter(Boolean)) {
+      const i = line.indexOf(':')
+      rows.push(i > 0 ? [line.slice(0, i).trim(), line.slice(i + 1).trim()] : ['Detail', line])
+    }
+    if (f.printNote.trim()) rows.push(['Printing or branding', f.printNote.trim()])
+    const tl = toolingLine(f); if (tl) rows.push(['Tooling', tl])
+    if (f.material.trim()) rows.push(['Material', f.material.trim()])
+    return rows
+  }
   rows.push(['Product', f.format])
   if (n(f.widthIn) && n(f.lengthIn)) rows.push(['Bag size', `${n(f.widthIn)} x ${n(f.lengthIn)} in (${Math.round(n(f.widthIn) * 2.54)} x ${Math.round(n(f.lengthIn) * 2.54)} cm)`])
   if (n(f.micron)) rows.push(['Thickness', `${n(f.micron)} micron`])
@@ -170,7 +268,20 @@ export function specLines(f: InquiryForm): [string, string][] {
 }
 
 /** The pricing table that goes into the email, built here so the AI never touches a number. */
+function genTableHtml(f: InquiryForm): string {
+  const rows = genRows(f).filter(r => r.price != null)
+  if (!rows.length) return ''
+  const th = 'padding:6px 10px;border:1px solid #cfd6dd;background:#eef5ee;text-align:left;font-family:Arial,sans-serif;font-size:10pt'
+  const td = 'padding:6px 10px;border:1px solid #cfd6dd;font-family:Arial,sans-serif;font-size:10pt'
+  const un = unitName(f)
+  const body = rows.map(r => `<tr><td style="${td}">${int(r.qty)} ${plural(un, r.qty)}</td><td style="${td}">${money4(r.price!)}</td><td style="${td}">${money(r.total!)}</td></tr>`).join('')
+  const t = f.tooling
+  const tool = t?.needed && n(t.cost) > 0 ? `<tr><td style="${td}">${t.kind || 'Tooling'} (one time)</td><td style="${td}"></td><td style="${td}">${money(n(t.cost), 0)}</td></tr>` : ''
+  return `<table style="border-collapse:collapse;margin:6px 0 10px 0"><tr><th style="${th}">Quantity</th><th style="${th}">Price per ${un}</th><th style="${th}">Total</th></tr>${body}${tool}</table>`
+}
+
 export function pricingTableHtml(f: InquiryForm): string {
+  if (!isBags(f)) return genTableHtml(f)
   const rows = tierRows(f)
   if (!rows.length) return ''
   const th = 'padding:6px 10px;border:1px solid #cfd6dd;background:#eef5ee;text-align:left;font-family:Arial,sans-serif;font-size:10pt'
@@ -198,6 +309,7 @@ export function pricingTableHtml(f: InquiryForm): string {
 
 export function pricingTableText(f: InquiryForm): string {
   const un = unitName(f)
+  if (!isBags(f)) return [...genRows(f).filter(r => r.price != null).map(r => `${int(r.qty)} ${plural(un, r.qty)}: ${money4(r.price!)} per ${un}, total ${money(r.total!)}`), f.tooling?.needed && n(f.tooling.cost) > 0 ? `${f.tooling.kind}: ${money(n(f.tooling.cost), 0)}` : ''].filter(Boolean).join('\n')
   return tierRows(f).map(r => `${int(r.units)} x ${un}: ${money(r.pricePerUnit)} per ${un}${r.pricePerRoll != null ? ` (${money4(r.pricePerRoll)} per roll)` : ''}, total ${money(r.total)}`).join('\n')
 }
 
@@ -208,6 +320,21 @@ export function buildSteps(f: InquiryForm): Step[] {
   const un = unitName(f)
   const city = f.sampleAddress ? (f.sampleAddress.split(/\n|,/).map(s => s.trim()).filter(Boolean).slice(-2).join(', ')) : ''
   const steps: Step[] = []
+  if (!isBags(f)) {
+    const t = f.tooling
+    if (f.samplesRequested) steps.push({ title: t?.needed ? 'Stock samples' : 'Samples', who: 'beyondGREEN', status: 'next', detail: `We ship complimentary samples${t?.needed ? ' of our closest stock item' : ''}${city ? ` to ${city}` : ''} so you can check size, feel and color.` })
+    if (t?.needed) {
+      steps.push({ title: 'Design and drawing', who: 'Both', status: 'next', detail: `You share the shape and sizes you want. We send a technical drawing of the ${un} for your approval.` })
+      steps.push({ title: t.kind || 'Tooling', who: 'beyondGREEN', status: 'later', detail: `We make the ${(t.kind || 'tooling').toLowerCase()}${n(t.cost) > 0 ? ` (${money(n(t.cost), 0)} one time)` : ''}${t.leadTime ? `, about ${t.leadTime}` : ''}. It is built for your design only.` })
+      steps.push({ title: 'First samples from the new tooling', who: 'Both', status: 'later', detail: 'We run a short trial and send you samples. Production starts only after you approve them in writing.' })
+    }
+    if (f.printNote.trim() || f.logoReceived) steps.push({ title: 'Logo and artwork', who: 'You', status: f.artworkReceived ? 'done' : 'next', detail: f.artworkReceived ? 'Received, thank you.' : 'Please send your logo as a vector file (AI, EPS or PDF), and we send a digital proof for approval.' })
+    steps.push({ title: 'Purchase order and payment', who: 'You', status: 'later', detail: `Send your PO for the quantity you choose${t?.needed && t.moq ? ` (minimum run ${t.moq})` : ''}. Terms: ${f.paymentTerms || 'to be confirmed'}.` })
+    steps.push({ title: 'Production', who: 'beyondGREEN', status: 'later', detail: `${f.madeInSantaAna ? 'Made at our Santa Ana, California facility. ' : ''}Lead time: ${f.leadTime || 'to be confirmed'}.` })
+    steps.push({ title: 'Shipping', who: 'beyondGREEN', status: 'later', detail: `${f.basis}. ${f.freightNote}${f.channel === 'Amazon' ? ' We can pack and label cartons to Amazon FBA requirements.' : ''}`.trim() })
+    if (f.certs.length) steps.push({ title: 'Certificates and documents', who: 'beyondGREEN', status: 'later', detail: `We send copies of the documents listed below${f.certs.includes('food') ? ', including food contact compliance' : ''}.` })
+    return steps
+  }
   if (f.samplesRequested) steps.push({ title: 'Samples', who: 'beyondGREEN', status: 'next', detail: `We ship complimentary samples${city ? ` to ${city}` : ''} and send you the tracking number.` })
   const needsArt = f.packaging !== 'Bulk case (no retail packaging)' && f.packaging !== 'Not decided yet'
   if (needsArt) {
@@ -235,8 +362,36 @@ export function buildSteps(f: InquiryForm): Step[] {
 
 /** Facts handed to the writer. Only these may appear in the email. */
 export function factsForWriter(f: InquiryForm) {
+  if (!isBags(f)) {
+    const rows = genRows(f)
+    const t = f.tooling
+    return {
+      product_type: f.productType,
+      contact_first_name: f.contactFirst, contact_full_name: f.contactFull, company: f.company, brand: f.brand, location: f.location,
+      sales_channel: f.channel, how_they_found_us: f.source, launch_timing: f.launch,
+      their_questions_in_order: f.questions.split('\n').map(s => s.trim()).filter(Boolean),
+      their_original_message: f.inquiryText.slice(0, 6000),
+      what_they_want: f.productDesc, spec: Object.fromEntries(specLines(f)), unit: unitName(f),
+      quantities: rows.map(r => ({ quantity: r.qty, priced: r.price != null })),
+      pricing_table_placeholder: rows.some(r => r.price != null) ? '{{PRICING_TABLE}}' : null,
+      pricing_status: rows.some(r => r.price != null) ? 'priced in the table' : 'no prices yet: say we will send pricing, and when (follow the lead time and notes)',
+      tooling: t?.needed ? { type: t.kind, one_time_cost: n(t.cost) > 0 ? money(n(t.cost), 0) : 'to be quoted separately', minimum_run: t.moq || 'to be confirmed', tooling_lead_time: t.leadTime || 'to be confirmed', note: t.note || null } : null,
+      requested_quantity_below_minimum_run: !!(t?.needed && t.moq && rows.length && rows.every(r => r.qty < Number(String(t.moq).replace(/[^0-9.]/g, '')) )),
+      alternative_we_can_offer: f.alternative || null,
+      printing_or_branding: f.printNote || null,
+      price_basis: f.basis, freight: f.freightNote, payment_terms: f.paymentTerms, lead_time: f.leadTime,
+      made_in: f.madeInSantaAna ? 'Santa Ana, California (our facility)' : null, material: f.material || null,
+      samples: f.samplesRequested ? { complimentary: true, of: t?.needed ? 'our closest stock item' : 'the item', ship_to: f.sampleAddress || null } : null,
+      certifications_and_documents: CERTS.filter(c => f.certs.includes(c.key)).map(c => `${c.label} (${c.detail})`),
+      quote_number: f.quoteNumber || null,
+      attachment: 'A one-page PDF with their project summary, pricing and next steps is attached to this email.',
+      notes_from_sender: f.notes,
+      sender_first_name: (f.preparedBy || '').split(' ')[0] || '',
+    }
+  }
   const rows = tierRows(f)
   return {
+    product_type: 'Pet waste bags (private label)',
     contact_first_name: f.contactFirst, contact_full_name: f.contactFull, company: f.company, brand: f.brand, location: f.location,
     sales_channel: f.channel, how_they_found_us: f.source, launch_timing: f.launch,
     their_questions_in_order: f.questions.split('\n').map(s => s.trim()).filter(Boolean),
