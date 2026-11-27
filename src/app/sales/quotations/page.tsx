@@ -14,6 +14,7 @@ import { insertQuotationWithNumber } from '@/lib/quoteCreate'
 import BulkActionBar from '@/components/BulkActionBar'
 import SupplierQuotedItems, { SupplierItemPicker } from '@/components/SupplierQuotedItems'
 import BidTracker from '@/components/BidTracker'
+import InquiryReplyBuilder from '@/components/InquiryReplyBuilder'
 
 interface Quote {
   id: string
@@ -214,8 +215,8 @@ export default function QuotationsPage() {
   // Record Board: collapsed state per status group
   const [rbCollapsedState, rbSetCollapsed] = useState<Record<string, boolean>>({ Rejected: true, Expired: true })
   // Tab: 'quote' or 'rfq'
-  const [activeTab, setActiveTab] = useState<'quote' | 'rfq' | 'items' | 'bids'>('quote')
-  useEffect(() => { const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'bids' || t === 'items' || t === 'rfq') setActiveTab(t) }, [])
+  const [activeTab, setActiveTab] = useState<'quote' | 'rfq' | 'items' | 'bids' | 'inquiry'>('quote')
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'bids' || t === 'items' || t === 'rfq' || t === 'inquiry') setActiveTab(t) }, [])
   // Customer typeahead
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerList, setShowCustomerList] = useState(false)
@@ -928,10 +929,10 @@ export default function QuotationsPage() {
         <div>
           <span className="mon-tag t-pink">💬 Sales</span>
           <h1 className="text-2xl font-bold text-[#1A1D2E] mt-1.5">Quotes &amp; RFQs</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{activeTab === 'items' ? 'Supplier prices received, grouped by product type' : activeTab === 'bids' ? 'Multi-item bids: costing, supplier RFQs and profit split' : loading ? 'Loading…' : `${tabQuotes.length} ${activeTab === 'rfq' ? 'RFQ' : 'quote'}${tabQuotes.length !== 1 ? 's' : ''} · ${fmt$(tabPipeline)} pipeline`}</p>
+          <p className="text-gray-500 text-sm mt-0.5">{activeTab === 'inquiry' ? 'Customer-specific replies and next-steps PDFs for private label inquiries' : activeTab === 'items' ? 'Supplier prices received, grouped by product type' : activeTab === 'bids' ? 'Multi-item bids: costing, supplier RFQs and profit split' : loading ? 'Loading…' : `${tabQuotes.length} ${activeTab === 'rfq' ? 'RFQ' : 'quote'}${tabQuotes.length !== 1 ? 's' : ''} · ${fmt$(tabPipeline)} pipeline`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {activeTab !== 'items' && activeTab !== 'bids' && <input
+          {activeTab !== 'items' && activeTab !== 'bids' && activeTab !== 'inquiry' && <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder={`Search ${activeTab === 'rfq' ? 'RFQ' : 'quote'} # or customer…`}
@@ -990,9 +991,18 @@ export default function QuotationsPage() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
           Bid Tracker
         </button>
+        <button
+          onClick={() => setActiveTab('inquiry')}
+          className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-md transition-colors ${activeTab === 'inquiry' ? 'bg-[#B45309] text-white' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+          Inquiry Replies
+        </button>
       </div>
 
-      {activeTab === 'items' ? (
+      {activeTab === 'inquiry' ? (
+        <InquiryReplyBuilder />
+      ) : activeTab === 'items' ? (
         <SupplierQuotedItems />
       ) : activeTab === 'bids' ? (
         <BidTracker />

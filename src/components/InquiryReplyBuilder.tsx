@@ -1,0 +1,332 @@
+'use client'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Quotes & RFQs > Inquiry Replies.
+// For website / email inquiries about private label and custom pet waste bags: capture what the customer
+// asked, work the costing, then write a customer-specific reply (humanizer rules) and a "next steps" PDF.
+// The reply is edited here and copied into Outlook; nothing is sent from this screen.
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
+import {
+  type InquiryForm, type Tier, CHANNELS, FORMATS, PACKAGINGS, DISPENSERS, CERTS, emptyForm, tierRows, suggestedCost, suggestedPrice,
+  bagsPerUnit, unitName, plural, money, money4, int, pricingTableHtml, pricingTableText, factsForWriter, buildSteps,
+} from '@/lib/inquiryReply'
+import { generateInquiryStepsPDF, stepsPdfName } from '@/lib/generateInquiryStepsPDF'
+
+const inp = 'w-full rounded-md border border-[#E4E6EE] bg-white px-2.5 py-1.5 text-sm text-[#1A1D2E] focus:outline-none focus:border-[#0F766E]'
+const lbl = 'block text-[11px] font-medium text-gray-500 mb-1'
+const card = 'rounded-xl border border-[#E4E6EE] bg-white p-4'
+
+function Field({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
+  return <div className={className}><label className={lbl}>{label}</label>{children}</div>
+}
+const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v))
+
+interface Saved { id: string; company: string | null; brand: string | null; contact_name: string | null; subject: string | null; status: string; created_by: string | null; created_at: string }
+
+export default function InquiryReplyBuilder() {
+  const sb = useMemo(() => createSupabaseBrowserClient(), [])
+  const [me, setMe] = useState<{ email: string; name: string }>({ email: '', name: '' })
+  const [f, setF] = useState<InquiryForm>(emptyForm())
+  const [savedId, setSavedId] = useState<string | null>(null)
+  const [subject, setSubject] = useState('')
+  const [html, setHtml] = useState('')
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [guidance, setGuidance] = useState('')
+  const [busy, setBusy] = useState<'' | 'extract' | 'write' | 'pdf' | 'save'>('')
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  const [list, setList] = useState<Saved[]>([])
+  const [pdfUrl, setPdfUrl] = useState('')
+  const editor = useRef<HTMLDivElement>(null)
+
+  const set = <K extends keyof InquiryForm>(k: K, v: InquiryForm[K]) => setF(p => ({ ...p, [k]: v }))
+  const setTier = (i: number, patch: Partial<Tier>) => setF(p => ({ ...p, tiers: p.tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)) }))
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await sb.auth.getUser()
+      const email = user?.email || ''
+      let name = ''
+      if (email) {
+        const { data } = await sb.from('user_profiles').select('full_name,display_name').ilike('email', email).limit(1)
+        name = (data?.[0] as any)?.full_name || (data?.[0] as any)?.display_name || ''
+      }
+      setMe({ email, name })
+      setF(p => (p.preparedBy ? p : { ...p, preparedBy: name }))
+    })()
+    loadList()
+  }, []) // eslint-disable-line
+
+  async function loadList() {
+    const { data } = await sb.from('inquiry_replies').select('id,company,brand,contact_name,subject,status,created_by,created_at').order('created_at', { ascending: false }).limit(30)
+    setList((data as Saved[]) || [])
+  }
+  useEffect(() => { if (editor.current && editor.current.innerHTML !== html) editor.current.innerHTML = html }, [html])
+
+  const rows = tierRows(f)
+  const un = unitName(f)
+  const steps = buildSteps(f)
+
+  async function extract() {
+    setErr(''); setMsg(''); setBusy('extract')
+    try {
+      const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'extract', text: f.inquiryText }) })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'Could not read the message.')
+      const d = j.data || {}
+      setF(p => {
+        const q: any = { ...p }
+        for (const k of ['contactFirst', 'contactFull', 'company', 'brand', 'email', 'phone', 'location', 'launch', 'color', 'scent', 'sampleAddress']) if (d[k]) q[k] = String(d[k])
+        for (const k of ['widthIn', 'lengthIn', 'micron', 'bagsPerRoll', 'rollsPerUnit']) if (d[k] != null && Number(d[k]) > 0) q[k] = Number(d[k])
+        if (CHANNELS.includes(d.channel)) q.channel = d.channel
+        if (FORMATS.includes(d.format)) q.format = d.format
+        if (PACKAGINGS.includes(d.packaging)) q.packaging = d.packaging
+        if (DISPENSERS.includes(d.dispenser)) q.dispenser = d.dispenser
+        if (['None', 'Printed', 'Embossed (needs a mold)', 'Not decided yet'].includes(d.dispenserLogo)) q.dispenserLogo = d.dispenserLogo
+        if (['None', '1 color print', 'Not decided yet'].includes(d.bagPrint)) q.bagPrint = d.bagPrint
+        for (const k of ['logoReceived', 'artworkReceived', 'dielineReceived', 'samplesRequested']) if (typeof d[k] === 'boolean') q[k] = d[k]
+        if (Array.isArray(d.questions) && d.questions.length) q.questions = d.questions.join('\n')
+        const units = Array.isArray(d.units) ? d.units.map(Number).filter((x: number) => x > 0) : []
+        if (units.length) q.tiers = units.slice(0, 5).map((u: number) => ({ units: u, pricePerBag: null, packagingEach: null, dispenserQty: d.dispenserQty ? Number(d.dispenserQty) : null }))
+        else if (d.dispenserQty) q.tiers = p.tiers.map(t => ({ ...t, dispenserQty: Number(d.dispenserQty) }))
+        return q
+      })
+      setMsg('Form filled from the message. Please check every field before writing the reply.')
+    } catch (e: any) { setErr(e.message) } finally { setBusy('') }
+  }
+
+  async function write() {
+    setErr(''); setMsg(''); setBusy('write')
+    try {
+      if (!f.contactFirst.trim()) throw new Error('Add the contact first name.')
+      const table = pricingTableHtml(f)
+      const allowed = [table, money(Number(f.plateCharge) || 0), money(Number(f.dispenserEach) || 0), money(Number(f.moldCost) || 0, 0), pricingTableText(f)].join(' ')
+      const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'write', facts: factsForWriter(f), tableHtml: table, allowedMoney: allowed, guidance }) })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'The writer did not answer.')
+      setSubject(j.data.subject || ''); setHtml(j.data.html || ''); setWarnings(j.data.warnings || [])
+      setMsg('Reply written. Read it, edit anything right in the box, then copy it into Outlook.')
+    } catch (e: any) { setErr(e.message) } finally { setBusy('') }
+  }
+
+  async function copyEmail() {
+    const el = editor.current; if (!el) return
+    const h = `<div style="font-family:Arial,sans-serif;font-size:11pt">${el.innerHTML}</div>`
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([h], { type: 'text/html' }), 'text/plain': new Blob([el.innerText], { type: 'text/plain' }) })])
+    } catch {
+      const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s?.removeAllRanges(); s?.addRange(r); document.execCommand('copy'); s?.removeAllRanges()
+    }
+    setMsg('Email copied. Paste it into your Outlook reply (your signature stays as is).')
+  }
+
+  async function pdf(download: boolean) {
+    setErr(''); setBusy('pdf')
+    try {
+      const blob = await generateInquiryStepsPDF(f, { download })
+      if (!download) { if (pdfUrl) URL.revokeObjectURL(pdfUrl); setPdfUrl(URL.createObjectURL(blob)) }
+    } catch (e: any) { setErr(e.message || 'Could not build the PDF.') } finally { setBusy('') }
+  }
+
+  async function save() {
+    setErr(''); setBusy('save')
+    try {
+      const row = { company: f.company || null, brand: f.brand || null, contact_name: f.contactFull || f.contactFirst || null, contact_email: f.email || null, form: f as any, subject, email_html: editor.current?.innerHTML || html, created_by: me.email || null, updated_at: new Date().toISOString() }
+      if (savedId) { const { error } = await sb.from('inquiry_replies').update(row).eq('id', savedId); if (error) throw error }
+      else { const { data, error } = await sb.from('inquiry_replies').insert(row).select('id').single(); if (error) throw error; setSavedId((data as any).id) }
+      setMsg('Saved.'); loadList()
+    } catch (e: any) { setErr(e.message || 'Could not save.') } finally { setBusy('') }
+  }
+
+  async function open(id: string) {
+    const { data } = await sb.from('inquiry_replies').select('*').eq('id', id).single()
+    if (!data) return
+    setF({ ...emptyForm(me.name), ...(data as any).form }); setSubject((data as any).subject || ''); setHtml((data as any).email_html || ''); setSavedId(id); setWarnings([]); setMsg('Opened a saved reply.')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  function reset() { setF(emptyForm(me.name)); setSubject(''); setHtml(''); setSavedId(null); setWarnings([]); setMsg(''); setErr('') }
+
+  const sugCost = suggestedCost(f)
+
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
+      {/* LEFT: what they asked + costing */}
+      <div className="space-y-4 min-w-0">
+        <div className={card}>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h3 className="text-sm font-semibold text-[#1A1D2E]">1. Paste the customer&apos;s message</h3>
+            <button onClick={reset} className="text-xs text-gray-500 hover:text-gray-800">Start a new reply</button>
+          </div>
+          <textarea value={f.inquiryText} onChange={e => set('inquiryText', e.target.value)} rows={6} placeholder="Paste the website form or their email here (the whole thread is fine)." className={inp} />
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <button onClick={extract} disabled={!f.inquiryText.trim() || !!busy} className="text-sm font-medium px-3 py-1.5 rounded-md bg-[#0F766E] text-white disabled:opacity-50">{busy === 'extract' ? 'Reading…' : 'Fill the form from this message'}</button>
+            <span className="text-xs text-gray-400">Or fill the fields by hand. Vague inquiry? Fill what you know and the reply will ask for the rest.</span>
+          </div>
+        </div>
+
+        <div className={card}>
+          <h3 className="text-sm font-semibold text-[#1A1D2E] mb-3">2. Who they are</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Field label="Contact first name *"><input className={inp} value={f.contactFirst} onChange={e => set('contactFirst', e.target.value)} /></Field>
+            <Field label="Contact full name"><input className={inp} value={f.contactFull} onChange={e => set('contactFull', e.target.value)} /></Field>
+            <Field label="Company"><input className={inp} value={f.company} onChange={e => set('company', e.target.value)} /></Field>
+            <Field label="Brand"><input className={inp} value={f.brand} onChange={e => set('brand', e.target.value)} /></Field>
+            <Field label="Email"><input className={inp} value={f.email} onChange={e => set('email', e.target.value)} /></Field>
+            <Field label="Location"><input className={inp} value={f.location} onChange={e => set('location', e.target.value)} placeholder="Orlando, FL" /></Field>
+            <Field label="Where they will sell"><select className={inp} value={f.channel} onChange={e => set('channel', e.target.value as any)}>{CHANNELS.map(c => <option key={c}>{c}</option>)}</select></Field>
+            <Field label="How they found us"><input className={inp} value={f.source} onChange={e => set('source', e.target.value)} /></Field>
+            <Field label="Launch timing"><input className={inp} value={f.launch} onChange={e => set('launch', e.target.value)} placeholder="Spring 2027, still finalizing…" /></Field>
+          </div>
+          <Field label="Their questions and requests, one per line, in their order" className="mt-3">
+            <textarea className={inp} rows={4} value={f.questions} onChange={e => set('questions', e.target.value)} placeholder={'Price per box at 1,000 and 3,000\nBPI and OK Compost certificate numbers\nDispenser with logo, 1,000 pcs'} />
+          </Field>
+        </div>
+
+        <div className={card}>
+          <h3 className="text-sm font-semibold text-[#1A1D2E] mb-3">3. The product</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Field label="Format" className="col-span-2 md:col-span-1"><select className={inp} value={f.format} onChange={e => set('format', e.target.value as any)}>{FORMATS.map(c => <option key={c}>{c}</option>)}</select></Field>
+            <Field label="Width (in)"><input className={inp} type="number" value={f.widthIn ?? ''} onChange={e => set('widthIn', numOrNull(e.target.value))} /></Field>
+            <Field label="Length (in)"><input className={inp} type="number" value={f.lengthIn ?? ''} onChange={e => set('lengthIn', numOrNull(e.target.value))} /></Field>
+            <Field label="Thickness (micron)"><input className={inp} type="number" value={f.micron ?? ''} onChange={e => set('micron', numOrNull(e.target.value))} /></Field>
+            <Field label="Bags per roll"><input className={inp} type="number" value={f.bagsPerRoll ?? ''} onChange={e => set('bagsPerRoll', numOrNull(e.target.value))} /></Field>
+            <Field label={`Rolls per ${un}`}><input className={inp} type="number" value={f.rollsPerUnit ?? ''} onChange={e => set('rollsPerUnit', numOrNull(e.target.value))} /></Field>
+            <Field label="Color"><input className={inp} value={f.color} onChange={e => set('color', e.target.value)} /></Field>
+            <Field label="Scent"><input className={inp} value={f.scent} onChange={e => set('scent', e.target.value)} /></Field>
+            <Field label="Print on bags"><select className={inp} value={f.bagPrint} onChange={e => set('bagPrint', e.target.value as any)}>{['None', '1 color print', 'Not decided yet'].map(c => <option key={c}>{c}</option>)}</select></Field>
+            <Field label="Packaging" className="col-span-2 md:col-span-1"><select className={inp} value={f.packaging} onChange={e => set('packaging', e.target.value as any)}>{PACKAGINGS.map(c => <option key={c}>{c}</option>)}</select></Field>
+            <Field label="Dispenser"><select className={inp} value={f.dispenser} onChange={e => set('dispenser', e.target.value as any)}>{DISPENSERS.map(c => <option key={c}>{c}</option>)}</select></Field>
+            {f.dispenser !== 'None' && <Field label="Logo on dispenser"><select className={inp} value={f.dispenserLogo} onChange={e => set('dispenserLogo', e.target.value as any)}>{['None', 'Printed', 'Embossed (needs a mold)', 'Not decided yet'].map(c => <option key={c}>{c}</option>)}</select></Field>}
+          </div>
+          <div className="mt-3 text-xs text-gray-500">{int(bagsPerUnit(f))} bags per {un}.</div>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+            {([['logoReceived', 'We have their logo'], ['artworkReceived', 'We have final artwork'], ['dielineReceived', 'They have a dieline'], ['samplesRequested', 'Send samples']] as const).map(([k, t]) => (
+              <label key={k} className="flex items-center gap-1.5 text-gray-700"><input type="checkbox" checked={!!(f as any)[k]} onChange={e => set(k as any, e.target.checked as any)} />{t}</label>
+            ))}
+          </div>
+          {f.samplesRequested && <Field label="Sample ship-to address" className="mt-3"><textarea className={inp} rows={2} value={f.sampleAddress} onChange={e => set('sampleAddress', e.target.value)} /></Field>}
+        </div>
+
+        <div className={card}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-[#1A1D2E]">4. Costing</h3>
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Cost and margin are internal only</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Field label="Our cost per bag"><input className={inp} type="number" step="0.0001" value={f.costPerBag ?? ''} placeholder={String(sugCost)} onChange={e => set('costPerBag', numOrNull(e.target.value))} /></Field>
+            <Field label="Price basis"><select className={inp} value={f.basis} onChange={e => set('basis', e.target.value as any)}><option>FOB Santa Ana, CA</option><option>Delivered (DDP)</option></select></Field>
+            {f.dispenser !== 'None' && <Field label="Dispenser price each"><input className={inp} type="number" step="0.01" value={f.dispenserEach ?? ''} onChange={e => set('dispenserEach', numOrNull(e.target.value))} /></Field>}
+            {f.bagPrint === '1 color print' && <Field label="Plate charge (one time)"><input className={inp} type="number" value={f.plateCharge ?? ''} onChange={e => set('plateCharge', numOrNull(e.target.value))} /></Field>}
+            {(f.dispenser === 'Custom molded dispenser (new mold)' || f.dispenserLogo === 'Embossed (needs a mold)') && <Field label="Mold cost (one time)"><input className={inp} type="number" value={f.moldCost ?? ''} onChange={e => set('moldCost', numOrNull(e.target.value))} /></Field>}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">Blank cost uses {money4(sugCost)} per bag: the 9 x 12 in, 18 micron folded roll cost scaled by size and thickness. Blank prices use cost at 20% margin plus the private label volume markup (Pricing Calculator rules). Overwrite anything.</p>
+
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead><tr className="text-[11px] text-gray-500 text-left">
+                <th className="py-1 pr-2">{plural(un, 2).replace(/^./, c => c.toUpperCase())}</th><th className="py-1 pr-2">Price per bag</th><th className="py-1 pr-2">Packaging per {un}</th>
+                {f.dispenser !== 'None' && <th className="py-1 pr-2">Dispensers</th>}<th className="py-1 pr-2 text-right">Per {un}</th><th className="py-1 pr-2 text-right">Total</th><th className="py-1 text-right">Margin</th><th />
+              </tr></thead>
+              <tbody>
+                {f.tiers.map((t, i) => {
+                  const r = rows.find(x => x.units === Number(t.units))
+                  return (
+                    <tr key={i} className="border-t border-[#F0F2F7]">
+                      <td className="py-1.5 pr-2 w-24"><input className={inp} type="number" value={t.units || ''} onChange={e => setTier(i, { units: Number(e.target.value) })} /></td>
+                      <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.0001" value={t.pricePerBag ?? ''} placeholder={t.units ? String(suggestedPrice(f, Number(t.units))) : ''} onChange={e => setTier(i, { pricePerBag: numOrNull(e.target.value) })} /></td>
+                      <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.01" value={t.packagingEach ?? ''} placeholder="TBC" onChange={e => setTier(i, { packagingEach: numOrNull(e.target.value) })} /></td>
+                      {f.dispenser !== 'None' && <td className="py-1.5 pr-2 w-24"><input className={inp} type="number" value={t.dispenserQty ?? ''} onChange={e => setTier(i, { dispenserQty: numOrNull(e.target.value) })} /></td>}
+                      <td className="py-1.5 pr-2 text-right whitespace-nowrap">{r ? money(r.pricePerUnit) : ''}{r?.pricePerRoll != null && <div className="text-[10px] text-gray-400">{money4(r.pricePerRoll)}/roll</div>}</td>
+                      <td className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">{r ? money(r.total) : ''}</td>
+                      <td className={`py-1.5 text-right text-xs whitespace-nowrap ${r && r.marginPct != null && r.marginPct < 0.15 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{r && r.marginPct != null ? `${Math.round(r.marginPct * 100)}%` : ''}</td>
+                      <td className="py-1.5 pl-2 text-right">{f.tiers.length > 1 && <button onClick={() => setF(p => ({ ...p, tiers: p.tiers.filter((_, j) => j !== i) }))} className="text-gray-300 hover:text-red-500 text-xs">✕</button>}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            {f.tiers.length < 5 && <button onClick={() => setF(p => ({ ...p, tiers: [...p.tiers, { units: 0, pricePerBag: null, packagingEach: null, dispenserQty: null }] }))} className="mt-2 text-xs font-medium text-[#0F766E]">+ Add a quantity</button>}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+            <Field label="Payment terms"><input className={inp} value={f.paymentTerms} onChange={e => set('paymentTerms', e.target.value)} /></Field>
+            <Field label="Lead time"><input className={inp} value={f.leadTime} onChange={e => set('leadTime', e.target.value)} /></Field>
+            <Field label="Quote # (if attached)"><input className={inp} value={f.quoteNumber} onChange={e => set('quoteNumber', e.target.value)} placeholder="Q-2026-…" /></Field>
+            <Field label="Freight note" className="md:col-span-3"><input className={inp} value={f.freightNote} onChange={e => set('freightNote', e.target.value)} /></Field>
+          </div>
+          <div className="mt-3">
+            <div className={lbl}>Certifications to include</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+              {CERTS.map(c => <label key={c.key} className="flex items-center gap-1.5 text-gray-700"><input type="checkbox" checked={f.certs.includes(c.key)} onChange={e => set('certs', e.target.checked ? [...f.certs, c.key] : f.certs.filter(x => x !== c.key))} />{c.label}</label>)}
+            </div>
+          </div>
+        </div>
+
+        <div className={card}>
+          <h3 className="text-sm font-semibold text-[#1A1D2E] mb-2">5. Anything you want said your way</h3>
+          <textarea className={inp} rows={3} value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="e.g. We already make a similar 20-roll box for another Amazon brand, happy to send a photo. Mention we can do lavender later." />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <Field label="Prepared by (shown on the PDF)"><input className={inp} value={f.preparedBy} onChange={e => set('preparedBy', e.target.value)} /></Field>
+            <Field label="Tone or focus for this one (optional)"><input className={inp} value={guidance} onChange={e => setGuidance(e.target.value)} placeholder="Short and friendly, they are price shopping…" /></Field>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={write} disabled={!!busy} className="text-sm font-semibold px-4 py-2 rounded-md bg-[#0F766E] text-white disabled:opacity-50">{busy === 'write' ? 'Writing the reply…' : html ? 'Rewrite the reply' : 'Write the reply'}</button>
+            <button onClick={() => pdf(false)} disabled={!!busy} className="text-sm font-medium px-3 py-2 rounded-md border border-[#E4E6EE] text-gray-700 disabled:opacity-50">Preview next steps PDF</button>
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT: output */}
+      <div className="space-y-4 min-w-0">
+        {(err || msg) && <div className={`rounded-lg px-3 py-2 text-sm ${err ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'}`}>{err || msg}</div>}
+        <div className={card}>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <h3 className="text-sm font-semibold text-[#1A1D2E]">Email reply</h3>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => { navigator.clipboard.writeText(subject); setMsg('Subject copied.') }} disabled={!subject} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-[#E4E6EE] text-gray-700 disabled:opacity-40">Copy subject</button>
+              <button onClick={copyEmail} disabled={!html} className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-[#0F766E] text-white disabled:opacity-40">Copy email</button>
+              <button onClick={save} disabled={!!busy} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-[#E4E6EE] text-gray-700 disabled:opacity-40">{busy === 'save' ? 'Saving…' : savedId ? 'Save changes' : 'Save'}</button>
+            </div>
+          </div>
+          <Field label="Subject"><input className={inp} value={subject} onChange={e => setSubject(e.target.value)} placeholder="Written with the reply" /></Field>
+          <div className="mt-3">
+            <div className={lbl}>Body (click to edit)</div>
+            <div ref={editor} contentEditable suppressContentEditableWarning onBlur={e => setHtml((e.target as HTMLDivElement).innerHTML)}
+              className="min-h-[260px] rounded-md border border-[#E4E6EE] p-3 text-[14px] leading-relaxed text-[#1A1D2E] focus:outline-none focus:border-[#0F766E] [&_p]:mb-2.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-2.5 [&_li]:mb-1"
+              style={{ fontFamily: 'Arial, sans-serif' }} />
+            {!html && <p className="text-xs text-gray-400 mt-2">Fill the form and press Write the reply. Every price comes from the costing table, never from the writer.</p>}
+          </div>
+          {warnings.length > 0 && <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800"><b>Check before sending:</b><ul className="list-disc pl-4 mt-1">{warnings.map(w => <li key={w}>{w}</li>)}</ul></div>}
+        </div>
+
+        <div className={card}>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <h3 className="text-sm font-semibold text-[#1A1D2E]">Attachment: next steps PDF</h3>
+            <div className="flex gap-2">
+              <button onClick={() => pdf(false)} disabled={!!busy} className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-[#E4E6EE] text-gray-700 disabled:opacity-40">{busy === 'pdf' ? 'Building…' : 'Refresh preview'}</button>
+              <button onClick={() => pdf(true)} disabled={!!busy} className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-[#0F766E] text-white disabled:opacity-40">Download PDF</button>
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-400 mb-2">Saves as “{stepsPdfName(f)}”. Attach it to your Outlook reply.</p>
+          {pdfUrl ? <iframe src={pdfUrl} className="w-full h-[520px] rounded-md border border-[#E4E6EE]" title="Next steps PDF" /> : (
+            <ol className="text-sm text-gray-700 space-y-1.5">
+              {steps.map((s, i) => <li key={i} className="flex gap-2"><span className="text-[#0F766E] font-semibold w-4">{i + 1}</span><span><b>{s.title}</b> <span className="text-gray-400">({s.who}, {s.status === 'done' ? 'done' : s.status === 'next' ? 'next' : 'coming up'})</span><br /><span className="text-gray-500 text-xs">{s.detail}</span></span></li>)}
+            </ol>
+          )}
+        </div>
+
+        <div className={card}>
+          <h3 className="text-sm font-semibold text-[#1A1D2E] mb-2">Saved replies</h3>
+          {list.length === 0 ? <p className="text-xs text-gray-400">Nothing saved yet.</p> : (
+            <div className="divide-y divide-[#F0F2F7]">
+              {list.map(s => (
+                <button key={s.id} onClick={() => open(s.id)} className={`w-full text-left py-2 flex items-center justify-between gap-2 hover:bg-gray-50 px-1 rounded ${s.id === savedId ? 'bg-emerald-50' : ''}`}>
+                  <span className="min-w-0"><span className="text-sm font-medium text-[#1A1D2E] truncate block">{s.brand || s.company || 'Untitled'}{s.contact_name ? ` · ${s.contact_name}` : ''}</span><span className="text-xs text-gray-400 truncate block">{s.subject || 'No reply written yet'}</span></span>
+                  <span className="text-[11px] text-gray-400 whitespace-nowrap">{new Date(s.created_at).toLocaleDateString('en-US')}<br />{(s.created_by || '').split('@')[0]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
