@@ -4,7 +4,7 @@
 import jsPDF from 'jspdf'
 import '@/lib/pdfSafeText'
 import autoTable from 'jspdf-autotable'
-import { type InquiryForm, CERTS, BPI_NOTE, buildSteps, specLines, tierRows, genRows, isBags, pricesForAlt, unitName, plural, money, money4, int } from './inquiryReply'
+import { type InquiryForm, CERTS, BPI_NOTE, buildSteps, specLines, tierRows, packagingMoqNote, genRows, isBags, pricesForAlt, unitName, plural, money, money4, int } from './inquiryReply'
 
 const GREEN: [number, number, number] = [27, 138, 58]
 const INK: [number, number, number] = [31, 41, 55]
@@ -124,6 +124,7 @@ export async function generateInquiryStepsPDF(f: InquiryForm, opts: { download?:
     doc.setFontSize(8.5); doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal')
     const notes = [`Prices are ${f.basis}. ${f.freightNote}`]
     if (rows.some(r => r.packagingEach == null) && f.packaging !== 'Bulk case (no retail packaging)') notes.push('Packaging cost is confirmed once we have your final artwork.')
+    { const mn = packagingMoqNote(f); if (mn) notes.push(mn) }
     if (f.bagPrint === '1 color print' && Number(f.plateCharge) > 0) notes.push(`Bag printing has a one-time plate charge of ${money(Number(f.plateCharge))} per design.`)
     if (Number(f.moldCost) > 0) notes.push(`Dispenser mold: ${money(Number(f.moldCost), 0)} one time, and the mold is your property.`)
     const wrapped = doc.splitTextToSize(notes.join(' '), R - L)

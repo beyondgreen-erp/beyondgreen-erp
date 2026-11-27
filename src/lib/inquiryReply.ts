@@ -180,7 +180,7 @@ export function suggestedPrice(f: InquiryForm, units: number): number {
 
 export interface TierRow {
   units: number; bags: number; pricePerBag: number; pricePerRoll: number | null; packagingEach: number | null
-  pricePerUnit: number; bagsTotal: number; packagingTotal: number; dispenserQty: number; dispenserTotal: number; total: number
+  pricePerUnit: number; bagsTotal: number; packagingBoxes: number; packagingTotal: number; dispenserQty: number; dispenserTotal: number; total: number
   // internal only, never shown to the customer
   costTotal: number; marginPct: number | null
 }
@@ -188,21 +188,23 @@ export interface TierRow {
 export function tierRows(f: InquiryForm): TierRow[] {
   const bpu = bagsPerUnit(f)
   const rollBags = n(f.bagsPerRoll)
-  return (f.tiers || []).filter(t => n(t.units) > 0 && !belowPackagingMoq(f, n(t.units))).map(t => {
+  return (f.tiers || []).filter(t => n(t.units) > 0).map(t => {
     const units = n(t.units)
     const pricePerBag = n(t.pricePerBag) > 0 ? n(t.pricePerBag) : suggestedPrice(f, units)
     const packagingEach = n(t.packagingEach) > 0 ? n(t.packagingEach) : null
     const pricePerUnit = pricePerBag * bpu + (packagingEach || 0)
     const bags = units * bpu
     const bagsTotal = pricePerBag * bags
-    const packagingTotal = (packagingEach || 0) * units
+    // printed packaging is bought in runs of at least 1,000 per design, even when fewer boxes are filled
+    const packagingBoxes = belowPackagingMoq(f, units) ? PACKAGING_MOQ : units
+    const packagingTotal = (packagingEach || 0) * packagingBoxes
     const dispenserQty = f.dispenser !== 'None' ? (n(t.dispenserQty) > 0 ? n(t.dispenserQty) : 0) : 0
     const dispenserTotal = dispenserQty * n(f.dispenserEach)
     const total = bagsTotal + packagingTotal + dispenserTotal
     const costTotal = costPerBag(f) * bags
     return {
       units, bags, pricePerBag, pricePerRoll: rollBags > 0 ? pricePerBag * rollBags : null, packagingEach, pricePerUnit,
-      bagsTotal, packagingTotal, dispenserQty, dispenserTotal, total,
+      bagsTotal, packagingBoxes, packagingTotal, dispenserQty, dispenserTotal, total,
       costTotal, marginPct: bagsTotal > 0 ? (bagsTotal - costTotal) / bagsTotal : null,
     }
   })
@@ -288,6 +290,15 @@ function genTableHtml(f: InquiryForm): string {
   return `<table style="border-collapse:collapse;margin:6px 0 10px 0"><tr><th style="${th}">Quantity</th><th style="${th}">Price per ${un}</th><th style="${th}">Total</th></tr>${cap}${body}${tool}</table>`
 }
 
+/** Shown under the price table when a quoted quantity is under the 1,000 box packaging minimum. */
+export function packagingMoqNote(f: InquiryForm): string | null {
+  const rows = tierRows(f)
+  if (!rows.some(r => belowPackagingMoq(f, r.units))) return null
+  const un = unitName(f)
+  const priced = rows.some(r => r.packagingEach != null)
+  return `Printed ${plural(un, 2)} have a minimum run of ${int(PACKAGING_MOQ)} per design. Orders under ${int(PACKAGING_MOQ)} ${plural(un, 2)} still include the purchase of ${int(PACKAGING_MOQ)} printed ${plural(un, 2)}${priced ? ', and the order totals above include them' : ''}. The extra ${plural(un, 2)} are yours for your next orders.`
+}
+
 export function pricingTableHtml(f: InquiryForm): string {
   if (!isBags(f)) return genTableHtml(f)
   const rows = tierRows(f)
@@ -312,13 +323,14 @@ export function pricingTableHtml(f: InquiryForm): string {
     ].filter(c => c !== null)
     return `<tr>${cells.map(c => `<td style="${td}">${c}</td>`).join('')}</tr>`
   }).join('')
-  return `<table style="border-collapse:collapse;margin:6px 0 10px 0">${'<tr>' + head + '</tr>'}${body}</table>`
+  const note = packagingMoqNote(f)
+  return `<table style="border-collapse:collapse;margin:6px 0 10px 0">${'<tr>' + head + '</tr>'}${body}</table>${note ? `<p style="font-family:Arial,sans-serif;font-size:9.5pt;color:#444;margin:0 0 10px 0">${note}</p>` : ''}`
 }
 
 export function pricingTableText(f: InquiryForm): string {
   const un = unitName(f)
   if (!isBags(f)) return [...genRows(f).filter(r => r.price != null).map(r => `${int(r.qty)} ${plural(un, r.qty)}: ${money4(r.price!)} per ${un}, total ${money(r.total!)}`), f.tooling?.needed && n(f.tooling.cost) > 0 ? `${f.tooling.kind}: ${money(n(f.tooling.cost), 0)}` : ''].filter(Boolean).join('\n')
-  return tierRows(f).map(r => `${int(r.units)} x ${un}: ${money(r.pricePerUnit)} per ${un}${r.pricePerRoll != null ? ` (${money4(r.pricePerRoll)} per roll)` : ''}, total ${money(r.total)}`).join('\n')
+  return [...tierRows(f).map(r => `${int(r.units)} x ${un}: ${money(r.pricePerUnit)} per ${un}${r.pricePerRoll != null ? ` (${money4(r.pricePerRoll)} per roll)` : ''}, total ${money(r.total)}`), packagingMoqNote(f) || ''].filter(Boolean).join('\n')
 }
 
 export interface Step { title: string; who: 'You' | 'beyondGREEN' | 'Both'; detail: string; status: StepStatus }
@@ -411,7 +423,7 @@ export function factsForWriter(f: InquiryForm) {
     packaging_minimum_order: packagingMoqApplies(f) ? `${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per packaging design` : null,
     quantities_they_asked_below_packaging_minimum: (f.tiers || []).map(t => n(t.units)).filter(u => belowPackagingMoq(f, u)),
     packaging_minimum_instruction: packagingMoqApplies(f) && (f.tiers || []).some(t => belowPackagingMoq(f, n(t.units)))
-      ? `Some quantities they asked about are below our packaging minimum of ${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per design. Say this plainly and kindly, answer their minimum order question with it, and point them to the prices in the table, which start at the minimum.`
+      ? `Some quantities they asked about are below our packaging minimum of ${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per design. We still quote those quantities (they are in the table). Say plainly and kindly that the printed packaging is purchased in a minimum of ${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per design regardless of how many they fill, and that the extra boxes are theirs for later orders. Use this to answer their minimum order question.`
       : null,
     price_basis: f.basis, freight: f.freightNote, payment_terms: f.paymentTerms, lead_time: f.leadTime,
     plate_charge: f.bagPrint === '1 color print' && n(f.plateCharge) ? money(n(f.plateCharge)) + ' one time per design' : null,
