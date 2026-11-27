@@ -48,8 +48,10 @@ export default function InquiryReplyBuilder() {
   const [pastCosts, setPastCosts] = useState<any[]>([])
   const [pastOpen, setPastOpen] = useState(true)
   const [deals, setDeals] = useState<any[]>([])
-  const [dealsInfo, setDealsInfo] = useState<{ outlook: string; erp: number; email: number } | null>(null)
+  const [dealsInfo, setDealsInfo] = useState<{ outlook: string; erp: number; email: number; learned?: number } | null>(null)
   const [fillNotes, setFillNotes] = useState<{ ok: string[]; missing: string[] }>({ ok: [], missing: [] })
+  const [autoRan, setAutoRan] = useState(false)
+  const [genSrc, setGenSrc] = useState<Record<number, string>>({})
   const [tierSrc, setTierSrc] = useState<Record<number, string>>({})
   const [busySimilar, setBusySimilar] = useState(false)
   const [costMsg, setCostMsg] = useState('')
@@ -64,9 +66,50 @@ export default function InquiryReplyBuilder() {
     return null
   }
 
-  /** Find similar past quotes, orders and sent emails, then fill the empty prices and terms from them. */
+  /** Self-learning: our own saved and sent replies (what we actually quoted) are the first source for the next similar inquiry. */
+  async function learnedDeals(form: InquiryForm): Promise<any[]> {
+    const t = form.productType || 'Pet waste bags'
+    const { data } = await sb.from('inquiry_replies').select('id,brand,company,status,sent_at,created_at,form').eq('product_type', t).order('created_at', { ascending: false }).limit(60)
+    const out: any[] = []
+    const words = (x: string) => new Set<string>(String(x || '').toLowerCase().match(/[a-z0-9.]+/g) || [])
+    for (const r of ((data as any[]) || [])) {
+      if (r.id === savedId) continue
+      const p: any = r.form || {}
+      const who = r.brand || r.company || 'a customer'
+      const base = { source: 'reply', ref: `${r.status === 'Sent' ? 'Sent reply' : 'Saved reply'} to ${who}`, recordId: r.id, customer: who, date: r.sent_at || r.created_at, learned: true, payment_terms: p.paymentTerms || null }
+      if (isBags(form)) {
+        let sc = 0
+        if (p.format === form.format) sc += 3
+        if (Math.abs(Number(p.widthIn) - Number(form.widthIn)) <= 0.5) sc += 2
+        if (Math.abs(Number(p.lengthIn) - Number(form.lengthIn)) <= 0.5) sc += 2
+        const dm = Math.abs(Number(p.micron) - Number(form.micron)); if (dm === 0) sc += 2; else if (dm <= 3) sc += 1
+        if (p.packaging === form.packaging) sc += 1
+        const pb = bagsPerUnit(p as InquiryForm)
+        const tiers = (p.tiers || []).filter((x: any) => Number(x.units) > 0 && Number(x.pricePerBag) > 0).map((x: any) => ({ qty: Number(x.units) * pb, price: Number(x.pricePerBag) }))
+        const pk = p.packaging === form.packaging ? (p.tiers || []).find((x: any) => Number(x.packagingEach) > 0) : null
+        if (!tiers.length && !pk && !(Number(p.costPerBag) > 0)) continue
+        out.push({ ...base, relevance: Math.min(10, sc), unit: 'bag', bags_per_unit: 1, product: `${p.format || ''}, ${p.widthIn} x ${p.lengthIn} in, ${p.micron} mic, ${p.packaging || ''}`, tiers,
+          packaging_price_per_box: pk ? Number(pk.packagingEach) : null, lead_time: p.leadTime && p.leadTime !== emptyForm().leadTime ? p.leadTime : null,
+          setup_or_plate_fee: Number(p.plateCharge) > 0 ? Number(p.plateCharge) : null, cost: Number(p.costPerBag) > 0 ? Number(p.costPerBag) : null,
+          dispenser_each: Number(p.dispenserEach) > 0 && p.dispenser === form.dispenser ? Number(p.dispenserEach) : null })
+      } else {
+        const a = words(`${form.productDesc} ${form.specs}`), b = words(`${p.productDesc} ${p.specs}`)
+        const inter = Array.from(a).filter(w => b.has(w)).length, uni = new Set(Array.from(a).concat(Array.from(b))).size || 1
+        const tiers = (p.genTiers || []).filter((x: any) => Number(x.qty) > 0 && Number(x.price) > 0).map((x: any) => ({ qty: Number(x.qty), price: Number(x.price) }))
+        if (!tiers.length && !(Number(p.costEach) > 0)) continue
+        out.push({ ...base, relevance: Math.min(10, 4 + Math.round((6 * inter) / uni)), unit: p.unitLabel || 'piece', bags_per_unit: null, product: p.productDesc || t, tiers,
+          lead_time: p.leadTime || null, cost: Number(p.costEach) > 0 ? Number(p.costEach) : null })
+      }
+    }
+    return out.sort((x, y) => y.relevance - x.relevance).slice(0, 8)
+  }
+
+  /** Find our own past replies, similar past quotes, orders and sent emails, then fill the empty prices and terms from them. */
   async function findSimilar(form: InquiryForm = f, apply = true) {
     setBusySimilar(true)
+    let learned: any[] = []
+    try { learned = await learnedDeals(form) } catch { learned = [] }
+    let list: any[] = learned, outlook = '', apiErr = ''
     try {
       const spec = {
         productType: form.productType, format: form.format, widthIn: form.widthIn, lengthIn: form.lengthIn, micron: form.micron,
@@ -75,38 +118,60 @@ export default function InquiryReplyBuilder() {
       }
       const r = await fetch('/api/inquiry-reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'similar', spec }) })
       const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'Could not look up past deals.')
-      const list: any[] = j.data?.deals || []
+      list = [...learned, ...(j.data?.deals || [])]
+      outlook = j.data?.outlook || ''
+      setDealsInfo({ outlook: outlook || '?', erp: j.data?.searched?.erp || 0, email: j.data?.searched?.email || 0, learned: learned.length })
+    } catch (e: any) { apiErr = e.message; setDealsInfo({ outlook: '?', erp: 0, email: 0, learned: learned.length }) }
+    try {
       setDeals(list)
-      setDealsInfo({ outlook: j.data?.outlook || '?', erp: j.data?.searched?.erp || 0, email: j.data?.searched?.email || 0 })
       let costs: any[] = []
       if (isBags(form)) { const { data } = await sb.rpc('inquiry_past_costs', { p_width: form.widthIn, p_length: form.lengthIn, p_micron: form.micron, p_format: form.format }); costs = ((data as any[]) || []).filter(x => Number(x.match) >= 4) }
-      if (apply) applyDeals(list, form, j.data?.outlook || '', costs)
-    } catch (e: any) { setFillNotes({ ok: [], missing: [`Past deals could not be loaded: ${e.message}`] }) } finally { setBusySimilar(false) }
+      if (apply) applyDeals(list, form, outlook, costs, apiErr)
+    } finally { setBusySimilar(false) }
   }
 
-  function applyDeals(list: any[], form: InquiryForm, outlook: string, costs: any[] = []) {
+  function applyDeals(list: any[], form: InquiryForm, outlook: string, costs: any[] = [], apiErr = '') {
     const ok: string[] = [], missing: string[] = []
-    const label = (d: any) => `${d.source === 'email' ? 'email' : d.source} ${d.source === 'email' ? `to ${(d.to || [])[0] || d.customer || ''}` : `${d.ref}${d.customer ? `, ${d.customer}` : ''}`}${d.date ? ` (${String(d.date).slice(0, 7)})` : ''}`
+    if (apiErr) missing.push(`Past ERP quotes and emails could not be loaded (${apiErr}). Only our saved replies were used.`)
+    const learnedN = list.filter(d => d.learned && Number(d.relevance) >= 6).length
+    if (learnedN) ok.push(`Learned from ${learnedN} of our own past replies for a similar product (used first).`)
+    const label = (d: any) => `${d.source === 'reply' ? `our ${String(d.ref).toLowerCase()}` : `${d.source === 'email' ? 'email' : d.source} ${d.source === 'email' ? `to ${(d.to || [])[0] || d.customer || ''}` : `${d.ref}${d.customer ? `, ${d.customer}` : ''}`}`}${d.date ? ` (${String(d.date).slice(0, 7)})` : ''}`
     const good = list.filter(d => Number(d.relevance) >= 6)
     if (!isBags(form)) {
-      if (good.length) ok.push(`${good.length} similar past deals found below. Automatic price fill is only built for pet waste bags so far, so please enter prices from them.`)
-      else missing.push('No similar past deals found for this product. Price it from cost.')
+      const lp = good.filter(d => d.learned && Number(d.relevance) >= 7)
+      const pts = lp.flatMap(d => (d.tiers || []).map((t: any) => ({ qty: Number(t.qty), price: Number(t.price), src: label(d) })))
+      const gsrc: Record<number, string> = {}
+      const gen = form.genTiers.map((t, i) => {
+        if (n0(t.price) > 0 || !(Number(t.qty) > 0) || !pts.length) return t
+        const best = pts.slice().sort((a, b) => Math.abs(Math.log(a.qty / Number(t.qty))) - Math.abs(Math.log(b.qty / Number(t.qty))))[0]
+        gsrc[i] = `${best.price} from ${best.src} at ${Math.round(best.qty).toLocaleString('en-US')}`
+        return { ...t, price: best.price }
+      })
+      const lc = lp.find(d => Number(d.cost) > 0)
+      const lt = lp.find(d => d.lead_time)
+      setGenSrc(gsrc)
+      setF(p => ({ ...p, genTiers: gen, costEach: p.costEach == null && lc ? Number(lc.cost) : p.costEach, leadTime: lt && p.leadTime === emptyForm().leadTime ? String(lt.lead_time) : p.leadTime }))
+      if (Object.keys(gsrc).length) ok.push('Prices filled from our own past replies for this product. Hover a price to see which one.')
+      else if (good.length) missing.push('No saved reply of ours matches closely enough to fill prices. Similar ERP deals are listed below; please enter prices (they will be learned when you save or send).')
+      else missing.push('Nothing similar found yet. Please enter prices; they will be learned when you save or send.')
+      if (lc) ok.push(`Cost ${Number(lc.cost)} from ${label(lc)}.`)
     } else {
       const bpu = bagsPerUnit(form)
-      const points: { bags: number; perBag: number; src: string }[] = []
+      const points: { bags: number; perBag: number; src: string; learned: boolean }[] = []
       for (const d of good) {
         const per = bagsPer(d, form)
         if (!per) continue
         for (const t of (d.tiers || [])) {
           const q = Number(t.qty), pr = Number(t.price)
-          if (q > 0 && pr > 0) points.push({ bags: q * per, perBag: Math.round((pr / per) * 10000) / 10000, src: label(d) })
+          if (q > 0 && pr > 0) points.push({ bags: q * per, perBag: Math.round((pr / per) * 10000) / 10000, src: label(d), learned: !!d.learned && Number(d.relevance) >= 8 })
         }
       }
       const srcs: Record<number, string> = {}
       const tiers = form.tiers.map((t, i) => {
         if (n0(t.pricePerBag) > 0 || !(Number(t.units) > 0) || !points.length) return t
         const vol = Number(t.units) * bpu
-        const best = points.slice().sort((a, b) => Math.abs(Math.log(a.bags / vol)) - Math.abs(Math.log(b.bags / vol)))[0]
+        const pool = points.some(x => x.learned) ? points.filter(x => x.learned) : points
+        const best = pool.slice().sort((a, b) => Math.abs(Math.log(a.bags / vol)) - Math.abs(Math.log(b.bags / vol)))[0]
         srcs[i] = `${best.perBag.toFixed(4)}/bag from ${best.src} at ${Math.round(best.bags).toLocaleString('en-US')} bags`
         return { ...t, pricePerBag: best.perBag }
       })
@@ -115,7 +180,8 @@ export default function InquiryReplyBuilder() {
       const pk = good.find(d => Number(d.packaging_price_per_box) > 0)
       const pkg = pk ? Number(pk.packaging_price_per_box) : null
       if (pkg && packagingMoqApplies(form)) ok.push(`Packaging ${pkg.toFixed(2)}/box from ${label(pk)}.`)
-      else if (packagingMoqApplies(form)) missing.push('Packaging price per box was not in any past deal. Please enter it (or cost it in the Costing table).')
+      else if (packagingMoqApplies(form)) missing.push('Packaging price per box was not in any past deal. Please enter it (or cost it in the Costing table). It will be learned for next time.')
+      const de = good.find(d => Number(d.dispenser_each) > 0)
       const lt = good.find(d => d.lead_time)
       const fee = good.find(d => Number(d.setup_or_plate_fee) > 0)
       setTierSrc(srcs)
@@ -123,17 +189,22 @@ export default function InquiryReplyBuilder() {
         ...p,
         tiers: tiers.map(t => (pkg && packagingMoqApplies(form) && !(n0(t.packagingEach) > 0) ? { ...t, packagingEach: pkg } : t)),
         leadTime: lt && p.leadTime === emptyForm().leadTime ? String(lt.lead_time) : p.leadTime,
-        plateCharge: fee && p.bagPrint === '1 color print' ? Number(fee.setup_or_plate_fee) : p.plateCharge,
+        plateCharge: fee && p.bagPrint === '1 color print' && p.plateCharge == null ? Number(fee.setup_or_plate_fee) : p.plateCharge,
+        dispenserEach: de && p.dispenser !== 'None' && p.dispenserEach == null ? Number(de.dispenser_each) : p.dispenserEach,
       }))
       if (lt) ok.push(`Lead time "${lt.lead_time}" from ${label(lt)}.`)
       if (!(n0(form.costPerBag) > 0)) {
+        const lc = good.find(d => d.learned && Number(d.relevance) >= 8 && Number(d.cost) > 0)
         const c = costs.find(r => r.kind === 'cost')
-        if (c) { set('costPerBag', Number(c.scaled_per_bag)); ok.push(`Cost ${Number(c.scaled_per_bag).toFixed(4)}/bag from inventory item ${c.sku}, scaled to this bag.`) }
+        if (lc) { set('costPerBag', Number(lc.cost)); ok.push(`Cost ${Number(lc.cost).toFixed(4)}/bag from ${label(lc)}.`) }
+        else if (c) { set('costPerBag', Number(c.scaled_per_bag)); ok.push(`Cost ${Number(c.scaled_per_bag).toFixed(4)}/bag from inventory item ${c.sku}, scaled to this bag.`) }
+        else missing.push('No cost found for this bag. Please enter our cost per bag.')
       }
     }
     if (outlook !== 'searched') missing.push(`Your sent emails were not searched (Outlook ${outlook || 'unavailable'}). Connect Outlook in Settings so past emails count too.`)
     ok.push('Payment terms stay at our standard 40% deposit unless you change them.')
     setFillNotes({ ok, missing })
+    setAutoRan(true)
   }
 
   /** Send this inquiry to the Costing table (Quick Quote) as a draft, then open it there. */
@@ -246,6 +317,8 @@ export default function InquiryReplyBuilder() {
 
   const rows = tierRows(f)
   const un = unitName(f)
+  /** Yellow = the auto-fill could not find it; someone needs to enter it. Clears as soon as it has a value. */
+  const Y = (missing: boolean) => (autoRan && missing ? ' !bg-yellow-100 !border-yellow-400' : '')
   const steps = buildSteps(f)
 
   async function extract() {
@@ -400,7 +473,7 @@ export default function InquiryReplyBuilder() {
     setF({ ...emptyForm(me.name), ...(data as any).form }); setSubject((data as any).subject || ''); setHtml((data as any).email_html || ''); setAiHtml((data as any).ai_html || ''); setSavedId(id); setLead((data as any).customer_id ? { id: (data as any).customer_id, name: (data as any).company || '', isNew: false } : null); setWarnings([]); setMsg('Opened a saved reply.')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
-  function reset() { setF(emptyForm(me.name)); setSubject(''); setHtml(''); setAiHtml(''); setSavedId(null); setLead(null); setWarnings([]); setMsg(''); setErr('') }
+  function reset() { setDeals([]); setDealsInfo(null); setFillNotes({ ok: [], missing: [] }); setTierSrc({}); setGenSrc({}); setAutoRan(false); setCostMsg(''); setF(emptyForm(me.name)); setSubject(''); setHtml(''); setAiHtml(''); setSavedId(null); setLead(null); setWarnings([]); setMsg(''); setErr('') }
 
   const sugCost = suggestedCost(f)
   const lastNums = (pf: any) => {
@@ -454,7 +527,7 @@ export default function InquiryReplyBuilder() {
         <div className={card}>
           <h3 className="text-sm font-semibold text-[#1A1D2E] mb-3">2. Who they are</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <Field label="Contact first name *"><input className={inp} value={f.contactFirst} onChange={e => set('contactFirst', e.target.value)} /></Field>
+            <Field label="Contact first name *"><input className={inp + Y(!f.contactFirst.trim())} value={f.contactFirst} onChange={e => set('contactFirst', e.target.value)} /></Field>
             <Field label="Contact full name"><input className={inp} value={f.contactFull} onChange={e => set('contactFull', e.target.value)} /></Field>
             <Field label="Company"><input className={inp} value={f.company} onChange={e => set('company', e.target.value)} /></Field>
             <Field label="Brand"><input className={inp} value={f.brand} onChange={e => set('brand', e.target.value)} /></Field>
@@ -536,7 +609,7 @@ export default function InquiryReplyBuilder() {
           {pastHint}
           <div className="mb-3 rounded-lg border border-[#CFE3DA] bg-[#F3FAF6] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-semibold text-[#1A1D2E]">Similar past deals {dealsInfo ? <span className="font-normal text-gray-500">({dealsInfo.erp} ERP quotes and orders, {dealsInfo.email} sent emails searched)</span> : null}</div>
+              <div className="text-xs font-semibold text-[#1A1D2E]">Similar past deals {dealsInfo ? <span className="font-normal text-gray-500">({dealsInfo.learned ? `${dealsInfo.learned} of our own replies, ` : ''}{dealsInfo.erp} ERP quotes and orders, {dealsInfo.email} sent emails searched)</span> : null}</div>
               <div className="flex gap-2">
                 <button onClick={() => findSimilar(f, true)} disabled={busySimilar} className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-white border border-[#CFE3DA] text-[#0F766E] disabled:opacity-50">{busySimilar ? 'Searching...' : deals.length ? 'Search again and refill' : 'Find similar deals and fill'}</button>
                 <button onClick={openCosting} className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-[#0F766E] text-white">{f.costingId ? 'Open in Costing table' : 'Cost it in the Costing table'}</button>
@@ -548,6 +621,7 @@ export default function InquiryReplyBuilder() {
               <ul className="mt-2 space-y-0.5 text-[11px]">
                 {fillNotes.ok.map((x, i) => <li key={'o' + i} className="text-gray-700">✓ {x}</li>)}
                 {fillNotes.missing.map((x, i) => <li key={'m' + i} className="text-amber-800 font-medium">⚠ {x}</li>)}
+                <li className="text-gray-600 pt-1"><span className="inline-block w-3 h-3 align-middle mr-1 rounded-sm bg-yellow-100 border border-yellow-400" /> Yellow fields could not be filled. Enter them and they are learned: every reply you save or send becomes the first source for the next similar inquiry.</li>
               </ul>
             )}
             {deals.length > 0 && (
@@ -557,11 +631,11 @@ export default function InquiryReplyBuilder() {
                   <tbody>
                     {deals.map((d, i) => {
                       const per = bagsPer(d, f)
-                      const href = d.source === 'email' ? d.link : d.recordId ? `${d.source === 'quote' ? '/sales/quotations' : '/sales/orders'}?item=${d.recordId}` : null
+                      const href = d.source === 'reply' ? null : d.source === 'email' ? d.link : d.recordId ? `${d.source === 'quote' ? '/sales/quotations' : '/sales/orders'}?item=${d.recordId}` : null
                       return (
                         <tr key={i} className="border-t border-[#DCEBE3] align-top">
                           <td className="py-1.5 pr-2 whitespace-nowrap">{Number(d.relevance) >= 8 ? 'Close' : Number(d.relevance) >= 6 ? 'Similar' : 'Loose'}</td>
-                          <td className="py-1.5 pr-2">{href ? <a href={href} target="_blank" rel="noreferrer" className="text-[#0F766E] underline">{d.source === 'email' ? 'Sent email' : `${d.source === 'quote' ? 'Quote' : 'Order'} ${d.ref}`}</a> : d.ref}<div className="text-[10px] text-gray-400">{String(d.date || '').slice(0, 10)}</div></td>
+                          <td className="py-1.5 pr-2">{d.source === 'reply' ? <span className="font-medium text-[#0F766E]">Our {String(d.ref).toLowerCase()} <span className="text-[10px] text-gray-500">(Inquiry log)</span></span> : href ? <a href={href} target="_blank" rel="noreferrer" className="text-[#0F766E] underline">{d.source === 'email' ? 'Sent email' : `${d.source === 'quote' ? 'Quote' : 'Order'} ${d.ref}`}</a> : d.ref}<div className="text-[10px] text-gray-400">{String(d.date || '').slice(0, 10)}</div></td>
                           <td className="py-1.5 pr-2"><div className="font-medium text-[#1A1D2E]">{d.customer || (d.to || [])[0] || ''}</div><div className="text-gray-500 max-w-[260px]">{d.product || (d.source === 'email' ? d.ref : '')}</div></td>
                           <td className="py-1.5 pr-2 whitespace-nowrap">{(d.tiers || []).slice(0, 4).map((t: any, k: number) => <div key={k}>{Number(t.qty).toLocaleString('en-US')} {d.unit || ''} at {money4(Number(t.price))}{per ? <span className="text-gray-400"> ({money4(Number(t.price) / per)}/bag)</span> : null}</div>)}</td>
                           <td className="py-1.5 pr-2 text-gray-600">{[d.packaging_price_per_box ? `packaging ${money(Number(d.packaging_price_per_box))}/box` : '', d.setup_or_plate_fee ? `setup ${money(Number(d.setup_or_plate_fee))}` : '', d.lead_time ? `lead ${d.lead_time}` : '', d.payment_terms || d.terms ? `terms ${d.payment_terms || d.terms}` : '', d.moq ? `MOQ ${d.moq}` : ''].filter(Boolean).join(' · ')}</td>
@@ -575,11 +649,11 @@ export default function InquiryReplyBuilder() {
           </div>
           {isBags(f) ? (<>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Field label="Our cost per bag"><input className={inp} type="number" step="0.0001" value={f.costPerBag ?? ''} placeholder={String(sugCost)} onChange={e => set('costPerBag', numOrNull(e.target.value))} /></Field>
+            <Field label="Our cost per bag"><input className={inp + Y(f.costPerBag == null)} type="number" step="0.0001" value={f.costPerBag ?? ''} placeholder={String(sugCost)} onChange={e => set('costPerBag', numOrNull(e.target.value))} /></Field>
             <Field label="Price basis"><select className={inp} value={f.basis} onChange={e => set('basis', e.target.value as any)}><option>FOB Santa Ana, CA</option><option>Delivered (DDP)</option></select></Field>
-            {f.dispenser !== 'None' && <Field label="Dispenser price each"><input className={inp} type="number" step="0.01" value={f.dispenserEach ?? ''} onChange={e => set('dispenserEach', numOrNull(e.target.value))} /></Field>}
-            {f.bagPrint === '1 color print' && <Field label="Plate charge (one time)"><input className={inp} type="number" value={f.plateCharge ?? ''} onChange={e => set('plateCharge', numOrNull(e.target.value))} /></Field>}
-            {(f.dispenser === 'Custom molded dispenser (new mold)' || f.dispenserLogo === 'Embossed (needs a mold)') && <Field label="Mold cost (one time)"><input className={inp} type="number" value={f.moldCost ?? ''} onChange={e => set('moldCost', numOrNull(e.target.value))} /></Field>}
+            {f.dispenser !== 'None' && <Field label="Dispenser price each"><input className={inp + Y(f.dispenserEach == null)} type="number" step="0.01" value={f.dispenserEach ?? ''} onChange={e => set('dispenserEach', numOrNull(e.target.value))} /></Field>}
+            {f.bagPrint === '1 color print' && <Field label="Plate charge (one time)"><input className={inp + Y(f.plateCharge == null)} type="number" value={f.plateCharge ?? ''} onChange={e => set('plateCharge', numOrNull(e.target.value))} /></Field>}
+            {(f.dispenser === 'Custom molded dispenser (new mold)' || f.dispenserLogo === 'Embossed (needs a mold)') && <Field label="Mold cost (one time)"><input className={inp + Y(f.moldCost == null)} type="number" value={f.moldCost ?? ''} onChange={e => set('moldCost', numOrNull(e.target.value))} /></Field>}
           </div>
           <p className="text-[11px] text-gray-400 mt-1.5">Blank cost uses {money4(sugCost)} per bag: the 9 x 12 in, 18 micron folded roll cost scaled by size and thickness. Blank prices use cost at 20% margin plus the private label volume markup (Pricing Calculator rules). Overwrite anything.</p>
 
@@ -637,8 +711,8 @@ export default function InquiryReplyBuilder() {
                   return (
                     <tr key={i} className="border-t border-[#F0F2F7]">
                       <td className="py-1.5 pr-2 w-24"><input className={`${inp} ${belowPackagingMoq(f, Number(t.units)) ? 'border-amber-300' : ''}`} type="number" value={t.units || ''} onChange={e => setTier(i, { units: Number(e.target.value) })} />{belowPackagingMoq(f, Number(t.units)) && <div className="text-[10px] text-amber-700 mt-0.5">Packaging billed at {int(PACKAGING_MOQ)}</div>}</td>
-                      <td className="py-1.5 pr-2 w-28" title={tierSrc[i] || ''}><input className={`${inp} ${tierSrc[i] && t.pricePerBag != null ? 'bg-[#F3FAF6]' : ''}`} type="number" step="0.0001" value={t.pricePerBag ?? ''} placeholder={t.units ? String(suggestedPrice(f, Number(t.units))) : ''} onChange={e => setTier(i, { pricePerBag: numOrNull(e.target.value) })} /></td>
-                      <td className="py-1.5 pr-2 w-28"><input className={inp} type="number" step="0.01" value={t.packagingEach ?? ''} placeholder="TBC" onChange={e => setTier(i, { packagingEach: numOrNull(e.target.value) })} /></td>
+                      <td className="py-1.5 pr-2 w-28" title={tierSrc[i] || ''}><input className={`${inp} ${tierSrc[i] && t.pricePerBag != null ? 'bg-[#F3FAF6]' : ''}${Y(Number(t.units) > 0 && t.pricePerBag == null)}`} type="number" step="0.0001" value={t.pricePerBag ?? ''} placeholder={t.units ? String(suggestedPrice(f, Number(t.units))) : ''} onChange={e => setTier(i, { pricePerBag: numOrNull(e.target.value) })} /></td>
+                      <td className="py-1.5 pr-2 w-28"><input className={inp + Y(packagingMoqApplies(f) && Number(t.units) > 0 && t.packagingEach == null)} type="number" step="0.01" value={t.packagingEach ?? ''} placeholder="TBC" onChange={e => setTier(i, { packagingEach: numOrNull(e.target.value) })} /></td>
                       {f.dispenser !== 'None' && <td className="py-1.5 pr-2 w-24"><input className={inp} type="number" value={t.dispenserQty ?? ''} onChange={e => setTier(i, { dispenserQty: numOrNull(e.target.value) })} /></td>}
                       <td className="py-1.5 pr-2 text-right whitespace-nowrap">{r ? money(r.pricePerUnit) : ''}{r?.pricePerRoll != null && <div className="text-[10px] text-gray-400">{money4(r.pricePerRoll)}/roll</div>}</td>
                       <td className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">{r ? money(r.total) : ''}</td>
@@ -654,7 +728,7 @@ export default function InquiryReplyBuilder() {
 
           </>) : (<>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Field label={`Our cost per ${un}`}><input className={inp} type="number" step="0.0001" value={f.costEach ?? ''} placeholder="Enter or pick a stock item" onChange={e => set('costEach', numOrNull(e.target.value))} /></Field>
+              <Field label={`Our cost per ${un}`}><input className={inp + Y(f.costEach == null)} type="number" step="0.0001" value={f.costEach ?? ''} placeholder="Enter or pick a stock item" onChange={e => set('costEach', numOrNull(e.target.value))} /></Field>
               <Field label="Price basis"><select className={inp} value={f.basis} onChange={e => set('basis', e.target.value as any)}><option>FOB Santa Ana, CA</option><option>Delivered (DDP)</option></select></Field>
               {f.alternative.trim() && <Field label="These prices are for" className="col-span-2"><select className={inp} value={f.pricesFor || 'item'} onChange={e => set('pricesFor', e.target.value as any)}><option value="item">The item they asked for</option><option value="alternative">Our stock option: {f.alternative.slice(0, 40)}</option></select></Field>}
             </div>
@@ -669,7 +743,7 @@ export default function InquiryReplyBuilder() {
                     return (
                       <tr key={i} className="border-t border-[#F0F2F7]">
                         <td className="py-1.5 pr-2 w-32"><input className={inp} type="number" value={t.qty || ''} onChange={e => setGen(i, { qty: Number(e.target.value) })} /></td>
-                        <td className="py-1.5 pr-2 w-32"><input className={inp} type="number" step="0.0001" value={t.price ?? ''} placeholder={sp != null ? String(sp) : 'TBC'} onChange={e => setGen(i, { price: numOrNull(e.target.value) })} /></td>
+                        <td className="py-1.5 pr-2 w-32" title={genSrc[i] || ''}><input className={`${inp} ${genSrc[i] && t.price != null ? 'bg-[#F3FAF6]' : ''}${Y(Number(t.qty) > 0 && t.price == null)}`} type="number" step="0.0001" value={t.price ?? ''} placeholder={sp != null ? String(sp) : 'TBC'} onChange={e => setGen(i, { price: numOrNull(e.target.value) })} /></td>
                         <td className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">{r?.total != null ? money(r.total) : 'TBC'}</td>
                         <td className={`py-1.5 text-right text-xs whitespace-nowrap ${r && r.marginPct != null && r.marginPct < 0.15 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{r && r.marginPct != null ? `${Math.round(r.marginPct * 100)}%` : ''}</td>
                         <td className="py-1.5 pl-2 text-right">{f.genTiers.length > 1 && <button onClick={() => setF(p => ({ ...p, genTiers: p.genTiers.filter((_, j) => j !== i) }))} className="text-gray-300 hover:text-red-500 text-xs">✕</button>}</td>
@@ -685,7 +759,7 @@ export default function InquiryReplyBuilder() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
             <Field label="Payment terms"><input className={inp} value={f.paymentTerms} onChange={e => set('paymentTerms', e.target.value)} /></Field>
-            <Field label="Lead time"><input className={inp} value={f.leadTime} onChange={e => set('leadTime', e.target.value)} /></Field>
+            <Field label="Lead time"><input className={inp + Y(!String(f.leadTime || '').trim())} value={f.leadTime} onChange={e => set('leadTime', e.target.value)} /></Field>
             <Field label="Quote # (if attached)"><input className={inp} value={f.quoteNumber} onChange={e => set('quoteNumber', e.target.value)} placeholder="Q-2026-…" /></Field>
             <Field label="Freight note" className="md:col-span-3"><input className={inp} value={f.freightNote} onChange={e => set('freightNote', e.target.value)} /></Field>
           </div>
