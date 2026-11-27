@@ -80,6 +80,8 @@ export interface InquiryForm {
   // anything Dhanush wants said, his way
   notes: string
   preparedBy: string
+  // the Costing table (Quick Quote) record this inquiry was costed in, if any
+  costingId?: string | null
 }
 
 export const CHANNELS: Channel[] = ['Amazon', 'Online store', 'Retail stores', 'Wholesale / distribution', 'Municipality / HOA', 'Pet business', 'Other']
