@@ -141,6 +141,9 @@ export const MATERIAL_NOTE = 'Certified compostable biopolymer film, a blend of 
 export const BASE_BAG = { widthIn: 9, lengthIn: 12, micron: 18, costPerBag: 0.039 }
 // Pricing Calculator rules: resale at 20% gross margin, and private label tiers on bag volume.
 export const BASE_GPM = 0.2
+// Our standard custom project terms, the same as section 3 of the quote Terms & Conditions (pdfHelpers).
+export const STANDARD_TERMS = '40% deposit to confirm the order, balance due at shipment'
+export const CREDIT_TERMS_NOTE = 'First orders for custom projects are not eligible for credit terms. After that, credit terms of Net 30 can be applied for by emailing finance@beyondgreenbiotech.com.'
 export function tierMarkup(bags: number): number { return bags >= 1_000_000 ? 0 : bags >= 500_000 ? 0.15 : 0.35 }
 
 export const emptyForm = (preparedBy = ''): InquiryForm => ({
@@ -153,7 +156,7 @@ export const emptyForm = (preparedBy = ''): InquiryForm => ({
   logoReceived: false, artworkReceived: false, dielineReceived: false, samplesRequested: true, sampleAddress: '',
   basis: 'FOB Santa Ana, CA', costPerBag: null, tiers: [{ units: 1000, pricePerBag: null, packagingEach: null, dispenserQty: null }],
   dispenserEach: null, plateCharge: 250, moldCost: null, freightNote: 'Freight is quoted at the time of shipment and billed at actual cost.',
-  paymentTerms: 'Prepayment for new accounts', leadTime: '4 to 6 weeks after artwork approval', quoteNumber: '',
+  paymentTerms: STANDARD_TERMS, leadTime: '4 to 6 weeks after artwork approval', quoteNumber: '',
   certs: ['astm', 'en', 'okhome', 'okind', 'usda'], notes: '', preparedBy,
 })
 
@@ -400,7 +403,7 @@ export function factsForWriter(f: InquiryForm) {
       requested_quantity_below_minimum_run: !!(t?.needed && t.moq && rows.length && rows.every(r => r.qty < Number(String(t.moq).replace(/[^0-9.]/g, '')) )),
       alternative_we_can_offer: f.alternative || null,
       printing_or_branding: f.printNote || null,
-      price_basis: f.basis, freight: f.freightNote, payment_terms: f.paymentTerms, lead_time: f.leadTime,
+      price_basis: f.basis, freight: f.freightNote, payment_terms: f.paymentTerms, credit_terms: f.paymentTerms === STANDARD_TERMS ? CREDIT_TERMS_NOTE : null, lead_time: f.leadTime,
       made_in: f.madeInSantaAna ? 'Santa Ana, California (our facility)' : null, material: f.material || null,
       samples: f.samplesRequested ? { complimentary: true, of: t?.needed ? 'our closest stock item' : 'the item', ship_to: f.sampleAddress || null } : null,
       certifications_and_documents: CERTS.filter(c => f.certs.includes(c.key)).map(c => `${c.label} (${c.detail})`),
@@ -425,7 +428,7 @@ export function factsForWriter(f: InquiryForm) {
     packaging_minimum_instruction: packagingMoqApplies(f) && (f.tiers || []).some(t => belowPackagingMoq(f, n(t.units)))
       ? `Some quantities they asked about are below our packaging minimum of ${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per design. We still quote those quantities (they are in the table). Say plainly and kindly that the printed packaging is purchased in a minimum of ${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per design regardless of how many they fill, and that the extra boxes are theirs for later orders. Use this to answer their minimum order question.`
       : null,
-    price_basis: f.basis, freight: f.freightNote, payment_terms: f.paymentTerms, lead_time: f.leadTime,
+    price_basis: f.basis, freight: f.freightNote, payment_terms: f.paymentTerms, credit_terms: f.paymentTerms === STANDARD_TERMS ? CREDIT_TERMS_NOTE : null, lead_time: f.leadTime,
     plate_charge: f.bagPrint === '1 color print' && n(f.plateCharge) ? money(n(f.plateCharge)) + ' one time per design' : null,
     dispenser: f.dispenser === 'None' ? null : { style: f.dispenser, logo: f.dispenserLogo, price_each: n(f.dispenserEach) ? money(n(f.dispenserEach)) : null, mold_cost: n(f.moldCost) ? money(n(f.moldCost), 0) : null },
     what_we_already_have: { logo: f.logoReceived, artwork: f.artworkReceived, dieline: f.dielineReceived },
