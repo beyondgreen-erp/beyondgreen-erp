@@ -107,12 +107,12 @@ export async function POST(req: NextRequest) {
         })
         out = parseJson(textOf(m)); html = String(out.body_html || '')
       }
-      html = html.replace(/[—–]/g, ', ').replace(/’/g, "'").replace(/[“”]/g, '"')
+      html = html.replace(/\s*[—–]\s*/g, ', ').replace(/\s+,/g, ',').replace(/’/g, "'").replace(/[“”]/g, '"')
       if (tableHtml) html = html.includes('{{PRICING_TABLE}}') ? html.replace(/(<p>\s*)?\{\{PRICING_TABLE\}\}(\s*<\/p>)?/, () => tableHtml) : html.replace(/(<p>[^]*?<\/p>)/, (m: string) => m + tableHtml)
       else html = html.replace(/(<p>\s*)?\{\{PRICING_TABLE\}\}(\s*<\/p>)?/g, '')
       const stray = Array.from(new Set((html.split(tableHtml).join('').match(/\$[\d,]+(?:\.\d+)?/g) || []).filter(x => !allowed.has(x))))
       const left = BANNED.filter(([re]) => re.test(html.split(tableHtml).join(''))).map(([, label]) => label)
-      return NextResponse.json({ data: { subject: String(out.subject || '').replace(/[—–]/g, ', '), html, warnings: [...stray.map(s => `Check ${s}: it is not in the costing`), ...left.map(l => `Still contains: ${l}`)] } })
+      return NextResponse.json({ data: { subject: String(out.subject || '').replace(/\s*[—–]\s*/g, ': ').replace(/\s+,/g, ',').replace(/\s{2,}/g, ' ').trim(), html, warnings: [...stray.map(s => `Check ${s}: it is not in the costing`), ...left.map(l => `Still contains: ${l}`)] } })
     }
 
     return NextResponse.json({ error: 'Unknown request.' }, { status: 400 })
