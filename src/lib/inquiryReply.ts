@@ -188,7 +188,7 @@ export interface TierRow {
 export function tierRows(f: InquiryForm): TierRow[] {
   const bpu = bagsPerUnit(f)
   const rollBags = n(f.bagsPerRoll)
-  return (f.tiers || []).filter(t => n(t.units) > 0).map(t => {
+  return (f.tiers || []).filter(t => n(t.units) > 0 && !belowPackagingMoq(f, n(t.units))).map(t => {
     const units = n(t.units)
     const pricePerBag = n(t.pricePerBag) > 0 ? n(t.pricePerBag) : suggestedPrice(f, units)
     const packagingEach = n(t.packagingEach) > 0 ? n(t.packagingEach) : null
@@ -211,6 +211,11 @@ export function tierRows(f: InquiryForm): TierRow[] {
 export const plural = (word: string, count: number) => count === 1 ? word : /(x|ch|sh|s)$/.test(word) ? word + 'es' : word + 's'
 
 export const isBags = (f: InquiryForm) => !f.productType || f.productType === 'Pet waste bags'
+
+/** Retail packaging is printed in runs of at least 1,000 boxes per design. Bulk cases have no packaging minimum. */
+export const PACKAGING_MOQ = 1000
+export const packagingMoqApplies = (f: InquiryForm) => isBags(f) && f.packaging !== 'Bulk case (no retail packaging)'
+export const belowPackagingMoq = (f: InquiryForm, units: number) => packagingMoqApplies(f) && units > 0 && units < PACKAGING_MOQ
 
 export const unitName = (f: InquiryForm) =>
   !isBags(f) ? ((f.unitLabel || 'piece').trim() || 'piece')
@@ -353,7 +358,7 @@ export function buildSteps(f: InquiryForm): Step[] {
   }
   if (f.bagPrint === '1 color print') steps.push({ title: 'Bag print plate', who: 'beyondGREEN', status: 'later', detail: `One-time plate charge${n(f.plateCharge) ? ` of ${money(n(f.plateCharge))}` : ''} per design for printing on the bags.` })
   if (f.dispenser === 'Custom molded dispenser (new mold)' || f.dispenserLogo === 'Embossed (needs a mold)') steps.push({ title: 'Dispenser mold', who: 'beyondGREEN', status: 'later', detail: `A dedicated mold is made for your dispenser${n(f.moldCost) ? ` (${money(n(f.moldCost), 0)} one time)` : ''}. The mold is your property.` })
-  steps.push({ title: 'Purchase order and payment', who: 'You', status: 'later', detail: `Send your PO for the quantity you choose. Terms: ${f.paymentTerms || 'to be confirmed'}.` })
+  steps.push({ title: 'Purchase order and payment', who: 'You', status: 'later', detail: `Send your PO for the quantity you choose${packagingMoqApplies(f) ? ` (minimum ${int(PACKAGING_MOQ)} ${plural(un, 2)} per packaging design)` : ''}. Terms: ${f.paymentTerms || 'to be confirmed'}.` })
   steps.push({ title: 'Production', who: 'beyondGREEN', status: 'later', detail: `Made at our Santa Ana, California facility. Lead time: ${f.leadTime || 'to be confirmed'}.` })
   steps.push({
     title: 'Shipping', who: 'beyondGREEN', status: 'later',
@@ -403,6 +408,11 @@ export function factsForWriter(f: InquiryForm) {
     spec: Object.fromEntries(specLines(f)),
     quantities: rows.map(r => ({ units: r.units, unit: unitName(f), bags: r.bags })),
     pricing_table_placeholder: rows.length ? '{{PRICING_TABLE}}' : null,
+    packaging_minimum_order: packagingMoqApplies(f) ? `${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per packaging design` : null,
+    quantities_they_asked_below_packaging_minimum: (f.tiers || []).map(t => n(t.units)).filter(u => belowPackagingMoq(f, u)),
+    packaging_minimum_instruction: packagingMoqApplies(f) && (f.tiers || []).some(t => belowPackagingMoq(f, n(t.units)))
+      ? `Some quantities they asked about are below our packaging minimum of ${int(PACKAGING_MOQ)} ${plural(unitName(f), 2)} per design. Say this plainly and kindly, answer their minimum order question with it, and point them to the prices in the table, which start at the minimum.`
+      : null,
     price_basis: f.basis, freight: f.freightNote, payment_terms: f.paymentTerms, lead_time: f.leadTime,
     plate_charge: f.bagPrint === '1 color print' && n(f.plateCharge) ? money(n(f.plateCharge)) + ' one time per design' : null,
     dispenser: f.dispenser === 'None' ? null : { style: f.dispenser, logo: f.dispenserLogo, price_each: n(f.dispenserEach) ? money(n(f.dispenserEach)) : null, mold_cost: n(f.moldCost) ? money(n(f.moldCost), 0) : null },
