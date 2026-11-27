@@ -268,8 +268,8 @@ export default function InquiryReplyBuilder() {
     return bits.join(' · ')
   }
   const applyLast = (pf: any) => setF(p => isBags(p)
-    ? { ...p, costPerBag: pf.costPerBag ?? p.costPerBag, leadTime: pf.leadTime || p.leadTime, paymentTerms: pf.paymentTerms || p.paymentTerms }
-    : { ...p, costEach: pf.costEach ?? p.costEach, leadTime: pf.leadTime || p.leadTime, paymentTerms: pf.paymentTerms || p.paymentTerms,
+    ? { ...p, costPerBag: pf.costPerBag ?? p.costPerBag, leadTime: pf.leadTime || p.leadTime, paymentTerms: (pf.paymentTerms && pf.paymentTerms !== 'Prepayment for new accounts' ? pf.paymentTerms : p.paymentTerms) }
+    : { ...p, costEach: pf.costEach ?? p.costEach, leadTime: pf.leadTime || p.leadTime, paymentTerms: (pf.paymentTerms && pf.paymentTerms !== 'Prepayment for new accounts' ? pf.paymentTerms : p.paymentTerms),
         tooling: pf.tooling?.needed && p.tooling.needed ? { ...p.tooling, kind: pf.tooling.kind || p.tooling.kind, cost: pf.tooling.cost ?? p.tooling.cost, moq: pf.tooling.moq || p.tooling.moq, leadTime: pf.tooling.leadTime || p.tooling.leadTime } : p.tooling })
   const pastHint = past.filter(x => lastNums(x.form)).length ? (
     <div className="mb-3 rounded-lg bg-sky-50 border border-sky-100 p-2.5">
