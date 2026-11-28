@@ -285,6 +285,8 @@ export default function ShippingQueuePage() {
   const [stockBlock, setStockBlock] = useState<{ sku: string; productId: string; description: string; need: number; onHand: number; qty: string; lot: string; source: '' | 'line' | 'stock' }[] | null>(null)
   const [stockBusy, setStockBusy] = useState(false)
   const pendingMove = useRef<{ keepOpen: boolean; closeShort: boolean; shortReason: string } | null>(null)
+  // Manager stock overrides approved for this shipment, keyed by SKU → stock_ship_overrides.id.
+  const overrideIds = useRef<Record<string, string>>({})
   // Production entry from the shipping block: what each line WILL deduct (live preview, keyed by
   // SKU + qty) and, once posted, what actually came off before the shipment continues.
   const [stockPreview, setStockPreview] = useState<Record<string, { qty: number; lines: BomLine[] | null; status: BomStatus | null; error?: string }>>({})
@@ -1522,6 +1524,7 @@ export default function ShippingQueuePage() {
           await sb.from('inventory_movements').insert({
             product_id: pid, sku: r.sku, movement_type: 'ship', qty: -stockQty, uom: stockUom,
             ref_table: 'shipments', ref_id: targetId,
+            ...(overrideIds.current[r.sku] ? { override_id: overrideIds.current[r.sku] } : {}),
             note: `Shipped on ${o.order_number || 'order'}${o.po_number ? ' / PO ' + o.po_number : ''} → ${st.name || 'customer'}`,
             created_by: userEmail || 'system',
           })
@@ -1546,7 +1549,7 @@ export default function ShippingQueuePage() {
       // Stock guard — before anything is written. The database refuses a ship movement that
       // would go negative; catching it here lets the operator fix the cause (unposted production).
       {
-        const skus = Object.keys(shipNow).filter(k => k && shipNow[k] > 0 && !isWalmartSku(k))
+        const skus = Object.keys(shipNow).filter(k => k && shipNow[k] > 0 && !isWalmartSku(k) && !overrideIds.current[k])
         if (skus.length) {
           const { data: stock } = await sb.from('products').select('id, sku, product_name, on_hand_qty, production_line').in('sku', skus)
           const short = skus.map(sku => {
@@ -1599,6 +1602,7 @@ export default function ShippingQueuePage() {
       await createShipment({ id: coShipId, delivery_status: 'Shipped', status: newStatus, ai_summary: coSummary || null, total_value: shippedValue > 0 ? shippedValue : undefined })
       await sb.from('sales_orders').update({ status: newStatus, carrier: (shipCarrier || o?.carrier) || null, tracking_number: (shipTracking || o?.tracking_number) || null }).eq('id', activeItem.sales_order_id)
     } catch (e) { alert('Move failed: ' + (e as Error).message); setCoBusy(''); return }
+    overrideIds.current = {}
     setOpenId(null); resetPackState(); load()
   }
   async function doOverride() {
@@ -1782,7 +1786,30 @@ export default function ShippingQueuePage() {
                 }} className="flex-1 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50" style={{ background: '#0F7A4E' }}>{stockBusy ? 'Posting…' : 'Record production & deduct materials'}</button>
                 <button disabled={stockBusy} onClick={() => { setStockBlock(null); pendingMove.current = null }} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2.5 rounded-lg">Cancel, don&apos;t ship</button>
               </div>
-              <p className="text-[11px] text-gray-400">If the goods really aren&apos;t here, cancel and fix the order quantity instead. Negative inventory is never the answer.</p>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-800">Manager override: ship anyway</p>
+                <p className="text-[11px] text-amber-700 mt-0.5">Use only when the goods are really on the dock but the ERP is behind (e.g. a count is pending). Needs the Shipped Override password and a reason. Nothing is added to inventory, so the item stays negative and is flagged for a count; Rudy and Robert are notified.</p>
+                <button disabled={stockBusy} onClick={async () => {
+                  const reason = window.prompt('Reason for shipping without stock in the ERP (required):')
+                  if (reason == null) return
+                  if (reason.trim().length < 5) { alert('Please enter a reason (at least a few words).'); return }
+                  const pw = window.prompt('Enter the Shipped Override password:')
+                  if (!pw) return
+                  setStockBusy(true)
+                  try {
+                    const { data, error } = await sb.rpc('grant_stock_override', {
+                      pw, p_sales_order_id: activeItem?.sales_order_id || null, p_order_number: o?.order_number || null, p_reason: reason.trim(),
+                      p_lines: stockBlock.map(l => ({ sku: l.sku, product_id: l.productId, need: l.need, on_hand: l.onHand })),
+                    })
+                    if (error) throw new Error(error.message)
+                    overrideIds.current = { ...overrideIds.current, ...((data as Record<string, string>) || {}) }
+                    const pm = pendingMove.current; setStockBlock(null); pendingMove.current = null
+                    if (pm) await confirmMove(pm.keepOpen, pm.closeShort, pm.shortReason)
+                  } catch (e) { alert('Override not approved: ' + (e as Error).message) }
+                  finally { setStockBusy(false) }
+                }} className="mt-2 w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 rounded-lg disabled:opacity-50">Approve override &amp; ship</button>
+              </div>
+              <p className="text-[11px] text-gray-400">If the goods really aren&apos;t here, cancel and fix the order quantity instead.</p>
             </div>
           </div>
         </div>
